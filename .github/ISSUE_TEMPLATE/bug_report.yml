@@ -1,0 +1,59 @@
+name: Bug report
+description: Something is wrong in a build — the build id is required
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The build id is on screen top-right, in the window title and in every
+        screenshot's bottom-right corner (`BUILD N HASH BRANCH`). A report
+        without it is re-asked, not guessed at — see `RULES.md` §6/§7.
+  - type: input
+    id: build
+    attributes:
+      label: Build id
+      description: "build N (hash) · branch — from the watermark/title/log banner/screenshot"
+      placeholder: "build 406 (5c3e76d) · main"
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: Spot name, `-tp x,y,z`, menu/screen, or the map location
+      placeholder: "Ibiza, EPH_L0C caravan; -tp 10490,8,15732"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: In your own words — quote the screen/behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: Exact buttons (pad + keyboard) and order
+      placeholder: |
+        1. Enter the map (Select/Share)
+        2. Zoom out until the credits roll, wait for the words
+        3. Circle to leave the credits, Circle to leave the map
+        4. Drive forward, hold L1 — the screen flickers black
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: false
+  - type: textarea
+    id: proof
+    attributes:
+      label: Proof
+      description: Screenshot(s) (they carry the build stamp) / the log line / a clip
+    validations:
+      required: false

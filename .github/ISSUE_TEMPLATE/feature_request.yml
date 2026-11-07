@@ -1,0 +1,38 @@
+name: Feature / work item
+description: Something to build, with a status row in PROGRESS.md
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: The PROGRESS.md row this belongs to (or the new row it needs)
+      placeholder: "Story steps 3-13 / Caravan / Remaining shop menus"
+    validations:
+      required: true
+  - type: textarea
+    id: ask
+    attributes:
+      label: What is wanted
+      description: The owner's words if there are any
+    validations:
+      required: true
+  - type: dropdown
+    id: status
+    attributes:
+      label: Starting status
+      options:
+        - Not started
+        - WIP
+        - Partial
+        - Blocked
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Data / spec pointers
+      description: docs/re file, bank name, DB table, readable-code anchor
+    validations:
+      required: false

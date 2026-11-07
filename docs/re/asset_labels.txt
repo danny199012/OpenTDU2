@@ -1,0 +1,20 @@
+# OpenTDU2 asset labels - the human names of the game's assets.
+# Written by the asset viewer (-gm ASSET_VIEWER); safe to hand edit.
+# One asset per line, TAB separated, sorted by bank then asset:
+#   <bank, relative to the game root, lowercase, '/'>	<asset filename>	<label>	<note>
+# -labellint checks every key against the game data.
+euro/bnk/frontend/hires/cas_poker.bnk	Cas_Poker.vmf	poker movie (the video poker frontend)	the retail poker table UI; OpenTDU2 plays its own 9/6 Jacks or Better (docs/re/casino_spec.md 6)
+euro/bnk/frontend/hires/cas_roulette.bnk	Cas_Roulette.vmf	roulette movie (the roulette frontend)	the retail roulette UI; the CASROU_* dealer beats live here (docs/re/casino_spec.md 4)
+euro/bnk/frontend/hires/cas_slotlines.bnk	Cas_SlotLines.vmf	slot machine paylines overlay	the line art drawn over the reels
+euro/bnk/frontend/hires/cas_slotmachine.bnk	Cas_SlotMachine.vmf	slot machine movie (the reels)	the retail 5x3 video slot; its result came from the server (docs/re/casino_spec.md 3)
+euro/bnk/frontend/hires/cas_slotscreen.bnk	Cas_SlotScreen.vmf	slot machine screen	the small display panel of the machine
+euro/bnk/frontend/hires/casino.bnk	Casino.vmf	casino shell movie (the casino frontend)	loads (1280x960, 1636 tags, 206 bitmaps) but must not be drawn under the native screens yet (docs/re/casino_spec.md 5)
+euro/bnk/interior/ias_a.bnk	ias_a_sc_349E1852FA421941.3DD	clothes shop A interior (the set)	spots/avatshp/as_a: the shop the owner walks in, its counters and racks are entities of this bank
+euro/bnk/interior/icd_ferr.bnk	icd_ferr_sc_349E1852FA421941.3DD	Ferrari dealership showroom (interior set)	the showroom the dealer menu stands in (spot ECD_FERR, docs/re/spot_interiors_spec.md); the car display and the seller zone are entities of this bank
+euro/bnk/interior/ich_ia.bnk	ich_ia_sc_349E1852FA421941.3DD	club house interior (the set)	spots/clubhous/ch_i: the club house, NOT the car rental (category 5 is spots/clubhous)
+euro/bnk/interior/ihd_b.bnk	ihd_b_sc_349E1852FA421941.3DD	hairdresser interior (the set)	spots/hairdres/hd_b: the salon interior set
+euro/bnk/islands/casino/exterior/ecas.bnk	ecas_sc_DB42CB20E8099A8F.3DD	casino exterior (the ECAS spot model set)	the ECAS spot largest .3dd (38 meshes, 27863 triangles): the casino building seen from outside; the other 3DDs of this bank are flat planes (signs / facades). Authoring path Euro/spots/casino/ecas/ecas_sc_DB42CB20E8099A8F.3DD
+euro/bnk/islands/ibiza/exterior/euc_ahal.bnk	euc_ahali_sc_C931629262D261A8.3DD	building site (under construction, exterior set)	spots/under_construction/uc_ahal: a building site, not a shop; the whole euc_* family (euc_ahal, euc_as_e, euc_bdas, euc_bdcl) is under_construction
+euro/bnk/vehicules/interiors/q7_inuit_i.bnk	q7_inuit_i.2dm	the Inuit material library (Wood, Inuit paint, Plastic_White, Moquette...)	byte-swapped from the prototype by tools/x360/make_q7_inuit.py; retail's is the Q7 V12's set
+euro/bnk/vehicules/interiors/q7_inuit_i.bnk	q7_int2.2db	Inuit grey dials (Q7_INT2)	the prototype's dial faces; retail repurposed the bank as the Q7 V12's cabin (black dials)
+euro/bnk/vehicules/interiors/q7_inuit_i.bnk	wood_inuit.2db	cut Inuit wood trim (the walnut)	prototype-only (Dec 2010 + Aug 2011); restored by tools/x360/make_q7_inuit.py - the key resolves with the hybrid mod installed

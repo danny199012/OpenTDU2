@@ -1,0 +1,88 @@
+name: Windows
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# The release job publishes the zip; everything else is read-only.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The build stamp counts commits: "build N (hash)" - a shallow clone
+          # would stamp "build 1" for every run.
+          fetch-depth: 0
+
+      # The image ships LLVM (clang-cl) and Ninja; this only rescues a future
+      # image that drops one of them.
+      - name: Install build tools (if missing)
+        shell: powershell
+        run: |
+          if (-not (Get-Command clang-cl -ErrorAction SilentlyContinue)) {
+            choco install llvm -y
+          }
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            choco install ninja -y
+          }
+
+      # INCLUDE / LIB / PATH for the Windows SDK and the MSVC parts clang-cl
+      # and lld-link pick up (rc.exe of the launcher target, kernel32.lib &c).
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # Same recipe as build.ps1 (clang-cl + Ninja, Release); the third-party
+      # dependencies FetchContent-clone from GitHub at pinned tags
+      # (cmake/Dependencies.cmake), so no LunarG SDK and no pre-cloned deps
+      # folder are needed. The game data is NOT required to build.
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: List the produced binaries
+        shell: powershell
+        run: Get-ChildItem build/bin | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: opentdu2-windows
+          path: build/bin/
+          if-no-files-found: error
+
+  release:
+    # A tag push (v1.2 ...) publishes build/bin as the release's .zip asset -
+    # exactly what the launcher's packaged-build update path downloads
+    # (launcher_updater.cpp: the first .zip asset of a release).
+    if: startsWith( github.ref, 'refs/tags/v' )
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the built binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: opentdu2-windows
+          path: bin
+
+      - name: Zip
+        run: |
+          cd bin
+          zip -r "../opentdu2-windows-${{ github.ref_name }}.zip" .
+          cd ..
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: opentdu2-windows-${{ github.ref_name }}.zip
+          generate_release_notes: true

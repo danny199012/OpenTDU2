@@ -1,0 +1,115 @@
+#version 460
+#extension GL_EXT_ray_query : require
+
+// OpenTDU2 replacement shader: screen space ray traced ambient occlusion
+// against the frame TLAS (-rtao <samples>, docs/re/ray_tracing.md). One
+// invocation per pixel: the normal comes from the scene depth (two neighbour
+// taps, the same D3D depth law as viewpos.frag), each sample casts one cosine
+// weighted hemisphere ray (any hit inside the radius = occluded) and the R8
+// result is multiplied onto the scene by the swapchain blit (rt_ao_combine).
+// The terrain heightfield is NOT in the TLAS (it carries heights, not
+// positions), so ground contact gets less occlusion than it should.
+
+layout( local_size_x = 8, local_size_y = 8, local_size_z = 1 ) in;
+
+layout( set = 0, binding = 0 ) uniform accelerationStructureEXT accel;
+layout( set = 0, binding = 1 ) uniform sampler2D uDepth;
+layout( set = 0, binding = 2, r8 ) writeonly uniform image2D uAO;
+
+layout( push_constant ) uniform PushConstants {
+    vec4 CameraPosition; // xyz
+    vec4 Right;          // xyz, camera right * tan(fov/2) * aspect
+    vec4 Up;             // xyz, camera up * tan(fov/2)
+    vec4 Forward;        // xyz
+    vec4 Params;         // x: near, y: far, z: occlusion radius (m), w: frame number
+    vec4 Params2;        // x: width, y: height, z: samples
+} pc;
+
+// The viewpos.frag law: D3D projection, depth in [0, 1] -> view z (positive).
+// Sky is pushed to the far plane.
+float viewZOf( float depth ) {
+    if ( depth >= 0.9999999 ) {
+        return -1.0;
+    }
+    return pc.Params.x * pc.Params.y / ( pc.Params.y - depth * ( pc.Params.y - pc.Params.x ) );
+}
+
+// World position of a depth texel. With Right/Up pre-scaled by tan(fov/2),
+// the unnormalized view ray is Forward + ndc.x * Right + ndc.y * Up, its
+// length L scales the planar view z into the euclidean distance, and the
+// normalization cancels: position = camera + ray * viewZ.
+vec3 worldPosOf( ivec2 pixel, float viewZ ) {
+    const vec2 uv = ( vec2( pixel ) + 0.5 ) / pc.Params2.xy;
+    vec2 ndc = uv * 2.0 - 1.0;
+    ndc.y = -ndc.y; // uv y is top down, NDC y is up (D3D viewport)
+    return pc.CameraPosition.xyz + ( pc.Forward.xyz + ndc.x * pc.Right.xyz + ndc.y * pc.Up.xyz ) * viewZ;
+}
+
+uint hash( uint x ) {
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+float rnd( inout uint seed ) {
+    seed = seed * 747796405u + 2891336453u;
+    return float( hash( seed ) ) / 4294967296.0;
+}
+
+vec3 cosineDir( vec3 n, inout uint seed ) {
+    const float u1 = rnd( seed );
+    const float u2 = rnd( seed );
+    const float r = sqrt( u1 );
+    const float phi = 6.2831853 * u2;
+    const vec3 t = normalize( cross( abs( n.y ) < 0.99 ? vec3( 0.0, 1.0, 0.0 ) : vec3( 1.0, 0.0, 0.0 ), n ) );
+    const vec3 b = cross( n, t );
+    return normalize( t * ( r * cos( phi ) ) + b * ( r * sin( phi ) ) + n * sqrt( max( 0.0, 1.0 - u1 ) ) );
+}
+
+void main() {
+    const ivec2 pixel = ivec2( gl_GlobalInvocationID.xy );
+    if ( pixel.x >= int( pc.Params2.x ) || pixel.y >= int( pc.Params2.y ) ) {
+        return;
+    }
+    const float viewZ = viewZOf( texelFetch( uDepth, pixel, 0 ).r );
+    if ( viewZ <= 0.0 ) {
+        imageStore( uAO, pixel, vec4( 1.0 ) ); // sky
+        return;
+    }
+    const vec3 posC = worldPosOf( pixel, viewZ );
+
+    // Normal from the depth: two neighbour positions (sky taps fall back to
+    // the centre), cross product, flipped to face the camera.
+    vec3 posR = posC;
+    float zR = viewZOf( texelFetch( uDepth, pixel + ivec2( 1, 0 ), 0 ).r );
+    if ( zR > 0.0 ) {
+        posR = worldPosOf( pixel + ivec2( 1, 0 ), zR );
+    }
+    vec3 posD = posC;
+    float zD = viewZOf( texelFetch( uDepth, pixel + ivec2( 0, 1 ), 0 ).r );
+    if ( zD > 0.0 ) {
+        posD = worldPosOf( pixel + ivec2( 0, 1 ), zD );
+    }
+    vec3 normal = normalize( cross( posR - posC, posD - posC ) );
+    if ( dot( normal, posC - pc.CameraPosition.xyz ) > 0.0 ) {
+        normal = -normal;
+    }
+
+    uint seed = hash( uint( pixel.x ) ) ^ hash( uint( pixel.y ) * 8191u ) ^ hash( uint( pc.Params.w ) * 104729u );
+    float occluded = 0.0;
+    for ( uint s = 0u; s < uint( pc.Params2.z ); s++ ) {
+        const vec3 direction = cosineDir( normal, seed );
+        rayQueryEXT rayQuery;
+        rayQueryInitializeEXT( rayQuery, accel, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, posC + normal * 0.05, 0.001,
+                               direction, pc.Params.z );
+        while ( rayQueryProceedEXT( rayQuery ) ) {
+        }
+        if ( rayQueryGetIntersectionTypeEXT( rayQuery, true ) != gl_RayQueryCommittedIntersectionNoneEXT ) {
+            occluded += 1.0;
+        }
+    }
+    imageStore( uAO, pixel, vec4( 1.0 - occluded / max( pc.Params2.z, 1.0 ) ) );
+}

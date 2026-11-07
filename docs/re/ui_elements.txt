@@ -1,0 +1,31 @@
+# OpenTDU2 UI element labels - the human names of the frontend's flash UI
+# elements. Written by the UI viewer (-gm UIVIEWER); safe to hand edit.
+#
+# The UI is a set of Flash movies; every element on screen is a node of the
+# movie's display list, addressed by its path from the root
+# (/pause_menu/menu_sq/sq3). That path is the identity the runtime takes
+# (FlashPlayer::findClip / gotoLabel), so it is the key here.
+#
+# One element per line, TAB separated, sorted by movie then clip:
+#   <movie .vmf>	<clip path>	<label>	<note>
+# -lintui checks every key against the movie's display list.
+#
+# Every key below is one that game/pause_menu.cpp already resolves by name, so
+# the file starts from verified ground truth rather than guesses. Add the rest
+# by clicking elements in the viewer.
+main.vmf	/	pause menu (movie root)	pause_in / pause_stop / pause_back / pause_out / pause_out_direct are the root labels
+main.vmf	/pause_menu/clock	clock block	top left of the pause screen
+main.vmf	/pause_menu/clock/time	clock time sprite	flips the digit sprites with 'change'
+main.vmf	/pause_menu/clock/time/day	day icon	'on' / 'off' by the hour (07:00-20:00 = day)
+main.vmf	/pause_menu/clock/time/disp	clock digit display	disp.setHour() builds TimeArray from /:HDecade /:HUnit /:MDecade /:MUnit
+main.vmf	/pause_menu/clock/time/night	night icon	'on' / 'off' by the hour
+main.vmf	/pause_menu/menu_sq	pause entry column	52 frames: default -> open -> wait -> stop, close
+main.vmf	/pause_menu/menu_sq/sq0	entry square 0	resume (freeride list)
+main.vmf	/pause_menu/menu_sq/sq1	entry square 1	game progress
+main.vmf	/pause_menu/menu_sq/sq2	entry square 2	players
+main.vmf	/pause_menu/menu_sq/sq3	entry square 3	photo
+main.vmf	/pause_menu/menu_sq/sq4	entry square 4	gme
+main.vmf	/pause_menu/menu_sq/sq5	entry square 5	options
+main.vmf	/pause_menu/menu_sq/sq6	entry square 6	profiles
+main.vmf	/pause_menu/menu_sq/sq7	entry square 7	exit game
+main.vmf	/pause_menu/menu_sq/sq8	entry square 8	unused in freeride (parked / hidden)

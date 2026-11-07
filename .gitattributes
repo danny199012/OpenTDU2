@@ -1,0 +1,36 @@
+# Normalise text files to LF in the repository
+* text=auto eol=lf
+
+*.sh     text eol=lf
+*.cpp    text eol=lf
+*.h      text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf
+*.cmake  text eol=lf
+*.bat    text eol=crlf
+
+# Binary files
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.spv  binary
+*.ttf  binary
+
+# Append-only shared documents: every session prepends its handoff entry to
+# docs/STATE.md (and docs/SURVEY.md) and adds rows to the README CLI table, so
+# merging two agent branches left conflict markers in the same place every
+# time (the merge killed update-and-rebuild.bat at step 2). The built-in
+# "union" driver keeps BOTH sides of such a hunk instead of conflicting: the
+# entries are never lost, and git does not stop the merge. Real code
+# conflicts still stop it - that is intended.
+docs/STATE.md   merge=union
+docs/SURVEY.md  merge=union
+README.md       merge=union
+# One handoff file per agent (docs/state/{main,glm,cline}.md): each branch only
+# writes its own, so these should never conflict. Union is a safety net for an
+# accidental cross-edit, not a licence to edit another agent's shard.
+docs/state/*.md merge=union
+
+

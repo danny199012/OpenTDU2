@@ -1,0 +1,77 @@
+OpenTDU2 — licence scope notice
+===============================
+
+This repository is a source port / reverse-engineering project for *Test Drive
+Unlimited 2*. Three different kinds of material live in it, and they are **not**
+all covered by the same terms. Read this before reusing anything.
+
+1. The port's own source code and documentation
+-----------------------------------------------
+The code under `source/`, `resources/`, `tools/`, `tools_probe/`, `cmake/`,
+`launch/`, the build scripts and the prose in `docs/` that was written for this
+project is licensed under the **GNU General Public License, version 3 or later**
+(see `LICENSE`). In short: you may use, study, share and modify it, but if you
+distribute it — or a modified version, or something built from it — you must
+
+  * keep the copyright and licence notices intact (credit), and
+  * release your version under the same licence, with its complete source
+    (share alike).
+
+There is no warranty, express or implied, as the GPL states.
+
+2. Test Drive Unlimited 2 and its data
+--------------------------------------
+*Test Drive Unlimited 2*, its engine, its assets, its names and its trademarks
+belong to their respective owners (Eden Games / Atari and their successors).
+**No game data is included in this repository** — no `.bnk`, `.cpr`, `.big`,
+`.3dd`, texture or audio files. You must own a copy of the game to run this port;
+it reads your own installation and is not a replacement for it.
+
+Nothing here grants you any right to the game, and the GPL above cannot and does
+not license it.
+
+3. Screenshots of the running port
+----------------------------------
+The in-game screenshots under `docs/images/` are *derived from* the game: they
+show it running through this port. They are included as evidence for the
+findings they document. They are **not** licensed under the GPL and remain the
+property of the game's owners. Supporting data dumps extracted from the game
+(the `docs/re/ps3/` tables, `docs/re/savegame_schema_360.txt`) are kept locally
+for the reverse-engineering work and are **not committed**. If you redistribute
+this repository, or make it public, you do so at your own risk with respect to
+that material.
+
+4. Third-party components
+-------------------------
+`third_party/dxvk` is a copy of DXVK's DXSO shader compiler under the **zlib**
+licence — see `third_party/dxvk/LICENSE`; its terms apply to it, not the GPL.
+Other dependencies (SDL3, Jolt Physics, Dear ImGui, volk, VulkanMemoryAllocator,
+Vulkan-Headers, SPIRV-Headers, stb, dr_libs, opus / opusfile / ogg, earcut) are
+fetched at configure time and keep their own licences — see
+`cmake/Dependencies.cmake`.
+
+5. Upstream
+-----------
+This tree continues the work of the **OpenTDU2** project
+(https://github.com/CamilleKMI/OpenTDU2), which carries no licence of its own and
+therefore keeps all rights with its authors. The GPL above applies to this
+repository's own contributions; redistributing the upstream authors' portions
+under the GPL is their call, not this repository's. If you are one of those
+authors and object to this notice, or want a different arrangement, open an
+issue and it will be sorted out.
+
+6. Compliance and contact
+-------------------------
+OpenTDU2 is an unofficial fan project, maintained non-commercially, and is not
+affiliated with or endorsed by the rights holders of *Test Drive Unlimited 2*
+(Nacon / Bigben, Eden Games, Atari or their successors). Nothing is sold, gated
+or paywalled, and no game data is distributed in the repository or in a release.
+
+If you are a rights holder with a concern about any material in this repository
+or in a release — including anything that slipped in against the rules above —
+open a GitHub issue marked `legal` or contact the repository owner directly. A
+written request will be answered and actioned promptly; we would rather fix a
+complaint than contest one.
+
+A tester distribution's launcher must ship only artwork made for this project
+and no game files.

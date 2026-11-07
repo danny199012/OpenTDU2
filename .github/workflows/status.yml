@@ -1,0 +1,30 @@
+name: Status board
+
+# Publishes PROGRESS.md's state on the Actions page and keeps the board honest:
+# every WIP row needs an owner/branch and a next step, every feature row needs a
+# legal status (RULES.md §8). Cheap (no build), runs on every push/PR.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  board:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report and validate PROGRESS.md
+        run: |
+          if [ ! -f PROGRESS.md ]; then
+            echo "PROGRESS.md is not on this branch yet - the cline workflow line brings it; skipping." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          test -f RULES.md
+          python3 tools_probe/status_report.py --check --summary board.md
+      - name: Publish the board summary
+        if: always()
+        run: test -f board.md && cat board.md >> "$GITHUB_STEP_SUMMARY" || true
