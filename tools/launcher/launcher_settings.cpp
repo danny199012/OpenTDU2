@@ -53,8 +53,7 @@ void LauncherSettings::Load( const std::wstring &iniPath ) {
     OnlinePassword = ReadString( L"online", L"password", L"", iniPath );
     OnlineServer = ReadString( L"online", L"server", L"", iniPath );
 
-    UpdateRepo = ReadString( L"update", L"repo", L"danny199012/Open-TestDrive-Unlimited-2-",
-                             iniPath );
+    UpdateRepo = ReadString( L"update", L"repo", L"danny199012/OpenTDU2", iniPath );
     UpdateBranch = ReadString( L"update", L"branch", L"main", iniPath );
     LastUpdateTag = ReadString( L"update", L"last_tag", L"", iniPath );
 }
