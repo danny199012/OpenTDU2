@@ -424,6 +424,30 @@ beside itself, and starts the game with `-game <folder>` plus the name as both
 `-playername` (the avatar's) and `-tester` (the top-right watermark + the window
 title). An empty name launches plain and clean.
 
+## Credits
+
+**Project**
+
+* [Danny19901](https://github.com/danny199012) — the port: engine, tools, launcher, everything between
+* [CamilleKMI](https://github.com/CamilleKMI) — [OpenTDU2](https://github.com/CamilleKMI/OpenTDU2), the upstream this tree continues
+
+**Built with the help of (AI assistants)**
+
+* GLM 5.3 Flash (Z.ai)
+* Claude Opus 5.5 / Sonnet 5.5 (Anthropic)
+* DeepSeek v4.1 Flash (DeepSeek)
+
+**Community — keeping TDU alive**
+
+* xXBeefyDjXx · Xarlith · AlexVII · Milli · .Galopin
+
+**The game**
+
+* *Test Drive Unlimited 2* — developed by **Eden Games**, published by **Atari**
+* The *Test Drive* brand — **Nacon**
+* Unofficial and not affiliated with or endorsed by any of them — see [NOTICE](NOTICE) and
+  [Legal notice](#legal-notice).
+
 ## Licence
 
 This repository's own code is licensed under the **GNU General Public License,
