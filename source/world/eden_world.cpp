@@ -41,6 +41,75 @@ std::string SectorName( const EdenWorld::SectorId &id ) {
     return name;
 }
 
+// Tall grass switches (docs/re/grass_spec.md 6): -nograss off, -grassdist <m>
+// the card radius around the camera, -grassmax <n> the per-frame card cap,
+// -grassstride <n> grid cells between cards (0.75 m each), -grassflip the
+// grid row order A/B, -loggrass the per-frame counts.
+bool GrassEnabled() {
+    static const bool b = !CmdLine::HasArg( "-nograss" );
+    return b;
+}
+
+float GrassDistance() {
+    static const float v = [] {
+        const char *p = CmdLine::GetArgValue( "-grassdist" );
+        return p != nullptr ? Max( 20.0f, static_cast<float>( atof( p ) ) ) : 140.0f;
+    }();
+    return v;
+}
+
+uint32_t GrassMaxCards() {
+    static const uint32_t v = [] {
+        const char *p = CmdLine::GetArgValue( "-grassmax" );
+        return p != nullptr ? static_cast<uint32_t>( Max( 1, atoi( p ) ) ) : 9000u;
+    }();
+    return v;
+}
+
+int32_t GrassStride() {
+    static const int32_t v = [] {
+        const char *p = CmdLine::GetArgValue( "-grassstride" );
+        return p != nullptr ? Max( 1, atoi( p ) ) : 3;
+    }();
+    return v;
+}
+
+bool GrassFlip() {
+    static const bool b = CmdLine::HasArg( "-grassflip" );
+    return b;
+}
+
+bool LogGrass() {
+    static const bool b = CmdLine::HasArg( "-loggrass" );
+    return b;
+}
+
+inline uint32_t GrassHash( uint32_t x, uint32_t y ) {
+    uint32_t h = x * 374761393u + y * 668265263u;
+    h = ( h ^ ( h >> 13 ) ) * 1274126177u;
+    return h ^ ( h >> 16 );
+}
+
+inline uint16_t GrassFloatToHalf( float value ) {
+    uint32_t bits;
+    memcpy( &bits, &value, 4 );
+    const uint32_t sign = ( bits >> 16 ) & 0x8000u;
+    const int32_t exponent = static_cast<int32_t>( ( bits >> 23 ) & 0xFF ) - 127 + 15;
+    const uint32_t mantissa = bits & 0x7FFFFFu;
+    if ( exponent >= 31 ) {
+        return static_cast<uint16_t>( sign | 0x7C00u );
+    }
+    if ( exponent <= 0 ) {
+        if ( exponent < -10 ) {
+            return static_cast<uint16_t>( sign );
+        }
+        const uint32_t m = ( mantissa | 0x800000u ) >> ( 1 - exponent );
+        return static_cast<uint16_t>( sign | ( ( m + 0x1000u ) >> 13 ) );
+    }
+    return static_cast<uint16_t>( sign | ( static_cast<uint32_t>( exponent ) << 10 ) |
+                                  ( ( mantissa + 0x1000u ) >> 13 ) );
+}
+
 // Sector row / column of the "brick" grid (getSectorAt), packed as
 // row * 1024 + column: the key loadAround / unloadFar use.
 int32_t SectorRowColumn( const EdenWorld::SectorId &id ) {
@@ -394,6 +463,11 @@ bool EdenWorld::initialize( EdenRenderer &renderer, const char *pIsland ) {
         }
     } else {
         OTDU_LOG_WARN( "EdenWorld: '%s' not found\n", commonPath.c_str() );
+    }
+
+    // Tall grass (grass_spec.md): fx/tallgrass.bnk + grasstypes.xml.
+    if ( GrassEnabled() ) {
+        loadGrassAssets( pIsland );
     }
 
     // Island ocean (far sea, ocean_spec 5).
@@ -1637,6 +1711,13 @@ bool EdenWorld::loadSector( const SectorId &id ) {
     }
     stage( "misc" );
     loadInstances( *pSector, name );
+    // The .pgr grass grid payload (grass_spec.md 2) - kept compressed, the
+    // rows decode on the fly for the cells around the camera.
+    if ( GrassEnabled() ) {
+        if ( const BankEntry *pPgr = pSector->SectorBank.findEntry( name.c_str(), "pgr" ) ) {
+            pSector->Pgr.assign( pPgr->pData, pPgr->pData + pPgr->Size );
+        }
+    }
     stage( "instances" );
     if ( bLogTimes ) {
         OTDU_LOG_INFO( "[sector] %s ms:%s\n", name.c_str(), stageTimes.c_str() );
@@ -2462,6 +2543,7 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
         }
     }
     drawImpostors( renderer );
+    drawGrass( renderer, cameraPosition );
 }
 
 bool EdenWorld::addImpostor( const EdenMaterial &material, const EdenModel::Item &item, const Matrix4x4f &instanceWorld,
@@ -2707,6 +2789,347 @@ bool EdenWorld::addImpostor( const EdenMaterial &material, const EdenModel::Item
     }
     pBatch->NumVertices += numVertices;
     return true;
+}
+
+// ---- Tall grass (docs/re/grass_spec.md) ------------------------------------
+
+// Reads Key="Value" pairs of one XML element into a map (tolerant: the
+// shipped grasstypes.xml is malformed, grass_spec.md 1.2).
+static void GrassParseAttrs( const std::string &element, const char *pTag,
+                             std::unordered_map<std::string, std::string> &out ) {
+    const size_t tag = element.find( pTag );
+    if ( tag == std::string::npos ) {
+        return;
+    }
+    size_t p = tag + strlen( pTag );
+    while ( p < element.size() ) {
+        while ( p < element.size() && isspace( static_cast<unsigned char>( element[p] ) ) ) {
+            p++;
+        }
+        const size_t keyStart = p;
+        while ( p < element.size() && element[p] != '=' && !isspace( static_cast<unsigned char>( element[p] ) ) ) {
+            p++;
+        }
+        if ( p >= element.size() || element[p] != '=' ) {
+            break;
+        }
+        const std::string key = element.substr( keyStart, p - keyStart );
+        p++;
+        if ( p < element.size() && element[p] == '"' ) {
+            p++;
+            const size_t valueStart = p;
+            while ( p < element.size() && element[p] != '"' ) {
+                p++;
+            }
+            out[key] = element.substr( valueStart, p - valueStart );
+            p++;
+        }
+    }
+}
+
+static float GrassAttrF( const std::unordered_map<std::string, std::string> &attrs, const char *pKey, float def ) {
+    const auto it = attrs.find( pKey );
+    return it != attrs.end() ? static_cast<float>( atof( it->second.c_str() ) ) : def;
+}
+
+static int32_t GrassAttrI( const std::unordered_map<std::string, std::string> &attrs, const char *pKey, int32_t def ) {
+    const auto it = attrs.find( pKey );
+    return it != attrs.end() ? static_cast<int32_t>( atoi( it->second.c_str() ) ) : def;
+}
+
+bool EdenWorld::loadGrassAssets( const char *pIsland ) {
+    // grasstypes.xml: a loose file, and the shipped one is malformed (it ends
+    // mid-tag) - a tolerant scan instead of an XML parser (grass_spec.md 1.2).
+    std::vector<uint8_t> xml;
+    const std::string xmlPath = gpFile->getBankFolder() + "islands/" + pIsland + "/fx/grasstypes.xml";
+    if ( gpFile->loadFile( xmlPath.c_str(), xml ) ) {
+        const std::string text( xml.begin(), xml.end() );
+        size_t pos = 0;
+        while ( true ) {
+            const size_t type = text.find( "<GrassType ", pos );
+            if ( type == std::string::npos ) {
+                break;
+            }
+            const size_t end = text.find( "</GrassType>", type );
+            const size_t stop = end == std::string::npos ? text.size() : end;
+            const std::string element = text.substr( type, stop - type );
+            pos = stop;
+            std::unordered_map<std::string, std::string> attrs, grass;
+            GrassParseAttrs( element, "<GrassType ", attrs );
+            GrassParseAttrs( element, "<Grass ", grass );
+            if ( attrs.find( "Name" ) == attrs.end() ) {
+                continue;
+            }
+            GrassType t;
+            t.Name = attrs["Name"];
+            t.GrassBitmap = GrassAttrI( grass, "BitmapIndex", 0 );
+            t.GrassVariation = GrassAttrI( grass, "TypeVariation", -1 );
+            t.VariationProbability = GrassAttrF( grass, "VariationProbability", 0.0f );
+            t.Height = GrassAttrF( grass, "Height", 0.6f );
+            t.Width = GrassAttrF( grass, "Width", 2.0f );
+            t.SizeDelta = GrassAttrF( grass, "SizeDelta", 0.0f );
+            t.bNoShadow = GrassAttrI( grass, "NoShadow", 0 ) != 0;
+            grassTypes.push_back( t );
+        }
+        OTDU_LOG_INFO( "EdenWorld: grass %zu types from %s\n", grassTypes.size(), xmlPath.c_str() );
+    } else {
+        OTDU_LOG_WARN( "EdenWorld: '%s' not found, grass falls back to one type\n", xmlPath.c_str() );
+        grassTypes.push_back( GrassType{} );
+    }
+    // The card template + the atlases (grass_spec.md 1.1).
+    const std::string grassPath = gpFile->getBankFolder() + "islands/" + pIsland + "/fx/tallgrass.bnk";
+    if ( !grassBank.load( grassPath.c_str() ) ) {
+        OTDU_LOG_WARN( "EdenWorld: '%s' not found, no grass\n", grassPath.c_str() );
+        return false;
+    }
+    gpRender->getTextureCache().loadBankTextures( grassBank, grassPath.c_str() );
+    if ( !grassModel.load( *pRenderer, grassBank, "tallgrass", nullptr, grassPath.c_str() ) ) {
+        OTDU_LOG_WARN( "EdenWorld: failed to load the tallgrass card model\n" );
+        return false;
+    }
+    // The grass materials declare kTD_Gouraud; the retail handler table
+    // rewrites them to the TD_TallGrass family (grass_spec.md 4). v1 keeps
+    // Gouraud (known-good: the cards draw textured and alpha-blended) and
+    // -grasstallgrass opts into the rewrite - the TD_TallGrass VS is car-
+    // anchored (CARPOS / CARFWD / CARRIGHT, no matrix multiply: it rebuilds
+    // the positions in the car's basis, grass_spec.md 4) and its position
+    // law is not lifted yet, so the rewritten materials resolve but draw
+    // nothing visible. Scoped to this model on purpose: the rain shares
+    // Gouraud, a handler-table entry would hijack it.
+    static const bool bGrassTallGrass = CmdLine::HasArg( "-grasstallgrass" );
+    for ( EdenMaterial &material : grassModel.getMaterials() ) {
+        if ( bGrassTallGrass && material.ShaderSetGUID == 0x73078865ca37336dull /* kTD_Gouraud */ ) {
+            material.ShaderSetGUID = 0xcafe8deca8c8cacaull; /* TD_TallGrass */
+        }
+        // FADEALFA is the retail distance fade the handler drives per frame
+        // (the .2dm ships it 0 = fully transparent); v1 draws opaque and lets
+        // the 140 m card radius do the fading [INF: fade law not lifted,
+        // grass_spec.md 7].
+        material.Parameters[GetIdentifier64bit( "FADEALFA" )] = Vector4f( 1.0f, 1.0f, 1.0f, 1.0f );
+        if ( material.Name == "setgrass" ) {
+            pGrassMaterial = &material;
+        }
+    }
+    // Re-resolve the cached programs: the materials' pProgram was picked at
+    // load with the declared kTD_Gouraud GUID, before the rewrite above.
+    // The permutation a material picks is HashSpec of its spec bytes (2dm
+    // +0x310, byte 0 = the runtime texture count) and TD_TallGrass ships 32
+    // of them. The retail handler's exact switch law is [ENC] (grass_spec.md
+    // 4); HashSpec is linear over GF(2), so the byte selection below was
+    // solved from the shipped permutation ids (tools used: _grass/solve_spec3.py,
+    // the method constant_pools.md 4) and verified: it hashes to permutation
+    // fe58bfac59460e08 - the attrib-0 group's base variant [INF: the semantic
+    // meaning of the selector bytes is not recovered, the hash match is].
+    static const uint8_t kTallGrassSpec[EdenShaderSystem::kNumSpecs] = {
+        0x01, 0xfb, 0x38, 0xe2, 0xb0, 0x12, 0x1b, 0xe8, 0xf2, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    for ( EdenMaterial &material : grassModel.getMaterials() ) {
+        if ( material.ShaderSetGUID != 0xcafe8deca8c8cacaull ) {
+            continue;
+        }
+        memcpy( material.Spec, kTallGrassSpec, sizeof( material.Spec ) );
+        pRenderer->updateProgram( material );
+        OTDU_LOG_INFO( "EdenWorld: grass '%s' resolved %s\n", material.Name.c_str(),
+                       material.pProgram != nullptr ? material.pProgram->Name.c_str() : "NOTHING" );
+    }
+    for ( const EdenModel::Item &item : grassModel.getItems() ) {
+        if ( item.Mesh.Strides[0] != 0 ) {
+            grassLayout = item.Mesh;
+            break;
+        }
+    }
+    bGrassLoaded = pGrassMaterial != nullptr && grassLayout.Strides[0] != 0;
+    OTDU_LOG_INFO( "EdenWorld: grass model %zu items, material '%s', %s\n", grassModel.getItems().size(),
+                   pGrassMaterial != nullptr ? pGrassMaterial->Name.c_str() : "-",
+                   bGrassLoaded ? "ready" : "INCOMPLETE" );
+    return bGrassLoaded;
+}
+
+void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
+    if ( !GrassEnabled() || !bGrassLoaded || grassTypes.empty() ) {
+        return;
+    }
+    GrassBatch &batch = grassBatch;
+    batch.Streams[0].clear();
+    batch.Streams[1].clear();
+    batch.Indices.clear();
+    batch.NumVertices = 0;
+
+    const float dist = GrassDistance();
+    const float x0 = cameraPosition.x - dist;
+    const float x1 = cameraPosition.x + dist;
+    const float z0 = cameraPosition.z - dist;
+    const float z1 = cameraPosition.z + dist;
+    const float cell = kSectorSize / 1024.0f;  // 0.75 m per grid cell
+    const int32_t stride = GrassStride();
+    const float atlasCellU = 1.0f / 9.0f;      // 9 tuft cells over the 2048 px strip [INF]
+    uint32_t cards = 0;
+    const uint32_t maxCards = GrassMaxCards();
+
+    bool bCapped = false;
+    for ( const auto &pSector : sectors ) {
+        if ( pSector->Pgr.empty() || pSector->bPreloaded || pSector->Terrain.Heights.empty() ) {
+            continue;
+        }
+        const Vector3f &origin = pSector->Origin;
+        const float sx0 = Max( x0, origin.x );
+        const float sx1 = Min( x1, origin.x + kSectorSize );
+        const float sz0 = Max( z0, origin.z );
+        const float sz1 = Min( z1, origin.z + kSectorSize );
+        if ( sx0 >= sx1 || sz0 >= sz1 ) {
+            continue;
+        }
+        int32_t gx0 = Max( 0, static_cast<int32_t>( ( sx0 - origin.x ) / cell ) );
+        int32_t gx1 = Min( 1023, static_cast<int32_t>( ( sx1 - origin.x ) / cell ) + 1 );
+        int32_t gy0 = Max( 0, static_cast<int32_t>( ( sz0 - origin.z ) / cell ) );
+        int32_t gy1 = Min( 1023, static_cast<int32_t>( ( sz1 - origin.z ) / cell ) + 1 );
+        // The sampling lattice: one card every `stride` cells (grid axes ->
+        // world X / Z [INF: the orientation A/B is -grassflip, grass_spec.md
+        // 2 - the static correlation tests were inconclusive, the terrain
+        // colour maps look area-level]).
+        gx0 = ( ( gx0 + stride - 1 ) / stride ) * stride;
+        gy0 = ( ( gy0 + stride - 1 ) / stride ) * stride;
+        for ( int32_t gy = gy0; gy <= gy1 && !bCapped; gy += stride ) {
+            const int32_t row = GrassFlip() ? 1023 - gy : gy;
+            // Decode the row: u32 file offset at 0x28 + row * 4, then
+            // (u8 count, u8 value) runs; (00, 00) pairs are no-ops; a run
+            // may overshoot the row end (clamped at 1024 cells).
+            uint32_t o;
+            memcpy( &o, pSector->Pgr.data() + 0x28 + row * 4, 4 );
+            if ( o + 2 > pSector->Pgr.size() ) {
+                continue;
+            }
+            pgrRowScratch.assign( 1024, 0xff );
+            uint32_t filled = 0;
+            while ( filled < 1024 && o + 2 <= pSector->Pgr.size() ) {
+                const uint32_t count = pSector->Pgr[o];
+                const uint32_t value = pSector->Pgr[o + 1];
+                o += 2;
+                if ( count == 0 ) {
+                    continue;
+                }
+                for ( uint32_t i = 0; i < count && filled < 1024; i++ ) {
+                    pgrRowScratch[filled++] = static_cast<uint8_t>( value );
+                }
+            }
+            for ( int32_t gx = gx0; gx <= gx1 && !bCapped; gx += stride ) {
+                const uint32_t v = pgrRowScratch[gx];
+                if ( v == 0x00 || v == 0xff ) {
+                    continue;
+                }
+                const uint32_t hash = GrassHash( static_cast<uint32_t>( gx ), static_cast<uint32_t>( gy ) );
+                const float f0 = ( hash & 1023 ) / 1023.0f;
+                const float f1 = ( ( hash >> 10 ) & 1023 ) / 1023.0f;
+                const float f2 = ( ( hash >> 20 ) & 1023 ) / 1023.0f;
+                const float px = origin.x + ( gx + 0.5f + ( f0 - 0.5f ) * stride ) * cell;
+                const float pz = origin.z + ( gy + 0.5f + ( f1 - 0.5f ) * stride ) * cell;
+                float y;
+                if ( !getHeight( px, pz, y ) ) {
+                    continue;
+                }
+                const uint32_t typeIndex = Min<uint32_t>( v, static_cast<uint32_t>( grassTypes.size() ) - 1 );
+                const GrassType &type = grassTypes[typeIndex];
+                const float scale = 1.0f + type.SizeDelta * ( f2 * 2.0f - 1.0f );
+                const float w = type.Width * scale;
+                const float cardHeight = type.Height * scale;
+                uint32_t bmp = static_cast<uint32_t>( Max( 0, type.GrassBitmap ) );
+                if ( type.GrassVariation >= 0 &&
+                     ( ( hash >> 28 ) & 255 ) / 255.0f < type.VariationProbability ) {
+                    bmp = static_cast<uint32_t>( Max( 0, type.GrassVariation ) );
+                }
+                bmp = Min( bmp, 8u );
+                const float u0 = bmp * atlasCellU;
+                const float u1 = u0 + atlasCellU;
+                const float yaw = f1 * 3.14159265f;
+                const float dx = cosf( yaw ), dz = sinf( yaw );
+                // Two crossed vertical quads (the PLANE template stood up,
+                // grass_spec.md 5): bl, br, tl, tr per quad, triangle list,
+                // the roots at v = 1 (the atlas fades them at the image
+                // bottom [INF]).
+                for ( int32_t quad = 0; quad < 2; quad++ ) {
+                    const float qdx = quad == 0 ? dx : -dz;
+                    const float qdz = quad == 0 ? dz : dx;
+                    const float hx = qdx * w * 0.5f;
+                    const float hz = qdz * w * 0.5f;
+                    const float corners[4][5] = {
+                        { px - hx, y,              pz - hz, u0, 1.0f },
+                        { px + hx, y,              pz + hz, u1, 1.0f },
+                        { px - hx, y + cardHeight, pz - hz, u0, 0.0f },
+                        { px + hx, y + cardHeight, pz + hz, u1, 0.0f },
+                    };
+                    const uint32_t base = batch.NumVertices;
+                    for ( const auto &corner : corners ) {
+                        batch.Streams[0].insert( batch.Streams[0].end(), reinterpret_cast<const uint8_t *>( corner ),
+                                                 reinterpret_cast<const uint8_t *>( corner ) + 20 );
+                        const uint16_t normal[4] = { GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 1.0f ),
+                                                     GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 0.0f ) };
+                        batch.Streams[1].insert( batch.Streams[1].end(), reinterpret_cast<const uint8_t *>( normal ),
+                                                 reinterpret_cast<const uint8_t *>( normal ) + 8 );
+                    }
+                    const uint32_t indices[6] = { base, base + 1, base + 2, base + 1, base + 3, base + 2 };
+                    batch.Indices.insert( batch.Indices.end(), indices, indices + 6 );
+                    batch.NumVertices += 4;
+                }
+                cards++;
+                if ( cards >= maxCards ) {
+                    bCapped = true;
+                }
+            }
+        }
+    }
+    if ( batch.Indices.empty() ) {
+        return;
+    }
+    if ( LogGrass() ) {
+        OTDU_LOG_INFO( "EdenWorld: grass %u cards (%u tris) within %.0f m%s, material guid %016llx\n", cards,
+                       static_cast<uint32_t>( batch.Indices.size() / 3 ), dist, bCapped ? " CAPPED" : "",
+                       static_cast<unsigned long long>( pGrassMaterial->ShaderSetGUID ) );
+    }
+    // Transient upload + draw, the drawImpostors mechanics: the layout is
+    // the PLANE_01 template (position + UV in stream 0, f16 normal in
+    // stream 1, grass_spec.md 1.1).
+    RenderDevice &device = gpRender->getDevice();
+    EdenMesh mesh = grassLayout;
+    bool bOk = true;
+    for ( uint32_t stream = 0; stream < 2; stream++ ) {
+        if ( batch.Streams[stream].empty() ) {
+            continue;
+        }
+        const TransientAllocation allocation = device.allocateTransient( batch.Streams[stream].size(), 16 );
+        if ( allocation.pData == nullptr ) {
+            bOk = false;
+            break;
+        }
+        memcpy( allocation.pData, batch.Streams[stream].data(), batch.Streams[stream].size() );
+        mesh.pStreamBuffers[stream] = device.getTransientBuffer();
+        mesh.StreamOffsets[stream] = allocation.Offset;
+    }
+    const TransientAllocation indices = device.allocateTransient( batch.Indices.size() * sizeof( uint32_t ), 16 );
+    if ( !bOk || indices.pData == nullptr ) {
+        return;
+    }
+    memcpy( indices.pData, batch.Indices.data(), batch.Indices.size() * sizeof( uint32_t ) );
+    mesh.pIndexBuffer = device.getTransientBuffer();
+    mesh.FirstIndex = static_cast<uint32_t>( indices.Offset / sizeof( uint32_t ) );
+    mesh.IndexCount = static_cast<uint32_t>( batch.Indices.size() );
+    mesh.VertexOffset = 0;
+    mesh.BlasAddress = 0;
+    // The TD_TallGrass VS is car-anchored: its symbol table carries CARPOS /
+    // CARFWD / CARRIGHT (the player-car basis the retail renderer feeds per
+    // frame) and .LPHADIS / .CALEDIS (the display fade distances; shipped
+    // defaults 0 would divide by zero). v1 feeds the camera as the anchor and
+    // a pass-through fade [INF: the VS disassembly is not lifted yet,
+    // grass_spec.md 7].
+    EdenDrawParams params;
+    params.Vectors["CARPOS"] = Vector4f( cameraPosition.x, cameraPosition.y, cameraPosition.z, 1.0f );
+    params.Vectors["CARFWD"] = Vector4f( 0.0f, 0.0f, 1.0f, 0.0f );
+    params.Vectors["CARRIGHT"] = Vector4f( 1.0f, 0.0f, 0.0f, 0.0f );
+    params.Vectors[".LPHADIS"] = Vector4f( 1.0f, 1.0f, 1.0f, 1.0f );
+    params.Vectors[".CALEDIS"] = Vector4f( 0.0f, 0.0f, 0.0f, 0.0f );
+    renderer.draw( mesh, *pGrassMaterial, Matrix4x4f::Identity(), &params );
 }
 
 void EdenWorld::drawImpostors( EdenRenderer &renderer ) {

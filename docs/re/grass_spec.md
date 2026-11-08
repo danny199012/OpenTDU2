@@ -1,0 +1,212 @@
+# Tall grass — the ground-cover billboard layer
+
+Scope: the retail tall-grass system — the grass tuft cards that cover the
+meadows, crop fields and roadsides of the three islands (`TALLGRASS`). This is
+*not* the `.pmi` vegetation (trees / bushes / flowers, `pmi_spec.md`, drawn
+since session 88) and *not* the terrain detail layers (`TD_HeightMap`
+`DETAIL1/2/3`). Every fact here is measured from the shipped data unless
+tagged `[INF]` (inferred) or `[ENC]` (lives in the SecuROM band; PS3 route
+noted). The `.flg` file is **not** grass — it is the sector minimap
+(`formats.md`); the session-24 "grass grid" reading of it is dead.
+
+## 1. The data
+
+### 1.1 `islands/<island>/fx/tallgrass.bnk` `[DATA]`
+
+Loaded by the retail path literal `"%sIslands\%s\FX\tallgrass.bnk"`
+(`pc_ps3_anchors.json` 15928056 / PC 15692052). Ibiza bank 831 488 B, Hawai
+399 360 B, Casino 311 296 B. Contents (Ibiza, extracted with `otdu2_bnk_tool`):
+
+| Asset | What it is |
+|---|---|
+| `tallgrass.3dd` / `.3dg` | the grass card mesh: **two identical geoms** `PLANE_01` / `PLANE_02` (hashes `31305f454e414c50` / `3230...`, ascii "PLANE_01/02"), each **one 4-vertex horizontal quad** ±30 m in X/Z at Y = 0 (60 × 60 m), normals +Y, triangle strip (`PRIM type 0x0004`, no indices), layout `0x1040` = position + UV in stream 0 (stride 20), normal (4×f16) in stream 1. The 3dd hangs both planes under scaled nodes (X 0.5, Y 1, Z 0.25). The authored size is a template: the runtime builds per-tuft cards itself (the per-edge law, §3), so only the quad *shape* and UV mapping matter. |
+| `tallgrass.2dm` | two materials, **`setgrass`** and **`setbush`** — their ascii names are their hashes (`0x5353415247544553`, `0x0048535542544553`). Both: COLOR slot → the matching `.2db` atlas, `FADEALFA` float4 param (the distance fade), states `0x02000101 0x02000100 0x00010605` (alpha-tested, cull none), and `ShaderSetGUID = 0x73078865ca37336d` at MAT +0x300 — **`kTD_Gouraud`**, rewritten to the TD_TallGrass family by the retail handler table (§4). |
+| `setgrass.2db` | 2048 × 128 DXT5 (sRGB, format 55) atlas of **9 grass tuft cards** — side-view clumps (blades fanned up, alpha-faded at the roots): green grass, white flowers, dry grass, lavender sprigs, golden grass, blue flax, lavender bush, yellow broom, green variant. |
+| `setbush.2db` | 1024 × 256 DXT5 atlas of **4 bush cards** (256² each). |
+| `noise.2db` | 64² DXT1 noise texture, hash ascii `NOISE` — bound by the shader's own sampler from the owning bank. |
+| `noise.rle` | 124 068 B RLE payload — the wind animation input (pairs with the weather params `wind_continuous_grass_amplitude/frequency`, `wind_whirl_grass_twist_speed`, §3). Not decoded yet. |
+
+### 1.2 `islands/<island>/fx/grasstypes.xml` `[DATA]`
+
+Path literal `"%sislands/%s/fx/grasstypes.xml"`. 9 914 B (Ibiza). **The shipped
+file is malformed** — it ends mid-tag (`</GrassType` without `>`, line 99); a
+strict XML parser rejects it, the retail loader evidently tolerates it. 24
+`GrassType` entries, document order (the order the runtime array holds — the
+`.pgr` cell value indexes THIS order, §2):
+
+| # | Id | Name | Grass bitmap | Height | Width | Notes |
+|---|---|---|---|---|---|---|
+| 0 | 4 | Garrigue | 5 (var 8, p 0.8) | 0.63 | 2.12 | base scrub |
+| 1 | 16 | Garrigue_OffRoad_3Small | 0 | 0.42 | 1.54 | roadside |
+| 2 | 32 | PinsSauvages | 0 (var 7, p 0.15) | 0.67 | 2.21 | wild pines scrub |
+| 3 | 48 | PinsSauvages_OffRoad_3Small | 0 | 0.46 | 1.87 | roadside |
+| 4 | 64 | Feuillus | 8 (var 6, p 0.2) | 0.69 | 2.19 | deciduous floor |
+| 5 | 80 | Feuillus_OffRoad_3Small | 0 | 0.45 | 1.92 | roadside |
+| 6 | 96 | F-HautsPins-TR | 0 | 0.82 | 2.21 | high pines |
+| 7 | 112 | F-HautsPins-TR_OffRoad_3Small | 0 | 0.33 | 1.92 | roadside |
+| 8 | 128 | Garrigue_Blend | 2 (var 0, p 0.25) | 0.59 | 2.33 | blend variant |
+| 9 | 144 | PinsSauvages_Blend | 3 (var 0, p 0.25) | 1.04 | 2.23 | |
+| 10 | 160 | Feuillus_Blend | 1 (var 0, p 0.25) | 0.47 | 1.99 | |
+| 11 | 176 | Desert | 2 | 0.65 | 2.04 | bush 3 |
+| 12 | 192 | Thym - Champs | 5 | 0.67 | 2.12 | NoShadow=1 |
+| 13 | 208 | Colza - Champs | 7 | 0.88 | 2.18 | NoShadow=1, rapeseed |
+| 14 | 224 | Blé - Champs | 4 | 1.00 | 1.89 | NoShadow=1, wheat |
+| 15 | 240 | Lavande - Champs | 6 | 1.00 | 2.15 | NoShadow=1, lavender |
+| 16 | 12 | Garrigue_OffRoad_2Medium | 0 | 0.46 | 1.73 | |
+| 17 | 8 | Garrigue_OffRoad_1High | 0 | 0.51 | 1.92 | |
+| 18 | 44 | PinsSauvages_OffRoad_2Medium | 0 | 0.56 | 2.07 | |
+| 19 | 40 | PinsSauvages_OffRoad_1High | 0 | 0.63 | 2.14 | |
+| 20 | 76 | Feuillus_OffRoad_2Medium | 0 | 0.59 | 2.11 | |
+| 21 | 72 | Feuillus_OffRoad_1High | 0 | 0.74 | 2.31 | |
+| 22 | 108 | F-HautsPins-TR_OffRoad_2Medium | 0 | 0.48 | 2.02 | |
+| 23 | 104 | F-HautsPins-TR_OffRoad_1High | 0 | 0.63 | 2.11 | |
+
+Every entry: `Grass` + optional `Bush` sub-element (`BitmapIndex`,
+`BlendMode`, `Height`, `Width`, `SizeDelta`), and on `Grass`:
+`TypeVariation` + `VariationProbability` (roll a second bitmap), `BlendMode`
+(1/2), `UseNoiseScale` + `ScalePower` + `ScaleClamp` (noise-driven size law),
+`NoShadow`, `BlendColor`. Card sizes: **Width 1.5–2.3 m, Height 0.33–1.0 m**
+— wide, short tufts. The `_OffRoad_1High → _3Small` ladder per family is the
+roadside-distance variant set (grass shortened toward roads). `fx.ini
+[GRASS]`: `NBGRASSBITMAPS 9`, `NBBUSHBITMAPS 4` (matches the atlases).
+
+## 2. The `.pgr` grid — per-sector grass placement `[DATA]`
+
+Every sector bank carries `Sector-<id>.pgr` (Ibiza samples 29–92 KB; the
+archive has 5 extracted: `_flg/`). Container (same family as `.flg`):
+
+```
+0x00  u32 1, u32 0, u32 fileSize
+0x0c  magic "RLE."
+0x10  section "DATA"
+0x14  u32 1 (version), u32 payloadSize, u32 0
+0x20  payload:
+      u16 gridW = 1024, u16 gridH = 1024      (u32 log2 = 10 at +4)
+0x28  gridH × u32  row offsets (absolute file offsets)
+      rows: RLE runs of (u8 count, u8 value); (00,00) pairs are no-ops —
+      skip them; a run may overshoot the row end (clamp at gridW cells)
+```
+
+1024² cells over the 768 m sector = **0.75 m per cell**. Decoded
+1024/1024 rows on all five samples (`tools_probe/grass_probe.py --render`);
+`tools_probe/grass_probe.py` is the decoder + renderer.
+
+Value semantics — measured histograms vs `grasstypes.xml`:
+
+* `0xff` = no grass (sentinel; 268 k cells in the farm sector, dominant in none)
+* `0x00` = none / bare (dominant in the arid airport sector 3-3-2-4, ~98 %)
+* `0x02`, `0x04`, `0x06`, `0x0b`, `0x0d`, `0x0e`, `0x0f`, `0x10`, `0x18` =
+  **grass class ids, mapped through the §1.2 table by document order**
+  `[INF]` — evidence: the farm sector 3-4-1-0 is dominated by `0x02`
+  (PinsSauvages scrub) with `0x0d/0x0e/0x0f` (Colza / Blé / Lavande) in
+  patches exactly where crop fields belong, and the arid sector is ~all
+  `0x00`. The mapping is verified visually in-engine (§6), not yet from code.
+* stray values `0x59 / 0x5f / 0x60` (3-3-2-4, along one full-width row) and a
+  full row of `0x9d` (3-3-3-3, row 391) — **road / path markers** `[INF]`
+  (matches the exe anchor `GRASSASTARMAC`: grass interacts with the path
+  network; the `_OffRoad_*` ladder is the roadside response). One full-width
+  feature row per sector is consistent with a road crossing it.
+* grid orientation vs the sector origin is **not settled from the files
+  alone** [INF] — the per-sector colour maps look area-level (the four
+  `sector-3-3-x-x-c.2db` are the same size), which broke the static
+  correlation tests. Resolved in-engine: the sector origin is known where the
+  grid is consumed, and a wrong flip/transpose is immediately visible against
+  a retail capture.
+
+## 3. The retail code anchors `[CODE]`
+
+From `pc_ps3_anchors.json` (PC address → PS3 twin function):
+
+| Anchor | PC addr | PS3 func |
+|---|---|---|
+| `GRASSENABLED` | 15641196 | 2162164 |
+| `NBGRASSBITMAPS` | 15640764 | 2162164 |
+| `MAX_GRASS_BILLBOARD_PER_EDGE` | 15643568 | 2162164 |
+| `GRASSASTARMAC` | 15637672 | 2162164 |
+| `TALL_GRASS_MAX_PER_EDGE` | 15829940 | **7211508** (3 sites) |
+| `TallGrassBlock` | 15911264 | — |
+| `SETGRASS` / `SETBUSH` | 15911112 / 15911124 | 9943520 |
+| grasstypes.xml path | 15692084 | **4348128** |
+| tallgrass.bnk path | 15692052 | **4352584** |
+| wind params | `wind_continuous_grass_amplitude/frequency`, `wind_whirl_grass_twist_speed` | — |
+
+The per-edge names (`TALL_GRASS_MAX_PER_EDGE`, `MAX_GRASS_BILLBOARD_PER_EDGE`)
+say the retail law generates grass **per terrain-mesh edge**, capped, not one
+card per grid cell. The PS3 twins are readable (`docs/re/ps3/README.md`,
+`get_func.py 0x<addr>` — the functions above), but the lifted C++ is
+register-level PPC; decoding the full generation law (cell → edge sampling,
+the A* interaction, the noise-scale application, wind) is **deferred** — the
+first read of `func_0x6e05b4`'s constructor shows config fields (0x3E8 = 1000,
+0x32 = 50) but not the law. What the port implements below is the port-native
+law tagged `[INF]`, structured so the retail law can replace it.
+
+## 4. The shader `[CODE]`
+
+`Euro/Shaders/TD_TallGrass.sob` — ShaderSet **`0xcafe8deca8c8caca`**, 32
+permutations (8 VS + 8 PS). The material declares `kTD_Gouraud`
+(`0x73078865ca37336d`, MAT +0x300); the retail handler table rewrites it to
+the TallGrass family (same pattern as `37078865c0ca336e → TD_Vegetation`,
+`title_scene.md`). The permutation a material resolves is `HashSpec` of its
+48 spec bytes (2dm +0x310; byte 0 = the runtime texture count); HashSpec is
+linear over GF(2), so the byte selector that reaches a shipped permutation
+was solved and verified (`_grass/solve_spec3.py`, the method
+`constant_pools.md` 4): bytes 1-8 carry an 8-byte selector, the rest match the
+authored spec. The port resolves `TD_TallGrass vs0/ps0` with it (verified in
+the log).
+
+**The TD_TallGrass VS is car-anchored and does not multiply by a matrix**
+(disassembly, `tools_probe/dxso_dis.py` — minimal D3D9 disassembler written
+for this): its symbol table carries `.LPHADIS` / `.CALEDIS` (frame),
+`SECTOFF.`, `SHADOCLR`, **`CARPOS` / `CARFWD` / `CARRIGHT`** (scene) and the
+material block; the body rebuilds positions from the car basis through
+rsq/rcp chains (no `m4x4` anywhere), with `def` phases (2π, 1/3.333…) for
+the wind. Its output law is **not lifted yet** — with the GUID rewritten the
+materials resolve but draw nothing visible (the position law needs the
+retail per-frame car feed, or vertices authored in car space). The port
+therefore keeps the declared `kTD_Gouraud` for v1 (the cards draw textured,
+alpha-blended 5/6, no depth write — exactly the `.2dm`'s own states) and
+`-grasstallgrass` opts into the rewrite for the next step.
+
+## 5. The card model `[DATA]` + `[INF]`
+
+The template's two `PLANE_*` quads are horizontal ground cards; the runtime
+tuft card is a **vertical crossed pair** sized `Width × Height` from the
+GrassType, UV-mapped to the type's atlas cell (9 cells over the 2048×128
+strip, `u = [i/9, (i+1)/9]` `[INF]`), alpha-blended with the roots at v = 1
+(the atlases fade them at the image bottom), `FADEALFA` = the distance fade
+the retail handler drives per frame (the `.2dm` ships it 0 — transparent).
+Verified in-engine: crossed vertical pairs at the GrassType sizes draw
+correctly placed, sized and blended under the plain Gouraud shader
+(`docs/images/grass_s84_on.png`).
+
+## 6. Implementation (this port)
+
+* `EdenWorld::initialize` → `loadGrassAssets`: `grasstypes.xml` (tolerant
+  attribute scan — the file is malformed) and `fx/tallgrass.bnk` (the card
+  template + atlases; materials' `FADEALFA` forced to 1).
+* `EdenWorld::loadSector` keeps the sector's `.pgr` payload compressed.
+* `EdenWorld::drawGrass` (flushed after `drawImpostors`, every pass): the
+  grid rows around the camera decode on the fly (the `.pgr` RLE, §2), one
+  crossed-pair card per sampling cell (`-grassstride`, default 3 = 2.25 m)
+  with hash jitter, Y from the heightfield, type = the cell value through
+  the §1.2 document-order table `[INF]`, size from the GrassType law, atlas
+  cell + variation roll from the GrassType. Transient upload, one draw per
+  frame (the impostor-batch mechanics). Physics untouched.
+* Flags: `-nograss` (off), `-grassdist <m>` (card radius, default 140),
+  `-grassmax <n>` (per-frame cap, default 9000), `-grassstride <n>`,
+  `-grassflip` (grid row order A/B), `-loggrass` (per-frame counts),
+  `-grasstallgrass` (the TD_TallGrass GUID rewrite — resolves, draws
+  nothing yet). Grid orientation vs the sector origin is still `[INF]`
+  (world axes = grid axes; `-grassflip` is the A/B).
+
+## 7. Open
+
+* The TD_TallGrass VS output law (car basis, `.LPHADIS`/`.CALEDIS` fade,
+  wind sway) — the disassembly is readable (`tools_probe/dxso_dis.py`); the
+  remaining step is decoding the position arithmetic and feeding CARPOS /
+  CARFWD / CARRIGHT per frame (or re-authoring the vertices in car space).
+* `noise.rle` layout (wind animation frames); the wind draw at all.
+* Grid orientation + the road markers (`GRASSASTARMAC` interaction,
+  `_OffRoad_*` ladder) — needs a retail A/B.
+* Atlas cell layout precision (9 cells over 2048 px) and the `Bush` rule.
+* Density/size tuning against a retail capture; perf measurement.

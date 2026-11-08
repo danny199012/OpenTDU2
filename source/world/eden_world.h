@@ -271,6 +271,9 @@ private:
         std::vector<PmiInstance> Instances;
         std::vector<int32_t> InstanceModels;   // library node or actor model index
         std::vector<float> InstanceDistances;  // max draw distance
+        // The .pgr grass grid payload, kept compressed (docs/re/grass_spec.md
+        // 2): the rows decode on the fly for the cells around the camera.
+        std::vector<uint8_t> Pgr;
         // Draw params of the TD_Ground library instances (night_lighting_spec
         // 2.1: sectrOff = the sector origin, w = 768, and for the O / S lists
         // the -s map on the SHADOW slot with a mirror sampler). Indexed by
@@ -427,6 +430,45 @@ private:
 
 public:
     void setImpostorAmbient( const Vector3f &color ) { impostorAmbient = color; }
+
+private:
+    // Tall grass (docs/re/grass_spec.md): the retail ground-cover layer —
+    // fx/tallgrass.bnk (the tuft card template + the setgrass / setbush
+    // atlases), fx/grasstypes.xml (the per-type size law) and the per-sector
+    // .pgr grid (1024 x 1024 cells of 0.75 m, sparse (count, value) RLE).
+    // The cards build from the grid cells around the camera every frame (the
+    // impostor-batch shape: CPU-built world-space quads, transient upload,
+    // one draw per material); the drive physics never sees them (getHeight /
+    // getGroundHeight are untouched).
+    struct GrassType {
+        std::string Name;
+        int32_t GrassBitmap = 0;
+        int32_t GrassVariation = -1;
+        float VariationProbability = 0.0f;
+        float Height = 0.6f;
+        float Width = 2.0f;
+        float SizeDelta = 0.1f;
+        bool bNoShadow = false;
+    };
+    bool loadGrassAssets( const char *pIsland );
+    void drawGrass( EdenRenderer &renderer, const Vector3f &cameraPosition );
+    std::vector<GrassType> grassTypes;
+    Bank grassBank;
+    EdenModel grassModel;               // the PLANE_01 / PLANE_02 card template
+    EdenMesh grassLayout;               // the template's vertex layout
+    const EdenMaterial *pGrassMaterial = nullptr;
+    std::vector<uint8_t> pgrRowScratch; // per-frame row decode scratch
+    bool bGrassLoaded = false;
+    float grassDistance = 140.0f;
+    uint32_t grassMaxCards = 9000;
+    int32_t grassStride = 3;            // grid cells between cards (2.25 m)
+    bool bGrassFlip = false;            // grid row order A/B (-grassflip)
+    struct GrassBatch {
+        std::vector<uint8_t> Streams[2];
+        std::vector<uint32_t> Indices;
+        uint32_t NumVertices = 0;
+    };
+    GrassBatch grassBatch;
 
 private:
     Vector3f instanceHideCenter;
