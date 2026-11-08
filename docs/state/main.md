@@ -40,7 +40,7 @@ slightly different."*
 
 ### Verified
 - `-markertest home,estates,clothes,carDealer -markerlogo 12|4|62 -no3d`: red home tile, estates (house + hand),
-  clothes (suit), dealer tile with the Ferrari / Audi / index-62 logo (`docs/images/shop_markers.png`, top row).
+  clothes (suit), dealer tile with the Ferrari / Audi / index-62 logo (`docs/images/shop_markers.webp`, top row).
 - `-tp 7445,17060 -heading 0`: `marker 'estates' canvas (637, 296) distance 142 m` - the for-sale tile floats over
   EPH_L1BI (same image, bottom).
 
@@ -71,7 +71,7 @@ after successfully returned to the road that's how I managed to capture the snip
 ### Verified
 - `-gm FREERIDE -skipcine -nopad -fixedtimestep -autoplay "240:hold=backontrack;260:shot=..;330:release=backontrack;
   360:hold=backontrack;372:shot=..;420:shot=..;440:release=backontrack;700:hold=backontrack;720:shot=..;800:release=backontrack"`
-  -> `docs/images/rtr_bot_cooldown_sequence.png`: sweep, reset (`back on track (12.8 m)`), red X at f372 and f420,
+  -> `docs/images/rtr_bot_cooldown_sequence.webp`: sweep, reset (`back on track (12.8 m)`), red X at f372 and f420,
   the sweep after the cooldown and a second reset (`back on track (0.3 m)`).
 
 ### Not done / next
@@ -97,7 +97,7 @@ come from seperate places ... would hope it if we can try match how this works c
   loaded UI movie (`all` also loads every `FrontEnd/HiRes/*.bnk`) to `_flashart/<movie>/<id>.png`.
 
 ### Verified
-- `docs/images/rtr_bot_retail_vs_port.png` - left the owner's captures, right the port: passive
+- `docs/images/rtr_bot_retail_vs_port.webp` - left the owner's captures, right the port: passive
   (`-gm FREERIDE -skipcine -nopad -fixedtimestep -offroadhud -autoplay "240:shot=..."`) and locked (the same run with
   `240:hold=backontrack;300:shot=...` - the car is on the road, so the hold is rejected). Ring, arrow, road, sky fill,
   red disc, X and label line up with the retail.
@@ -132,9 +132,9 @@ The owner: *"Yes, school screen"* (the retail school UI instead of the port's pa
 
 ### Verified
 - `-schoolmenu A -loglicenses`: card "Asphalt Racing School / Asphalt license" with A7 / A6 badges, A -> the 7 A7 tests
-  with icons and the objective panel (`docs/images/licence_school_tests.png`), Down + A -> `rsch:tspr` -> RSA7T02
+  with icons and the objective panel (`docs/images/licence_school_tests.webp`), Down + A -> `rsch:tspr` -> RSA7T02
   starts; B, B -> `camf`, `wmon` -> closed.
-- `-licensetest RSA7T01 -licenseforce fail`, menu Quit -> inside ERS_A on the card (`licence_school_card.png`).
+- `-licensetest RSA7T01 -licenseforce fail`, menu Quit -> inside ERS_A on the card (`licence_school_card.webp`).
 
 ### Not done / next
 - The card's player fields (photo, name, number) are empty: trace their variables in R_SCHOOL.vmf (`licence`
@@ -153,7 +153,7 @@ The owner, after the slalom work: *"Yes, real cones"* (load Hawai's `SF_PLOTS` a
 ### Verified / ruled out
 - `SF_PLOTS` (Hawai `commonworld.bnk`) is a material. The library nodes using it, `SF_PLOA` .. `SF_PLOQ`, were loaded
   (EdenModel node filter) and drawn as the RSA7T02 markers: green street **bollards** and bollard rows, not cones
-  (`docs/images/licence_hawai_sf_plo_bollards.png`: SF_PLOC, SF_PLOD, SF_PLOG). Bounds: posts 0.2 x 1.06 m, rows
+  (`docs/images/licence_hawai_sf_plo_bollards.webp`: SF_PLOC, SF_PLOD, SF_PLOG). Bounds: posts 0.2 x 1.06 m, rows
   2-46 m long.
 - All 649 Hawai library node names, the police pack and every non-frontend bank (name scan): no cone.
 - So the racing-school barrel (`sf_barel_d`, `RS_Barel_*` materials, the checkpoint pack's only obstacle) stays as
@@ -194,7 +194,7 @@ straight line; holding the throttle straight through passed every gate; the end 
 
 ### Verified
 - Fail: `-licensetest RSA7T02 -licenseforce fail -loglicenses` -> `failed_test`, thumbs-down cart, A -> menu
-  "Retry / Next test / Video Replay / Quit to the racing school" (`docs/images/licence_result_failed.png`,
+  "Retry / Next test / Video Replay / Quit to the racing school" (`docs/images/licence_result_failed.webp`,
   `licence_result_menu.png`); Retry -> `FSCommand 'rest'` -> the test restarts.
 - Win: `-licensetest RSA7T01 -licenseforce pass` -> the licence panel "A7 1 / 7 Successful / Total"
   (`licence_result_success.png`); Quit -> `FSCommand 'quit'` -> inside `ERS_A`, school menu on Slaloms
@@ -202,7 +202,7 @@ straight line; holding the throttle straight through passed every gate; the end 
 - Slalom: `-licensewarp` through the openings passes 12 / 12; `hold=accel` straight from the start ->
   "gate 1 crossed 3.6 m off centre ... Missed a gate" -> the fail screen.
 - `FREERIDE: RSA7T02 course: 10 slalom pole(s), 11 cone line(s) / 94 marker(s), racing line 292 strip(s), 3 braking
-  zone(s)`; frames `licence_slalom_racing_line.png`, `licence_cone_lines.png`, `licence_braking_zone.png`.
+  zone(s)`; frames `licence_slalom_racing_line.webp`, `licence_cone_lines.png`, `licence_braking_zone.png`.
 
 ### Ruled out (with the test that ruled it out)
 - A cone mesh in the Ibiza data: case-insensitive scan of every non-frontend bank for cone / plot / pylon names ->
@@ -266,7 +266,7 @@ car 348). `-logcaritems BODY_HR`: the 15 BODY_HR items all `visible 0`.
 - `source/render/eden/eden_model.h` - `isNodeVisible`.
 
 ### Verified
-- The Q7 whole, head lamp lit (`docs/images/q7_body_before_after.png`); mean diff to the old rule 1.2.
+- The Q7 whole, head lamp lit (`docs/images/q7_body_before_after.webp`); mean diff to the old rule 1.2.
 - Range Rover Sport HSE, Mustang Fastback '68, SLK 55 AMG (the other cars with a mixed LR node): mean diff
   0.000 against `-lrnodehide`; each run deterministic (two runs 0.000).
 
@@ -289,7 +289,7 @@ then "Wheels through body".
 
 **Reproduced**: `CinematicCar::load` lifted every `D_RIM_` node to the tyre radius - Zonda F 0.093 m, R8 V10
 0.171, TTS 0.159, S3 0.229, Q7 0.297 - with the body left where it was, so each wheel rode that far up into its
-arch (`docs/images/wheels_s3_arch_before_after.png`, left: the rim above the fender lip).
+arch (`docs/images/wheels_s3_arch_before_after.webp`, left: the rim above the fender lip).
 
 ### What changed
 - `source/game/cinematic/cinematic_car.{h,cpp}` - `getBodyLift()`: the model origin (the body underside, y = 0 on
@@ -306,7 +306,7 @@ arch (`docs/images/wheels_s3_arch_before_after.png`, left: the rim above the fen
   Zonda F: the S3's front rim was above the fender lip, now inside the arch; the Q7 body sat on its wheels, now
   at its 25 cm ride height.
 - Car wash cutscene (`-atwash`, validate): before, the rear wheel tucked up under the fender and the sill on the
-  road; after, the car on its wheels (`docs/images/wheels_car_wash_before_after.png`).
+  road; after, the car on its wheels (`docs/images/wheels_car_wash_before_after.webp`).
 - Physics unchanged: `-logdrive`, `60:hold=accel`, 420 frames - S3 ends at x 11715.59, 91.5 km/h (old 91.4),
   4912 rpm, gear 3; Q7 11726.73, 101.7 / 101.7 km/h, 4389 rpm, gear 2.
 
@@ -348,12 +348,12 @@ desk), and Buy bought on the spot: the port treated `buin` (open the buy window)
 
 ### Verified
     build-win\bin\opentdu2-win.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata C:\temp\otdu2-win-buytest -playername BuyTest -gm SHOP -shopspot ECD_AUDI_1276I -shopaim 6 -money 500000 -nopad -fixedtimestep -autoplay "150:press=validate;450:press=validate;560:press=validate;720:press=right;820:press=validate;1100:press=right;1200:press=right;1320:press=validate;1470:press=right;1580:press=validate;1720:press=validate" -exitframe 2300
-- `loop 'C_LIFE_HOSTESS'`; the hostess behind the desk (`docs/images/dealer_hostess_at_desk.png`).
+- `loop 'C_LIFE_HOSTESS'`; the hostess behind the desk (`docs/images/dealer_hostess_at_desk.webp`).
 - `buy window for Audi R8 V10 FSI Quattro: 5 rims, 12 paints, 13 interiors, 147400`; rims item 2 -> 148280
   (+$880, "Optional 5-arm double-spoke design Rims"); paint 3 "Ice Silver with Apollo silver sideblade" ->
   145880, the podium car repainted, 12 squares in the real colours; interior 2 "Black Fine Nappa leather (red
   couture)"; "Buy this vehicle?" -> `eval` -> `buyc` -> `bought ... colour 2, rims 1, interior 1 for 145880`
-  (`docs/images/dealer_buy_window_rims.png`, `_paint.png`, `_interior.png`, `_confirm.png`).
+  (`docs/images/dealer_buy_window_rims.webp`, `_paint.png`, `_interior.png`, `_confirm.png`).
 - `profile.sav`: `car_paints = 442:2`, `car_rims = 442:389`, `car_interiors = 442:1`; the next FREERIDE:
   `driving the profile's car 442 'R8_V10', rims audi/r8_spyder_f_03 (ordered at the dealer)` (default
   `r8_v10_f_01`), `in its ordered paint 2`.
@@ -399,12 +399,12 @@ its door).
 
 ### Verified
 - House: `-tp 36345,5,5765`, validate, back x4 -> `out of 'EPH_L3DI_5067I' -> the car at its entrance (36329.8, 5.2,
-  5743.8)`; on the driveway facing out (`docs/images/exit_house_at_door.png`).
+  5743.8)`; on the driveway facing out (`docs/images/exit_house_at_door.webp`).
 - Clothes shop: `-tp 11530,4,16850` -> `teleport to (11543.7, 4.6, 16830.4)` (EAS_D's door).
 - Casino: `-gm CASINO -casinoleave 120` -> `FREERIDE at the casino door`, `island 'casino'`, car on the road with 4
-  wheel contacts (`docs/images/exit_casino_at_door.png`); `760:press=validate` -> `back into the casino`;
+  wheel contacts (`docs/images/exit_casino_at_door.webp`); `760:press=validate` -> `back into the casino`;
   `760:press=opt1` -> `C_CASINO_DEPARTURE`, `C_IBIZA_ARRIVAL`, FREERIDE at the Ibiza dock (24003, 24520).
-- Dealer: `docs/images/exit_dealer_at_door.png` (unchanged code, re-checked).
+- Dealer: `docs/images/exit_dealer_at_door.webp` (unchanged code, re-checked).
 
 ### Not done / next
 - The dealer's empty desk and missing paint / interior / rims pages: `gm_shop.cpp` logs `free-ride visit, intro
@@ -447,7 +447,7 @@ load" after adding songs and an extra station (Annual Hardstyle); removing the .
 - Bar: `-gm casino -casinoroom hall -casinoselect 1 -money 5000 -allcocktails -cherry -fixedtimestep -logdeskhud`
   -> `bar FSCommand 'buy cock 12'`, `'clco'`, `GMCasino: cocktail 12 (tier 2, $200) ... WIN (cherry)`,
   cutscenes `C_COCKTAIL_BARMAN`, `C_COCKTAIL_AVATAR_WIN`, the popup "You win - Level 2 free pass"
-  (`docs/images/casino_bar_drink_and_raffle.png`, `casino_bar_raffle_tutorial.png`). Without the flags: 4 of 15
+  (`docs/images/casino_bar_drink_and_raffle.webp`, `casino_bar_raffle_tutorial.webp`). Without the flags: 4 of 15
   open, a ¤50 cocktail rolls `45 < 1 % -> lose`.
 - Cashier: `-casinoselect 0 -money 5000` -> `casi:chx1`, `slri` x3, `conv:maxv`, `conv:vali` -> `dollars->chips
   5000 -> 5000 chips, $0`; `-casinochips 300` chips -> dollars 3 -> 297 chips, $1003; rate text `$1 = 1 ¤`
@@ -479,7 +479,7 @@ The owner: "Yes, do rankings" (the screen "meant to show fastest times around ca
   SelectableZone), A = RankingCamera view, B = back to the walk; updates in tick / tickBackground / offscreen.
 
 ### Verified
-- `docs/images/casino_rankings_tube.jpg`: closed (only the hatch), raised as the walker comes near, the
+- `docs/images/casino_rankings_tube.webp`: closed (only the hatch), raised as the walker comes near, the
   RankingCamera close-up. Log: `C_RANKINGS_OPEN` -> `C_RANKINGS_STAND_OPENED`, `looking through camera
   0x96a3ae63d18431c0`. `-rankingsclear` turned the face red -> the binding works; the movie draws the page.
 
@@ -515,7 +515,7 @@ walk camera (walker at the room origin) overrode every casino cutscene camera.
 - `source/game/cinematic/cinematic_scene.h` - `CinematicScene::setOrigin`.
 
 ### Verified
-- `docs/images/casino_jackpot_keys_wincar.jpg`: the car machine's jackpot shots, the key ring in the tray, the
+- `docs/images/casino_jackpot_keys_wincar.webp`: the car machine's jackpot shots, the key ring in the tray, the
   avatar standing with the keys in hand, then the hall ceremony (hostess + director at the podium, the R8).
 - Log: `jackpot cutscene 'C_JACKPOT' at machine 7`, `'CF_KCar' taken in the hand at t 24.03 (0.11 m)`,
   `cinematic 'C_WINCAR'`; 0 stalls. Hall walk start vs the previous build: mean diff 0.05; walking moves.
@@ -551,7 +551,7 @@ in the center with car on top".
   the sunken carpet pit and the `Socle_Car` podium (both were loaded all along). `-closedroomareas` = A/B.
 
 ### Verified
-- `docs/images/casino_hall_carpet_podium.jpg`: from the entrance and close up - the red runway, the lit
+- `docs/images/casino_hall_carpet_podium.webp`: from the entrance and close up - the red runway, the lit
   podium, the R8 on it.
 - Other closed rooms with vs without `-closedroomareas`: FIRST_WM garage 0 px changed, casino slots 3 px,
   VIP lounge lighter overall (the Ibiza tile also shadowed it).
@@ -601,7 +601,7 @@ green header "Centre 1 | 1 entreC", the highway panel's rows rotated 90 degrees.
 - New flag: `-signfontberlin` (the old Berlin Sans FB lettering, A/B).
 
 ### Verified
-- `docs/images/sign-faces-2026-11-05.jpg`: the four photo signs + a DirL_D and the HwDist_C panel, all reading
+- `docs/images/sign-faces-2026-11-05.webp`: the four photo signs + a DirL_D and the HwDist_C panel, all reading
   upright with the photo's arrows / pictograms / colours.
 - `-logsigns`: `remapped 3 stacked plate row(s) ... (1 upside down)` on rs_tdirib_c; `unfolded a mirrored
   plate at u 0.166 (4 vertices), zone u 0.005..0.328` on rs_dist_b/d.
@@ -636,7 +636,7 @@ The owner: "Yes, check others".
 ### Verified
 - `-tp 22000,23000 -enterhouse <spot> -walkaim diary -surfaceedit floor|wall`: EPH_L2E_0345I 2 floor / 1 wall
   material(s), EPH_L1D_1455I 1 / 1, EPH_L0C_1254I 2 / 0; screenshots
-  `docs/images/house_mytduhouse_floor_other_houses.png` (l1d wood -> marble, l2e slate -> marble). Exit 0.
+  `docs/images/house_mytduhouse_floor_other_houses.webp` (l1d wood -> marble, l2e slate -> marble). Exit 0.
 
 ### Not done / next
 - The other 17 banks were checked by their names only, not entered. The `_level` gate; HOME's own item menu.
@@ -657,7 +657,7 @@ The owner: "Yes, walls and floors".
 
 ### Verified
 - Floor: own -> Light Marble Tiling ($5000) -> Massaranduba Parquet ($4000) bought, saved `#floor=ground_02`,
-  reloaded on the next run (`house_mytduhouse_floor.png`). Walls: Tuscany-red -> Titanium-grey Concrete ->
+  reloaded on the next run (`house_mytduhouse_floor.webp`). Walls: Tuscany-red -> Titanium-grey Concrete ->
   Yellow-saffron Plaster (`house_mytduhouse_walls.png`; 7.9 / 8.7 % of the pixels changed).
 
 ### Ruled out
@@ -683,9 +683,9 @@ The owner: "Yes, colours next".
   **Cross / Enter** buys or applies, **Circle / Esc** cancels).
 
 ### Verified
-- sofaL_A: colour 1/5 -> 2/5 -> 3/5, applied, `sofal_a#2` (`house_mytduhouse_colours.png`).
+- sofaL_A: colour 1/5 -> 2/5 -> 3/5, applied, `sofal_a#2` (`house_mytduhouse_colours.webp`).
 - ChaiBarD_01 (group 3): "3 slot(s)", CONTEXT -> BUBBLE on all three, colour 2, $600
-  (`house_mytduhouse_group_barstools.png`). Reload: every slot logs its saved bank + colour. Exit 0.
+  (`house_mytduhouse_group_barstools.webp`). Reload: every slot logs its saved bank + colour. Exit 0.
 
 ### Not done / next
 - Walls / floors (`MAT_WALL1_`, `MAT_FLOOR1_`, `ground_01..25`), the `_level` gate, HOME's own item menu.
@@ -709,7 +709,7 @@ The owner: "Yes, furniture next" (the TDU Life / MyTDUHouse furniture left open 
 - `-home -walkaim diary -furnaim sofaL_A` + Info -> MyTDUHouse: "13 furniture selectable(s)", "editing
   'sofaL_A' (type 8, sofal_a), 13 model(s)", right x2 -> sofal_b, sofal_e, A -> "$20000 (money 480000)",
   saved; the next visit logs "furniture 'sofaL_A' (type 8, bank sofal_e)"
-  (`docs/images/house_mytduhouse_furniture_swap.png`). Exit 0.
+  (`docs/images/house_mytduhouse_furniture_swap.webp`). Exit 0.
 
 ### Not done / next
 - The colour variants inside a model (`DefaultColor`, `_MHA_/_MHB_/_MHC_xx` materials), walls / floors, the
@@ -750,18 +750,18 @@ dealerships can we plug correct ui believe uses same as the used car dealership"
 
 ### Verified
 - `-gm SHOP -shopspot ECD_FERR_3337I -shopaim 4 -money 900000`: the 458 Italia's price + spec panel, the
-  Buy / Get into the car / Data / Compare / Test drive menu (`dealer_shopscar_car_dealer_menu.png`);
+  Buy / Get into the car / Data / Compare / Test drive menu (`dealer_shopscar_car_dealer_menu.webp`);
   validate x2 -> `buin` -> "bought ... money 699000" -> `C_BUY_CAR_I` -> FREERIDE "driving the profile's
-  car 391 '458_Italia'" outside the dealer (`dealer_shopscar_buy_drive_out.png`).
+  car 391 '458_Italia'" outside the dealer (`dealer_shopscar_buy_drive_out.webp`).
 - `-gm FREERIDE -tp 21803,24216`, validate at the Ferrari door -> SHOP; back -> dialog -> `gofr` ->
   FREERIDE at the entrance; exit 0 (exit 139 before the crash fix; `-no3d` survived, `-nointeriorworld`
   survived - the streamed island + a second instance).
 - House (`-home`, profile with clothes 419 / 505 / 285 / 287 / 307 and cars 391 / 387):
   `-walkaim dressing` -> Walk-in closet -> Hats (3 items: No hat + 2) -> right -> OK -> "wearing 419
   'Cowboy hat'", saved `worn_clothes = 5:419`; Back -> `avou` -> walk (`house_closet_wear_hat.png`). The
-  player then walks into the Ferrari dealer in the hat (`house_closet_hat_worn_in_shop.png`).
+  player then walks into the Ferrari dealer in the hat (`house_closet_hat_worn_in_shop.webp`).
   `-housegarage -walkaim car` -> A -> "garage: driven car -> 391", back -> FREERIDE in the 458 at the house
-  entrance (`house_garage_pick_car.png`). `-walkaim diary` -> Info -> MyTDUHouse -> Back -> "Quit
+  entrance (`house_garage_pick_car.webp`). `-walkaim diary` -> Info -> MyTDUHouse -> Back -> "Quit
   MyTDUHouse?" -> OK -> `myhs:clos` (`house_mytduhouse_quit_dialog.png`).
 
 ### Ruled out
@@ -812,7 +812,7 @@ will chase you, also there's some dialog explaining it".
 ### Verified
 - `-gm FREERIDE -skipcine -nopad -fixedtimestep -policeviol` (fresh userdata copy): frame 200 the gauge reads
   "Traffic violation" with the badge, 55 % filled left->right green->yellow
-  (`docs/images/police_violation_gauge.png`); 290 the help page 1 (ranks table, `police_chase_help_p1.png`);
+  (`docs/images/police_violation_gauge.webp`); 290 the help page 1 (ranks table, `police_chase_help_p1.png`);
   `press=right` -> page 2 with "8 consecutive wins" / "35 victories" and the police photos
   (`police_chase_help_p2.png`); `press=validate` -> "Chase Mode help closed", the world runs again.
 - `-police` (chase): the gauge switches to "Escape" with the car icon (`police_escape_gauge.png`).
@@ -859,14 +859,14 @@ is GLM's build-459 sweep (`C:\OpenTDU2-glm\docs\images\glm\`, uncommitted there)
 - Slots self-test 50000: RTP 98.26 %, balance 99921750 = expected - identical to
   GLM's 459 numbers (64-stop machines unchanged). Clothes machine
   (`-casinoroom slots -casinoselect 0`, spin at 300/950): the drum rests on a full
-  avatar (`docs/images/casino_clothes_reel_fixed.png`; GLM's settled2 had a blank top).
+  avatar (`docs/images/casino_clothes_reel_fixed.webp`; GLM's settled2 had a blank top).
 
 ### Ruled out / not bugs
 - **"Spins: 0 never increments"**: GLM's own result shot shows `Spins 1`; it
   increments at the settle, after the wheel time.
 - **"Level UP! double-draws"**: the movie's zoom-echo intro - a larger fading
   copy over ~20 frames, gone by the hold (`-testlevelup`, shots every 8 frames
-  272..392; `docs/images/levelup_echo_anim.png`).
+  272..392; `docs/images/levelup_echo_anim.webp`).
 - **Podium head "inside-out" (`C_A5_PODIUM_TESS`), `sta_firstintro` /
   `isl_firstintro` underlit + floating car**: all CINVIEWER captures (the browser
   panel is in the shots) of cutscenes **no game mode plays** (`grep` finds no
@@ -1028,7 +1028,7 @@ batched far-tree impostors. Missing: **occlusion** culling (what is behind a bui
 | benchmark spot (`-tp 21796.3,24188.1`) frame 300 | 2,776 | 2,106 (75.9 %) |
 | benchmark drive frame 600 / 1000 | 3,526 / 2,604 | 77.3 % / 76.2 % |
 
-- The pictures (`docs/images/occlusion_probe_town.png`, `occlusion_probe_benchmark.png`: frame | depth + hidden
+- The pictures (`docs/images/occlusion_probe_town.webp`, `occlusion_probe_benchmark.png`: frame | depth + hidden
   boxes) line up with the frames: the hidden boxes are the town behind the street-front buildings, the band of
   sector objects / instances behind the hedges and trees on the horizon, and the car's own inner parts behind its body.
 - Per-pass CPU at the town spot (`-logrecordtimes`): ocean 2.5 ms (2,013 draws), prepass 2.5 (2,332), shadows 3.6
@@ -1199,7 +1199,7 @@ The owner: "I think that scene originally shouldn't have any fog or haze I notic
 ### Verified
 - `-loghaze`: every intro shot uses the `Intro` weather - Skydome_haze 0.700, fog 0..1200 m, max 0.500 [DATA]; so the
   haze is in the data, the owner's observation is that the original does not show it (postfx_spec 5 item 5 notes it).
-- Intro frames 1200 (bay) and 2000 (party) with and without: `docs/images/intro_no_haze_bay.png`,
+- Intro frames 1200 (bay) and 2000 (party) with and without: `docs/images/intro_no_haze_bay.webp`,
   `intro_no_haze_party.png` (top = old, bottom = new) - the grey wash and the ghostly far trees are gone; the distance
   is darker and more saturated without the haze's added light.
 
@@ -1221,7 +1221,7 @@ The owner: "Yes, light the trees".
   light object at +0x45bc, vtable 0xf2c310, constructed at 0xd82170 [CODE]); the scene ambient without a weather.
 
 ### Verified
-- Intro frame 1200: far trees on the hills, green, full width; `docs/images/impostors_far_trees_intro.png` (before /
+- Intro frame 1200: far trees on the hills, green, full width; `docs/images/impostors_far_trees_intro.webp` (before /
   after) + `impostors_far_trees_zoom.png`. FREERIDE 13:00: one far tree at the street end, nothing else changes.
 - 4K High benchmark (quiet machine): 15.3 / 16.0 ms on, 14.8 / 15.6 ms with `-noimpostors` (+0.4-0.5 ms). `-noimpostors`
   is pixel-identical to the previous commit. Validation: FREERIDE + intro, only the existing shutdown VUID.
@@ -1261,7 +1261,7 @@ The owner: "Instance the .pmi draws".
 ### Not done / next
 - Make the impostors look right, then default them on (PROGRESS row "Far vegetation impostors"): feed
   `__AmbLight_Ambient_0/1` from `impostor_ambient` (night_lighting_spec 5), check FUN_00996820 for camera-facing quads
-  and the dissolve; `docs/images/impostors_wip_unlit.png` is the current `-impostors` look (intro frame 1200).
+  and the dissolve; `docs/images/impostors_far_trees_intro.webp` is the current `-impostors` look (intro frame 1200).
 - Real instancing of the other families needs per-instance world matrices in the shaders - a SPIR-V patch of the
   DXSO translation (read the World rows from an instance-rate stream) is the route; not started.
 
@@ -1321,7 +1321,7 @@ with dxvk 4k max with 8x AA this pc gets over 100 - 140fps".
 ### Verified
 - HUD 10.0 -> 1.8 ms, frame 39.0 -> 31.3 ms (26 -> 32 fps) at 3840x2160 High; GPU unchanged at ~4.1 ms.
 - Frame-400 screenshot vs `-nominimapcache`: mean 0.008/255 whole frame, 0.10 in the map box (<= 2 frame map lag);
-  roads trimmed cleanly at the satnav edge (`docs/images/minimap_scissor_cache_4k.png`).
+  roads trimmed cleanly at the satnav edge (`docs/images/minimap_scissor_cache_4k.webp`).
 - `render_scale = 200` at 4K: GPU 8.7 ms, frame unchanged (31.5-32.1 ms) — supersampling is free on this PC today.
 
 ### Ruled out
@@ -1347,7 +1347,7 @@ The owner picked "Yes, add the LOD" after the AI opponents session.
 
 ### Verified
 - opponents_spec 2 / 4: two runs x 8 samples, 22.6 ms (high, all shadows) -> 21.5 ms (default) against 19.0 ms
-  with no opponent draw; high / med look the same (`docs/images/race_opponents_med_lod.png`); 0 VUIDs; Passed 1st of 8.
+  with no opponent draw; high / med look the same (`docs/images/race_opponents_med_lod.webp`); 0 VUIDs; Passed 1st of 8.
 
 ### Ruled out
 - `<car>_low.bnk` as a far model: it is the engine sound bank (TCT_*.wav, CarVSTConfig.xmb).
@@ -1385,9 +1385,9 @@ Controls: none new (races start as before; the position shows on its own).
 - `chase_mode.cpp` - the CinematicCar cop fallback was drawn mirrored (fitOnGround takes an Eden quaternion).
 
 ### Verified
-- docs/re/opponents_spec.md 4: CHA5A04R grid + GO (`docs/images/race_opponents_field.png`), the position HUD
-  (`race_position_hud.png`), win 1st of 8, Beaten 7th / 8th of 8, all 7 finishing 321-327 s, CHA7A02R / CHB4A01R
-  class picks, 0 VUIDs; the rival Mustang (`freeride_rival_miami_mustang.png`).
+- docs/re/opponents_spec.md 4: CHA5A04R grid + GO (`docs/images/race_opponents_field.webp`), the position HUD
+  (`race_position_hud.webp`), win 1st of 8, Beaten 7th / 8th of 8, all 7 finishing 321-327 s, CHA7A02R / CHB4A01R
+  class picks, 0 VUIDs; the rival Mustang (`freeride_rival_miami_mustang.webp`).
 
 ### Ruled out
 - The race gates' road words (`0, 236, 2, 1`) as a port road-graph link index: no match on CHA5A04R.
@@ -1416,7 +1416,7 @@ The owner picked "Minimap gate icons" after the race gates session.
 ### Verified
 - `-island hawai -licensetest CHA5A04R -licensepark` (countdown: green start + two orange checkpoints, one parked on
   the top edge; running: the next checkpoint) and `-licensepark last` (red finish):
-  `docs/images/race_minimap_gate_icons.png`. No icon outside a race (count 0 hides them).
+  `docs/images/race_minimap_gate_icons.webp`. No icon outside a race (count 0 hides them).
 
 ### Not done / next
 - `/HUD/position` needs opponents; the icons follow `-noracegates` (they read the gates drawn).
@@ -1449,9 +1449,9 @@ Controls: none new (indicators stay on the in-car menu, D-pad left; `-indicator 
 - Gates: `-licensetest RSA1T01 -licensepark` (barrel pairs), `-island hawai -licensetest CHA5A04R -licensepark` /
   `-licensepark last` (CHECKPOINT and FINISH arches), `-racestart 1` (START arch); `-licensewarp` through CHA5A04R:
   18 gates over 3 laps, splits +0.25 then ~0, "Last lap!" at gate 12, the finish model on the last step, Passed.
-  `docs/images/race_gates_hud.png`.
+  `docs/images/race_gates_hud.webp`.
 - Lamps / discs: night rear (blinker lit / off), front, `-brakeheattest 100` / `45`, midday -
-  `docs/images/car_lamps_glow_brake_disc.png` (first row = before). `-vk_enable_validation_layer`: 0 VUIDs.
+  `docs/images/car_lamps_glow_brake_disc.webp` (first row = before). `-vk_enable_validation_layer`: 0 VUIDs.
   `-storystep 3`: exit 0, 0 stalls.
 
 ### Ruled out
@@ -1483,7 +1483,7 @@ Backspace** = keep the hand as it is.
 
 ### Verified
 - See casino_spec 9.9: the Poker hold kept the 4s through the draw; auto-hold 01100 + Jacks or better on seeds 8 / 9;
-  Beach lock kept reel 2; seeds 22 / 61 auto-lock all three reels and pay on the respin (`docs/images/casino_slot_second_chance.png`).
+  Beach lock kept reel 2; seeds 22 / 61 auto-lock all three reels and pay on the respin (`docs/images/casino_slot_second_chance.webp`).
 - High Life flow unchanged (9 lines, the 600 win, quit); 0 VUIDs; `-storystep 3` exit 0.
 
 ### Not done / next
@@ -1506,7 +1506,7 @@ only one that seems a little off"*, and yes to the neon blink / win lights.
   `flashCombo`; `-logcasinoreels`; `-dumpcasinoentities 0x<hash>` / `root`.
 
 ### Verified
-- Fashion spin: the chest drum shows a blurred jacket, no grey stripes (`docs/images/casino_fashion_chest_spin.png`).
+- Fashion spin: the chest drum shows a blurred jacket, no grey stripes (`docs/images/casino_fashion_chest_spin.webp`).
 - Neon blink at a fixed eye (`-walkat 35.55,10.00,12.78,180`): frame diffs 5.7 / 4.7 / 5.7 / 7.3 / 7.0 / 4.9.
 - States (`-logcasinoneons`): High Life `Title_Neon` / `SMHighLife_gain` -> Active on the machine, kept on the 600 win
   (NeonWin CanBeActivate 0), -> Inactive on leaving; Poker the same.
@@ -1541,13 +1541,13 @@ animations"*, then a reference photo: *"missing textures at top of slots that sh
 
 ### Verified
 - Spin direction: `-reelspeedscale 0.04`, frames 20 apart: Classic / High Life symbols move down
-  (`docs/images/casino_reels_spin_down.png`); Fashion still across.
+  (`docs/images/casino_reels_spin_down.webp`); Fashion still across.
 - Handle: TDU 2 machine, lever crop diff vs frame 309: 0.12 / 0.12 / 4.94 / 4.44 / 2.71 at +11 / +26 / +41 / +56 / +71
-  frames - the pull and the return (`casino_slot_handle_pull.png`), clip `cas_sm_spin-tri.anm` 1.21 s.
+  frames - the pull and the return (`casino_slot_handle_pull.webp`), clip `cas_sm_spin-tri.anm` 1.21 s.
 - Screens: 00 / bet / 1000 at rest, 990 (High Life) and 900 (TDU 2) after a spin, on the machine
-  (`casino_slot_screen_on_machine.png`); `-noprops` A/B: the black panel was the screen prop.
+  (`casino_slot_screen_on_machine.webp`); `-noprops` A/B: the black panel was the screen prop.
 - Tops: walk view at the TDU 2 machine - the pay art (wheels, 1500 / 500) covers the drums; the room's machines have
-  their lit tops (`casino_slot_tops_neons.png`); all six in play (`casino_slot_machines_parts.png`).
+  their lit tops (`casino_slot_tops_neons.webp`); all six in play (`casino_slot_machines_parts.png`).
 - `-vk_enable_validation_layer`: casino spin / back / quit and FREERIDE map + pause, 0 VUIDs (11 before the pass fix).
 - Regressions: `-storystep 3` exit 0, 0 stalls; hall and roulette rooms exit 0.
 
@@ -1638,13 +1638,13 @@ with the casino icon) and press **Cross / Enter**; the hall's exit door flies yo
 
 ### Verified
 - `-gm casino -casinoroom slots -casinoselect 6 -casinoseed 7` + one spin: reels blur, stop in turn, the 66-chip win is
-  three speed boats on the reels (`docs/images/casino_slot_highlife_spin.png`); all six types:
-  `casino_slot_machines_real_reels.png`. Hall: `casino_hall_r8_socle.png`.
+  three speed boats on the reels (`docs/images/casino_slot_highlife_spin.webp`); all six types:
+  `casino_slot_machines_real_reels.webp`. Hall: `casino_hall_r8_socle.webp`.
 - `-gm FREERIDE -island ibiza -casinotrip -casinoleave 200`: C_IBIZA_DEPARTURE 65.3 s -> C_CASINO_ARRIVAL 53.0 s -> CASINO
   hall -> C_CASINO_DEPARTURE; `-gm casino -casinoleave 60`: 37.0 s + C_IBIZA_ARRIVAL 52.5 s -> FREERIDE on Ibiza at the dock
-  (`casino_trip_to_casino.png`, `casino_trip_home.png`).
+  (`casino_trip_to_casino.webp`, `casino_trip_home.png`).
 - Building collision A/B at the Ferrari dealer (`-tp 21796,14,24150 -heading 0`, accel held 8 s): the car hits the wall and
-  stops after 61 m; `-nospotcollision`: straight through the building, 161 m (`building_collision_ferrari_dealer_ab.png`).
+  stops after 61 m; `-nospotcollision`: straight through the building, 161 m (`building_collision_ferrari_dealer_ab.webp`).
 - Regressions: `-storystep 3` exit 0, 0 stalls; `-casinoroom roulette -casinoselect 2` table minimum 25.
 
 ### Ruled out
@@ -1702,13 +1702,13 @@ Enter** pays, **Circle / Esc** (back) leaves without paying.
 ### Verified
 - Solar Crown: "Tess Wintory" bottom right at 15 s, the player name ("Danny") on `cam_challenger` at 38 s, the
   TV logo top right; the avatar gone from the 21 / 25 / 50 s TV shots
-  (`docs/images/solar_crown_i_avatar_visibility_before_after.png`, `solar_crown_i_tv_logo_name_captions.png`).
+  (`docs/images/solar_crown_i_avatar_visibility_before_after.webp`, `solar_crown_i_tv_logo_name_captions.png`).
   `-storystep 3` frames identical (diff 0.000 x4); `-storystep 5` differs only where the data hides actors;
   `-storystep 6` exit 0 -> SHOP, 0 stalls.
 - Car wash: `accepted -> the drive-in`, `end of 'C_INTRO_E_1' -> the fee prompt ($10) over 'C_LOOP'`, `paid $10`,
   `end of 'C_WASHING' -> 'C_INCAR'`, `in-car part 'C_INCAR' with 3 loop(s), cockpit camera of the car`,
   `end of 'C_OUTRO'`, `FREERIDE: 'California' as it left: roof open, windows open, mud 0.00 dirt 0.00 wet 1.00`
-  (with `-dirtseed 70`: the scene car `mud 0.70 dirt 0.42` before the fee). `docs/images/carwash_retail_sequence.png`.
+  (with `-dirtseed 70`: the scene car `mud 0.70 dirt 0.42` before the fee). `docs/images/carwash_retail_sequence.webp`.
 - The music: a real-time run with `OTDU_AUDIO_LOG=1` keeps `m_washing_intro_CINEMATIC` at gain 1.00 through all
   of `C_WASHING`, then `m_washing_CINEMATIC` in the in-car part.
 - 700-frame FREERIDE drive exit 0, 0 stalls.
@@ -1765,11 +1765,11 @@ ground), `-tp 16860,20.5,27987` (runway: red smears + bleached surface).
 
 ### Verified
 - Airport: runway mean diff 30.5 (before/after), apron 12-14, car wash 0.017 (unaffected), terminal front 0.0001.
-  `docs/images/airport_runway_address3_before_after.png`, `airport_apron_address3_before_after.png`.
+  `docs/images/airport_runway_address3_before_after.webp`, `airport_apron_address3_before_after.png`.
 - Cutscenes, 8 shots each: `-storystep 3/5/6` play with actors, sets and cuts. `-storystep 13`:
   `CINE: kind 43, C_IGLOO` -> `CINE: end of C_IGLOO -> FREERIDE on hawai` ->
   `FREERIDE: handoff at 'EPH_L0A_1276' entrance (12215.1, 1.0, 17067.7) on hawai`, drivable, 0 stalls
-  (`docs/images/cine_igloo_hawai_before_after.png`, `cine_igloo_handoff_freeride.png`).
+  (`docs/images/cine_igloo_hawai_before_after.webp`, `cine_igloo_handoff_freeride.png`).
 - Regressions: 700-frame FREERIDE drive exit 0 / 0 stalls. `-storystep 3` frame identical to before (diff 0.007).
 
 ### Ruled out

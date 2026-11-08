@@ -187,10 +187,10 @@ test `/:WhatPage == "car_dealer"`; the choice for the new-car types is INF]
 (`car_dealer_classic` exists, unused). `-shoppage <label>` is the A/B.
 - Intro `C_INTRO_I`, the walk from the bank's FirstPerson camera, no tutorial, no goal.
 - The car under the reticle: price, money, spec panel; validate: **Buy / Get into the car /
-  Data / Compare / Test drive** (`docs/images/dealer_shopscar_car_dealer_menu.png`).
+  Data / Compare / Test drive** (`docs/images/dealer_shopscar_car_dealer_menu.webp`).
 - Buy -> `buin` -> `C_BUY_CAR_I` (the hostess) -> FREERIDE at the spot entrance **in the new
   car** (OwnedCars + paint + `DrivenCarId`, COLLECTION_CARS_DIF_n) - so "Get into the car"
-  after a purchase is no longer the old dead end (`docs/images/dealer_shopscar_buy_drive_out.png`).
+  after a purchase is no longer the old dead end (`docs/images/dealer_shopscar_buy_drive_out.webp`).
 - Back at the walk -> the "leave?" dialog -> `gofr` -> FREERIDE at the entrance.
 - Test drive: the existing TESTCAR round trip (back to the same dealer).
 - Hawai rows have no `I` suffix (`ECD_FERR_7841`); `-shopspot <prefix>` picks the island
@@ -205,7 +205,7 @@ interior or rims"*.
 `C_BUY_CAR_I` and **`C_LIFE_HOSTESS`**, the hostess's idle at her desk (14 of 14 `interior/icd*.bnk`,
 `otdu2_cine_tool list`) [DATA]. The free-ride loop search did not know that name, so the walk ran with no
 background loop and the desk was empty. It is first in the list now, and `C_INTRO` is the intro fallback.
-`docs/images/dealer_hostess_at_desk.png`.
+`docs/images/dealer_hostess_at_desk.webp`.
 
 **The window.** In SHOPSCAR, *Buy* does not buy. It sends `buin`, and the movie's `/buy/window_buy` then
 asks the game page by page. The dealer FSCommand handler `FUN_009f0840` is readable [CODE]:
@@ -264,7 +264,7 @@ Verified (`-gm SHOP -shopspot ECD_AUDI_1276I -shopaim 6 -money 500000 -playernam
 with Apollo silver sideblade" (the podium car repaints live), interior 2 "Black Fine Nappa leather (red
 couture)"; confirm -> `eval` -> `buyc` -> `bought ... colour 2, rims 1, interior 1 for 145880`; the next
 FREERIDE: `driving the profile's car 442 'R8_V10', rims audi/r8_spyder_f_03 (ordered at the dealer)`, in
-paint 2. `docs/images/dealer_buy_window_rims.png`, `_paint.png`, `_interior.png`, `_confirm.png`.
+paint 2. `docs/images/dealer_buy_window_rims.webp`, `_paint.png`, `_interior.png`, `_confirm.png`.
 
 Not done: the podium car does not swap its rims while browsing (a live rim model swap is not built); the
 interior is saved but not drawn (no cockpit material swap); the per-page camera `FUN_009f2d80(car, page)`

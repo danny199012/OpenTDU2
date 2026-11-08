@@ -256,7 +256,7 @@ strip, `u = [i/9, (i+1)/9]` `[INF]`), alpha-blended with the roots at v = 1
 the retail handler drives per frame (the `.2dm` ships it 0 — transparent).
 Verified in-engine: crossed vertical pairs at the GrassType sizes draw
 correctly placed, sized and blended under the plain Gouraud shader
-(`docs/images/grass_s84_on.png`).
+(`docs/images/grass_s84_on.webp`).
 
 ## 6. Implementation (this port)
 
@@ -288,8 +288,8 @@ correctly placed, sized and blended under the plain Gouraud shader
   shear is `2·lever`, which at full height tore the cards into streaks
   (measured: `_gtg_on2` iteration). The noise amount (v3.z) = 0.35; the
   noise texture's mean luminance is 0.392, so the tint averages ~0.6.
-  Verified: `docs/images/grass_tallgrass_s81.png` vs the Gouraud path at
-  the same spot `grass_tallgrass_off_s81.png` (farm sector,
+  Verified: `docs/images/grass_tallgrass_s81.webp` vs the Gouraud path at
+  the same spot `grass_tallgrass_off_s81.webp` (farm sector,
   `-tpin 19584,24960 -clock 12`); validation layer 0 VUIDs during the
   frames (only the pre-existing shutdown `vkDestroyDevice` notice).
 * Flags: `-nograss` (off), `-grassdist <m>` (card radius, default 140),

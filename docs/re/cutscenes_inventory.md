@@ -96,7 +96,7 @@ it should print players name"*.
   the avatar and the car carry a lone 0 and are on screen in retail). The same data now also hides
   Assistant_01/03 and Todd until 48.4 s and Tess 3.19..5.38 s (the dolly-in, likely her costume
   change - unverified against retail). `-nocinevisibility` = the A/B.
-- Evidence: `docs/images/solar_crown_i_avatar_visibility_before_after.png` (21 s / 25 s, left before),
+- Evidence: `docs/images/solar_crown_i_avatar_visibility_before_after.webp` (21 s / 25 s, left before),
   `solar_crown_i_tv_logo_name_captions.png` (the logo + "Tess Wintory"; the logo + the player name).
   `-storystep 3` frames identical (diff 0.000); `-storystep 5` differs only where the data hides actors.
 
@@ -120,7 +120,7 @@ it should print players name"*.
   `-gm CINE -cinekind 43`). `EPH_L0A_1276` is a **Hawai** spot: only `islands/hawai/level/spots.bin` carries it [DATA].
   Before this, the kind had no island and no exterior. `ReadSpot` found the Hawai coordinates (12239.7, 1.37, 17060.9),
   but the streamed world was Ibiza, so Ibiza's houses floated above a bare plane with no hut shell
-  (`docs/images/cine_igloo_hawai_before_after.png`, top). Now `GMCine::Kind::pIsland` = `hawai` feeds
+  (`docs/images/cine_igloo_hawai_before_after.webp`, top). Now `GMCine::Kind::pIsland` = `hawai` feeds
   `Setup::HouseIsland`, and the exterior is `islands/hawai/exterior/eph_l0a.bnk`: the Quonset hut, the hedges and the
   sea draw (bottom). The scene ends at about 20 s with the car parked inside the hut. The end hands over to FREERIDE
   on Hawai at the spot's road-side entrance (`StoryHandoff::Island` + `EntranceSpot`, spots.bin +0x28/+0x38)
@@ -155,7 +155,7 @@ spot's frame:
   to the ground under the car (`IntroCinematic::snapSceneToGround`, -0.14 m).
 - The bank brings no set of its own (only the two `garage_int` interior pieces, the key ring and the phone),
   and the entity has no StreamCenter / Micro / CinCamera (all 0) [DATA].
-- Evidence: `docs/images/port-meeting-tess-hotel-s44.png`, `port-meeting-tess-keys-s44.png`,
+- Evidence: `docs/images/port-meeting-tess-hotel-s44.webp`, `port-meeting-tess-keys-s44.png`,
   `port-meeting-tess-topview-s44.png`.
 Superseded below: the party-house frame, the E_HOTELA spot frame itself (0.9 m sunk, side terrace), the
 second EPH_L3DI spot, and the unplaced `ech_ib` / `ech_ic` variants.

@@ -119,7 +119,7 @@ or where they fly (`fx.ini` holds the grass counts, not the birds;
 `eair_a.bnk` (the airport spot) is streamed by `SpotExteriors` like any other
 building, and its `Entity__Actor` `CF_Plane` is drawn by `SpotExterior` as a
 prop (the same `plane_8F55FCC8EA60E834.3dd`, 975 KB of 3dg). **Nothing had to be
-added**: `docs/images/airport_apron_parked_planes.png` is the Ibiza apron with
+added**: `docs/images/airport_apron_parked_planes.webp` is the Ibiza apron with
 two Paradise Airline airliners standing at the terminal, taken with
 `-noaircraft` (so they are the bank's own, not the flying system's).
 
@@ -178,17 +178,17 @@ two Paradise Airline airliners standing at the terminal, taken with
   `Aircraft: 11 planes on 4 routes, 2 on the ground, 5 take-off / landing since the last line`.
 * The model is drawn: `-aircraftpark` against `-aircraftpark -noaircraft`, same
   frame -> **mean pixel difference 30.0, 237,667 pixels of 921,600 above 8/255**
-  (the 747 fills a quarter of the frame). `docs/images/aircraft_parked_terminal.png`.
+  (the 747 fills a quarter of the frame). `docs/images/aircraft_parked_terminal.webp`.
 * The parked plane of the airport bank:
   `SpotExterior: eair_a.bnk: 2 set models, 1 props` and
   `SpotExteriors: EAIR_A at (16780, 27512): 3 models, 1 placements`;
-  `docs/images/airport_apron_parked_planes.png`.
+  `docs/images/airport_apron_parked_planes.webp`.
 * The birds: `Birds: species 'noir' -> 'noir.2db'` ... `'moineau' -> 'moino.2db'`,
   `Birds: ibiza: 5 species, up to 96 in 5 flocks of 5..9, draw 800 m`,
   `Birds: 35 drawn of 35, 5 flocks, rain 0.00, sun 1.00`; against `-nobirds`,
   same frame, `-birdsfront` -> **5302 pixels above 8/255, clustered in the sky**
   (a 40 x 40 block map of the difference shows isolated birds, not a rectangle).
-  `docs/images/birds_sky.png`.
+  `docs/images/birds_sky.webp`.
 * Cost: 11 planes + 35 bird quads did not move the frame time measurably
   (`[perf] frame 120: avg 18.3 ms` with and without them).
 

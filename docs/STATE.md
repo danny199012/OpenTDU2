@@ -30,9 +30,9 @@ across them.
 
 ## Where we are
 
-- Newest (2026-11-03, `glm`, session 70): **the origin/cline merge (the launcher, the ocean, the traffic + police, the UI viewer, the weather cycle, sessions 63-78) landed and the return-to-road indicator was rebuilt onto the decoded retail element — the work is parked one delta short of the captures, with the decode written up for the next session.** The owner asked to look at the "Return to the road" UI against their retail captures and pointed at cline's UI tools. **The merge** (21 conflicts resolved: the surface-fx falloff stays glm's superset, the satnav minimap stays glm's with cline's `bSimpleHud` gates, the weather library feeds both the intempery overlays AND the cycle variants, the scene-view lightmap materials carry owners for the streaming unregister, the `-clock HH.MM` freeze freezes the cycle (rate 0) and the world clock follows the cycle per tick so the pause menu / traffic hour / weather pick share one clock; follow-up compile fixes committed). **The return-to-road decode** (`docs/re/backontrack_ui_findings.md` rewritten): the captures' badge = `/HUD/enter_hold` (the circular ring) — its states are the movie's OWN AVM1 actions (element f9 'open' runs `ic.gotoAndStop("on")`, ic f8 'lock' plays `FSCommand:sndp:wrong`, f40/f120 auto-close), the fill sweep is ic/anim's 30 frames sliding the sky art (bitmap 808) through the nested stencil mask (which WORKS now — cline's parked blocker is gone), the layout is the movie's own parking position (ring centre stage x 639.95 exact, y nudged -24 px to the capture) with the label needing no re-anchor; the goto traps fixed in the driver: the forward-goto leaks the 'lock' art (hidden after 'on'), fresh sprites play their own timeline (the sweep parked via gotoFrame + stopSubtree), and the first show must force the ic goto. The grass tile (Spot 'default' + offroad 'on' = bitmap 4754, the grass-over-road circle) is a DIFFERENT presentation — decoded and kept, unused by this flow. **The indicator now**: off-road > 2 s (or the on-road rejected press) shows the ring at the fixed retail position with loc 50 under it (`docs/images/rtr_ring_passive_s70.png`), the hold sweeps the fill and resets (`rtr_ring_hold_s70.png`), the on-road hold rejects (ic 'lock' + the badge shows immediately, no 2 s wait). **The UI tool the owner asked about**: `FlashMovie::getBitmapPixels` / `getAtlasCellPixels` — the engine's own decoder writes any flash bitmap (standalone or atlas cell) as a PNG; `-dumpbot` dumps the whole 4740..4830 badge cluster (the ground truth art sheet). **Parked one delta short**: the captures show the arrow pointing DOWN with the sky filling the whole ring; our render has the arrow UP with the fill partial — the composition/orientation is the retail driver's (a port-side flip breaks the stencil mask). The next tool is the owner's suggested x360-recomp texture dumper (dump the retail atlas + the runtime-composed badge), with the template-remake fallback the owner offered. Verified headless: the passive + hold ring shots, a 700-frame drive exit 0 (0 stalls, the 2 load hitches only), build exit 0. Test hooks: `-offroadhud`, `-botforce on|lock`, `-botframe <n>`, `-dumpbot`. **Follow-up (same session, the owner's art inspection)**: the owner compared the dumped arts against the retail captures — 808 (the sky) matches the retail interior, 822 (the grey up-arrow) does NOT match the retail arrow (the retail composes/orients it at runtime), so the port gained the icon-remake route: `<mods>/flash/fla_<id>.png` replaces any flash bitmap (`FlashMovie::findModOverride`, bound over the standalone / atlas sources in `getBitmap`, owned by the movie, destroyed on unload; verified with the sky crop as `fla_0822.png` — the `bitmap 822 overridden` log line + the sky rendering in the ring). The owner's Photoshop stand-in (white ring + white down-arrow, transparent interior) drops in as `fla_0822.png`; the x360-recomp texture dumper stays the tool to recover the TRUE retail art. README Modding row. STATE session 70.
-- Newest (2026-11-02, `glm`, session 69): **the car lights fixes from the owner's merged-build test: the headlight pool blends, it casts on roads (Hawaii), the lamps got an emission knob, and the indicators auto-cancel.** The owner: *"headlight cast seems square and doesn't seem to blend"*, *"the light seems to work in hawaii but not casted at all on road but fine on grass"*, *"can we tweak there emission at all indicators and stuff don't look bright enough"*, plus the auto-cancel ask. **The square**: the pools shared the tyre-track decal shader (straight per-axis shoulders + a 48-cell hash grain = a square stamp on a light quad); they draw in their own batch now with a falloff-mode push constant (`surfacedecal.frag` Params.z = 1 → radial in the quad's own uv space, an elliptical pool reaching zero at the rim, a gentle centre hotspot, no grain; tracks keep theirs at 0). **The road cast**: the pool corners sample the heightfield but roads are sector meshes ABOVE it — grass agreed (drew), roads buried the pool (Hawaii's embankments). FREERIDE measures `getSurfaceHeight(car) - getHeight(car)` every 0.15 s (one collision walk, not per corner), smooths, clamps [-0.5, +4] m, `EdenSurfaceFx::setRoadOffset` feeds every pool corner — island-agnostic, ~0 on grass. **The emission**: `-lampboost <f>` (default 1.4, 1.0 = retail) over every GLOSSFCT channel. **The auto-cancel**: indicating a side and steering that way (|steer| > 0.35) arms, the steering back to centre (|steer| < 0.12) cancels — the real latch; menu toggle + `-indicator` untouched; `-indicatortest` proves it headlessly (blinker at t = 1, a scripted left pulse 2.5–4.5 s → `CarLights: the left indicator auto-cancelled` in opentdu2.log: indicator 0 x4 → cancel → -1 x37). Verified (Ibiza / Hawai / casino, the owner asked for the island pairs): Ibiza village cobbles pool soft-edged (`docs/images/pool_cobbles_s69.png`); Hawai road node 31058,37150 (extracted from the island bank's ROAD_MAP.IA 'EDON' records with python — the freeride spawns there are off-road) casts +5.36 mean RGB vs `-noheadlights` over the wash region (`pool_hawaii_road_s69.png` vs `_nohl`); stars + moon on both; casino -tp 2777,1493 loads/renders with the lamp glow (the -tp hedge landing is the teleport, not the lights); the offset's one walk per 0.15 s costs nothing measurable — 82–97 fps, 2 load hitches, 0 VUIDs; build exit 0. car_lights_spec 7.1 (falloff + offset) / 7.2 (boost + auto-cancel), README CLI row. STATE session 69.
-- Newest-1 (2026-11-02, `glm`, session 68): **the night lighting landed — street lamps pool on the ground, buildings get lit windows, the moon and stars are in the sky, and the shop neons switch with the weather** (the owner's TDU-World reference screenshot: *"street lights looking a bit yellow and buildings having no lights on at night ... not sure if we have the moon or stars at night"*). All three "whys" were the port feeding zeros into mechanisms the retail shaders already decode: **(1) street lights** — the retail bakes lamp light into each sector's `-s.2db` G channel and the terrain / road / ground shaders draw `G * 2 * UserVector1.y`, but `setupScene` hardcoded `UserVectors[1] = (1,0,0,0)`; now the weather feeds `UserVector1 = (1, outside_street_lightmap, 1, building_nightwindow_frequency)` (1.5 / 1.0 at night, 0 by day — `-lognight` prints it) + `UserVector2 = building_shop_front_back_lighting` (`eden_scene_view.cpp` setupScene, the asset viewer too), and `EdenWorld::loadSector` does the retail `FUN_00982af0` slot law: TD_Road every SHADOW slot = the `-s` map, TD_Ground/_HM slot 2 + `sectrOff = sector origin` (linear clamp), the `.pmi` O / S instances through the new `EdenDrawParams::TextureOverrides` (TD_Ground SHADOW = the sector map, mirror sampler) + `sectrOff` w = 768 (`GroundInstanceParams[3]` per sector, `libraryNodeHasGround` cache, `drawNodeItemsSkinned` takes params now). **(2) windows** — the same `UserVector1.w` gate opens the TD_Building slot-6 night-window term; verified +50% facade luminance at night vs `-nostreetlights`. **(3) moon + stars** — the moon is the verbatim MatMoon port (`td_moon.sob` + `fx/weatherfx.bnk` "MOON", `PosMoon = -sundirection*100000` with `Skydome_moonPercent` alpha, `drawMoon` after the dome in the main view and the env cube, `-nomoon`); the stars are port-native (`resources/shaders/starfield.*` → builtin headers, 420 seeded points on the upper hemisphere, additive, alpha = `Skydome_starsPercent` with the hour rule fallback, `-nostars`) because retail's star stream is [ENC]. **Neons** ported verbatim (`eden_neons.{h,cpp}`, `registerNeonMaterials`/`updateNeons` in the scene view, `EdenWorld::RegisterNeons` + per-instance `InstanceBlinks`/`InstanceBlinkStart` through the new `EdenDrawParams::MaterialVectors` per-material override, `building_neon_strength`, `-noworldneons`). **Spot exteriors** re-registered after the session-45 no-op (the decoded night law lets the blend return): the exterior NIGHTLMAP overwrite only applies when the weather points at the night lightmap (`y > 0`) so the authored day look survives (the deliberate deviation, in the code comment), plus the retail OcclusionDayNight sprites and TD_Lamp lamp materials (`__Instance_Color.w = y`). **The lamp glow heads switch with the hour** (glm-native `EdenWorld::setNightLights`, the TD_Lamp items of the SF_Ligh* library models skipped by day in `drawInstances`, `-lampday` forces on — deliberately not in the renderer where cline's unmerged 25059ec sits). Verified headless (WORLD_VIEWER Ibiza town 21962,11,23675, `-weather 00`): night facade band 30.0 vs 19.9 mean RGB with `-nostreetlights`, the pavement pools visible (`docs/images/street_pool_night_day_s68.png` night vs day, `night_town_s68.png`), moon + stars in `night_sky_moon_stars_s68.png` (111 star px > 60 at 4K); day preset "14" vs the old `build/` exe: mean diff 2.27/765, the changed pixels only the weather-gated sign/lamp emissives + the retail `UserVector1.z = 1` facade strips; 360-frame `-vk_enable_validation_layer` drive: **0 VUIDs** (the 170 ms/frame hitches are the layer's own overhead — without it 2400 frames, 1 hitch, 48-52 fps); build exit 0. Known limits (documented): the dry-night TD_Road perm still doesn't decode the `-s` G (rain_shadow_spec B.7) so tarmac roads stay dark where retail's pools come from the pavement / terrain maps — the port-native `.lmp` lamp pools stay the pre-planned plan B; the `.lmp` dynamic cones (§4) and light beams (§5) not ported. New specs from upstream `335759a` with glm port notes on top: `docs/re/night_lighting_spec.md`, `weather_spec.md`, `neon_spec.md`. README CLI row. STATE session 68.
+- Newest (2026-11-03, `glm`, session 70): **the origin/cline merge (the launcher, the ocean, the traffic + police, the UI viewer, the weather cycle, sessions 63-78) landed and the return-to-road indicator was rebuilt onto the decoded retail element — the work is parked one delta short of the captures, with the decode written up for the next session.** The owner asked to look at the "Return to the road" UI against their retail captures and pointed at cline's UI tools. **The merge** (21 conflicts resolved: the surface-fx falloff stays glm's superset, the satnav minimap stays glm's with cline's `bSimpleHud` gates, the weather library feeds both the intempery overlays AND the cycle variants, the scene-view lightmap materials carry owners for the streaming unregister, the `-clock HH.MM` freeze freezes the cycle (rate 0) and the world clock follows the cycle per tick so the pause menu / traffic hour / weather pick share one clock; follow-up compile fixes committed). **The return-to-road decode** (`docs/re/backontrack_ui_findings.md` rewritten): the captures' badge = `/HUD/enter_hold` (the circular ring) — its states are the movie's OWN AVM1 actions (element f9 'open' runs `ic.gotoAndStop("on")`, ic f8 'lock' plays `FSCommand:sndp:wrong`, f40/f120 auto-close), the fill sweep is ic/anim's 30 frames sliding the sky art (bitmap 808) through the nested stencil mask (which WORKS now — cline's parked blocker is gone), the layout is the movie's own parking position (ring centre stage x 639.95 exact, y nudged -24 px to the capture) with the label needing no re-anchor; the goto traps fixed in the driver: the forward-goto leaks the 'lock' art (hidden after 'on'), fresh sprites play their own timeline (the sweep parked via gotoFrame + stopSubtree), and the first show must force the ic goto. The grass tile (Spot 'default' + offroad 'on' = bitmap 4754, the grass-over-road circle) is a DIFFERENT presentation — decoded and kept, unused by this flow. **The indicator now**: off-road > 2 s (or the on-road rejected press) shows the ring at the fixed retail position with loc 50 under it (`docs/images/rtr_ring_passive_s70.webp`), the hold sweeps the fill and resets (`rtr_ring_hold_s70.webp`), the on-road hold rejects (ic 'lock' + the badge shows immediately, no 2 s wait). **The UI tool the owner asked about**: `FlashMovie::getBitmapPixels` / `getAtlasCellPixels` — the engine's own decoder writes any flash bitmap (standalone or atlas cell) as a PNG; `-dumpbot` dumps the whole 4740..4830 badge cluster (the ground truth art sheet). **Parked one delta short**: the captures show the arrow pointing DOWN with the sky filling the whole ring; our render has the arrow UP with the fill partial — the composition/orientation is the retail driver's (a port-side flip breaks the stencil mask). The next tool is the owner's suggested x360-recomp texture dumper (dump the retail atlas + the runtime-composed badge), with the template-remake fallback the owner offered. Verified headless: the passive + hold ring shots, a 700-frame drive exit 0 (0 stalls, the 2 load hitches only), build exit 0. Test hooks: `-offroadhud`, `-botforce on|lock`, `-botframe <n>`, `-dumpbot`. **Follow-up (same session, the owner's art inspection)**: the owner compared the dumped arts against the retail captures — 808 (the sky) matches the retail interior, 822 (the grey up-arrow) does NOT match the retail arrow (the retail composes/orients it at runtime), so the port gained the icon-remake route: `<mods>/flash/fla_<id>.png` replaces any flash bitmap (`FlashMovie::findModOverride`, bound over the standalone / atlas sources in `getBitmap`, owned by the movie, destroyed on unload; verified with the sky crop as `fla_0822.png` — the `bitmap 822 overridden` log line + the sky rendering in the ring). The owner's Photoshop stand-in (white ring + white down-arrow, transparent interior) drops in as `fla_0822.png`; the x360-recomp texture dumper stays the tool to recover the TRUE retail art. README Modding row. STATE session 70.
+- Newest (2026-11-02, `glm`, session 69): **the car lights fixes from the owner's merged-build test: the headlight pool blends, it casts on roads (Hawaii), the lamps got an emission knob, and the indicators auto-cancel.** The owner: *"headlight cast seems square and doesn't seem to blend"*, *"the light seems to work in hawaii but not casted at all on road but fine on grass"*, *"can we tweak there emission at all indicators and stuff don't look bright enough"*, plus the auto-cancel ask. **The square**: the pools shared the tyre-track decal shader (straight per-axis shoulders + a 48-cell hash grain = a square stamp on a light quad); they draw in their own batch now with a falloff-mode push constant (`surfacedecal.frag` Params.z = 1 → radial in the quad's own uv space, an elliptical pool reaching zero at the rim, a gentle centre hotspot, no grain; tracks keep theirs at 0). **The road cast**: the pool corners sample the heightfield but roads are sector meshes ABOVE it — grass agreed (drew), roads buried the pool (Hawaii's embankments). FREERIDE measures `getSurfaceHeight(car) - getHeight(car)` every 0.15 s (one collision walk, not per corner), smooths, clamps [-0.5, +4] m, `EdenSurfaceFx::setRoadOffset` feeds every pool corner — island-agnostic, ~0 on grass. **The emission**: `-lampboost <f>` (default 1.4, 1.0 = retail) over every GLOSSFCT channel. **The auto-cancel**: indicating a side and steering that way (|steer| > 0.35) arms, the steering back to centre (|steer| < 0.12) cancels — the real latch; menu toggle + `-indicator` untouched; `-indicatortest` proves it headlessly (blinker at t = 1, a scripted left pulse 2.5–4.5 s → `CarLights: the left indicator auto-cancelled` in opentdu2.log: indicator 0 x4 → cancel → -1 x37). Verified (Ibiza / Hawai / casino, the owner asked for the island pairs): Ibiza village cobbles pool soft-edged (`docs/images/pool_cobbles_s69.webp`); Hawai road node 31058,37150 (extracted from the island bank's ROAD_MAP.IA 'EDON' records with python — the freeride spawns there are off-road) casts +5.36 mean RGB vs `-noheadlights` over the wash region (`pool_hawaii_road_s69.png` vs `_nohl`); stars + moon on both; casino -tp 2777,1493 loads/renders with the lamp glow (the -tp hedge landing is the teleport, not the lights); the offset's one walk per 0.15 s costs nothing measurable — 82–97 fps, 2 load hitches, 0 VUIDs; build exit 0. car_lights_spec 7.1 (falloff + offset) / 7.2 (boost + auto-cancel), README CLI row. STATE session 69.
+- Newest-1 (2026-11-02, `glm`, session 68): **the night lighting landed — street lamps pool on the ground, buildings get lit windows, the moon and stars are in the sky, and the shop neons switch with the weather** (the owner's TDU-World reference screenshot: *"street lights looking a bit yellow and buildings having no lights on at night ... not sure if we have the moon or stars at night"*). All three "whys" were the port feeding zeros into mechanisms the retail shaders already decode: **(1) street lights** — the retail bakes lamp light into each sector's `-s.2db` G channel and the terrain / road / ground shaders draw `G * 2 * UserVector1.y`, but `setupScene` hardcoded `UserVectors[1] = (1,0,0,0)`; now the weather feeds `UserVector1 = (1, outside_street_lightmap, 1, building_nightwindow_frequency)` (1.5 / 1.0 at night, 0 by day — `-lognight` prints it) + `UserVector2 = building_shop_front_back_lighting` (`eden_scene_view.cpp` setupScene, the asset viewer too), and `EdenWorld::loadSector` does the retail `FUN_00982af0` slot law: TD_Road every SHADOW slot = the `-s` map, TD_Ground/_HM slot 2 + `sectrOff = sector origin` (linear clamp), the `.pmi` O / S instances through the new `EdenDrawParams::TextureOverrides` (TD_Ground SHADOW = the sector map, mirror sampler) + `sectrOff` w = 768 (`GroundInstanceParams[3]` per sector, `libraryNodeHasGround` cache, `drawNodeItemsSkinned` takes params now). **(2) windows** — the same `UserVector1.w` gate opens the TD_Building slot-6 night-window term; verified +50% facade luminance at night vs `-nostreetlights`. **(3) moon + stars** — the moon is the verbatim MatMoon port (`td_moon.sob` + `fx/weatherfx.bnk` "MOON", `PosMoon = -sundirection*100000` with `Skydome_moonPercent` alpha, `drawMoon` after the dome in the main view and the env cube, `-nomoon`); the stars are port-native (`resources/shaders/starfield.*` → builtin headers, 420 seeded points on the upper hemisphere, additive, alpha = `Skydome_starsPercent` with the hour rule fallback, `-nostars`) because retail's star stream is [ENC]. **Neons** ported verbatim (`eden_neons.{h,cpp}`, `registerNeonMaterials`/`updateNeons` in the scene view, `EdenWorld::RegisterNeons` + per-instance `InstanceBlinks`/`InstanceBlinkStart` through the new `EdenDrawParams::MaterialVectors` per-material override, `building_neon_strength`, `-noworldneons`). **Spot exteriors** re-registered after the session-45 no-op (the decoded night law lets the blend return): the exterior NIGHTLMAP overwrite only applies when the weather points at the night lightmap (`y > 0`) so the authored day look survives (the deliberate deviation, in the code comment), plus the retail OcclusionDayNight sprites and TD_Lamp lamp materials (`__Instance_Color.w = y`). **The lamp glow heads switch with the hour** (glm-native `EdenWorld::setNightLights`, the TD_Lamp items of the SF_Ligh* library models skipped by day in `drawInstances`, `-lampday` forces on — deliberately not in the renderer where cline's unmerged 25059ec sits). Verified headless (WORLD_VIEWER Ibiza town 21962,11,23675, `-weather 00`): night facade band 30.0 vs 19.9 mean RGB with `-nostreetlights`, the pavement pools visible (`docs/images/street_pool_night_day_s68.webp` night vs day, `night_town_s68.png`), moon + stars in `night_sky_moon_stars_s68.png` (111 star px > 60 at 4K); day preset "14" vs the old `build/` exe: mean diff 2.27/765, the changed pixels only the weather-gated sign/lamp emissives + the retail `UserVector1.z = 1` facade strips; 360-frame `-vk_enable_validation_layer` drive: **0 VUIDs** (the 170 ms/frame hitches are the layer's own overhead — without it 2400 frames, 1 hitch, 48-52 fps); build exit 0. Known limits (documented): the dry-night TD_Road perm still doesn't decode the `-s` G (rain_shadow_spec B.7) so tarmac roads stay dark where retail's pools come from the pavement / terrain maps — the port-native `.lmp` lamp pools stay the pre-planned plan B; the `.lmp` dynamic cones (§4) and light beams (§5) not ported. New specs from upstream `335759a` with glm port notes on top: `docs/re/night_lighting_spec.md`, `weather_spec.md`, `neon_spec.md`. README CLI row. STATE session 68.
 - Newest-1 (2026-11-02, `glm`, session 67): **headlights light the ground now, the
   descriptor/render-pass bugs behind the sky artifacts are fixed, and the WORLD_VIEWER has a map editor
   panel** (the owner: *"noticed a odd sky oddity ... looks like road signs/gps turn glyphs printed in the
@@ -63,7 +63,7 @@ across them.
     ground via the puddle height query; cones from the new `eden_headlights.h` registries filled in
     FREERIDE (player from carWorld + `car_headlights_intensity`, traffic nearest-8 behind the FA_ night
     gate). `-noheadlights` off. Verified: pool region mean pixel diff 38.46 on/off
-    (docs/images/headlights_pool_s67.png), brake A/B 8.40; pools follow terrain, vanish under bridges. The
+    (docs/images/headlights_pool_s67.webp), brake A/B 8.40; pools follow terrain, vanish under bridges. The
     bloom answer for the owner: retail has no true bloom pass (it is part of the photoshop LUT) and bloom
     cannot light the road - the pools do. Not done: the TD_ShadowBox translation (retail art), traffic
     brake pools, the ps_2 G/B decode law.
@@ -121,7 +121,7 @@ across them.
     directory, like double-clicking it.
   - Verified: build exit 0, the no-op rebuild re-stamps nothing; headless runs 0 stalls —
     `-tester Daniel` draws `Daniel · build 354 (ce292c4+dirty)` top-right
-    (docs/images/watermark_s66.png), no `-tester` draws nothing,
+    (docs/images/watermark_s66.webp), no `-tester` draws nothing,
     `-nowatermark` logs the tester without the overlay; the launcher opened idle (no auto-launch,
     three probes), launched from the saved ini (the spawned game's title carried the name + build)
     and rewrote `launcher.ini` on close. README: the `-tester`/`-nowatermark` CLI row, the tools
@@ -325,7 +325,7 @@ across them.
   (a namespace-scope `static bool = CmdLine::HasArg(...)` runs before the command line is parsed). Verified
   headless: 1600 frames of driving (29 cars, 0 contacts, 0 removals), `-trafficnear` (2 despawns counted),
   `-trafficcrashtest`, `-island casino` ("has no ambient traffic"), the glass A/B grey numbers; shots
-  `docs/images/traffic-town-s61.png`, `traffic-glass-ab-s61.png`, `traffic-night-s61.png`.
+  `docs/images/traffic-town-s61.webp`, `traffic-glass-ab-s61.png`, `traffic-night-s61.png`.
   refuses a road that has not been discovered, and the road network is drawn the retail way (discovered
   tarmac blue, discovered dirt yellow, undiscovered grey).** The owner: *"i need map behaviour improving
   the cursor that's used is correct but there is a thing where it should snap on to shops etc... when
@@ -443,7 +443,7 @@ across them.
     offline art shows), the retail drivers behind `close_popup`'s ten arguments (the port passes none; it works).
 - Newest (2026-10-31, `glm`, session 61): **the pause clock runs, the icons are clear of the player card, and the dealership got the retail UI** (the owner: *"ask if in pause menu the clock/time is accurate and updates properly ... fix pause menu ... in dealerships have this UI hooked up ... when near cars this ui should show up and show there specs"*). The three answers, all verified headless with the shots in `docs/images/*-s61.png`:
   - **The clock**: it was a one-shot snapshot — `GMFreeRide::enter` parsed the static weather preset's *name* once into `PauseMenu::setClock`, `refreshClock` ran once per opening (`bClockShown`), and the port had no running game clock at all (the retail one is `[ENC]`; casino / garage / avatar-choice read 00:00). The owner picked **real PC time**: new `source/game/world_clock.{h,cpp}` (`WorldClockHours/Minutes/IsDay` off `std::localtime`, `-clock HH.MM` freezes it in the weather names' own `%d.%d` shape), `PauseMenu::refreshClock` reads it every tick while open and re-runs the movie's `setHour()` only when the minute changed (the digits roll via the movie's `changeNumber`), the day/night icon follows. The weather preset pick now takes the preset whose hour is nearest the clock at load (wrap-around; `-weather` / `-night` still win), and the traffic density hour comes from the clock too. Verified: `-clock 02.30` shows 02:30 + night moon + the `02.30` preset picked; the digits ticked 13:38 → 13:42 between runs.
-  - **The icons**: session 17's `kTabRowLift = 18` still left the card's top edge touching the icon bottoms (measured y239 vs y240 on the 720p capture; retail keeps ~10 px of daylight, `docs/images/retail-pause-freeride.png`). Raised to **30** → a 13 px gap, `pause_after-s61.png`. Plus the card's money: the movie prints `/:Money` raw, so the port now pushes the retail `"$1,234,567"` shape (a string; the movie renders it) and `refreshPlayerPanel` refreshes money / cars / houses every tick while open (earned money used to need a mode re-enter).
+  - **The icons**: session 17's `kTabRowLift = 18` still left the card's top edge touching the icon bottoms (measured y239 vs y240 on the 720p capture; retail keeps ~10 px of daylight, `docs/images/retail-pause-freeride.webp`). Raised to **30** → a 13 px gap, `pause_after-s61.png`. Plus the card's money: the movie prints `/:Money` raw, so the port now pushes the retail `"$1,234,567"` shape (a string; the movie renders it) and `refreshPlayerPanel` refreshes money / cars / houses every tick while open (earned money used to need a mode re-enter).
   - **The dealership**: the native DealerMenu follows the used-car-dealer screen (`shopscar.vmf`'s mini menu; the movie itself stays undriven). Shared stat code moved to `car_shop.{h,cpp}`: `ShopCar::PhysicsRow` (the loader stores the row index), `CarSpec` + `FillCarSpec` (the DBCarPhysicsData columns gm_shop decodes), and the retail gauge ranges + `CarStatGauge` (gm_shop now includes them — one copy of FUN_00adea90's math). The Cars step draws the spec panel beside the list (Acceleration 94 / Speed 63 / Braking 74 bars, difficulty 2/5 discs, 320 km/h / 4.3 sec. / 532 bhp on the 612 Scaglietti); **A** opens the retail entries *Buy / Get into the car / Data / Compare / Test drive*: Buy = the colour picker (unchanged), Get into the car = the podium camera alone, Data = the full data sheet (power / torque @ rpm, weight, displacement, engine, gearbox, gears, 0-100, top speed, braking 100-0, quarter mile, L/W/H — the row *labels* are literals, the first cut's guessed loc ids hit challenge texts), Compare = FUN_00b95840's record (the spec panel and data sheet show the base beside every other car), **Test drive** = `TestDriveRequest` with the car, `_default_rims`, the colour choice's `_color_id_1`, `ReturnMode = GM_FreeRide`, the dealer's spot + island (`TestDriveRequest::Island` is new — gm_testcar's world/weather paths used a hardcoded "ibiza"). `gm_testcar::endTestDrive` honours the ReturnMode: the story shop keeps -1 → SHOP (verified `-gm TESTCAR`), the freeride dealer returns to **FREERIDE at the drive's start pose through `GetStoryHandoff()`** and restores the borrowed `LoanCar` / `CurrentGarageSlot`. Verified end to end: `-dealer ECD_FERR` → Test drive → "TESTCAR: end of the test drive (time out) after 8.0 s ... -> FREERIDE at the dealer (12298.7, 6.0, 16374.6)" (the spot's own street pose, not the story ESTOL_B one) → GAME MODE : FREERIDE.
   - **The near-car spec card**: FreeRideHud's compact panel (name, price, top speed / 0-100 / bhp), bottom right, drawn over the drive HUD **and** over the showroom walk (where the drive HUD is hidden — the draw is public and GMFreeRide calls it in the interior branch; it opens its own `begin/end` because the gauge cluster's canvas mapping is active after the gauges draw — the first version rendered 120 px high). Street: `Traffic::findNearestAgent` (XZ over the live agent positions) at ≤ 9 m while slowed, lowest priority in the `tickWorldSpots` cascade (nothing else near, no race / popup); showroom: `InteriorWalk::findNearDisplayCar` (≤ 5 m of the walk position, `IntroCinematic::getDisplayCarInfo` hands out the scene-local position — the display car worlds are island space). Stats per car id once (`CachedSpecCard`): name `FindCarDisplayName`, price (the police cars' 0 → `--`), specs via `FillCarSpec` (`FindCarPhysicsRow` resolves a `_id_car` to its row for the traffic types). Verified: the Enzo at its podium (`showroom2-s61.png`, `$675,000`) and an `Ibiza_Police` car after the test-drive return (`dealer_aftertd-s61.png`, 220 km/h / n/a / 200 bhp — the traffic rows' `_acceleration_0_100_kmh` is 0, shown as n/a).
   - Regressions: `-storystep 5` exit 0, `-storystep 7` exit 0, story `-gm TESTCAR` → SHOP, 700-frame FREERIDE drive exit 0 (0 stalls). README Flash UI + FREERIDE rows, CLI `-clock` row, `docs/re/spot_interiors_spec.md` 4½ (the retail dealer menu) + Not-done reworded, CLAUDE.md priority 3 clock clause.
@@ -488,7 +488,7 @@ across them.
   slot for the draw and restores right after (shadow-map mechanism), cache keyed payload-hash x variant, LRU 160, freed at
   `EdenWorld::destroy`. `-nosigntext` / `-logsigns` / `-signfacesdump` / `-atsign [m]` (spawn scan like `-atwash`; the faces look
   along -Z). Verified: Ibiza spawn at sector-3-0-5-6 `RS_DirL_D_act` (22977, 5259) - faces compose from the streamed payloads
-  ('SANT VINCENT 4 / Platja / Balasant'...), plates readable in the 2560x1440 shot (`docs/images/sign-text-s59.png`, composed green
+  ('SANT VINCENT 4 / Platja / Balasant'...), plates readable in the 2560x1440 shot (`docs/images/sign-text-s59.webp`, composed green
   plate `sign-face-composed-s59.png`); A/B vs `-nosigntext` same pose: sign region mean diff 5.24, controls 0.0 (deterministic);
   `-storystep 5` exit 0; 700-frame FREERIDE drive exit 0, VRAM flat; Hawai'i exit 0 - **its signs carry no payloads at all**
   (2859 A lists, 0 type-4 [DATA]: the US-style `rs_arn*` models sample the atlas' pre-baked lower half and were never blank - the
@@ -504,13 +504,13 @@ across them.
   silently before). `CinViewerRequest` gained `PickX/Z` / `Island` / `ExteriorPrefix` / `Car` / `bPlayerCar` / `CarActor` / `bStory`;
   the profile saves `been_in_car_wash` (retail `SCPhoneCallsSave +4`) and `car_wash_coating` beside `fuel_litres`; `-nowash` / `-atwash`
   (spawn 18 m in front at the spot's ground height, yields to a handoff) / `-logwash`. Verified headless end to end: prompt at 18.1 m
-  (`carwash-prompt-s58.png` — the 3913 hint + the tile) → `paid $10 (money 19990)` → `C_WASHING` 16.4 s (`carwash-scene-washing-s58.png`)
+  (`carwash-prompt-s58.webp` — the 3913 hint + the tile) → `paid $10 (money 19990)` → `C_WASHING` 16.4 s (`carwash-scene-washing-s58.png`)
   → FREERIDE at the scene-end pose (`carwash-return-s58.png`); Hawai's chain, `-nowash`, and `-storystep 5` all verified. **Plus one
   render-device guard the scene exposed**: a single broken camera (`c_washing_02`, the in-car shot — parked, spec §9, *not a regression*,
   the session-24 build reproduces it) NaNs the cinematic camera, the shadow pass then draws every streamed instance individually
   (411,696 draws / 1.55 GB of constants per frame) and floods the 512 MB transient buffer — logging each failure was 2.6 GB of log per
   minute, which read as a hang; `allocateTransient` now logs the first failure + one total per frame.
-- Newest (2026-10-31, `cline`, twenty-fifth): **the "petrol station" next to the car wash *is* the car wash — retail geometry — and the retail washing cutscene already plays in the port; the FREERIDE wiring is documented as WIP for `glm` (the owner's call, not a blocker).** The owner: *"Is this a custom petrol station or was this in game… that area has a carwash next to it and it hangs over the road a bit… which makes me doubt this petrol station."* Answered from the data, not by eye: `islands/<island>/exterior/ecw_a.bnk` (`Euro/Spots/Carwash/CW_A/…`) is one Scenery set + 4 props (sponge / hose / boombox / 2 vfx), local bounds (-19.3, -0.2, -21.9)-(23.1, 11.1, 33.9) = 42 x 56 m, **3 placements on Ibiza and 5 on Hawai** — a fuel-station-shaped forecourt (canopy, shop, price totem, tunnel mouth) with **no pump asset at all** in the asset index (`gaspump_d.2db` exists in exactly one bank, the `gph_l2d` house garage), and the canopy over the road comes from the spots.bin position/heading that `SpotExteriors` applies. Our own stations are elsewhere (`FUEL1` prop at 11660, 5.3, 15866 and the `EGAS_A` spot copy at 12665, 16698). The bank also carries the **whole retail washing scene**: 10 `.cin`/`.sce` timelines, 18 NPC/avatar `.anm`, 3 washing `.wav`, and the tunnel interior bank `icw_a.bnk` (rollers, machinery). **Verified the port plays it today**: `-gm CINVIEWER -cinbank islands/ibiza/exterior/ecw_a.bnk -cin C_WASHING -cinspot 8129,26222 -cinexterior ecw_a` -> `CINVIEWER: playing 'C_WASHING' … camera (8115.7, 149.6, 26210.0)`, screenshot `docs/images/carwash-scene-s25.png`. What is *not* done is the trigger: `CinViewerRequest` cannot carry a spot/island/car (only the command line sets them), `StoryHandoff` returns the car on Ibiza only, and there is no `car_wash.*`, no HUD tile and no profile flag. The 7-step plan, the traps (the cinematic is `C_WASHING`, not the `.cin` name — with the file name it plays nothing) and the caravan answer (no such asset: a caravan park is sector decor, `camping.2db` / `sf_tente`) are in **`docs/re/car_wash_spec.md`**.
+- Newest (2026-10-31, `cline`, twenty-fifth): **the "petrol station" next to the car wash *is* the car wash — retail geometry — and the retail washing cutscene already plays in the port; the FREERIDE wiring is documented as WIP for `glm` (the owner's call, not a blocker).** The owner: *"Is this a custom petrol station or was this in game… that area has a carwash next to it and it hangs over the road a bit… which makes me doubt this petrol station."* Answered from the data, not by eye: `islands/<island>/exterior/ecw_a.bnk` (`Euro/Spots/Carwash/CW_A/…`) is one Scenery set + 4 props (sponge / hose / boombox / 2 vfx), local bounds (-19.3, -0.2, -21.9)-(23.1, 11.1, 33.9) = 42 x 56 m, **3 placements on Ibiza and 5 on Hawai** — a fuel-station-shaped forecourt (canopy, shop, price totem, tunnel mouth) with **no pump asset at all** in the asset index (`gaspump_d.2db` exists in exactly one bank, the `gph_l2d` house garage), and the canopy over the road comes from the spots.bin position/heading that `SpotExteriors` applies. Our own stations are elsewhere (`FUEL1` prop at 11660, 5.3, 15866 and the `EGAS_A` spot copy at 12665, 16698). The bank also carries the **whole retail washing scene**: 10 `.cin`/`.sce` timelines, 18 NPC/avatar `.anm`, 3 washing `.wav`, and the tunnel interior bank `icw_a.bnk` (rollers, machinery). **Verified the port plays it today**: `-gm CINVIEWER -cinbank islands/ibiza/exterior/ecw_a.bnk -cin C_WASHING -cinspot 8129,26222 -cinexterior ecw_a` -> `CINVIEWER: playing 'C_WASHING' … camera (8115.7, 149.6, 26210.0)`, screenshot `docs/images/carwash-scene-s25.webp`. What is *not* done is the trigger: `CinViewerRequest` cannot carry a spot/island/car (only the command line sets them), `StoryHandoff` returns the car on Ibiza only, and there is no `car_wash.*`, no HUD tile and no profile flag. The 7-step plan, the traps (the cinematic is `C_WASHING`, not the `.cin` name — with the file name it plays nothing) and the caravan answer (no such asset: a caravan park is sector decor, `camping.2db` / `sf_tente`) are in **`docs/re/car_wash_spec.md`**.
 - Newest (2026-10-31, `cline`, twenty-fourth): **the road barriers were never loaded at all — the `Sector-*.S.pmi` list (type 3, skinned static guard rails) was skipped by every loader; it is now drawn, verified against the exporter's own AABBs (median 0.47 m) and on screen.** The owner: *"road barriers aren't fully showing up and I think some world assets may not be hooked up like grass and stuff"*. `EdenWorld::loadInstances` iterated `-v`/`-o`/`-a` only and its type dispatch dropped type 3 on the floor, so 12-14 of the 24 `SF_GLISS`/`SF_GLISO` rails around the spawn in Hawaii (and 103 in one Ibiza sector) were never drawn — and `VehicleWorldCollision` had the same `-v`/`-o` list. Both now read `-s` — but `Library.dhk` (864 bodies / 461 models) holds **no** `SF_GLISS`/`SF_GLISO` entry, so the physics addition adds 0 instances today and the rails stay non-collidable until the sector `.shk` is read (see the session entry). The type-3 payload is one bone matrix per palette entry (`extraSize / 64`; the 7 bones of `SF_GLISS` and 8 of `SF_GLISO` match the library PRIM's type high byte and its `BONE` section exactly), applied **before** the instance matrix as the vertex shader does (`v * Bone_i * World`); the record's own AABB is the *un-skinned* rotated box, so the world box is rebuilt from the model bounds through the palette (that is what the numbers below measure). Screenshot: `docs/images/` — the barrier runs on both shoulders of the coastal road. Next: the islands' *grass* is the terrain `SHADOW` slot of TD_HeightMap (the `-s.2db` map doubles as the grass layer, `eden_renderer.cpp` 545) and `updateProgram` still guesses the detail layers from slot indices 2/4/6 while the shipped material puts SHADOW at 2, DETAIL1 at 4 and an unnamed slot at 6 — see the session entry's "Not done".
 - Newest (2026-10-31, `cline`, twenty-third): **the owner's remaining crashes are not a stale build — they are a driver fault that arrived with the ray tracing work, and the hub carries a build directory that can never be rebuilt.** The owner asked whether the instability in `E:\openTDU2` came from running old builds. Checked: the hub is exactly at `origin/win` (`9990ce6`, 0 behind, 0 ahead), `build-win\bin\opentdu2-win.exe` (30/10 23:32) is newer than every source file and every fix commit, and the fixes are in the history (`a6593df` borrowed textures outlive their bank, `bafbe5c` the chase-arrest texture owner, `86bf99e` the watchdog + the one clear device-lost report) — the watchdog is demonstrably running in the owner's own log. So the build is neither stale nor the variable: the Windows Application log holds **21 `nvoglv64.dll+0xecf46c` access violations** (`0xc0000005`, once `+0xecf4cc`) since **10-28 19:27**, *the same fault offset in every binary* — `opentdu2.exe` x11, `opentdu2-cline.exe` x6, `opentdu2-win.exe` x3, `opentdu2-glm.exe` x1 — 1-5 minutes into a session, on a non-main thread, and **no other application on the machine faults in nvoglv64** anywhere in the log window. The first one is the same day as the ray tracing commits (`2621725` step 2, the acceleration structures; `96b736f` step 3, the world's own geometry; `dd4fd13` the Advanced graphics page — all 10-28); before that, zero. The owner's `options.ini` has `ray_tracing = 1` **and** `ray_tracing_world = 1` (whose default is 0) at 3840x2160, and their log shows the world TLAS rebuilt every frame (3551-12626 instances; the offscreen pass is 21.5 ms of a 23.4 ms frame). The five dumps in `%LOCALAPPDATA%\CrashDumps` put the fault inside `nvoglv64.dll` (base `0x7ffcd6260000` + `0xecf46c`) with `nvgpucomp64.dll` (the driver's shader JIT) and two third-party implicit Vulkan layers loaded (CapFrameX `cfx_osd_vklayer`, Aurora/CheatHappens) — the layers are not the whole story, since only opentdu2 crashes. New tool: **`tools_probe/dump_info.py <dump> [--stack]`** — the exception, the module list and the faulting thread's call chain as `module+offset` (the app-side frame in the dump is `opentdu2-win.exe+0x6d8900`; the build produces no PDB, so a function cannot be named). A/B tests for the owner (an agent must not run the hub's build): `-nort`, `ray_tracing_world = 0` in `options.ini`, `-rttest`, a lower resolution, `DISABLE_CAPFRAMEX_VULKAN_LAYER=1` + `DISABLE_CH_LAYER=1`, and the driver version (32.0.16.2101). **The genuine stale-build problem found** (not the crash cause): `launch\{02_Intro_Party - Copy, 08_Hawaii - Copy, 09_Casino_Island - Copy}.bat` hardcode `build\bin\opentdu2.exe` (30/10 04:22 — no `-logcarlights`), and `build\CMakeCache.txt` still says `CMAKE_HOME_DIRECTORY=C:/OpenTDU2`, a path that no longer exists, so that build directory can never be reconfigured (the documented CMakeCache trap) — every numbered bat goes through `resolve_exe.bat` -> `build-win\bin\opentdu2-win.exe` and is fine. All builds share one userdata folder (`%APPDATA%\OpenTDU2\OpenTDU2`), so old and new binaries read and write the same `profile.sav` / `options.ini`. Proposed, not done (`tdu_instance.cpp` is the shared spine, serialise it): a startup line carrying the git commit, so "am I on an old build?" is never a guess again. **Follow-up (same session): the hub's branch is why it looks old.** `E:\openTDU2` is on `win` @ `9990ce6`, which is **26 commits behind `origin/cline` and 36 behind `origin/glm`** (`git rev-list --count HEAD..origin/cline` / `..origin/glm`), and neither branch is an ancestor of its HEAD (`git merge-base --is-ancestor` says NO; the reflog has no glm merge since `ef2602c`, 10-30 03:18). Its source therefore has no `fuel.cpp` / `fuel_menu.cpp` / `mod_props.cpp` (cline) and no `gm_cine.cpp` / `gm_shop.cpp` / `seated_avatar.cpp` / `ik_offsets.cpp` (glm), while the older cline work (`gm_asset_viewer.cpp`, `asset_labels.cpp`) *is* there — so the owner's hub build is consistent with its own source, it simply never received the agents' newer commits. `git fetch` only updates the `origin/*` refs and never merges, and the owner's own `update-and-rebuild.bat` merges only `origin/<checked-out branch>` (= `origin/win`, already equal to HEAD), so it correctly reports "nothing to rebuild" and the game never changes; it also *skips the rebuild* when a merge was done by hand first (it compares HEAD before and after its own merge), so a manual merge needs `build.ps1` directly. The C:→E: move is not the cause (the history is intact and `build-win` is configured for `E:/OpenTDU2`), but it left the orphaned `build\` and the three `*- Copy.bat` launchers described above. New tool: **`tools_probe/exe_probe.py <exe> [<exe> ...]`** — the feature strings an exe contains plus a differences table, which is how this was pinned down: the hub's `build-win\bin\opentdu2-win.exe` has `TESTCAR`, `IKOffsetDB` and `-logcarlights` but not `SHOPSCAR`, `SeatedAvatar`, `-storystep`, `-fuel` or `-rtao`; glm's `build-glm\bin\opentdu2-glm.exe` has all of them; the hub's stale `build\bin\opentdu2.exe` (30/10 04:22) lacks `-logcarlights` too.
 - Newest (2026-10-30, `cline`, twenty-second): **one car asset measured on PC, Xbox 360 and PS3 — the polygon count is identical, the packing is not.** The owner asked whether one car "with everything shader, interior etc. all loaded" could be compared against the 360 and PS3 versions for size / poly-count differences. It can, and it is done for the Ferrari California: `tools_probe/xplat_car_compare.py` (new, `--selftest` needs no game data) extracts the same bank from the PC data, the 360 prototype bigfiles (LZX-decoded with the recomp's `xzxd.exe`) and the PS3 bigfiles, then prints the asset list, the geometry and the textures side by side. Measured, body / interior: uncompressed bank **2 713 600 / 2 617 344 B (PC), 2 306 048 / 2 293 760 B (360), 2 002 944 / 2 144 256 B (PS3)**; primitives 126 / 66, 125 / 66, 131 / 66; vertices 30 589 / 32 155, 30 532 / 32 155, 32 363 / 32 155; **triangles 32 255 / 38 242, 32 207 / 38 242, 32 207 / 38 242** — i.e. the same car, with the *index buffers* packed differently (the PC joins strips with 41 306 degenerate indices, the 360 breaks them with 9 437 `0xFFFF` restarts, the PS3 uses triangle lists) and one genuine difference: `HANIM_S`, the convertible roof, is 14 prims / 6 957 verts on the PC and the 360 but **20 prims / 8 788 verts on the PS3** (vertex splitting for the RSX's register budget). The textures are the same picture in different sizes: a 128x128 `.2db` is 21 920 B (PC), 69 632 B (360, its own format enum + tiling), 21 968 B (PS3 = the PC's +48). **New format work: the PS3 payload container** — `[plain BANK metadata][a 'HDR!' chunk header: headerSize, chunkSize 0x10000, field 0x80, the per-chunk stored sizes, a CRC][64 KB chunks][256-byte padding with an ASCII watermark]`, so the PS3's asset list, per-asset sizes and (because the GEOA lands in the first, verbatim chunk) the prim/vertex/index/triangle counts are readable today; the chunk contents are *not* LZX (`xzxd` fails, `ret=11`) and need the decompressor out of `EBOOT.ELF`. In-engine rendering of a 360/PS3 asset is still the 360 side of GLM's asset-studio Phase 3. Full numbers, evidence, the traps and the run commands: **`docs/re/xplat_car_compare.md`**; verified `--selftest` passed and `--car california --interior` printed all three columns.
@@ -603,7 +603,7 @@ across them.
   engine change: `tools/mod/add_spot.py` appends one 0x110-byte record to a **copy** of the island's `spots.bin` in
   the mods overlay and drops a bank beside it, and the port picks both up (`Mod overlay: … spots.bin` /
   `… egas_a.bnk`, `MapScreen: … of 80 in spots.bin`, `SpotExteriors: EGAS_A at (12665, 16698): 2 models, 1
-  placements`; evidence `docs/images/mod-station-placed-s14.png` — two copies of the tuning-shop bank 60 m apart).
+  placements`; evidence `docs/images/mod-station-placed-s14.webp` — two copies of the tuning-shop bank 60 m apart).
   `docs/re/modding.md` has the overlay, the two routes for our **own** mesh (a port-native OBJ/glTF prop, or the
   Eden `.3dd/.3dg/.2dm/.2db` + a BNK packer + an exporter) and the rules (never write the game folder, never ship
   game data, our own brand and art).
@@ -624,7 +624,7 @@ across them.
   (0 stalls, screenshots written), `launch\resolve_exe.bat` resolves `opentdu2-cline.exe`. Session entry below.
 - Newest (2026-10-30, `glm`, session 48): **synced with the hub** — the near plane, the C_FIRST_OUTRO stream centre,
   the camera-path lookahead and the rest of the hub's 19 commits merged over the real-estate session; the `-home`
-  block re-seated before the hub's locate()-then-streamCentre order; verified headless (`merge-night-s48.png`).
+  block re-seated before the hub's locate()-then-streamCentre order; verified headless (`merge-night-s48.webp`).
   Entries below.
 - Newest (2026-10-30, `glm`, session 46): **real estate + houses wired up** — the `ERE_*` realtor sells the 76
   `DBHouse` houses (buy / sell, `houses_owned` + `home_house` in the save), your houses are walkable (`lph_*`
@@ -898,7 +898,7 @@ file can and cannot say, and the ordered next steps.
   time and back (Babe_01_radio `q.x` 0.0578 -> 0.1304 -> 0.0752 at t 1.44 / 1.61 / 1.68 s).
 - `-lognodes` (`-gm AVATAR_CHOICE -skipintro -walkmode 1`): female 445 + male 448 nodes, and **all ten
   target names exist in both graphs** — the curves are not silently ignored.
-- A screenshot of Tess mid-line with the mouth open: `docs/images/lipsync-say-s26.png` (a 3x crop of
+- A screenshot of Tess mid-line with the mouth open: `docs/images/lipsync-say-s26.webp` (a 3x crop of
   the 1280x720 frame; the lip motion is retail scale, 1-3 mm, so the full frame shows two pixels).
 - `-gm AVATAR_CHOICE -skipintro -walkmode 1 -tess -say ...` runs clean (600 beats, 0 stalls).
 
@@ -972,7 +972,7 @@ Our own two stations are elsewhere: the `FUEL1` OBJ prop (`<mods>/props.txt`
 Evidence: `-gm WORLD_VIEWER -island ibiza -spot ECW_A` ->
 `SpotExterior: Euro/Bnk/islands/ibiza/exterior/ecw_a.bnk: 1 set models, 4 props, local
 bounds (-19.3, -0.2, -21.9) - (23.1, 11.1, 33.9)`, `SpotExteriors: ECW_A at (8129, 26222):
-5 models, 3 placements`; screenshot `docs/images/carwash-forecourt-s25.png` (the forecourt,
+5 models, 3 placements`; screenshot `docs/images/carwash-forecourt-s25.webp` (the forecourt,
 the canopy reaching the kerb, the `POLICIA LOCAL` block behind).
 
 ### 2. The washing scene exists and **plays today**
@@ -992,7 +992,7 @@ strings 3913 / 3942 and the save fields `CarWashCoating` / `BeenInCarWash`.
     ENTITY cinematic 'C_WASHING' …      CINVIEWER: playing 'C_WASHING' of 'islands/ibiza/exterior/ecw_a.bnk'
     CINVIEWER: t 1.0 main 'C_WASHING' 1.0 camera (8115.7, 149.6, 26210.0) heading 116.6 fov 0.66
 
-`docs/images/carwash-scene-s25.png` is that first shot: the three babes walking out to the
+`docs/images/carwash-scene-s25.webp` is that first shot: the three babes walking out to the
 car on the forecourt. `otdu2_cine_tool dump <bank>.bnk _cwdump` gave the scene / camera /
 actor tables (`docs/re/car_wash_spec.md` §2).
 
@@ -1349,7 +1349,7 @@ subtitles wanted.
   line mapped through the shot window — the manifest's own skeleton writes
   the same numbers); two lines authored by hand into C_MEETING_TESS.csv ->
   the caption "Tess: Hey! Are you awake in there?" on screen at t=2.6
-  (docs/images/cine-subtitle-s63.png), absent with `-subtitles 0`
+  (docs/images/cine-subtitle-s63.webp), absent with `-subtitles 0`
   (cine-subtitle-off-s63.png, same pose band crop).
 - Pause/scrub: `-cinetime 20 -autoplay "30:press=camera;45:shot=a;60:
   press=right;90:shot=b"` — the log "CINVIEWER: paused at 21.07 s", the HUD
@@ -1594,7 +1594,7 @@ high-resolution A/B, not with angled screenshots of a sign cluster.
 - Ibiza `-atsign` spawn at sector-3-0-5-6 `RS_DirL_D_act` (22977, 5259):
   faces compose from the streamed payloads ('SANT VINCENT 4 / Platja /
   Balasant', ... — 4 uniques in view), plates readable in the 2560x1440
-  screenshot (`docs/images/sign-text-s59.png`; the composed green plate is
+  screenshot (`docs/images/sign-text-s59.webp`; the composed green plate is
   `sign-face-composed-s59.png`).
 - A/B vs `-nosigntext` at the same pose: sign-region mean abs diff 5.24,
   control regions 0.0 (the render is deterministic; only the sign's pixels
@@ -1688,7 +1688,7 @@ wedging the machine.
   exit 1600): `CarWash: 3 wash(es) on 'ibiza'` -> prompt at 18.1 m ->
   `car wash 'ECW_A': paid $10 (money 19990) -> C_WASHING` -> `CINVIEWER: playing
   'C_WASHING'` -> `end of 'C_WASHING' after 16.4 s` -> `GAME MODE : FREERIDE` driving from
-  the **scene-end pose** `(8126.23, 146.52, 26204.90)`. Shots: `docs/images/carwash-prompt-s58.png`
+  the **scene-end pose** `(8126.23, 146.52, 26204.90)`. Shots: `docs/images/carwash-prompt-s58.webp`
   (the 3913 hint + the sponge tile), `carwash-scene-washing-s58.png` (the California on
   the forecourt, the babes walking in), `carwash-return-s58.png` (the HUD back up).
 - Hawai: `5 wash(es)`, prompt 18.2 m, `-> C_WASHING` with the `hawai` bank path.
@@ -1951,7 +1951,7 @@ rasterize a TTF at any size on demand — the clean way in.
 ### Verified
 - build-glm.ps1 exit 0.
 - Every run logs `ImGui: font 'C:\Windows\Fonts\segoeui.ttf' (base 13 px), UI scale 2.25`;
-  `-imguiscale 1` logs no font line and renders the classic bitmap UI (docs/images/ui-dpi-cheats-forced-1x.png).
+  `-imguiscale 1` logs no font line and renders the classic bitmap UI (docs/images/ui-dpi-cheats-forced-1x.webp).
 - Headless renders (docs/images/ui-dpi-*.png): the cheats panel (F4), the advanced settings (F2), the
   asset viewer's four panels, the world viewer, the coords overlay (`-coords`; note its toggle is F2 in
   tdu_instance.cpp, shared with the advanced settings — in the F2 shot it draws under that panel), and
@@ -2040,7 +2040,7 @@ agents prepend; both sides kept).
 
 ### Not done / next
 - **The valet shirt's overlay layer renders wrong**
-  (docs/images/story-cine-meeting-tess-shirt-overlay-artifact.png vs the retail frame: clean shirt,
+  (docs/images/story-cine-meeting-tess-shirt-overlay-artifact.webp vs the retail frame: clean shirt,
   just the chest badge): our render shows scrambled gold patches at the placket / collar / cuffs.
   The garment's 2dm has TWO materials - the base (shader d5013ed0dba9daca) and the overlay with
   LAYER1='BUTTON' / DETAIL_G slots (shader d5013ed0db79aeae) drawing the second 3dd mesh
@@ -2095,7 +2095,7 @@ bandage items, save fields, UI strings) is in readable data.
 
 - `InteriorWalk: 'ESUR_A' (interior/isur_a.bnk): cinematics C_LIFE_FISH C_INTRO_I C_LIFE C_360_W
   C_OBSERVE C_360 C_HEAD; start camera 'cam_entree'; 2 selectables` — `Hostess_area` **type 27**
-  ("surgeon", walk_mode.cpp:63) + `Exit`. Screenshot `docs/images/surgery_isur_a.png` (surgeon at the
+  ("surgeon", walk_mode.cpp:63) + `Exit`. Screenshot `docs/images/surgery_isur_a.webp` (surgeon at the
   desk under the reticle, operating chair, diplomas). A on the surgeon falls to the generic
   "This shop is not open yet." (`gm_freeride.cpp:2031`).
 - The face morphs the menu would edit are live: FaceParamArray parsed (`eden_avatar.cpp:337`) →
@@ -2852,7 +2852,7 @@ Log (`-gm WORLD_VIEWER -island ibiza -spot EGAS_A`):
     SpotExterior: ...egas_a.bnk: 2 set models, 0 props, local bounds (-7.3, -0.4, -17.7) - (36.0, 10.8, 23.9)
     SpotExteriors: EGAS_A at (12665, 16698): 2 models, 1 placements
 
-Evidence `docs/images/mod-station-placed-s14.png`: **two copies of the tuning-shop
+Evidence `docs/images/mod-station-placed-s14.webp`: **two copies of the tuning-shop
 bank 60 m apart where retail has one** (the left building is the real `ETUN_A`, the
 right one is our `EGAS_A`) — `spots.bin: 80 spots` in the viewer panel.
 
@@ -3038,7 +3038,7 @@ it builds each tree while it is still staged under its old name.
   (`gm_freeride.cpp:217`); the house flow runs `outro.locate()` → C_FIRST_OUTRO → DRIVE (the car 350 m out of the
   garage, 0 stalls); `-night -carlights 1 -logcarlights` — weather '00' (the darkest preset), 4 lamp + 2
   dashboard materials found, and the night shot reads: street lamps lit, tail lamps on, HUD / GAUGES / minimap /
-  zone badge drawn (`docs/images/merge-night-s48.png`).
+  zone badge drawn (`docs/images/merge-night-s48.webp`).
 
 ## Session 2026-10-30 (Cline, `cline`, eleventh): the car lights, the animated windows, the night dashboard; the sat-nav quad is mapped
 
@@ -3331,7 +3331,7 @@ screenshot the online screen.
 
 ### Found, not fixed (the rest of the pause screen — `docs/SURVEY.md` item 10)
 
-Against the owner's retail captures `docs/images/retail-pause-freeride.png` / `retail-pause-casino.png`:
+Against the owner's retail captures `docs/images/retail-pause-freeride.webp` / `retail-pause-casino.png`:
 
 - **The map panel's island badges read HAWAII on Ibiza.** Retail: blue **IBIZA 7** (top left) / **IBIZA 2** (bottom right); port: green **HAWAII** / **HAWAII 7**. `refreshEntries()` does `gotoLabel( "/pause_menu/data_extd/map/island/i1", "i1", false )` and the sprite **is** there (`-logpause` display list: `map` → `island` → `i1` / `i2`, both at frame 0), so the frame simply is not changing — either the label is not on that sprite or `gotoLabel`'s return value is being ignored (it is). Root cause not established; the badge's frame labels still need a dump.
 - **The casino / garage / avatar-choice pause clock reads 00:00** (retail 18:14 / 12:36): only `GMFreeRide` calls `setClock()`, and from the weather preset's name (`14:00`); the port has **no in-game clock** at all (no time-of-day symbol in `source/`). Needs a decision, not a guess.
@@ -3355,7 +3355,7 @@ camera has a vision limit?"* (C_INTRO sea sweep, the TDU2-logo beach shot).
 
 ### Found
 - **The per-instance draw distance is the lever**: `-instancedistmul 2` puts trees on the ridge lines behind the beach
-  that the default leaves bare (`docs/images/port-intro-hills-default-s48.png` vs `-dist2x-`; same frame, `-fixedtimestep`). Our distance is
+  that the default leaves bare (`docs/images/port-intro-hills-default-s48.webp` vs `-dist2x-`; same frame, `-fixedtimestep`). Our distance is
   `sqrt( lods.back() * 3.160494 * max(f,1) )` (FUN_00989d10 / FUN_00df6e60) with the per-camera terms
   `cam[+0x180]` and `*(DAT_00fd51c0+0x220)` taken as 1 — their writers are `[ENC]` (`pmi_streaming_spec.md` §3/§5).
 - **Cost**: ×2 = 36.5 → 83.5 ms/frame on that shot, because past lod[0] the port draws **full LOD0 meshes** where the
@@ -3427,7 +3427,7 @@ tear filed as "retail would clip the same way").
 
 ### Verified
 - meeting_tess frames 250 / 330: the sail is gone, the wheel / dash / header draw
-  (`docs/images/port-tess-sail-before-s48.png` → `-after-`).
+  (`docs/images/port-tess-sail-before-s48.webp` → `-after-`).
 - Garage pan frames 790 / 820 / 850: intact rim, disc and caliper; with `-forcenear 0.8` (the old behaviour) the
   same frames are torn open to the spring — 16.7 / 11.4 / 3.0 % pixels differ (>40)
   (`port-garage-pan-before-s48.png` → `-after-`).
@@ -3444,7 +3444,7 @@ game cam work"* and *"the cutscene leaving the garage before freeride the map lo
 
 **Reproduced**: `-gm FREERIDE -nopad -fixedtimestep -autoplay "450:shot=…;800:shot=…" -exitframe 820` — from
 frame 450 the California drives over the bare island LOD: no road, no sector models
-(`docs/images/port-first-outro-before-a-s48.png`, `-before-b-`). The log tried `sector-0-0-0-0.bnk` (not found).
+(`docs/images/port-first-outro-before-a-s48.webp`, `-before-b-`). The log tried `sector-0-0-0-0.bnk` (not found).
 
 ### What changed
 - `source/game/freeride/gm_freeride.cpp` `GMFreeRide::initialize` — the stream centre read
@@ -3659,7 +3659,7 @@ aspect kept. PNG / JPG / BMP / TGA go through stb_image, DDS through the Eden DX
   `'Kalua': ... A Astronauts - Oblivion`, `'Roadtrack': ... Acrylics - Innocence`.
 - Art: a scratch station with a DXT1 `logo.dds` and one with a 256x64 `logo.png` both draw
   in the logo box (`radio logo box 92.1,313.9 146.0x67.9 -> art 92.1,329.6 146.0x36.5`);
-  screenshots `docs/images/radio_station_dds.png` / `radio_station_png.png` /
+  screenshots `docs/images/radio_station_dds.webp` / `radio_station_png.png` /
   `radio_station_hardstyle.png` (no art), and the retail logos are unchanged
   (`radio_station_hariba.png` / `radio_station_kalua.png`).
 - The folder is created when missing (`Radio: created the station folder ...` +
@@ -3920,7 +3920,7 @@ patch changed, nothing else). A horizontal diff of the planar law kept the room 
 
 ### Verified
 Walk into EAS_A headless: the mirror straight ahead now reflects the shop — the shoe podium, the
-room, the ceiling (`docs/images/port-shop-mirror-s45.png`; before: `port-shop-mirror-before-s45.png`;
+room, the ceiling (`docs/images/port-shop-mirror-s45.webp`; before: `port-shop-mirror-before-s45.png`;
 the before/after diff bounding box is exactly the mirror quad).
 
 ### Not done / next
@@ -3939,7 +3939,7 @@ partly restored — details in `docs/re/CROSSBUILD_PLAN.md` (prototypes section)
 - **Restored content** (`texture_cache.cpp`): `<userdata>/restored/<bank>/<texture>.2db` replaces that bank's texture;
   `tools/x360/restore_texture.py` writes one from a prototype bank. `-norestored` = retail.
   Verified: `-car Q7_Inuit`, cockpit camera, `TextureCache: 'q7_int2.2db' of q7_inuit_i restored ...`, grey dials
-  (`docs/images/q7-inuit-restored-dials.png`).
+  (`docs/images/q7-inuit-restored-dials.webp`).
 - **Next**: (1) the full Inuit interior (360 `.3dg` vertex formats -> PC, `.3dd` / `.2dm` byte order, a PC bank);
   (2) a content scan of every prototype bank against retail (`.3dd` / `.2dm` sizes are platform-invariant, texture
   count, decoded pixels) to find the rest of the cut content.
@@ -3973,7 +3973,7 @@ Enter**; ↑/↓ + **✕** to race; **○ / Esc** to leave.
 - "Championship: Ibiza city" through `-licensetest <race> -licensewarp`: Time: Old town, Race: Salt marsh challenge,
   Race: Ibiza beaches, Speedtrap: Seaport run, Race: City center loop (circuit, 7 gates x 2 laps = 16) -> `race ... won`
   (+$2,500 each) and `championship 'Championship: Ibiza city' complete (+$75000)`; the speed race is listed "Not available
-  yet". `docs/images/championships-s45.png` (the high championship's tile, the race list, a circuit race "gate 1/16").
+  yet". `docs/images/championships-s45.webp` (the high championship's tile, the race list, a circuit race "gate 1/16").
 
 ### Ruled out
 - 'A' = eliminator (my first guess from `NbIA` 7): the races' own titles are "Speedtrap: ...".
@@ -4018,7 +4018,7 @@ gates. **○ / Esc** backs out of the menus.
 - All 7 A7 tests passed through `-licensewarp` (both gate layouts; `RSA7T04` 9 road gates) -> `FREERIDE: licence A7
   obtained`, profile `tests_passed` with 7 entries; Hawai school A: 3 licences, the 2nd / 3rd Locked.
 - Real driving: throttle held straight down the slalom -> `Missed a gate` at 7.1 s.
-- `docs/images/racing-school-licences-s45.png` (instructor, test list, countdown, timer + gate count, the result
+- `docs/images/racing-school-licences-s45.webp` (instructor, test list, countdown, timer + gate count, the result
   and "Licence A7 obtained!", Obtained / Locked lists, the start line).
 
 ### Ruled out
@@ -4059,7 +4059,7 @@ the car on its podium, **✕ / Enter** buys it in that colour, **○ / Esc** bac
 - `CarPaint: California ... row 0 'Rosso Scuderia' / row 1 'Grigio Titanio' / row 2 'Nuovo Grigio Ingrid' / row 3
   'Grigio Alloy'` (the live preview), `Dealer: bought 'California' paint 3 ' in Grigio Alloy' for $191000`,
   profile.sav `car_paints = 387:3`; the next run with `-car California`: `'California' in its ordered paint 3
-  'Grigio Alloy'` — `docs/images/dealer-colour-picker-s45.png` (612 / California framed, the colour list, bought,
+  'Grigio Alloy'` — `docs/images/dealer-colour-picker-s45.webp` (612 / California framed, the colour list, bought,
   red stock car vs the Grigio Alloy one on the road).
 
 ### Not done / next
@@ -4085,7 +4085,7 @@ Owner: *"Car colours"*. Spec: `docs/re/spot_interiors_spec.md` §4 "Display car 
 ### Verified
 - Ferrari showroom: `612_Scaglietti painted 'Rosso Corsa'`, `California 'Grigio Titanio'`, `16M 'Giallo'
   (Spider_16M_Ext_Jaune_01)`, `F430_Scuderia 'Grigio Alloy' + F430_Scuderia_Ext_Gris_09`, `458 'Blu Abu Dhabi'`,
-  `599 GTB 'Bianco Avus'`, `599 GTO 'Nuovo Blu Pozzi'`, `Enzo 'Giallo Modena'` — `docs/images/car-paint-s45.png`.
+  `599 GTB 'Bianco Avus'`, `599 GTO 'Nuovo Blu Pozzi'`, `Enzo 'Giallo Modena'` — `docs/images/car-paint-s45.webp`.
 - World classic with `-paintindex 5`: Mustang 'Wimbledon White', Corvette 'Polo White' (both visibly white);
   `-paintindex 0` is pixel-identical to the unpainted cars (row 0 = the .2dm's own colour).
 
@@ -4224,8 +4224,8 @@ unlockables, `DealerMenu`'s stock, `EventsDone`). New: `source/game/cheats.{h,cp
   (+ `Profile: saved (cheat: all roads)`).
 - The casino panel (`-gm casino -chips 250000 -cheatspanel`): the chips reach
   the floor screen (`250000 chips`), and the teleport section hides itself (no
-  world). Screenshots: `docs/images/cheats_panel.png` (FREERIDE),
-  `docs/images/cheats_panel_casino.png`.
+  world). Screenshots: `docs/images/cheats_panel.webp` (FREERIDE),
+  `docs/images/cheats_panel_casino.webp`.
 
 ### Notes
 - The panel is the port's answer to "enable the dev features": the retail dev
@@ -4297,8 +4297,8 @@ here). All seven are done, plus the labels the interiors work had verified by ha
   61 body(ies)'`.
 - the cinematic: `cinematic: 52.6 s, 17 shot(s), 2 scene(s), 34 message(s), 4 fx event(s)`.
 - `-labellint` -> `12 label(s), 0 problem(s)`.
-- screenshots: `docs/images/asset_viewer_search.png` (the Search tab), `asset_viewer_entities.png`
-  (the Entities tab + the 3D view from `cam_entree`), `asset_viewer_interior.png` (the
+- screenshots: `docs/images/asset_viewer_search.png` (the Search tab), `asset_viewer_entities.webp`
+  (the Entities tab + the 3D view from `cam_entree`), `asset_viewer_interior.webp` (the
   showroom from inside, collision wireframe on).
 
 ### Ruled out (with the test that ruled it out)
@@ -4350,7 +4350,7 @@ Owner: *"continue with adding cars to the correct dealerships and clothes to cor
   430 Scuderia Spider 16M, 430 Scuderia, 458 Italia, 599 GTB, 599 GTO, Enzo on `D_CAR_01..08`.
 - World classic (ECD_US1, `-tp 18059.9,9716.5 -snaproad 100`): Mustang Fastback '68 + Corvette C1 (its 2 cars).
 - Hiro Hisaishi (EAS_A): `brand 0x39 sex 2: 21 item(s)`; hairdresser (EHD_B): `brand 0x37 sex 2: 27 item(s)`.
-- `docs/images/shop-stock-s45.png`; entering the Ferrari showroom is one ~0.8 s frame (8 cars), 15 ms/frame inside.
+- `docs/images/shop-stock-s45.webp`; entering the Ferrari showroom is one ~0.8 s frame (8 cars), 15 ms/frame inside.
 
 ### Not done / next
 - Shops with fewer cars than places (World classic 2 of 8) leave podiums empty — check `DBSpot_DLC` / DLC rows.
@@ -4402,7 +4402,7 @@ door) to walk out — you are back in the car.
 - Clothes shop (EAS_A, `-tp 21755.6,23579.2 -snaproad 60`): entry shot, walk, `A on 'goodies'` -> `Clothes: 327
   valid DBClothe items` menu (with `-walkat "2.5,2.5,5.0,48"` and `look=0,0.3` for 4 frames).
 - Hairdresser (EHD_B, `-tp 9624.6,17036.9 -snaproad 60`): 3 chairs + ExitDoor, `A on 'hairdresser'` -> the Tip box.
-- `docs/images/interior-walk-s45.png`: Ferrari entry / walk / hostess / dealer menu; clothes entry / walk / menu;
+- `docs/images/interior-walk-s45.webp`: Ferrari entry / walk / hostess / dealer menu; clothes entry / walk / menu;
   hairdresser hint / entry / walk; the Enter tiles outside (clothes and dealer art).
 
 ### Ruled out
@@ -4518,7 +4518,7 @@ controllers".
 F2 anywhere) → "Button prompts", Left / Right to change, OK / Back saves.
 
 ### Verified
-- `docs/images/button_prompts_option.png`: map bar with keyboard / Xbox / PlayStation art; the page over
+- `docs/images/button_prompts_option.webp`: map bar with keyboard / Xbox / PlayStation art; the page over
   the Controls screen with "Button prompts < Xbox >" — the Controls page's own prompts switched to Xbox
   (Y Save, LB / RB, B Back) live, on the keyboard, and `button_prompts = 2` was written.
 
@@ -4547,7 +4547,7 @@ PS3_* text icons [DATA].
 press any key, click or scroll → the PC icons (check, star, cross, mouse). Switches live, even inside a menu.
 
 ### Verified
-- `docs/images/prompts_keyboard_vs_pad.png`: pause menu (✓ Resume → ✕ Resume, all 8 squares both ways),
+- `docs/images/prompts_keyboard_vs_pad.webp`: pause menu (✓ Resume → ✕ Resume, all 8 squares both ways),
   map bar (✓ OK / ★ Filters / mouse Camera / mouse Zoom / ✗ Back → ✕ OK / □ Filters / R Camera / L2 R2 Zoom /
   ○ Back), FRIM BANK (✓ → ✕). Live switch inside an open pause menu and an open map, both directions.
 - `#command:` resolution checked for 8 actions (spec §6).
@@ -4588,7 +4588,7 @@ gauge fill ran left past the level badge, under the "Enjoy!" goal strip).
 - `freeride_hud.cpp` `dumpClips` prints Depth and ClipDepth (masks are visible in `-dumphud`).
 
 ### Verified
-- `docs/images/frim_gauge_mask_before_after.png` (top before, bottom after, frame 900 bank state):
+- `docs/images/frim_gauge_mask_before_after.webp` (top before, bottom after, frame 900 bank state):
   nothing left of the badge. Frames 600 / 2300 (levels 1 and 4) clean too.
 - 3D unaffected: frame 900 before/after, mean pixel diff 0.0 over the 3D band (y 200..520).
 - World map and pause menu render as before (no validation errors in the log).
@@ -4631,7 +4631,7 @@ bake + the lamp bake fully on. `SpotExterior::registerLightmaps` handed every ma
 
 ### Verified
 - Dealer inside + outward after the fix: bright ceiling / walls / lamp-lit floor, the world
-  visible through the window glass (`docs/images/port-dealer-lmfix-s45.png`,
+  visible through the window glass (`docs/images/port-dealer-lmfix-s45.webp`,
   `port-dealer-out-lmfix-s45.png`).
 - **Ruled out**: sRGB texture sampling — `GetVulkanFormat` drops the SRGB_ flag (lightmaps are
   `VF_SRGB_DXT3`); mapping them to the `_SRGB` block formats made the dealer **darker** (the
@@ -4843,7 +4843,7 @@ the "Traffic violation" meter, the handcuffs + escape timer, and the two
   path or the `opentdu2-glm` name (WORKSPACES.md).
 - Verified on the merged tree: `build-glm.ps1` clean, the chase run shows the
   full set (meter + distance, the timer box, the loc 6614 hint) —
-  `docs/images/port-chase-timer-hint-s44.png`.
+  `docs/images/port-chase-timer-hint-s44.webp`.
 
 ## Session 2026-10-29 (glm): otdu2_cine_tool — cutscene dump tool, committed
 
@@ -4938,7 +4938,7 @@ profile. Spec: `docs/re/casino_spec.md` (the whole retail contract, tagged).
   `CasinoRoulette: 33 black, payout 0 chips, balance 4990`.
 - **Playable** — `-gm casino -casinochips 5000 -fixedtimestep -autoplay "..."`: the floor, a spin (9 chips, 5 000
   -> 4 991), back to the floor, the roulette, a chip placed, `X` spins, the winner highlighted, the history
-  strip. Screenshots `docs/images/casino_floor.png`, `casino_slots.png`, `casino_roulette.png`,
+  strip. Screenshots `docs/images/casino_floor.webp`, `casino_slots.png`, `casino_roulette.png`,
   `casino_roulette_winner.png`.
 - **`Casino.vmf` loads** — `Flash movie 'casino': 1280x960, 135 frames @ 30 fps, 1636 tags, 206 bitmaps,
   2 fonts` — but **drawing it breaks the native screens** (the header disappears, the glyphs come out as solid
@@ -5028,7 +5028,7 @@ Then the page the progression was missing — `casino_objectives_screen.{h,cpp}`
 its target, its `_pointsawarded`, and DONE once met. The Flash markup in the
 texts is stripped. Reachable from the floor's new **`Game progress`** entry
 (verified: `CasinoObjectives: open, 4 axis(es), 73 objectives on axis 32`,
-screenshot `docs/images/casino_objectives.png`) and wired to the pause menu's
+screenshot `docs/images/casino_objectives.webp`) and wired to the pause menu's
 retail `game_progress` entry (`eResult::Progress`, enabled by `setCasinoMode`) —
 that entry is wired, but the movie-driven menu did not take the down press in the
 automated run, so the floor entry is the verified route. `-objectives` opens the
@@ -5093,7 +5093,7 @@ little work and to be more accurate"*.
 
 ### Verified
 - Doors: `-logdoors` angles (left -1.0 open at 9.87 s, closing 11.72-12.37; right 0.138 / 1.0 at 77.87 / 78.39,
-  left -0.504 / -1.0 at 79.42 / 80.42); 3D frames `docs/images/port-meeting-tess-doors-s44.png`.
+  left -0.504 / -1.0 at 79.42 / 80.42); 3D frames `docs/images/port-meeting-tess-doors-s44.webp`.
 - `-riskselftest`: config read (PP 300..1200, PA $100..$4000, DEC_SPEED -30/0/3/8); 40 s at 240 km/h + a near miss
   every 2 s -> level 5, bank $750; crash keeps level 5; 20 s at 30 km/h (rate -21/s) -> level 7 -> 6.
 - `-riskdemo -riskevent` 3D: badge climbs 2 -> 5 with the money readout.
@@ -5121,7 +5121,7 @@ Owner: *"Wire the story"* (and earlier: *"should flash white and then you on a q
 - Fresh user data, `-gm FREERIDE -skipcine -nopad -fixedtimestep -storytime 3`: `3 s elapsed -> fade to white`,
   `white fade done -> C_MEETING_TESS`, CINVIEWER at the hotel, `end of 'C_MEETING_TESS' after 66.7 s`, FREERIDE
   `from the dream: story step 3, GPS to the Solar Crown (12327, 16680), route 2515 m`, driving from (11094.98, 3.58,
-  17215.65). 3D frames: white fade-in, goal bar, red route, GPS arrow (`docs/images/port-story-step3-s44.png`).
+  17215.65). 3D frames: white fade-in, goal bar, red route, GPS arrow (`docs/images/port-story-step3-s44.webp`).
 
 ### Not done / next
 - **`kSolarCrownTarget` resolved**: the owner's 360 grabs of the shoot place (walled villa on a beach headland,
@@ -5163,7 +5163,7 @@ phone / keys, line 10 heard twice at the end.
 
 ### Verified
 - Default CINVIEWER run: `cinematic frame at (11103.00, 4.60, 17252.00) heading 0`, `snapped ... -0.14 m`; frames at
-  the arcade with feet on the paving (`docs/images/port-meeting-tess-hotel-s44.png`), keys in Tess's hand
+  the arcade with feet on the paving (`docs/images/port-meeting-tess-hotel-s44.webp`), keys in Tess's hand
   (`port-meeting-tess-keys-s44.png`), phone at her ear, key toss; top view `port-meeting-tess-topview-s44.png`.
 - `-logcinsound`: 16 clips, `root ... still playing, not restarted` for 06 and 10.
 - 6 runs x 75 s (`-no3d -noaudio`, with / without `-nopropanim`) all exit 0.
@@ -5174,7 +5174,7 @@ phone / keys, line 10 heard twice at the end.
   `IntroCinematic::getSurfaceHeight` also hits the exterior meshes (kept on the CPU), and `snapSceneToGround` fits
   a plane under the four tyres and lifts / tilts the whole cinematic frame onto it (car, seated driver and
   standing actors stay together) [INF]. Result for all 68 s: hubs 0.34 m = the tyre radius, feet -0.03 m
-  (`docs/images/port-meeting-tess-grounded-s44.png`).
+  (`docs/images/port-meeting-tess-grounded-s44.webp`).
 
 ### Ruled out
 - Near plane: every cinematic entity of new_intro / fade_freeride / meeting_tess has Znear -1 -> 0.8 (the retail
@@ -5233,7 +5233,7 @@ into `win`, commit `1c88b79`).
   clock, a test artifact.)
 - `-gpsdrive 31000,9000,-15` (backwards): "wrong way (2.0) -> cue 0".
 - Load log: `17 of 17 samples, client 0 (VoiceGPS, pipeline 0), FREERIDE mix gain 1.00`.
-- Left/right convention: 3D frame at junction 713 (`docs/images/port-gps-junction-s44.png`) — the
+- Left/right convention: 3D frame at junction 713 (`docs/images/port-gps-junction-s44.webp`) — the
   road leaves up-left both in the view and on the minimap, so the minimap's right vector (used for
   the turn angle) is not mirrored.
 
@@ -5251,7 +5251,7 @@ into `win`, commit `1c88b79`).
 - `MapScreen::RouteTurn::Arrow` (+ `roadNodeKinds`), `GpsGuidance::getArrow`, `FreeRideHud::showGpsArrow`.
 - Verified: same `-gpsdrive` route — 855 (30 deg bend, angle 150) -> arrow `up`, no voice; 713 (angle
   270) -> `left` + "turn left"; 714 (angle 60) -> `rightdown` + "turn right". 3D frames:
-  `docs/images/port-gps-arrow-up-s44.png`, `port-gps-arrow-left-s44.png` (the movie's own arrow art).
+  `docs/images/port-gps-arrow-up-s44.webp`, `port-gps-arrow-left-s44.png` (the movie's own arrow art).
 
 ### Not done / next
 - **Not heard by a person yet** — the owner should drive a route: set a destination on the map
@@ -5459,7 +5459,7 @@ needs a little bit of fixing up"*.
 
 The spot's plot was empty (the prompt "A / Enter: enter the dealership" was up: `findSpotNear` found ECD_FERR) —
 FREERIDE drew no spot exterior at all. After this session the same command shows the Ferrari showroom
-(`docs/images/freeride-dealer-building.png`).
+(`docs/images/freeride-dealer-building.webp`).
 
 ### What changed
 
@@ -5491,7 +5491,7 @@ FREERIDE drew no spot exterior at all. After this session the same command shows
   `takeZoomStep()` now steps on the axis crossing the threshold and repeats while it is held (0.35 s, then every
   0.30 s); the wheel is unchanged. Also **the sea was invisible** on the flat map: the rect's colour word is
   AABBGGRR and the literal `0x002e0e00` has alpha 0 — it is `a8 | 0x002e0e00u` now
-  (`docs/images/map-flat-sea.png`).
+  (`docs/images/map-flat-sea.webp`).
 - `source/game/gm_base.cpp` — `GetGameModeFromName` ignored underscores: `-gm worldviewer` (as
   `launch/10_WorldViewer.bat` passes it) matched nothing and dropped the run into LOGIN. Names are compared on
   their alphanumerics now, so all three world viewer launchers work.
@@ -5520,7 +5520,7 @@ FREERIDE drew no spot exterior at all. After this session the same command shows
   300:press=validate"` — the log shows the movie firing `phmo:phin`, `PhotoCamera: open at (21794.8, 13.7,
   24191.7)`, `PhotoCamera: photo 1 -> '<userdata>/photos/photo_001.png'` (523 KB PNG, no HUD, no bar — the bar
   region of the capture frame is the scene, 90 vs 53 in the screenshot with the bar) and the controls bar
-  renders in the screenshot (`docs/images/freeride-photo-camera.png`).
+  renders in the screenshot (`docs/images/freeride-photo-camera.webp`).
 
 ### Ruled out
 
@@ -5627,7 +5627,7 @@ accdown` (new), `radio volup voldown` (the keyboard radio keys).
                450:press=accright;500:shot=b1;520:press=accup;530:press=accup;560:shot=b2;
                580:press=accright;620:shot=b3;640:press=accdown;660:press=accleft;720:shot=b4;
                760:press=accleft;800:press=accup;840:shot=c1" -exitframe 860
-- `docs/images/incar_accessories_radio_dpad.png` (a1..c1): the wheel with all four entries
+- `docs/images/incar_accessories_radio_dpad.webp` (a1..c1): the wheel with all four entries
   (roof up, indicators left/right, windows down, no locks on the California); RIGHT in the
   wheel shows "Right indicator" and closes — **no radio**; RIGHT with nothing open opens the
   panel on song 1 (`Radio: playing A Astronauts - Classic (… 1 of 65 …)`, no skip); RIGHT in
@@ -5656,7 +5656,7 @@ z 22112..22244 — `-logtunnels` lists every tunnel node of the loaded sectors):
     build\bin\opentdu2.exe -game ... -gm FREERIDE -skipcine -nopad -fixedtimestep ^
         -tp 21229.31,30.03,22262.84 -heading 147.9 -autoplay "150:shot=_t1.ppm" -exitframe 160
 
-### Ruled out / narrowed (`docs/images/ibiza_tunnel_terrain_ab.png`)
+### Ruled out / narrowed (`docs/images/ibiza_tunnel_terrain_ab.webp`)
 - `-noareas` -> identical (dark wall) -> not the area / island layers.
 - `-noterrain` -> **the tunnel opens** (lit interior, lamps, pillar) -> it is the **sector**
   heightfield.
@@ -5875,9 +5875,9 @@ Add `-showshadowbuffer` (screen sun shadow) or `-showslicemap N` (light-space de
 
 ### Verified
 - Intro party (frames 1200 / 2000 / 2800, `-fixedtimestep`): culling and the constant classification are **pixel identical** (0 px over the noise floor). Intro frame time **55–80 ms -> 8–37 ms** (`[perf]`); `fillConstants` **3.0 -> 0.67 µs/draw** (temporary timers, removed). FREERIDE driving **~14.7 ms/frame** (18–20 with `-noobjcull`).
-- DJ decks: `docs/images/intro-dj-decks-before.png` / `-after.png` — black rectangles gone.
-- Pool: `docs/images/intro-pool-shadowbuffer-before.png` / `-after.png` (left beauty, right `-showshadowbuffer`): the water is lit, the girl / ring shadow lands on it; the water is also brighter turquoise (it was self-shadowed), like the owner's second pool screenshot.
-- Avatar acne: `docs/images/intro-avatar-acne-before-after.png` (shoulder / neck banding gone).
+- DJ decks: `docs/images/intro-dj-decks-before.webp` / `-after.png` — black rectangles gone.
+- Pool: `docs/images/intro-pool-shadowbuffer-before.webp` / `-after.png` (left beauty, right `-showshadowbuffer`): the water is lit, the girl / ring shadow lands on it; the water is also brighter turquoise (it was self-shadowed), like the owner's second pool screenshot.
+- Avatar acne: `docs/images/intro-avatar-acne-before-after.webp` (shoulder / neck banding gone).
 - FREERIDE regression: shadowed fraction 26.3 % -> 25.7 %, beauty frame differs only at shadow edges.
 
 ### Ruled out (with the test)
@@ -5905,10 +5905,10 @@ Owner: saving does not work / is not visible. Retail auto-saves on events (pause
 - Pause panel and Game Progress pages read money / cars / houses / points from the profile. Levels stay 0: the level thresholds are not decoded `[INF]`.
 
 ### Verified
-- Seeded `C:\temp\otdu2-save-test\profile.sav` (name, step 3, 31410, 3 cars, 2 houses), paused: log "Profile: loaded ... story step 3", "saved ... (pause)", file rewritten with step still 3. Screenshot `docs/images/port-progress-saved-s18.png` shows the name, $, houses and cars from the file.
+- Seeded `C:\temp\otdu2-save-test\profile.sav` (name, step 3, 31410, 3 cars, 2 houses), paused: log "Profile: loaded ... story step 3", "saved ... (pause)", file rewritten with step still 3. Screenshot `docs/images/port-progress-saved-s18.webp` shows the name, $, houses and cars from the file.
 
 ### Not done / next
-- **The save icon** is shown (session 25 follow-up): GENERAL.vmf `/saving_logo` (labels open / close, `displaySavingLogo` `[DATA]`) is opened by `FreeRideHud::tick` while `GetSaveNoticeTime()` > 0 (2 s of real time after each save) and drawn with `/pop_goal`; clip path and position are `[INF]`. Evidence `docs/images/port-saving-logo-s18.png` (map close while driving: spinner, then the logo, top right under the zone badge). Known gap: the pause menu does not tick the HUD, so a save made by opening the pause shows no icon until it closes.
+- **The save icon** is shown (session 25 follow-up): GENERAL.vmf `/saving_logo` (labels open / close, `displaySavingLogo` `[DATA]`) is opened by `FreeRideHud::tick` while `GetSaveNoticeTime()` > 0 (2 s of real time after each save) and drawn with `/pop_goal`; clip path and position are `[INF]`. Evidence `docs/images/port-saving-logo-s18.webp` (map close while driving: spinner, then the logo, top right under the zone badge). Known gap: the pause menu does not tick the HUD, so a save made by opening the pause shows no icon until it closes.
 - Explored roads, car ownership and options are not part of the file (options stay in `options.ini`).
 - A new game does not ask before overwriting an existing save.
 
@@ -5924,7 +5924,7 @@ Owner: "both please" (wrecks / panoramas as Discovery events; the used car deale
 ### Car dealership
 - `source/game/car_shop.{h,cpp}` (new): `DBCarShop` (60 shops, `_libelle_hc` name, `_slot_1..9` = **`_id_car`** of the cars, not hashes, `_isbuyable_n`) joined with `DBCarPhysicsData` (`_price`, `_model_name` + `_version_name`, `_manufacturer_name`; names carry `##` markers). The story's **Used Car Dealer** (shops 24 / 25) sells exactly the owner's three cars: Mustang Fastback '68 $23,000, Esprit S3 $15,000, Delta Integrale Evo 2 $20,000. Ferrari $190,000 (California) - $675,000 (Enzo); Audi 7 cars; `-logshops` lists all.
 - `source/game/freeride/dealer_menu.{h,cpp}` (new, native 2D menu): stopped (< 20 km/h) within 40 m of a `cardealer` map spot the HUD prompts "A / Enter: enter the dealership"; up / down select, A buys (checks owned / not for sale / money), B leaves. A purchase: `Money -= Price`, `OwnedCars` (saved `cars_owned = id,...`), `NbCars++`, `COLLECTION_CARS_DIF_<n>` events for 1 / 3 / 6 / 10 / 15 / 20 / 25 / 30 / 40 / 50 cars, saved at once. The building name picks the shop (`FindShopForSpot`: AUDI -> Audi, FERR -> Ferrari, MERC, ITAL -> Italian Cars, ECDC_* -> classics, EUR / US / ASIA / BRI) `[INF]`. `-dealer <shop index>` opens one directly.
-- Verified: used car dealer: Esprit S3 bought, money 31,410 -> 16,410, "4 cars", `COLLECTION_CARS_DIF_1` +75 and `_3` +175 (profile cars started at 3), Collection 250; "You already own this car", "Not enough money" for the $20,000 car; Ferrari list (`docs/images/port-dealer-menu-s18.png`); real entry next to ECD_AUDI at `-tp 11665,17437` (`port-dealer-prompt-s18.png`).
+- Verified: used car dealer: Esprit S3 bought, money 31,410 -> 16,410, "4 cars", `COLLECTION_CARS_DIF_1` +75 and `_3` +175 (profile cars started at 3), Collection 250; "You already own this car", "Not enough money" for the $20,000 car; Ferrari list (`docs/images/port-dealer-menu-s18.webp`); real entry next to ECD_AUDI at `-tp 11665,17437` (`port-dealer-prompt-s18.png`).
 - Also: risk driving ignores the first 3 s after a spawn (the drop paid air time).
 
 ### Not done / next
@@ -5936,7 +5936,7 @@ Owner: "both please" (wrecks / panoramas as Discovery events; the used car deale
 Owner: "both please" (the A-button pages of the level-up popup; Racing / Collection / Social earning points).
 
 ### Popup
-- A button (`validate`, or auto every 3.5 s): Level UP panel -> all gauges -> new title page (`WhatReward <grade>_<tier>`, `NewTitle`, `reward_name`, `db_reward_desc`, header `TitleDbProgress`) -> global title page (gold, the ID card, `PlayerTitle`). Bug found: `NewAreaTitle` must be set to 0, undefined takes the wrong branch. Popups are queued (`showEarn`, `showLevelUp`). Details in `docs/re/skills_spec.md`. Evidence `docs/images/port-levelup-title-page-s18.png`, `port-levelup-global-title-s18.png`, `port-earn-popup-s18.png`.
+- A button (`validate`, or auto every 3.5 s): Level UP panel -> all gauges -> new title page (`WhatReward <grade>_<tier>`, `NewTitle`, `reward_name`, `db_reward_desc`, header `TitleDbProgress`) -> global title page (gold, the ID card, `PlayerTitle`). Bug found: `NewAreaTitle` must be set to 0, undefined takes the wrong branch. Popups are queued (`showEarn`, `showLevelUp`). Details in `docs/re/skills_spec.md`. Evidence `docs/images/port-levelup-title-page-s18.webp`, `port-levelup-global-title-s18.png`, `port-earn-popup-s18.png`.
 
 ### Points: `DBRewardXP` (191 events) `[DATA]`
 - `AwardSkillEvent( name )` (`skill_levels.cpp`): points per skill from the table, `_nbtimesallowed` counted in `PlayerProfile::EventsDone` (`done_<EVENT> = n` in `profile.sav`), earn popup ("Roads dicovered +40 Pts" with the gauges). `-awardevent <NAME>` pays one.
@@ -5953,7 +5953,7 @@ Owner: "both please" (decode the retail db_progress popup; test a real near miss
 
 ### Retail level-up popup `[DATA]`
 - Found with `-logdbprogress` (new; dumps the GENERAL clips and root functions). The popup is **`_root.dbProgress( action )`** (2364 bytes): the game sets the root variables `WhatGrade` (racing / cruising / collection / social: `ic` frame), `WhatDbProgress` (`earn_grade_points`, `earn_cruising_points`, `grade_title`, `global_title`, `chase`: `disp` frame), `WhatArea` (the zone icon of the Discovery popup, `i1` / `h2` = `DBCruisingZones._flashlabel`), `WhatTuto`, `NewGradeTitle`, `NewGlobalTitle`, `IsLevelUp`, `ProgressCasinoOn`, per skill `<Prefix>LevelCount` / `Title` / `Points` (the gauge ring percent) and `GlobalLevel*`, then calls `dbProgress( 'open_mini' )`; the actions are `open_mini`, `extend` (-> `open_extd`), `close_mini`, `close_extd`, `open_tuto`, `chase_reward`; the A button advances (`A_first`, `A_next`, `set_reward`, FSCommands `dbpg:opbg|clos|skgg|nwti|nwgr`).
-- `FreeRideHud::showLevelUp( grade, reward, bNewTitle )` + `setProgress( snapshot )`: mini bar 3.5 s, `extend` (the "Level UP!" panel with the grade gauge, Global level n/73 and "Next level in N pts", the `§POINTS§` token of `m_NextLevel_`), 6 s, `close_extd`. The reward text goes to the goal bar (the retail reward page needs `WhatReward` and the A sequence, not driven) `[INF]`. `docs/images/port-levelup-retail-s18.png` (mini bar -> panel -> closed). `-testlevelup` forces one.
+- `FreeRideHud::showLevelUp( grade, reward, bNewTitle )` + `setProgress( snapshot )`: mini bar 3.5 s, `extend` (the "Level UP!" panel with the grade gauge, Global level n/73 and "Next level in N pts", the `§POINTS§` token of `m_NextLevel_`), 6 s, `close_extd`. The reward text goes to the goal bar (the retail reward page needs `WhatReward` and the A sequence, not driven) `[INF]`. `docs/images/port-levelup-retail-s18.webp` (mini bar -> panel -> closed). `-testlevelup` forces one.
 
 ### Near misses (risk driving)
 - `Traffic::nearMissTest` (`-nearmisstest`, log only): a virtual car passes a live traffic car at +16 m/s anchored to its heading: lateral offset 2.4 m (gap 0.55 m) -> detected 1 (closing 16.0 m/s), 0 contacts; 3.8 m (the next lane, gap 1.95 m) -> 0 detected. Oncoming passes in the normal lanes do not count `[INF]`.
@@ -5969,14 +5969,14 @@ Owner: "both please" (the level-up popup with the reward name; skills earning be
 
 ### Level-up popup
 - `skill_levels`: rows now carry `Reward` / `RewardDesc` (`_rewardname_hc` / `_rewarddesc_hc`, `§PERC§` replaced by the row's `_percent`). Examples `[DATA]`: Racing level 3 "Metal detector", Discovery level 3 "New items available", Collection level 3 "x% discount on each vehicle", Social level 3 "Earn more money in club".
-- `GMFreeRide` watches the four skills (`FindSkillLevelIndex`); a crossed threshold calls `FreeRideHud::showLevelUp( skill, "n/15", title, reward )` -> the goal popup "Discovery 3/15 - Tourist - New items available". Verified by exploring from 524 Discovery points (`docs/images/port-levelup-popup-s18.png`); `-testlevelup` forces one.
+- `GMFreeRide` watches the four skills (`FindSkillLevelIndex`); a crossed threshold calls `FreeRideHud::showLevelUp( skill, "n/15", title, reward )` -> the goal popup "Discovery 3/15 - Tourist - New items available". Verified by exploring from 524 Discovery points (`docs/images/port-levelup-popup-s18.webp`); `-testlevelup` forces one.
 - **Ruled out**: the retail popup, GENERAL.vmf `db_progress` (root vars `WhatGrade` / `WhatDbProgress` / `IsLevelUp` / `NewGradeTitle`, labels `open_mini` / `open_extd` / `close_*`, FSCommands `dbpg:opbg|clos|skgg`): setting those and jumping to `open_mini` shows an empty bar with the racing icon and a play glyph; the full sequence (icon frame by grade, text, reward page) needs more of its scripts. Next step: `-dumpclips` on `/db_progress` and read its `disp` / `title` frames.
 
 ### Risk driving (`source/game/freeride/risk_driving.{h,cpp}`, new) `[INF]` rates
 - Fast driving above 120 km/h pays $0.15 per s per km/h over; a near miss with traffic ($25 + the closing speed in m/s); air time $30 per s (paid on landing, 0.5 s minimum). A multiplier grows 0.25 per event up to x3 and resets 5 s after the last one. Standing still 1.5 s (< 8 km/h) **banks** the pending money into `PlayerProfile::Money` (saved at once); any contact with a traffic car loses it ("Crash! Money lost").
 - `Traffic::detectNearMisses`: circles gap < 1.6 m with no contact, closing faster than 8 m/s, once per car per 4 s.
 - HUD (`FreeRideHud::setRisk / drawRisk`): "RISK $n xM", the last event line (3 s), "Banked +$n" (4 s) under the goal bar, top left.
-- Verified: `-riskselftest` (5 s at 180 km/h + 2 near misses + 1 s air = $191 at x1.75, banked on stopping, crash -> $0) and `-riskdemo` (forces 180 km/h) shows the HUD (`docs/images/port-risk-hud-s18.png`). Not driven through a real near miss with traffic (a car must pass within 1.6 m at speed).
+- Verified: `-riskselftest` (5 s at 180 km/h + 2 near misses + 1 s air = $191 at x1.75, banked on stopping, crash -> $0) and `-riskdemo` (forces 180 km/h) shows the HUD (`docs/images/port-risk-hud-s18.webp`). Not driven through a real near miss with traffic (a car must pass within 1.6 m at speed).
 
 ### Not done / next
 - The retail "frim" rates, rules and banking trigger are not decoded (the owner's description only); the points skills (Racing / Collection / Social) still earn nothing; Discovery earns only from new roads; no jump / drift / slipstream events; no sound; the pause menu money field shows the banked total.
@@ -5989,10 +5989,10 @@ Owner: "do both" (skill level thresholds; GPS distance readout and arrival messa
 - `source/game/skill_levels.{h,cpp}` (new): the level tables of the database - `DBRacingLevel._rlpneeded`, `DBCruisingLevel._crlpneeded`, `DBCollectionLevel._colpneeded`, `DBSocialLevel._slpneeded` (16 rows each, levels 0-15: 0, 125, 300, 525, 825, 1200, 1650, 2175, 2795, 3510, 4320, 5225, 6225, 7355, 8615, 10000), the title is the localized `_grade_hc` (Trainee / Driver / Pilot / Champion; Homebody / Tourist / Digger / Traveller; ... Wealthy; ... Charmer) and `DBPlayerLevel` (56 rows, title only: Inglorious 0-9, Someone 10-19, Popular 20-29, New Star 30-39, Celebrity 40-..., Superstar). The owner's captures match exactly (125 Pts to level 1 from 0, "Next title: Level 3", Collection 380 points = level 2 with 145 to level 3). `-logskills` dumps the tables.
 - `DBAreaLevel` (18 rows, 4 areas, levels 1-5, 0/200-250/600-680/1000-1500/1600-1700) is the exploration area level; the Discovery page's 14500 points and 18 levels are the cruising table plus these `[INF]` (not wired: the Discovery points are the profile's only).
 - `pause_menu.cpp`: `ComputeSkill` -> level, title, points to the next level, first level of the next title; the Global level is the sum of the skill levels, titled from `DBPlayerLevel`; refreshed on every `gapr:open`; the Completion page keeps its larger counts (19 / 20 / 17 / 17, with the casino levels) and the skill pages "n/15" (Discovery "n/18") via `gapr:part:*`. The detail percent rows are 0 (placeholders removed) except the explored roads.
-- Verified: profile 700 / 40 / 380 / 100 points -> Competition 3/15 "Driver", "Next level: 125 Pts - Next title: Level 7", Collection 2/17, Global 5/73 (`docs/images/port-progress-levels-s18.png`).
+- Verified: profile 700 / 40 / 380 / 100 points -> Competition 3/15 "Driver", "Next level: 125 Pts - Next title: Level 7", Collection 2/17, Global 5/73 (`docs/images/port-progress-levels-s18.webp`).
 
 ### GPS readout and arrival
-- `MapScreen::getRouteLength()` (road left, from the route points) and `takeArrival()`; the HUD draws "GPS 53.0 km" (or "850 m") under the minimap while a route exists; on arrival (40 m) the goal popup shows "You have reached your destination" `[INF]` (no such string in the tables). Verified: Hawai route 53.0 km readout; Ibiza spawned on the destination node -> popup (`docs/images/port-gps-readout-arrival-s18.png`).
+- `MapScreen::getRouteLength()` (road left, from the route points) and `takeArrival()`; the HUD draws "GPS 53.0 km" (or "850 m") under the minimap while a route exists; on arrival (40 m) the goal popup shows "You have reached your destination" `[INF]` (no such string in the tables). Verified: Hawai route 53.0 km readout; Ibiza spawned on the destination node -> popup (`docs/images/port-gps-readout-arrival-s18.webp`).
 
 ### Not done / next
 - Where the 14500 / 18 of Discovery come from (area levels); points are only earned by exploring (1 per 50 m); no other skill earns points (races, shops...); the level-up notification / reward (`_rewardname_hc`) is not shown; the GPS readout is km only (no unit setting).
@@ -6006,7 +6006,7 @@ Owner: "Live route update".
 - `FreeRideHud::setRoute` / `drawMinimap`: the route (red, 4 px, clipped to the minimap) over the road triangles.
 
 ### Verified
-- Hawai: destination set on the map, map closed, 800 frames of driving: route recomputed each second (3644 -> 3638 points, 53.0 km), red line from the car along the road on the minimap (`docs/images/port-minimap-route-s18.png`).
+- Hawai: destination set on the map, map closed, 800 frames of driving: route recomputed each second (3644 -> 3638 points, 53.0 km), red line from the car along the road on the minimap (`docs/images/port-minimap-route-s18.webp`).
 
 ### Not done / next
 - The red line sits a few metres beside the white road triangles of the minimap: the ROAD_DETAIL curve is not exactly the road centre (the curve starts ~10 m from the nodes) `[INF]`; not measured.
@@ -6017,12 +6017,12 @@ Owner: "Live route update".
 Owner: "Test Hawai zooms/GPS".
 
 ### Tested (Hawai, `-tp 36148,8922 -snaproad`, autoplay `hold=up/down/right`, `wheel=1`, `press=validate`)
-- Zoom levels 0-3: all four work, roads (blue) and the spot icons are placed at each level; `docs/images/port-map-hawai-zooms-s18.png`. At level 1 the streamed terrain ends in blocky sector edges beyond the streamed radius (the known cap, session 23), black / dark sea beyond.
+- Zoom levels 0-3: all four work, roads (blue) and the spot icons are placed at each level; `docs/images/port-map-hawai-zooms-s18.webp`. At level 1 the streamed terrain ends in blocky sector edges beyond the streamed radius (the known cap, session 23), black / dark sea beyond.
 - GPS: OK on the cursor sets the destination, "route 204 points, 47.4 km" across the island, drawn red.
 - **Found**: the route cut across bays (Dijkstra over node chords + Chaikin smoothing).
 
 ### What changed
-- `MapScreen`: link weights are the curve length; `computeRoute` expands every node step into the curve of the shortest link between them (`roadShapes`, oriented) and no longer smooths. Hawai now 3644 points, 53.0 km, red on top of the roads (`docs/images/port-map-hawai-route-s18.png`); Ibiza regression (25.7 km, 1274 points) fine.
+- `MapScreen`: link weights are the curve length; `computeRoute` expands every node step into the curve of the shortest link between them (`roadShapes`, oriented) and no longer smooths. Hawai now 3644 points, 53.0 km, red on top of the roads (`docs/images/port-map-hawai-route-s18.webp`); Ibiza regression (25.7 km, 1274 points) fine.
 
 ### Not done / next
 - Route recompute while driving (not recomputed as the car moves), the `MapInclination` values of `worldconfig.cpr` for Hawai (tilt 20 / 30 / 40 / 50), and the Casino map (3 road nodes, no texture).
@@ -6036,7 +6036,7 @@ Owner: "Hawai flat map".
 - HUD island label "HAWAI" -> "HAWAII".
 
 ### Verified
-- `-island hawai -tp 36148,8922`, map at level 0: the Oahu texture fills the view, the seeded explored links (blue) follow the coast and the roads with none in the sea; the car and the Racing School / photo icons are placed (`docs/images/port-map-hawai-flat-s18.png`). Fit judged by eye on the road overlay, not measured.
+- `-island hawai -tp 36148,8922`, map at level 0: the Oahu texture fills the view, the seeded explored links (blue) follow the coast and the roads with none in the sea; the car and the Racing School / photo icons are placed (`docs/images/port-map-hawai-flat-s18.webp`). Fit judged by eye on the road overlay, not measured.
 
 ### Not done / next
 - Zoom levels 1-3 and the GPS route on Hawai are untested; the `MapInclination` / `MapCenterCorrection` values of `worldconfig.cpr` (Hawai Island 0, Far 20, Medium 30, Close 40, Very Close 50 degrees) are not used (the Ibiza rescale from the owner's grabs is used for both).
@@ -6053,7 +6053,7 @@ Owner: "Hawai roads".
 - Casino has no `aiconfig.cpr`: no traffic there (and 3 road nodes).
 
 ### Verified
-- Hawai `-tp 36148,8922 -snaproad -trafficnear`: 13 cars (target 12.8), HUD "Hawai 2 / Hawaii Area 2", exploring recorded `explored_hawai = 137,166,168`, `points_cruising = 19`. Map with 1400 seeded links: blue roads on the 3D map (`docs/images/port-map-explored-hawai-s18.png`, `port-traffic-hawai-s18.png`).
+- Hawai `-tp 36148,8922 -snaproad -trafficnear`: 13 cars (target 12.8), HUD "Hawai 2 / Hawaii Area 2", exploring recorded `explored_hawai = 137,166,168`, `points_cruising = 19`. Map with 1400 seeded links: blue roads on the 3D map (`docs/images/port-map-explored-hawai-s18.webp`, `port-traffic-hawai-s18.png`).
 
 ### Not done / next
 - The Hawai **flat island map** (texture + world extent like Ibiza's `setIslandMap( ..., 43008, 36864 )`) is not fitted: the Hawai map still uses the 3D camera; the route / explored overlay works on it.
@@ -6065,8 +6065,8 @@ Owner: "Hawai roads".
 Owner: "do both, wire up as much as possible" (progress page gaps; traffic zones and lights).
 
 ### What changed
-- **Game Progress**: found with the new `-logprogress` script dump. `<Prefix>Points` drives the gauge ring (`maskLevel.gotoAndStop( focusPoints )`, so it is a **percentage**), `<Prefix>LevelCount` is the "n/max" text (a string now), the points line is a text bound to `_root.GPTitle` (set per page on `gapr:part:*`), `NextLevelCount` carries "125 Pts". Retail level maxima 19 / 20 / 17 / 17 (= 73, the `NB_LVL`). `docs/images/port-progress-pages-s18.png`.
-- **Road curves**: `Ibiza_ROAD_DETAIL.IA` `ATED` records are the curve of each road (`docs/re/roads_spec.md`). `MapScreen::loadRoads` builds `roadShapes` per link; explored tracking and the blue drawing follow the real roads (`docs/images/port-map-explored-curves-s18.png`); a stray-point filter (250 m jump) removes bad triples.
+- **Game Progress**: found with the new `-logprogress` script dump. `<Prefix>Points` drives the gauge ring (`maskLevel.gotoAndStop( focusPoints )`, so it is a **percentage**), `<Prefix>LevelCount` is the "n/max" text (a string now), the points line is a text bound to `_root.GPTitle` (set per page on `gapr:part:*`), `NextLevelCount` carries "125 Pts". Retail level maxima 19 / 20 / 17 / 17 (= 73, the `NB_LVL`). `docs/images/port-progress-pages-s18.webp`.
+- **Road curves**: `Ibiza_ROAD_DETAIL.IA` `ATED` records are the curve of each road (`docs/re/roads_spec.md`). `MapScreen::loadRoads` builds `roadShapes` per link; explored tracking and the blue drawing follow the real roads (`docs/images/port-map-explored-curves-s18.webp`); a stray-point filter (250 m jump) removes bad triples.
 - **Traffic**: agents move along the curve (`Agent::Edge / bForward / Distance`, `sampleEdge`); junction signals (`Traffic::isRed`, `-notrafficlights`) `[INF]`; collision from session 28 unchanged.
 
 ### Verified
@@ -6090,7 +6090,7 @@ Owner: "please do both" (traffic collision, HUD zone badge from the real zones).
 - Traffic collision: `Traffic::resolveCollision` + `VehicleDynamics::addVelocity`, called after `vehicle.step` in `GMFreeRide`. Details in `docs/re/traffic_spec.md`.
 
 ### Verified
-- `-tp 20445,25588` -> badge "2 / Ibiza Area 2", `-tp 15000,12000` -> "1 / Ibiza Area 1" (`docs/images/port-hud-zone-s18.png`). Hawai log: 3 zones "Hawaii Area 1..3".
+- `-tp 20445,25588` -> badge "2 / Ibiza Area 2", `-tp 15000,12000` -> "1 / Ibiza Area 1" (`docs/images/port-hud-zone-s18.webp`). Hawai log: 3 zones "Hawaii Area 1..3".
 - `-trafficselftest`: player dv ~10 m/s against a 12 m/s ram; the rammed car speeds up 18.9 -> 26.2 m/s. Not tested by driving into a car (the headless drive has no steering); no pad run.
 
 ### Ruled out
@@ -6109,7 +6109,7 @@ Owner: "then add in traffic". Spec: `docs/re/traffic_spec.md`.
 - `MapScreen::getRoadNodes / getRoadEdges`; `GMFreeRide` loads (`-notraffic` disables), ticks (next to the HUD), draws in the scene pass. `-trafficnear` = close spawn ring for test shots.
 
 ### Verified
-- `-tp 20445,25588 -snaproad -trafficnear`: log "12 vehicle types ... hour 14.0 -> 14.4 cars", 15 cars alive; `docs/images/port-traffic-s18.png` shows a police car and a taxi in the lanes (3 frames). +11 ms / frame in the headless run (62 -> 73 ms).
+- `-tp 20445,25588 -snaproad -trafficnear`: log "12 vehicle types ... hour 14.0 -> 14.4 cars", 15 cars alive; `docs/images/port-traffic-s18.webp` shows a police car and a taxi in the lanes (3 frames). +11 ms / frame in the headless run (62 -> 73 ms).
 
 ### Not done / next
 - See "Not done" in `docs/re/traffic_spec.md` (collision with the player, lights, zone lookup, Hawai).
@@ -6121,14 +6121,14 @@ Owner: "then add in traffic". Spec: `docs/re/traffic_spec.md`.
 Owner: fix the pause icon, then explored roads, then traffic; "go for it" while away.
 
 ### What changed
-- **Pause icon**: `FreeRideHud::tickSavingLogo / drawSavingLogo`, called by `GMFreeRide` while the pause menu or map is up (the HUD is frozen there). Evidence `docs/images/port-saving-logo-pause-s18.png`.
+- **Pause icon**: `FreeRideHud::tickSavingLogo / drawSavingLogo`, called by `GMFreeRide` while the pause menu or map is up (the HUD is frozen there). Evidence `docs/images/port-saving-logo-pause-s18.webp`.
 - **Explored roads** (`map_screen.cpp`): `loadRoads` now keeps the link list (`roadEdges`, index = save id) and `edgeExplored`; `trackCar( position, dt )` (every 0.25 s, called from `GMFreeRide`) marks a link explored when the car is within 18 m of its segment `[INF]`. `drawIsland` draws explored links as blue ribbons (`0xffc8821e`, 2.5-9 px by zoom level) under the red GPS route. `getExploredPercent()` feeds the Discovery "Roads" row (`/:PercentRoad`).
 - **Discovery points**: 1 point per 50 m of newly explored link `[INF]`, into `PlayerProfile::Points[1]`.
 - **Saved**: `profile.sav` line `explored_<island> = id,id,...` (`PlayerProfile::ExploredRoads`). The ids are indices into the island road graph, deterministic for a given game data set.
 
 ### Verified
 - `-tp 20445,25588 -snaproad`, hold accel 600 frames: 3 links explored, `points_cruising = 10`, `explored_ibiza = 61,299,300` after the map close (log "saved ... (map closed)").
-- Seeded 900 links: `docs/images/port-map-explored-s18.png` (blue network on the flat map).
+- Seeded 900 links: `docs/images/port-map-explored-s18.webp` (blue network on the flat map).
 
 ### Not done / next
 - Ibiza graph only (Hawai / Casino have no `loadRoads` graph on the map). Links are straight node-to-node lines, so curves are cut `[INF]`; the retail map draws the real road shapes (`HudMapRoads`).
@@ -6148,7 +6148,7 @@ Owner: "Progress pages" (Completion / Competition / Collection / Discovery / Soc
 - LB / RB (keyboard **Q / E**) send SWF keys **49 / 51**, which button 17227 maps to `this.Move('left'|'right')` `[DATA, -logpausekeys]`. Left/Right arrows do not switch tabs. The pad -> flash key map is still untraced `[INF]`.
 
 ### Verified
-- Screenshots `docs/images/port-progress-completion-s18.png`, `port-progress-competition-s18.png`: tab row, header "Competition (Trainee)", next level 125 / next title Level 3, the objective rows with the captured percentages, all five tabs reachable with E.
+- Screenshots `docs/images/port-progress-completion-s18.webp`, `port-progress-competition-s18.png`: tab row, header "Competition (Trainee)", next level 125 / next title Level 3, the objective rows with the captured percentages, all five tabs reachable with E.
 
 ### Not done / next
 - Points line "Competition points: 0 / 10000 (0%)" missing; gauge shows "0", retail "0/15" (the movie builds `gradeLevelCount + "/" + /:LevelCount`, set to 15, still not shown); "Pts" after "125"; `NB_LVL` token in the Completion text is never replaced (retail: 73); avatar portrait, flag and the money/houses/cars row use defaults. Start at the constant pool near `RacingLvlPoints` in MAIN.vmf (offset ~374835) and `initGauges`.
@@ -6165,13 +6165,13 @@ The owner asked for the missing features (races, cutscenes, shops, map). Started
 - `source/game/freeride/gm_freeride.cpp` - while the map is open: apply the map camera, stream sectors around the camera centre (radius 1-4 by zoom), `view.tick`; re-stream around the car on close.
 
 ### Verified
-- `-gm FREERIDE -skipcine -nopad -fixedtimestep -autoplay "300:press=map;480:shot=...;500:hold=brake;560:release=brake;700:shot=..."` - screenshots `docs/images/world_map_3d_default.png`, `world_map_3d_zoomout.png`: island, roads, coast render under the Flash chrome.
+- `-gm FREERIDE -skipcine -nopad -fixedtimestep -autoplay "300:press=map;480:shot=...;500:hold=brake;560:release=brake;700:shot=..."` - screenshots `docs/images/world_map_3d_default.webp`, `world_map_3d_zoomout.png`: island, roads, coast render under the Flash chrome.
 
 ### Follow-up (same session, after the owner's retail screenshot)
 The owner's TDU World screenshot shows the retail map is **the whole island seen flat**, dark sea, not a streamed 3D view. The source is `islands/ibiza/level/ibiza.bnk` -> `maps/ibiza-c.2db` `[DATA]`: 1024x1024 DXT1, **pixel data at file offset 0x58**, wrap it in a DDS header to view it. Mapping to world metres, fitted by overlaying the road-graph nodes of `Ibiza_ROAD_MAP.IA` (`EDON` records, x/y/z floats at +12 of the tag) on it: **u = x / 43008, v = z / 36864** `[INF]` (the nodes cluster on Ibiza Town, San Antonio, the coast roads; the z extent is *not* 43008). Orientation: u right, v down, unflipped.
 - `MapScreen::setIslandMap / setPlayer / drawIsland / updateIslandView`: sea fill (0,14,46 = the texture's own colour), the texture panned/zoomed, a red player arrow along the car heading. Pan = left stick/arrows, zoom = triggers (W/S)/wheel. `GMFreeRide` skips the 3D pass and HUD while it is up; Hawaii/Casino keep the 3D map camera until their extents are fitted.
 - `EdenWorld::getIslandColorMap()` accessor (+ the ocean mesh bounds, which are NOT the texture extent: -98304..141312).
-- Screenshots: `docs/images/world_map_flat_ibiza.png`, `world_map_flat_zoomed.png`.
+- Screenshots: `docs/images/world_map_flat_ibiza.webp`, `world_map_flat_zoomed.png`.
 - Still missing vs the retail screenshot: title ("Single Player Challenges") and car name / money in the header, the mission/shop icons, the red GPS route, the cursor reticle, the sea shimmer. Spawn is NE (36008, 5814).
 
 ### Second follow-up: what the owner's six retail grabs say about MAP.vmf (new `-dumpclips <depth>`)
@@ -6188,14 +6188,14 @@ Retail has **4 zoom levels**; each steps to the cursor; the furthest shows the w
 - `MapScreen::updateIslandView`: LT/RT (keyboard accel/brake keys) or the wheel step one level. Levels 0 and 1 are the flat `ibiza-c` texture (level 1 = 10.7x level 0: measured on the grab, San Antonio -> Ibiza Town is ~10 m per grab pixel `[INF]`); levels 2 and 3 are the tilted 3D camera (distance 3200 m / 1100 m, pitch 55 deg `[INF]` guesses) with sectors streamed around the centre. `isFlat()` selects the path; `GMFreeRide` skips the 3D pass and HUD only for the flat levels, and the HUD is hidden at every level. The map stays centred on the cursor, so a step zooms to the cursor.
 - Bug found on the way: `drawIsland` painted the flat texture at every level, magnified 30x over the 3D view (a blur). It now only draws when `isFlat()`.
 - `-mapatcar` starts the map centred on the car instead of the island centre (diagnostic).
-- Screenshots: `docs/images/world_map_zoom1_flat.png`, `world_map_zoom2_3d.png`, `world_map_zoom3_3d.png`.
+- Screenshots: `docs/images/world_map_zoom1_flat.webp`, `world_map_zoom2_3d.png`, `world_map_zoom3_3d.png`.
 - Not done: **credits** past the furthest level (`credits` / `credits_back` labels; text `FrontEnd/AllRes/credits.txt` into `/credits/scroll/title%d`, `txt%d`); the **free cursor** at level 0 (retail moves the cursor over the island; here the map pans under a fixed centre cursor); **haze** washes out level 2; roads are the world's own meshes, not the grey ribbon lines of `HudMapRoads`; the 3D distances are guesses until compared with more grabs.
 
 ### Fourth follow-up: zoom scales and tilt from four grabs of one spot (CORRECTS the third follow-up)
 The owner's four same-spot grabs (levels L1..L4, retail screen 2000 px wide) give `[DATA]`: **47 / 11 / ~3 / <1 m per grab pixel**, so each level is **~4x** the last (the earlier "10.7x" was a unit mix-up: I inverted a virtual-pixel conversion; the measured 10.8 m/px grab was L2, not L1). L2 is crisp (airport, runway) and nearly top-down, so it is **not** the upscaled 1024 texture: L2..L4 are one 3D camera that tilts as it comes in, about 75 / 60 / 45 deg `[INF]` (read off the perspective in the grabs); retail is **free of haze** at every level and its sea is dark with sparkles.
 - `MapScreen::updateIslandView`: level 0 = flat texture (unchanged); levels 1..3 = 3D camera, distance 10500 / 2700 / 700 m and pitch 75 / 60 / 45 deg `[INF]`. `isFlat()` is now level 0 only.
 - `EdenSceneView::setMapView()`: no fog (`fog_max` 0), no haze pass, no sky / sun halo, deep-sea clear colour (0,14,46). `GMFreeRide` turns it on only while the map camera drives the view.
-- Screenshots: `docs/images/world_map_L2_3d.png`, `_L3_3d.png`, `_L4_3d.png` (`-mapatcar`).
+- Screenshots: `docs/images/world_map_L2_3d.webp`, `_L3_3d.png`, `_L4_3d.png` (`-mapatcar`).
 - Still off vs retail: colours are warmer / more saturated and the sea is turquoise (retail: darker, desaturated, grey road ribbons from `HudMapRoads`); beyond ~3 km (sector radius cap 4) the view falls back to the island-level terrain, visible at L2 as a lower-detail band; the closest level may need a lower pitch; the cyan track outlines and the thick red route in the grabs are not drawn (route = `strokes_pack`).
 
 ### Fifth follow-up: tab row + title, credits, and a real `duplicateMovieClip`
@@ -6203,7 +6203,7 @@ The owner's four same-spot grabs (levels L1..L4, retail screen 2000 px wide) giv
 - **Tabs + title**: LB/RB (keyboard **Q / E**) call `/presets.Move('left'|'right')`; the movie lights the tab and sets the title itself ("Multiplayer Challenges", "Spots for Avatar" match the retail grabs). The row opens on tab 0 with nothing lit and no title; `MapScreen::tick` steps it right then left (ticks 40 / 55 after opening) to light it `[INF]`: "Single Player Challenges" + red-lit tab 0, as retail. `/:MapTabObjective` (`-maptab N`) only moves the red "objective" dot. No SWF key code (1..255) switches tabs (probed).
 - **Credits**: zooming out past the furthest level (LT/brake at level 0) calls `_root.openCredits()` -> `credits.Open()`, `beginScroll()`, FSCommand `cred:open`. The game's job (MngCredits, PS3 strings `/credits/scroll/title%d`, `txt%d`, `empty`, `CreditsPixelPerSec`) is done in `MapScreen::buildCredits`: parses `FrontEnd/AllRes/credits.txt` (`%Title`, `[[Role]]`, `((names))`, `/` gap), fills `title0`/`txt0` and clones of them (variable `txt`, markup `#color:64c8ff#` titles, `#color:999999#` roles, `#color:FFFFFF#` names), lays them out, and scrolls `/credits/scroll:_y` up at 45 stage px/s `[INF: speed, spacing, start]`. **The movie leaves `scroll` at alpha 0** (found in the dump) so the game sets `_alpha` 100. BACK -> `credits.B()` + `Close()`, then the map returns. 16 titles + 230 text blocks, 31568 px.
 - **`FlashPlayer::duplicateClip` / `duplicate()`**: `duplicateMovieClip` was a no-op (the `A_CloneSprite` opcode just popped its arguments). Now implemented for the opcode, the `duplicateMovieClip` method and a game-side `duplicate(path, newName, depth)`. The spot icons need exactly this (`/pack/point%03d`).
-- Evidence: `docs/images/world_map_tabs_titles.png` (tab 0 -> 1 -> 2 -> 1), `docs/images/world_map_credits.png`.
+- Evidence: `docs/images/world_map_tabs_titles.webp` (tab 0 -> 1 -> 2 -> 1), `docs/images/world_map_credits.webp`.
 - Not done: credit layout vs retail (position / speed unverified: please send a credits grab), `Clic`/`A` on a tab or spot, `navigator.setZoom(level)` (the movie's own icon LOD hook; not called), the spot icons, route, cursor reticle.
 
 ### Sixth follow-up: spot icons (from `spots.bin`)
@@ -6211,14 +6211,14 @@ The owner's four same-spot grabs (levels L1..L4, retail screen 2000 px wide) giv
 - **How the movie draws them** `[DATA]`: `pack/point` is the template; `spot` (856 frames) shows the icon by frame label (`asphalt dirt cup speed race rschool photograph cardealer tuning carwash carpaint carrental stolencar auctionhall airport estates clothes hair surgery club home gamblinghall bookmark player friend ...`); `spot/ic/logo` has 121 frames (brand logo of a dealer tile). `MapScreen::buildSpots` clones `/pack/point` per spot (`point001..`), sets the label, hides `fleche`/`locator`; `updateSpots` projects each spot with `projectToStage` (flat map: x/z * scale; 3D view: the same pinhole as `getCamera`) and shows only the ones of the current tab.
 - **Tab -> icons**: the tab row sends `FSCommand bmap:fltr:icf<N>` (N 0..5) when the tab changes `[DATA: -logmaptab]`; `currentTab` follows it. Spots are assigned to tab 0 (racing schools, photo), 2 (houses, clothes, hair, surgery, club, estates, casino), 3 (dealers, tuning, wash, paint, rental, stolen, auction, airport). Tab 1 (multiplayer), 4 (players), 5 (my spots) have none: the server is down in retail too.
 - The 3D camera now looks to -z (yaw pi) so north is up like the flat map.
-- **Evidence**: `docs/images/world_map_spots_tab0.png` (3 racing schools + photo studio), `_tab2.png` (houses, hair, clothes, surgery, club), `_3d.png` (icons placed in the tilted view).
+- **Evidence**: `docs/images/world_map_spots_tab0.webp` (3 racing schools + photo studio), `_tab2.png` (houses, hair, clothes, surgery, club), `_3d.png` (icons placed in the tilted view).
 - **Dealer tiles are blank** (the brand logo does not show): tried and ruled out `[DATA]`: the `brands_map` atlas (`AllRes/LogoTexturePage.bnk`, 1024x256 DXT5, 64 px cells, `DBBrands._logo_global_index`) is loaded into the movie's pages (`FlashMovie::addExtraPages`, `findPage`); `spot/ic/logo` frame set (found, 121 frames); its `lure` shape has a **bitmap fill with no bitmap** (`tex 0`), so the game must bind the atlas cell: `FlashPlayer::setBitmapOverride` does that for the shape's clip (new) but nothing changes on screen - maybe the clip is in `ic` at alpha 0 until the movie's own call, or the bitmap id differs from the page. Next step: `-dumpclips 6 -dumppath /pack/point006/spot -dumpshapes` after calling whatever sets `lure`'s alpha.
 - Not done: Ibiza-only (Hawai/Casino keep the 3D map without icons until their texture extents are fitted); no selection / `Clic`; no event/challenge spots (`ibiza` events come from `DBEvent`, not `spots.bin`), no route.
 
 ### Seventh follow-up: camera fly-out / fly-back, cursor, GPS route
-- **Camera transition** (owner's note: retail flies out from the car and back): `MapScreen::transition` 0..1 over 1 s (rises on open, falls on close; `getTransitionCamera` = smoothstep of the car camera saved at open -> the map camera, nlerp rotation). While it runs the 3D world renders (`isFlat()` is now level 0 *and* transition done); the flat texture fades in over its last 45 % (`getFlatAlpha`). Level 0's map camera is a straight-down camera at `(360 / mapScale) / tan 30 deg` (~43 km) so the flat texture is its picture. The first version washed out white mid-climb (aerial haze at altitude): `EdenSceneView::setMapView( bEnable, bKeepSky )` now turns fog/haze off from the first frame and keeps the sky until `transition` 0.55. Streaming: car sectors during the fly, the cursor's sectors at levels 1..3. Evidence: `docs/images/world_map_transition.png` (open: car view -> climb -> island; close: island -> back). Not verified: retail timing (1 s `[INF]`) and path.
+- **Camera transition** (owner's note: retail flies out from the car and back): `MapScreen::transition` 0..1 over 1 s (rises on open, falls on close; `getTransitionCamera` = smoothstep of the car camera saved at open -> the map camera, nlerp rotation). While it runs the 3D world renders (`isFlat()` is now level 0 *and* transition done); the flat texture fades in over its last 45 % (`getFlatAlpha`). Level 0's map camera is a straight-down camera at `(360 / mapScale) / tan 30 deg` (~43 km) so the flat texture is its picture. The first version washed out white mid-climb (aerial haze at altitude): `EdenSceneView::setMapView( bEnable, bKeepSky )` now turns fog/haze off from the first frame and keeps the sky until `transition` 0.55. Streaming: car sectors during the fly, the cursor's sectors at levels 1..3. Evidence: `docs/images/world_map_transition.webp` (open: car view -> climb -> island; close: island -> back). Not verified: retail timing (1 s `[INF]`) and path.
 - **Cursor** (`curseur`, parked off-screen at x=1399 by the movie until the game places it `[DATA]`): free at level 0 (left stick / arrows, 420 canvas px/s), fixed in the middle at levels 1..3; **a zoom step goes to the cursor** (centre := point under the cursor; zooming out keeps the cursor over the point the view was centred on). Valid target (`isCursorValid`: within 2.5 km of a road node `[INF]`) drives `/curseur/anim` `on` / `stop` + `/curseur/cible` `on` / `off` (the "no" sign) and `/:IsTargetOK`. The car is the movie's own `player` + `target__` clips at its map position (my red arrow is gone); `/target` at the destination.
-- **GPS route**: OK (Enter / A) on a valid cursor sets the destination (nearest road node), OK on it again clears it. Road graph decoded `[DATA]` from `ibiza.bnk` -> `Ibiza_ROAD_MAP.IA`: `EDON` nodes (40 B: `+4` id, `+12` x, `+16` y, `+20` z) and `DAOR` roads (48 B: `+28`/`+32` node ids): 856 nodes, 1350 links resolve. Dijkstra from the nearest node to the car, Chaikin-smoothed (2 passes), drawn in `drawIsland` as red quads (3.5 / 7 / 10 / 13 px by level) under the movie's chrome. **The movie's own `strokes_pack` bars are `DefineMorphShape` objects (tag 46), which `FlashPlayer` does not play** (found by cloning them: nothing draws at any frame) - drawing them is the clean follow-up if exact retail line art matters. Evidence: `docs/images/world_map_route_flat.png`, `world_map_route_3d.png`.
+- **GPS route**: OK (Enter / A) on a valid cursor sets the destination (nearest road node), OK on it again clears it. Road graph decoded `[DATA]` from `ibiza.bnk` -> `Ibiza_ROAD_MAP.IA`: `EDON` nodes (40 B: `+4` id, `+12` x, `+16` y, `+20` z) and `DAOR` roads (48 B: `+28`/`+32` node ids): 856 nodes, 1350 links resolve. Dijkstra from the nearest node to the car, Chaikin-smoothed (2 passes), drawn in `drawIsland` as red quads (3.5 / 7 / 10 / 13 px by level) under the movie's chrome. **The movie's own `strokes_pack` bars are `DefineMorphShape` objects (tag 46), which `FlashPlayer` does not play** (found by cloning them: nothing draws at any frame) - drawing them is the clean follow-up if exact retail line art matters. Evidence: `docs/images/world_map_route_flat.webp`, `world_map_route_3d.png`.
 - New runtime bits: `_rotation` (get/set) and `FlashPlayer::setClipTransform` (x, y, degrees, scales); `-dumpclips` prints `cd=` (clip depth) and fill colours.
 - Also hidden (not in the retail grabs): `/pack/clue` (the dashed ring with "?"), `lure_*`, quick/club match and other mode clips.
 - **Not done**: "explored" (see below), the route is not recomputed as the car moves, no spot selection / OK menu on a spot, no cyan track outlines of the grabs, the cursor shows the ring but not the white crosshair of the island-level retail grab, Hawai/Casino have no flat map / roads / route.
@@ -6333,7 +6333,7 @@ options"*.
 - `source/render/eden/eden_model.cpp` — uses `IsRayTracingWorldEnabled()`.
 
 ### Verified
-- The page: `docs/images/ray_tracing_options.png` (F2, `-no3d`) — the rows read
+- The page: `docs/images/ray_tracing_options.webp` (F2, `-no3d`) — the rows read
   `Ray tracing  On`, `Ray traced world  Off`, `Run ray tracing self test  > run`, with
   `Ray tracing: active (VK_KHR_ray_query)` / `World structures: off` underneath.
 - The action works: pressing Right on it logs `Ray tracing self test: PASSED` and
@@ -6391,7 +6391,7 @@ The owner's brief: use the running TDU World as a reference for the pause menu, 
 - **Keyboard input does not reach the retail game.** `Escape` (key and 0.3 s hold), `W` and `Up` (1.5 s holds) after focusing the window all did nothing (the car did not move, no pause menu), although the game was running (traffic moved). The tool also reported that Claude's own window kept keyboard focus until a click in the viewport. Likely cause [INF]: the game reads DirectInput / raw input and drops synthetic events; not tested further.
 - Therefore **not measured**: retail 0-100, 100-0, steady corner, hard steer, Video/Audio option pages. No retail-*.png was added. Nothing in the handling code was changed (no evidence).
 
-### Pause menu: port vs the existing retail capture (`docs/images/retail-pause-freeride.png`; port: `docs/images/port-pause-freeride-s17.png`, `-no3d` so the background is black)
+### Pause menu: port vs the existing retail capture (`docs/images/retail-pause-freeride.webp`; port: `docs/images/port-pause-freeride-s17.webp`, `-no3d` so the background is black)
 Differences seen, with the likely owner:
 1. Retail: the icon row floats above the info card with a gap; port: the card's top edge runs **behind the icon row** and a stray red dot sits under the Close icon (935,245).
 2. Retail: the selected icon (Resume) is **red** with a red frame; port: grey/white highlight, other icons washed out rather than dark-framed.
@@ -6449,7 +6449,7 @@ The owner: "there should be a slight gap above the players card and the icons".
 - `source/game/pause_menu.h` - `bTabRowLifted`, `fTabRowBaseTY`.
 
 ### Verified
-- `docs/images/port-pause-gap-s17.png`: (1) gap above the card, the objective red dot now sits in the card's header corner; (2) the Options screen is clean (no row left over); (3) after Back the row returns with the lift and the gear tab selected.
+- `docs/images/port-pause-gap-s17.webp`: (1) gap above the card, the objective red dot now sits in the card's header corner; (2) the Options screen is clean (no row left over); (3) after Back the row returns with the lift and the gear tab selected.
 
 ### Not done / next
 - The row is still ~27 px lower than retail relative to the clock because the card header strip is missing; the cause (a card variant tied to an objective variable) is not found: `data_extd` frames 1-4 look the same. Selected tab still not red / enlarged (anim_on, session 6).
@@ -6547,7 +6547,7 @@ The owner asked to use the PS3 build for the car physics. Bounded first pass, no
 The owner: "there should be a slight gap above the players card and the icons ... also most look greyed out?" (retail screenshot: all 7 tabs dark and coloured, selected Resume red and larger, a gap between the tab row and the card).
 
 ### What changed
-- `source/game/pause_menu.cpp` - `LockGameProgress / LockPlayers / LockSnapshot / LockEditor / LockProfiles` are now always false. They were set from `bEntryEnabled` (deliberately locked in session 6 "until their features exist"), which is why five of seven tabs were grey. Retail shows them unlocked [DATA: owner's screenshot + OBS clip]. Validating them still does nothing in code; arrow navigation now lands on them (`docs/images/port-pause-unlocked-s17.png`).
+- `source/game/pause_menu.cpp` - `LockGameProgress / LockPlayers / LockSnapshot / LockEditor / LockProfiles` are now always false. They were set from `bEntryEnabled` (deliberately locked in session 6 "until their features exist"), which is why five of seven tabs were grey. Retail shows them unlocked [DATA: owner's screenshot + OBS clip]. Validating them still does nothing in code; arrow navigation now lands on them (`docs/images/port-pause-unlocked-s17.webp`).
 
 ### Verified
 - Frames at 300 / 420 / 700 / 1000 of the pause menu are identical, so the missing gap and the white (not red) selected tab are **not** a slow animation: the movie's selected-state animation is not reaching its end state. [Evidence `_a.png`, not committed.]
@@ -6562,7 +6562,7 @@ The owner: "there should be a slight gap above the players card and the icons ..
 - `source/game/pause_menu.cpp` (init, next to `LockLanguage`) - `/:GammaEnabled` true, `/:LockGamma` false, `/:is3DAllowed` true, `/:LockRelief3d` true. [DATA, MAIN.vmf `set square menu GAMMA`: pushes `gamma` on `GammaEnabled`, `relief3d` on `is3DAllowed`; `LockMode3d` / `LockResolution3d` guard the stereo rows.] Stereo 3D is not implemented, so its icon is greyed [INF; retail has it unlocked].
 
 ### Verified
-- `-autoplay "200:press=pause;415..475:press=right x5;520:press=validate;710..750:press=down x4;800:press=validate;..."`: four icons (`docs/images/port-options-audiovideo-4icons.png`); the third opens the "Image settings" page with the Gamma slider, retail text and TDU2 logo (`port-options-gamma.png`, compare `retail-options-gamma.png`). Left x3 moved the slider and the log shows `options gamma 'gams:slid:updt': 9 / 8 / 7 (post gamma 0.83 / 0.86 / 0.89)`. So the pause-menu gamma handler is now tested through the UI (it was not before).
+- `-autoplay "200:press=pause;415..475:press=right x5;520:press=validate;710..750:press=down x4;800:press=validate;..."`: four icons (`docs/images/port-options-audiovideo-4icons.webp`); the third opens the "Image settings" page with the Gamma slider, retail text and TDU2 logo (`port-options-gamma.png`, compare `retail-options-gamma.png`). Left x3 moved the slider and the log shows `options gamma 'gams:slid:updt': 9 / 8 / 7 (post gamma 0.83 / 0.86 / 0.89)`. So the pause-menu gamma handler is now tested through the UI (it was not before).
 - The old session 14 claim "Gamma page not reachable from the PC menus" is wrong: it was only these two flags.
 
 ### Not verified / next
@@ -6572,7 +6572,7 @@ The owner: "there should be a slight gap above the players card and the icons ..
 
 ## Session 2026-10-28 (seventeenth, addendum `win`): the owner's OBS recording gives retail numbers (`C:\Users\cuz_c\Videos\2026-10-28 04-56-54.mp4`, 1920x1080, 60 fps, 56.8 s, car = **Audi RS5**, HUD in **mph**)
 
-Frames were read with OpenCV (`pip install opencv-python`; contact sheets, then 0.25 s speedometer crops). Retail frames saved: `docs/images/retail-pause-tab-progress.png`, `retail-options-audiovideo.png`, `retail-options-gamma.png`, `retail-options-video-opening.png`; port: `port-options-audiovideo-s17.png`.
+Frames were read with OpenCV (`pip install opencv-python`; contact sheets, then 0.25 s speedometer crops). Retail frames saved: `docs/images/retail-pause-tab-progress.webp`, `retail-options-audiovideo.webp`, `retail-options-gamma.png`, `retail-options-video-opening.png`; port: `port-options-audiovideo-s17.png`.
 
 ### Handling [DATA: speedometer digits, 0.25 s steps; accuracy about +-0.1 s]
 - **0-100 km/h (62.1 mph): about 4.6 s** (first movement ~22.75 s, 62 mph at ~27.35 s; ~19 mph/s in 1st, a ~0.25 s flat at 40 mph = the 1-2 shift). Port California 4.52 s (DB 4.10) - same order; the RS5 itself is not run in the port.
@@ -6774,7 +6774,7 @@ directory"*. So: the analysis, the first step of it, and this workspace resynced
   channel, and the **control** (the same build run twice) is 0.54 in the same region,
   so that difference is pre-existing map-screen Flash nondeterminism and not this
   change. Region: x 78..542, y 60..141 at 1280x720.
-- `docs/images/ray_tracing_capability.png` — the readout on the page itself
+- `docs/images/ray_tracing_capability.webp` — the readout on the page itself
   (`Ray tracing: available (no pass yet)`), F2 with `-no3d`.
 
 ### Not done / next
@@ -6852,9 +6852,9 @@ The owner's brief: *"work on the video settings in the game"*. Options > Audio &
 
 ### Verified
 - Resolution Left: `1280x720 -> 1176x664`, the window and the swapchain really resize, the whole UI scales
-  (`docs/images/options_video_ok_back.png`). OK saves `options.ini` (`video_width = 1176` ...) and returns to
+  (`docs/images/options_video_ok_back.webp`). OK saves `options.ini` (`video_width = 1176` ...) and returns to
   Audio & Video. Next start: `Video: 1176x664 windowed`, swapchain created at 1176x664.
-- All eight rows show retail-localized text (`docs/images/options_video_page.png`); the locked Refresh row is
+- All eight rows show retail-localized text (`docs/images/options_video_page.webp`); the locked Refresh row is
   greyed and skipped by Up/Down (shows the display's rate).
 
 ### Addendum (same session): texture filtering is real, gamma has a hook
@@ -6862,7 +6862,7 @@ The owner's brief: *"work on the video settings in the game"*. Options > Audio &
 - **Texture filtering row -> sampler anisotropy**: Low = trilinear, Medium = 4x, High = 16x (clamped to
   the device limit). `RenderDevice::setMaxAnisotropy` (the sampler cache key includes the level, old handles stay
   valid), `EdenRenderer::refreshSamplers()` rewrites the static sampler descriptor set (`fillSamplerHeap` /
-  `writeSamplerSet`). `ApplyVideoOptions()` also runs at start-up. Evidence: `docs/images/aniso_low.png` vs
+  `writeSamplerSet`). `ApplyVideoOptions()` also runs at start-up. Evidence: `docs/images/aniso_low.webp` vs
   `aniso_high.png` (cobblestones; mean abs diff 4.1 / 255). **The default is now High (16x), so the default
   look changed** (sharper at grazing angles); Gamma-default frame is pixel-identical to before.
 - **Gamma**: `EdenPostFx` LUT pass `Gamma` constant (was a hardcoded 0.8) now comes from
@@ -6885,7 +6885,7 @@ The owner's brief: *"work on the video settings in the game"*. Options > Audio &
 The owner's ask: *"Options pages"* (priority 2).
 
 **Reproduced** (before): validating Options showed a gear and one wrong icon,
-no column, no labels, the pause panel still up (`docs/images/pause_menu_options.png`).
+no column, no labels, the pause panel still up (`docs/images/pause_menu_options.webp`).
 
     build\bin\opentdu2.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata C:\temp\otdu2-win-userdata ^
         -gm FREERIDE -skipcine -no3d -nopad -fixedtimestep ^
@@ -6984,9 +6984,9 @@ new): `Master` (Radio + every group), `Music`, `Vehicles`, `Voices`,
 ### Verified (all with `-fixedtimestep`)
 - Pause row laid out and animated by the movie, free-roam icons, a tooltip per
   square ("Options", "Challenge Editor" with its padlock) —
-  `docs/images/pause_row_movie_driven.png`.
+  `docs/images/pause_row_movie_driven.webp`.
 - Options: title, the five categories in a column, tooltip, Quit bar; side by
-  side with retail in `docs/images/options_vs_retail.png`
+  side with retail in `docs/images/options_vs_retail.webp`
   (`options_categories.png`). Back from Options returns to the row with
   Options still selected (`opou`, then the row's `mopn`).
 - Audio page: all seven labelled rows, values from the game; three `left`s log
@@ -7090,15 +7090,15 @@ _root.fake == true` -> 17:29) is skipped because the exe blanks `fake`.
 ### Verified
 - The clock at four presets (`-weather 23.20 / 18 / 01.30 / 14`) reads 23 20,
   18 00, 01 30, 14 00 with reflections; log `PauseMenu: clock 14:00 (day)`.
-  `docs/images/pause_clock_times.png`, `docs/images/pause_clock_and_icons.png`.
+  `docs/images/pause_clock_times.webp`, `docs/images/pause_clock_and_icons.webp`.
 - Side effects of the runtime fixes, A/B against the stashed tree (same command,
   frame for frame):
   - pause entry row: **the mystery blue box above the row is gone** and the
     star / players / camera icons, blank before, now draw, all centred
-    (`docs/images/pause_icons_before_after.png`);
+    (`docs/images/pause_icons_before_after.webp`);
   - radio panel (`press=radio`, frame 330): before, the panel had **no text**;
     now station / artist / title / volume bar show
-    (`docs/images/radio_panel_before_after.png`);
+    (`docs/images/radio_panel_before_after.webp`);
   - in-car menu (`press=left`): identical (mean diff 0.02, the goal box fade);
   - world map (`press=map`): identical (0.06, a strip of the bottom bar);
   - free-ride HUD: identical (0.015).
@@ -7169,7 +7169,7 @@ ChaseCamera: car camera 387: 6 cameras of the car, 3 in the switch cycle
 order. The 43/44/40 back views are the same poses with the view reversed and are
 not in the cycle (they are what `CAR_BACKVIEW` is for). Verified: pressing
 `carcamera` changes the frame by a mean of **62.77 / 255** against the chase view.
-Evidence: `docs/images/camera_cockpit_view.png`.
+Evidence: `docs/images/camera_cockpit_view.webp`.
 
 ### 2. Free look — implemented (it did not exist)
 
@@ -7190,7 +7190,7 @@ bBackView)`, called every frame from `GMFreeRide::tick`:
 Limits and speeds are `[INF]` (the retail look speeds are not identified):
 `kLookYawMax` 2.6 rad (~149°) each way, `kLookPitchMax` 0.5 rad (~29°).
 Verified: stick 0.9 orbits the camera ~134° around the car
-(`docs/images/freelook_orbit.png`), releasing it returns the camera behind the
+(`docs/images/freelook_orbit.webp`), releasing it returns the camera behind the
 car, and the back view changes 70.6 % of the pixels on a parked car.
 
 ### 3. The car features: roof and windows already worked, indicators do not
@@ -7237,11 +7237,11 @@ build\bin\opentdu2.exe -game C:\TDU2-Gamedata\TestDrive2 ^
     -autoplay "300:shot=C:/OpenTDU2/_cas.ppm" -exitframe 320
 ```
 
-(`ECAS`, the casino resort. Screenshot `docs/images/casino_terrain_gap.png`.)
+(`ECAS`, the casino resort. Screenshot `docs/images/casino_terrain_gap.webp`.)
 The casino building **floats in mid-air** with the sea/sky visible *through*
 where the terrain should be, and the ground the car sits on ends in a hard edge
 about a sector away. The Ibiza control shot at the same frame is
-`docs/images/ibiza_hills_control.png` — continuous terrain, no gap.
+`docs/images/ibiza_hills_control.webp` — continuous terrain, no gap.
 
 ### The data on casino island is genuinely sparse [MEASURED]
 
@@ -7348,7 +7348,7 @@ reads them.
 
 **Verified headless** (`-gm FREERIDE -skipcine -no3d -nopad -logmap`,
 `-autoplay "200:press=map;420:shot=…;520:press=back;700:shot=…"`; screenshots
-`docs/images/world_map_screen.png` / `world_map_closed.png`):
+`docs/images/world_map_screen.webp` / `world_map_closed.png`):
 
 - `map_open` plays, the movie runs its script — its FSCommands are
   `pvoi:1:HSMAP_01`, `ston`, `bmap:fltr:icf`, `bmap:ok`, `maok` — and its own UI
@@ -7750,12 +7750,12 @@ Then the user's two HUD complaints with retail PC screenshots:
 The user played intro → house → first drive on the `win` build and listed what
 is broken. Numbers below are the user's — keep them when referring to issues
 ("issue 3" = the pause menu). Screenshots are committed under `docs/images/`
-(`user-report-*.png` = the user's run; `pause_menu_row.png` /
-`pause_menu_options.png` = headless repro, glm workspace).
+(`user-report-*.png` = the user's run; `pause_menu_row.webp` /
+`pause_menu_options.webp` = headless repro, glm workspace).
 
 1. **Hair clips through faces.** Dark hair-card triangles overlap the
    forehead/brow of the party avatars, stair-step aliasing on the edges
-   (`docs/images/user-report-party-hair-clipping.png`,
+   (`docs/images/user-report-party-hair-clipping.webp`,
    `user-report-avatar-closeup.png`). Hair is an avatar slot item
    (`source/game/avatar/eden_avatar.cpp`: `kSlots` "hair",
    `kHairShaderSet 0xd5013ed0dbdedede`, HAIR_MAT palette :177). Suspects:
@@ -7769,7 +7769,7 @@ is broken. Numbers below are the user's — keep them when referring to issues
    root-function dump): retail opens an exit-confirm panel. Drive that
    sprite, or a minimal game-side confirm, before the mode switch.
 3. **Pause menu semi-broken** — what is left after `f8b456c` + `4c6fc80`
-   (repro: `docs/images/pause_menu_row.png`):
+   (repro: `docs/images/pause_menu_row.webp`):
    - Resume/Quit icons attach at the bottom-right corner of their square
      (~+45,+45 px), Options' gears are centred: the offset lives in the
      per-frame art placement of the `specificIcons` frames ('resume' /
@@ -7791,7 +7791,7 @@ is broken. Numbers below are the user's — keep them when referring to issues
    - The movie fires `sndp:*` (mopen/ttip/valid), nothing plays them —
      audio hook wanted.
 4. **Options screen looks like the Editor** (user report + repro
-   `docs/images/pause_menu_options.png`): validating Options renders a
+   `docs/images/pause_menu_options.webp`): validating Options renders a
    top-left fragment only — a big gear glyph and a pen/path glyph below it
    (reads as the TDU2 course-editor icons), no labels, no page content, and
    the pause panel stays visible underneath. The `/options` sprite settles
@@ -7807,7 +7807,7 @@ is broken. Numbers below are the user's — keep them when referring to issues
 5. **Lighting/shadow camera bug.** Driving shot: a hard-edged darker
    rectangle lies over the road ahead of the car — the shadow camera's
    frustum boundary is visible
-   (`docs/images/user-report-drive-shadow-rectangle.png`). Garage close-up:
+   (`docs/images/user-report-drive-shadow-rectangle.webp`). Garage close-up:
    striped banding across the tire under the fender (acne/bias or a cascade
    boundary, `user-report-garage-tire-banding.png`). Code:
    `source/render/eden/eden_renderer.{h,cpp}` — `pShadowRealTime`,
@@ -7833,7 +7833,7 @@ is broken. Numbers below are the user's — keep them when referring to issues
 9. **First drive ends frozen on white.** In code: after 90 s of driving
    FREERIDE enters `eState::Fade` and logs "story step 3 'Meeting Tess' not
    implemented" (`gm_freeride.cpp:597`); nothing follows → the white window
-   (`docs/images/user-report-white-screen-after-drive.png`). **FIXED in the
+   (`docs/images/user-report-white-screen-after-drive.webp`). **FIXED in the
    seventh session (`bd5c4bb`)** — retail's C_FADE_FREERIDE is an in-engine
    cinematic, not a video; it now plays (see the seventh-session section
    above).
@@ -8491,8 +8491,8 @@ overlay and the game loads it (`-car Q7_Inuit`, or the asset viewer on the bank)
   hashes are numbers everywhere. Getting this wrong binds nothing (the 3dd's MBNK `WOOD` hash is
   the folded `0x444F4F57`; the reversed one matches nothing).
 - **Verified**: `bnk_tool list` parses the packed bank (8 entries); `-gm assetviewer -bank ...`
-  renders the cream cabin with the walnut dash (`docs/images/q7-inuit-hybrid-viewer.png`,
-  `...-hybrid-zoom.png`; retail comparison in `q7-inuit-restored-dials.png`); freeride
+  renders the cream cabin with the walnut dash (`docs/images/q7-inuit-hybrid-viewer.webp`,
+  `...-hybrid-zoom.png`; retail comparison in `q7-inuit-restored-dials.webp`); freeride
   `-car Q7_Inuit` loads it through the mod overlay; `-labellint` 15 labels 0 problems (3 new
   labels for the bank). Self-checks inside `make_q7_inuit.py`: every scene material hash resolves
   in the swapped `.2dm`, `Wood`.DETAIL == `GetIdentifier64bit("wood_inuit")`.
@@ -8557,7 +8557,7 @@ visible, and puddles on the road that form and dry up. Six commits, all verified
 
 Regressions: 13 configs exit 0 with 0 stalls — the 700-frame drive, `-storystep 5/7`, `-gm TESTCAR`,
 `-atwash`, `-nocarve`, `-nosurfacefx`, `-rain`, `-norain -intempery 3`, `-droplets 0`, `-nodroplets`,
-`-snow`, `-keepglass -cameramode 23`. Screenshots: `docs/images/rain_forced_s65.png`,
+`-snow`, `-keepglass -cameramode 23`. Screenshots: `docs/images/rain_forced_s65.webp`,
 `droplets_night_s65.png`, `droplets_show_s65.png` (the raw RT), `wipers_mid_s65.png`,
 `wipers_ext_s65.png`, `road_wet_s65.png`, `puddles_s65.png`, `snow_s65.png`. README Rendering row +
 two CLI rows, `docs/re/weather_effects_spec.md` new (RE refs + the invented parts + flags + limits).

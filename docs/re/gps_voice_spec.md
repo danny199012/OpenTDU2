@@ -103,7 +103,7 @@ change: `/:IsRoundAbout` = type 8..15, `/:ArrowDirection` = the string, then
 `HUD/arrow_gps` plays **`close`** (to empty), **`open`** (from empty) or
 **`change`** [CODE]. (Mode `[0xfe5028] == 2` only allows `down` / `empty`.)
 Port: `MapScreen::RouteTurn::Arrow`, `GpsGuidance::getArrow`,
-`FreeRideHud::showGpsArrow` (`docs/images/port-gps-arrow-up-s44.png`,
+`FreeRideHud::showGpsArrow` (`docs/images/port-gps-arrow-up-s44.webp`,
 `port-gps-arrow-left-s44.png`).
 
 ### Destination countdown — FUN_00934a10 (`remaining`)
@@ -148,7 +148,7 @@ says it when the car gets > 40 m off the route, at most every 10 s [INF].
 - **Left / right**: retail angle = 180 − the clockwise angle from the direction
   of travel, with `right = (-forward.z, 0, forward.x)`,
   the minimap's convention; checked on a 3D frame at junction 713
-  (`docs/images/port-gps-junction-s44.png`: the road leaves up-left in the view
+  (`docs/images/port-gps-junction-s44.webp`: the road leaves up-left in the view
   and on the minimap).
 - **Route start**: `MapScreen::computeRoute` now starts on the road *link*
   nearest to the car (projection on its curve, both end nodes seeded with their

@@ -6137,7 +6137,7 @@ void GMFreeRide::draw() {
     }
     mapScreen.drawIsland( renderer );
     // The HUD is hidden while the pause menu is up (retail screenshots
-    // docs/images/retail-pause-freeride.png / retail-options-screen.png: no
+    // docs/images/retail-pause-freeride.webp / retail-options-screen.png: no
     // minimap, gauge or zone badge behind the menu) [DATA].
     if ( !pauseMenu.isOpen() && !mapScreen.isOpen() && !interior.isActive() && !licenseResult.isOpen() &&
          !schoolScreen.isOpen() ) {

@@ -37,7 +37,7 @@ sets `/:m_BackOnTrack_` = loc 50 and `/:IsBOT`, and two fixes: a show that
 starts locked makes the `ic` goto (the state cache used to start on 'lock',
 so `-botforce lock` drew the `on` art), and `lock` re-shows `ic` depth 1 (the
 `on` state's hide outlived the goto: on -> lock drew the X on the white
-badge). Evidence: `docs/images/rtr_bot_retail_vs_port.png` (left the owner's
+badge). Evidence: `docs/images/rtr_bot_retail_vs_port.webp` (left the owner's
 retail captures, right the port: passive `-offroadhud` f240, locked = an
 on-road hold).
 
@@ -51,7 +51,7 @@ The port now: a press works anywhere; a reset starts a 5 s cooldown
 exe's only other readable name is `PoliceParams.CanBackOnTrack`, the
 police-chase ban - not implemented]; a press during it is refused for the whole
 hold - ic `lock`, the movie closes the badge itself ~32 movie frames later.
-Sequence `docs/images/rtr_bot_cooldown_sequence.png` (hold sweep -> reset ->
+Sequence `docs/images/rtr_bot_cooldown_sequence.webp` (hold sweep -> reset ->
 refused press f372 / f420 -> after the cooldown the sweep again, and the reset
 lands: `FREERIDE: back on track (0.3 m)`).
 
@@ -70,7 +70,7 @@ exact composition/orientation of the badge art — is narrowed to one question
 the planned x360-recomp texture dumper answers directly. Everything below is
 read from the movie and the loc bank (`[DATA]`) unless marked `[INF]`.
 
-## What the retail shows (the owner's captures, `docs/images/rtr_retail_capture_s70.png`)
+## What the retail shows (the owner's captures, `docs/images/rtr_retail_capture_s70.webp`)
 
 One circular badge at a **fixed top-centre position** (ring centre canvas
 (640, 342) on 1280x720 — measured on the owner's 4K capture at 1/3), the label
@@ -134,7 +134,7 @@ forbidden/favorite/done) + the shape child (ch4799, the blue diamond plate,
 bitmap 4795 — shared with the 'dirt'/'classic' championship kinds). The
 session-62 reading was right about the art: the offroad child's 'on' label =
 bitmap **4754 (64x64, standalone `fla_4754.2db`)** — the dark circle with the
-grass tuft and the white road strip (`docs/images/rtr_art_badge_4754_s70.png`).
+grass tuft and the white road strip (`docs/images/rtr_art_badge_4754_s70.webp`).
 That tile is the grass/"hold A" presentation, NOT the captures' badge.
 
 Other decoded arts (`-dumpbot` writes `_flashart_<id>.png` for the whole
@@ -150,9 +150,9 @@ Spot/lock AND Spot/forbidden #2), 4767/4770 = the red X pieces (33x33, 33x39),
 - The off-road indicator (off the road network > 2 s, `-offroadhud` forces it)
   shows **/HUD/enter_hold** at the retail position: 'stop' + ic 'on', the fill
   parked full (progress 1.0), the label via /:m_Enter = loc 50
-  (`docs/images/rtr_ring_passive_s70.png`).
+  (`docs/images/rtr_ring_passive_s70.webp`).
 - The BACK_ON_TRACK hold sweeps the fill with the progress and resets the car
-  on completion (`docs/images/rtr_ring_hold_s70.png`); on-road the hold is
+  on completion (`docs/images/rtr_ring_hold_s70.webp`); on-road the hold is
   **rejected**: the ring locks (ic 'lock', the sndp:wrong cue) and the
   indicator shows immediately (no 2 s delay) while the button is held
   (`bBackOnTrackRejected`).
@@ -195,7 +195,7 @@ pDesc->Width/Height` in getBitmap) — the shape fills map their coords through
 it, so a PNG of ANY resolution fills the shape full-frame (the owner's first
 art is 1008x1040 and renders full-frame). The owner's first art (despilled
 from a green-screen compose) renders in-game
-(`docs/images/rtr_art_override_s70.png` — the ring, the down arrow and the
+(`docs/images/rtr_art_override_s70.webp` — the ring, the down arrow and the
 road over the sky fill at the retail position). The x360 dumper remains the
 tool to recover the TRUE retail arrow art instead of a remake.
 

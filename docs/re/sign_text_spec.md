@@ -180,7 +180,7 @@ baked signs alone.
 Verified (session 59): Ibiza `-atsign` spawn at the sector-3-0-5-6
 `RS_DirL_D_act` (22977, 5259), faces composed from the streamed payloads
 ('SANT VINCENT 4 / Platja / Balasant' ...), plates readable in the 2560x1440
-screenshot (docs/images/sign-text-s59.png, composed green plate
+screenshot (docs/images/sign-text-s59.webp, composed green plate
 sign-face-composed-s59.png); A/B vs `-nosigntext` at the same pose: sign
 region mean abs diff 5.24, control regions 0.0 (deterministic); `-storystep
 5` exit 0; a 700-frame FREERIDE drive exit 0, VRAM flat.
@@ -238,7 +238,7 @@ Hisenda Aldea Oest / Platja", Dist_D "Centre 1 / Platja 1 / Puerto 1", DirR_D
 "SANT MIQUEL / Residencial Nord / Foradada") against the port at the same signs
 (`tools_probe/sign_locate.py -match ... -spawn`; the TdirIb faces look along +Z,
 so their `-spawn` puts the car behind the plate - use the opposite side).
-Result: `docs/images/sign-faces-2026-11-05.jpg`.
+Result: `docs/images/sign-faces-2026-11-05.webp`.
 
 ### 6.1 The code / distance byte is a layout id on dir / twn / tdir [DATA]
 

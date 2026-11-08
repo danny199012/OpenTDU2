@@ -518,8 +518,8 @@ The first audit exposed three classes of defect, all fixed:
     `finishWakeup`) subtract the lift; the brake disc centre converts back.
   Physics unchanged: a 6 s full-throttle run ends at the same point, speed, rpm
   and gear (S3 91.5 / 91.4 km/h, Q7 101.7 / 101.7). `-wheellift` is the A/B
-  (the old wheel-only lift). Shots: `docs/images/wheels_s3_arch_before_after.png`,
-  `wheels_car_wash_before_after.png`.
+  (the old wheel-only lift). Shots: `docs/images/wheels_s3_arch_before_after.webp`,
+  `wheels_car_wash_before_after.webp`.
 
 Final audit: 137 cars checked, 36 cut rows, **113 within 1 % of the quoted top
 speed** and 69 within 0.30 s of 0-100. The remaining low outliers are the

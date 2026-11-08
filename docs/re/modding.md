@@ -55,7 +55,7 @@ Verified end to end: the log shows
 `Mod overlay: '.../exterior/egas_a.bnk' -> '<mods>/...'` and
 `SpotExteriors: EGAS_A at (12665, 16698): 2 models, 1 placements`, with
 `SpotExterior: ...egas_a.bnk: 2 set models, 0 props, local bounds (-7.3, -0.4, -17.7)
-- (36.0, 10.8, 23.9)`. Evidence: `docs/images/mod-station-placed-s14.png` — two
+- (36.0, 10.8, 23.9)`. Evidence: `docs/images/mod-station-placed-s14.webp` — two
 copies of the tuning-shop bank 60 m apart where retail has one (the left one is the
 real `ETUN_A`, the right one is our `EGAS_A`).
 

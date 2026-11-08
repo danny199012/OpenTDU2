@@ -221,9 +221,9 @@ state, so `-lintui` needs the state walk described above (it reports 0 problems)
             frame 0/208, visible, bounds known)
 ```
 
-Screenshots: `docs/images/ui_viewer.png` (main.vmf, the pause state, sq3 selected
+Screenshots: `docs/images/ui_viewer.webp` (main.vmf, the pause state, sq3 selected
 with its label `entry square 3` / note `photo` loaded from the label file) and
-`docs/images/ui_viewer_log_in2.png` (log_in2.vmf playing, the display list tree
+`docs/images/ui_viewer_log_in2.webp` (log_in2.vmf playing, the display list tree
 indenting `/`, `#1`, its child `#1`, `#3`).
 
 What the 965-element dump already hands over, without any further work - these are

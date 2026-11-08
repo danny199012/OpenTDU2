@@ -202,7 +202,7 @@ used the far ring. Replaced by `IsNearMode()` (function-local static) / `SpawnMi
 0 contacts, 0 removed ..., target 28.3`; `-trafficnear` -> `2 removed (despawn 2)` (the despawn counter);
 `-trafficcrashtest` -> `crashtest after 1 s: 5.01 m apart, speeds 0.14 / 3.56 m/s`; `-island casino` ->
 `Traffic: island 'casino' has no ambient traffic`; `-trafficpark` with / without `-trafficglassart` ->
-windshield grey 78.4 / 53.2. Screenshots: `docs/images/traffic-town-s61.png`,
+windshield grey 78.4 / 53.2. Screenshots: `docs/images/traffic-town-s61.webp`,
 `traffic-glass-ab-s61.png`, `traffic-night-s61.png`.
 
 ### Still open

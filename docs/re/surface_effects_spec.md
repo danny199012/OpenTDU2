@@ -114,14 +114,14 @@ of the scene).
 | What | Command | Evidence |
 |---|---|---|
 | The pipelines come up | `... -gm FREERIDE -skipcine -nopad -no3d -logsurfacefx -exitframe 260` | `EdenSurfaceFx: ready (3000 particles, 1024 decals)` |
-| Splashes draw under the wheels | `-surfacefxtest -logsurfacefx -autoplay "300:shot=.../_sfx.ppm" -exitframe 340` | `SurfaceFx: 193 particles`; `docs/images/surface_fx_splash.png` |
-| Tracks draw behind the car | `-surfacefxtest -logsurfacefx -autoplay "40:hold=accel;330:release=accel;360:shot=..."` | `SurfaceFx: 183 particles, 543 decals, ground dirt`; `docs/images/surface_fx_tracks.png` |
+| Splashes draw under the wheels | `-surfacefxtest -logsurfacefx -autoplay "300:shot=.../_sfx.ppm" -exitframe 340` | `SurfaceFx: 193 particles`; `docs/images/surface_fx_splash.webp` |
+| Tracks draw behind the car | `-surfacefxtest -logsurfacefx -autoplay "40:hold=accel;330:release=accel;360:shot=..."` | `SurfaceFx: 183 particles, 543 decals, ground dirt`; `docs/images/surface_fx_tracks.webp` |
 | A dry road throws nothing, and a slipping tyre leaves a skid | `-logsurfacefx -autoplay "60:hold=accel;..."` on the plaza | `0 particles, 8 decals, ground tarmac` |
 | `-nosurfacefx` really switches it off | `-nosurfacefx -surfacefxtest -logsurfacefx -autoplay "40:hold=accel"` | `0 particles, 0 decals, ground -` while driving |
 | Rain soaks the ground | `-weather 14 -intempery 3 -logsurfacefx -exitframe 260` | tarmac `0.09 → 0.83`, dirt `0.03 → 0.54`, sand `0.76` in ~10 s |
 | A dry sky dries it, mud last | `-surfacefxwet 100 -logsurfacefx -exitframe 900` | tarmac `1.00 → 0.66`, dirt `1.00 → 0.92 (mud)`, sand `0.75`, snow `0.95` |
 
-Screenshots: `docs/images/surface_fx_splash.png`, `docs/images/surface_fx_tracks.png` (night preset, so
+Screenshots: `docs/images/surface_fx_splash.webp`, `docs/images/surface_fx_tracks.webp` (night preset, so
 the spray reads bright against the road).
 
 --------------------------------------------------------------------------------
@@ -266,11 +266,11 @@ line up with the model's own disc.
 | What | Command | Evidence |
 |---|---|---|
 | The discs heat on a hard stop | `-logbrakeheat -fixedtimestep -autoplay "30:hold=accel;250:release=accel;260:hold=brake;380:release=brake" -exitframe 430` | `BrakeHeat: 35 C` -> `737 C/0.92 603 C/0.66 558 C/0.57 528 C/0.52`; after the release `716 -> 591 -> 556` |
-| The glow draws | the same drive, shot at 378 | A/B against `-nobrakeheat`: wheel region mean 5.2, **5,302 px > 24**; `docs/images/surface_fx_brake_disc.png` |
-| The colour reads orange, spokes silhouetted | `-brakeheattest 100` + `look=0.4,0` (an orbit of the chase camera) | `docs/images/surface_fx_brake_disc.png` |
-| Hard braking leaves a mark on dry tarmac | `-logsurfacefx -autoplay "...;260:hold=brake;380:release=brake"` | `206 decals, ground tarmac`; A/B against `-surfacefxscale 0`: road region mean 8.1, **14,215 px > 24**; `docs/images/surface_fx_brake_marks.png` |
+| The glow draws | the same drive, shot at 378 | A/B against `-nobrakeheat`: wheel region mean 5.2, **5,302 px > 24**; `docs/images/surface_fx_brake_disc.webp` |
+| The colour reads orange, spokes silhouetted | `-brakeheattest 100` + `look=0.4,0` (an orbit of the chase camera) | `docs/images/surface_fx_brake_disc.webp` |
+| Hard braking leaves a mark on dry tarmac | `-logsurfacefx -autoplay "...;260:hold=brake;380:release=brake"` | `206 decals, ground tarmac`; A/B against `-surfacefxscale 0`: road region mean 8.1, **14,215 px > 24**; `docs/images/surface_fx_brake_marks.webp` |
 | Spray / tracks unchanged | `-surfacefxtest -logsurfacefx -autoplay "40:hold=accel;330:release=accel"` | `186 particles, 483 decals, ground dirt` (the §4 numbers) |
-| The glow is a rotor ring, not a flood (s85) | `-gm FREERIDE -car California -skipcine -nopad -fixedtimestep -night -brakeheattest 100 -autoplay "8:look=1,0;45:shot=..." -exitframe 50`, A/B against the pre-fix binary at the same camera | wheel region mean 11.2, **3,716 px > 24**; the orange no longer covers the tyre, the arch or the spokes: `docs/images/surface_fx_brake_glow_before_after.png` |
+| The glow is a rotor ring, not a flood (s85) | `-gm FREERIDE -car California -skipcine -nopad -fixedtimestep -night -brakeheattest 100 -autoplay "8:look=1,0;45:shot=..." -exitframe 50`, A/B against the pre-fix binary at the same camera | wheel region mean 11.2, **3,716 px > 24**; the orange no longer covers the tyre, the arch or the spokes: `docs/images/surface_fx_brake_glow_before_after.webp` |
 | The glow still draws (A/B, s85) | the same run with `-nobrakeheat` | wheel region mean 5.0, **1,206 px > 24** (the disc ring only; 5,302 px was the old spill's whole-wheel flood) |
 | The brake assembly follows the wheel (s85) | the same run, log | `CinematicCar: brake node 'BRAKE_FL' lifted 0.120 m with the wheel 'D_RIM_FL'` — 8 lines, the 4 rotors + the 4 calipers |
 
@@ -282,5 +282,5 @@ colour out per pixel: a temperature profile across the friction ring (hottest on
 line, 62 % at its edges), a blackbody ramp (cherry -> red -> orange -> a yellow-orange core when really
 hot), concentric pad grooves and a radial speckle (rotation invariant), a slow 2.5 % shimmer, and the hot
 core adds light on top of its coverage (premultiplied blend). The spill is now in the wheel plane (the
-spokes cull it) and added, 1.2 x the rotor. Evidence in `docs/images/car_lamps_glow_brake_disc.png`
+spokes cull it) and added, 1.2 x the rotor. Evidence in `docs/images/car_lamps_glow_brake_disc.webp`
 (`-brakeheattest 100` / `45`, night and midday).

@@ -44,7 +44,7 @@ version name. They share the base car's bank:
 | 606 / 607-609 | CLK 63 "Outlaw" / Evora, 300 SL, CCXR "Solar Crown" | | |
 
 Car 601 has **no `DBCarsAndColors` row**, so it draws in the model's own `.2dm` paint, a dark green
-(`docs/images/freeride_rival_miami_mustang.png`). The owner remembers "the pink mustang". No pink paint is
+(`docs/images/freeride_rival_miami_mustang.webp`). The owner remembers "the pink mustang". No pink paint is
 reachable from these tables, so none is invented. If retail shows pink, the source is elsewhere (a
 livery, or an encrypted runtime pick `[ENC]`).
 
@@ -116,13 +116,13 @@ zones (6). The bots are therefore not placed by zone yet.
   not driven yet. They are probably the name rows of the cars around the player.
 - The position takes the timer's slot (top right). `/HUD/time` has `up` f10 and `down` f40, and `down`
   puts it under the position `[DATA: the labels; INF: the pairing]`
-  (`docs/images/race_position_hud.png`).
+  (`docs/images/race_position_hud.webp`).
 - GENERAL.vmf's goal popup (top left, 30 s) closes on GO when there are opponents `[INF]`.
 
 ## 4. Verified
 
 - `-island hawai -licensetest CHA5A04R`: the 7 drivers on the grid, each in a class A5 car (Tess's SLK 55
-  "Tess" beside the player), all of them away at GO (`docs/images/race_opponents_field.png`).
+  "Tess" beside the player), all of them away at GO (`docs/images/race_opponents_field.webp`).
 - `-licensewarp`: "Passed 1st of 8", the race prize paid, the field removed after the hold.
 - `-licensewarp -licensewarpdelay 13 -storystep 8`: all 7 finish in 321-327 s; the player is "Beaten 7th
   of 8", and "Beaten 8th of 8" with the 60 s rule.
@@ -131,7 +131,7 @@ zones (6). The bots are therefore not placed by zone yet.
 - Frame cost, `-opponentfollow 2`, two runs x 8 `[perf]` samples each: high bank with every shadow
   22.6 ms; `_med` + the 3-car shadow budget (the default) 21.5 ms; `_med` with no AI shadow 21.0 ms;
   `-noopponentdraw` 19.0 ms. The field went from 3.6 to 2.5 ms. `_med` and high look the same at 8 m
-  (`docs/images/race_opponents_med_lod.png`, top high / bottom med). 0 VUIDs through start -> removal with
+  (`docs/images/race_opponents_med_lod.webp`, top high / bottom med). 0 VUIDs through start -> removal with
   the rivals on.
 
 ## 5. The free ride rivals (`Traffic`)

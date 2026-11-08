@@ -191,7 +191,7 @@ carWorld when the lamps are on (intensity = weather car_headlights_intensity,
 else 1.2) plus Traffic::appendHeadlightCones (the night gate of the FA_ front
 lamps, nearest 8), the rear registry from areBrakeLightsOn/getReverseLights.
 Verified: night lot A/B -noheadlights, pool region mean pixel diff 38.46
-(docs/images/headlights_pool_s67.png), brake hold A/B 8.40. Not done: the
+(docs/images/headlights_pool_s67.webp), brake hold A/B 8.40. Not done: the
 TD_ShadowBox translation (retail art + per-function boxes), traffic brake
 pools.
 
@@ -252,7 +252,7 @@ port's post chain does not bloom them. Two changes:
   shares the cluster and was lost under the white).
 - **The blinker** rises in ~35 ms and dies in ~110 ms (a bulb) - the retail 1.0 s / 0.6 s cadence is kept.
 
-`-nolampglow` is the A/B. Evidence: `docs/images/car_lamps_glow_brake_disc.png` (rows: night rear before,
+`-nolampglow` is the A/B. Evidence: `docs/images/car_lamps_glow_brake_disc.webp` (rows: night rear before,
 after - blinker lit / off; night front and the hot discs; midday). 0 VUIDs with `-vk_enable_validation_layer`.
 Not done: traffic cars keep their FA_ sprites only; the headlamp beam in fog / rain (a volumetric cone) and
 the TD_ShadowBox translation are still open.

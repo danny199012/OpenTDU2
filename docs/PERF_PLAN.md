@@ -76,7 +76,7 @@ changes 0 pixels. They now draw the way the shader wants (`EdenWorld::addImposto
   = 7 + 1, v_hpin_a_h-i.2db 2048x128 = 15 + 1; the card's U spans 1/N). The side view nearest the camera angle in the
   instance frame is selected `[INF: cell 0 = the camera on the card's front, counter-clockwise]`.
 Cost: +0.4-0.5 ms at 4K High. The far trees then take distance haze like the hills behind them (a `-nohaze` A/B
-removes it; it is the haze, not the cards). `docs/images/impostors_far_trees_intro.png` (intro frame 1200, before /
+removes it; it is the haze, not the cards). `docs/images/impostors_far_trees_intro.webp` (intro frame 1200, before /
 after), `impostors_far_trees_zoom.png`. Open: the 0.33 -> 1 dissolve against LOD0 (ps_1 / ps_4,
 `gDissolveTexSampler`) and the exact cell order.
 

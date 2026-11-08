@@ -194,7 +194,7 @@ The minimap `objectif_01..08` icons (hidden at rest; frames `checkpoint` f1, `fi
 f24, `shop`, `challenge`, `cop`, `GPStarget`, `GPSObjective` [DATA]) show the gates the world shows (start green,
 checkpoint orange, finish red), placed on the heading-up map with the satnav's own scale (3 m / px) and parked on the
 map edge towards a gate beyond it [INF] (`FreeRideHud::setMinimapObjectives`;
-`docs/images/race_minimap_gate_icons.png`). Not driven yet: `/HUD/position` (`/:Pos` of `/:NbPlayers`, no opponents). The zone badge yields its corner
+`docs/images/race_minimap_gate_icons.webp`). Not driven yet: `/HUD/position` (`/:Pos` of `/:NbPlayers`, no opponents). The zone badge yields its corner
 to `/HUD/time` while a race runs.
 
 ### 8.4 Hooks
@@ -245,7 +245,7 @@ school menu on that licence's tests (`SchoolMenu::openAtTest`). Video Replay: no
 sends the movie back to its panel. The fail cart has no text: `openCarts()` itself sets `Message2 = 'empty'`
 [DATA] (the retail fail cart may be icon-only; not checked against a retail capture).
 
-Evidence: `docs/images/licence_result_failed.png`, `licence_result_menu.png`, `licence_result_success.png`,
+Evidence: `docs/images/licence_result_failed.webp`, `licence_result_menu.png`, `licence_result_success.png`,
 `licence_result_back_to_school.png`. Hook: `-licenseforce <pass|fail>` (`-licenseforceafter <s>`, default 2) ends
 a running test so the screen can be checked without driving.
 
@@ -274,7 +274,7 @@ manoeuvre areas (RSA7T02's turnaround box). Drawn as one marker every 3 m [INF].
 **There is no traffic cone in the game data** [DATA, negative; follow-up session 2026-11-05]: no Ibiza bank names a
 cone. `SF_PLOTS` in Hawai's `commonworld.bnk` looked like one ("plots") but is a *material*: the library objects
 using it, `SF_PLOA` .. `SF_PLOQ` (17 nodes, names cut to 8 characters), are green street **bollards** and bollard
-rows (1.06 m posts, 0.7 m posts, strips of posts 2-46 m long; `docs/images/licence_hawai_sf_plo_bollards.png`,
+rows (1.06 m posts, 0.7 m posts, strips of posts 2-46 m long; `docs/images/licence_hawai_sf_plo_bollards.webp`,
 SF_PLOC / SF_PLOD / SF_PLOG drawn as the RSA7T02 markers). The rest of the Hawai library (649 nodes, listed with
 `-logcone` in that session) and the police pack (helicopter, EMP) have no cone either. The only course obstacle
 shipped is the checkpoint pack's own racing-school barrel (`sf_barel_d`, materials `RS_Barel_Metal` /
@@ -293,7 +293,7 @@ strips (1.2 m wide, chevrons pointing along the drive), and a `BrakingZone_01` 2
 turns more than 50 degrees within 20 m (one per 40 m at most). Road tests (gates on road links) get no line: a
 straight chord would cross buildings. `-noracingline` turns it off.
 
-Evidence: `docs/images/licence_slalom_racing_line.png` (the weave beside the pole line),
+Evidence: `docs/images/licence_slalom_racing_line.webp` (the weave beside the pole line),
 `licence_cone_lines.png` (the RSA7T02 turnaround box), `licence_braking_zone.png`.
 
 ## 11. The school desk: R_SCHOOL.vmf (session 2026-11-05, `win`)
@@ -329,6 +329,6 @@ taken (the movie locks none; the port's in-order rule was [INF] and is dropped h
 Not filled: the card's player fields (photo, name, number - their variables are not traced yet); the help system
 page (`openHelpSystem`, `FirstTime`).
 
-Evidence: `docs/images/licence_school_card.png` (the card after the result screen's Quit), `licence_school_tests.png`
+Evidence: `docs/images/licence_school_card.webp` (the card after the result screen's Quit), `licence_school_tests.webp`
 (the A7 test list). Checked: `-schoolmenu A -loglicenses`: `rsch:stli`, `dili`, `dits`, `dtup`, Down, A ->
 `rsch:tspr` (num_test 1) -> RSA7T02 starts; B, B -> `camf`, `wmon` -> closed.

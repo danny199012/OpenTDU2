@@ -75,7 +75,7 @@ entries). Xbox banks are big-endian with hashed entries (no path tree), audio XM
   dials)**: `tools/x360/restore_texture.py` writes the prototype's
   `Q7_INT2` as a PC `.2db` (retail header as the template, mip 0 only) to `<userdata>/restored/q7_inuit_i/
   q7_int2.2db`, and `TextureCache::loadBankTextures` uses any `<userdata>/restored/<bank>/<texture>` in place of
-  the bank's own (`-norestored` = retail) — `docs/images/q7-inuit-restored-dials.png` (retail black dials | restored
+  the bank's own (`-norestored` = retail) — `docs/images/q7-inuit-restored-dials.webp` (retail black dials | restored
   grey). Game data stays out of the repo: the file is generated on the player's machine. **Restored 2026-10-30
   (the full Inuit cabin, wood trim included)**: `tools/x360/make_q7_inuit.py` packs a hybrid PC bank into the mod
   overlay — the prototype's `.2dm` byte-swapped to the PC layout (`eden_render_file.swap_to_pc`; the material
@@ -87,8 +87,8 @@ entries). Xbox banks are big-endian with hashed entries (no path tree), audio XM
   `.2db` (`WOOD_INUIT` 256x256 sRGB DXT1, the grey `Q7_INT2`). The first PC bank writer in the repo
   (`tools/x360/build_bank.py`) packs it; round-trips two retail banks byte-comparably (`--roundtrip`).
   Verified in the port: `-gm assetviewer -bank euro/bnk/vehicules/interiors/q7_inuit_i.bnk` renders the cream
-  Inuit cabin with the walnut dash — `docs/images/q7-inuit-hybrid-viewer.png` (retail for comparison:
-  `docs/images/q7-inuit-restored-dials.png`), freeride `-car Q7_Inuit` loads it through the mod overlay.
+  Inuit cabin with the walnut dash — `docs/images/q7-inuit-hybrid-viewer.webp` (retail for comparison:
+  `docs/images/q7-inuit-restored-dials.webp`), freeride `-car Q7_Inuit` loads it through the mod overlay.
   **Still not ported**: the prototype's own `.3dg` (packed 360 vertex formats, 0.63x the size) — so the hybrid
   uses retail geometry and a role-based material map, not the prototype's exact per-primitive assignment
   (`tools/x360/eden_3dg.py` reads the primitive material indices on both platforms; the geometries differ,

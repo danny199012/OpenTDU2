@@ -101,7 +101,7 @@ game-hours it lasts) is in the encrypted PC band [ENC]; the PS3 save serializer
   C_LIFE C_360_W C_OBSERVE C_360 C_HEAD; start camera 'cam_entree'; 2 selectables`
   — **`Hostess_area` type 27** (the walk-mode table names 27 "surgeon",
   `walk_mode.cpp:63`) and `Exit` type 0. Screenshot:
-  `docs/images/surgery_isur_a.png` (surgeon at the desk under the reticle,
+  `docs/images/surgery_isur_a.webp` (surgeon at the desk under the reticle,
   operating chair, diplomas, x-ray light box).
 - **A on the surgeon** reaches `GMFreeRide::openSpotShop` with no `surgery`
   branch and shows the generic "This shop is not open yet." tip

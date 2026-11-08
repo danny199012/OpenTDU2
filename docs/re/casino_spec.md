@@ -186,7 +186,7 @@ drawing it before the native screens breaks them** (reproduced with
 `-casinomovie`): the native header disappears entirely and every glyph the
 native code draws afterwards comes out as a solid block. Without it (the
 default) the same screens are correct
-(`docs/images/casino_floor.png`, `casino_slots.png`, `casino_roulette.png`,
+(`docs/images/casino_floor.webp`, `casino_slots.png`, `casino_roulette.png`,
 `casino_roulette_winner.png`).
 
 Prime suspect: the flash display list leaves the 2D layer's **mask / scissor**
@@ -255,7 +255,7 @@ Two separate claims, and the log keeps them apart:
   evaluator test above carries the exactness instead.
 
 The win rate (47.5%) matches the published ~45.5% for Jacks or Better, and the
-wallet arithmetic is exact. Screenshot: `docs/images/casino_poker.png`.
+wallet arithmetic is exact. Screenshot: `docs/images/casino_poker.webp`.
 
 ---
 
@@ -316,7 +316,7 @@ target is met (with the text dimmed). The Flash markup in the texts
 `#command:` / colour resolver. Two ways in:
 
 * the **floor's `Game progress` entry** — verified end to end (screenshot
-  `docs/images/casino_objectives.png`);
+  `docs/images/casino_objectives.webp`);
 * the **pause menu's `game_progress`** entry, enabled in the casino by
   `PauseMenu::setCasinoMode( true )` and reported as `eResult::Progress`. The
   entry is wired, but in the automated run the movie-driven menu did **not** take
@@ -386,7 +386,7 @@ acts, B returns to the hall (or leaves from the hall).
 `-casinoroom <hall|slots|roulette|poker|vip|dressing|shop>` boots into a room and
 `-casinoselect <n>` acts on the n-th machine / table of it (test hooks).
 
-Screenshots: `docs/images/casino_hall_interior.png`,
+Screenshots: `docs/images/casino_hall_interior.webp`,
 `casino_slots_interior.png`, `casino_roulette_interior.png`,
 `casino_poker_interior.png`.
 
@@ -470,7 +470,7 @@ and turns it at its own rate (`spinLastDisplayCar`, 1 turn a minute about the
 rest point). A room whose VehicleId is not a DBCars id falls back to the room's
 `DBRewardCar` (`CASINO_CAR_1`, the VIP lounge `CASINO_CAR_VIP`) [INF].
 `-nocasinocar` leaves it out, `-casinocarturns <n>` overrides the rate.
-Screenshot: `docs/images/casino_hall_r8_socle.png`.
+Screenshot: `docs/images/casino_hall_r8_socle.webp`.
 
 **2026-11-05 (`win`): the carpet and the podium.** That screenshot shows the car on a flat
 olive-grey floor; retail has a sunken red-carpet runway and the lit `Socle_Car` podium
@@ -482,7 +482,7 @@ Ibiza area tile at the island origin cut through the hall floor and hid the pit.
 not. `IntroCinematic::load` now turns the area tiles off when the scene has no island
 (`EdenWorld::setAreasEnabled`; `-closedroomareas` = the old A/B). Other closed rooms:
 the intro garage and the slots room are pixel-identical, the VIP lounge is a little lighter
-(the tile also shadowed it). Screenshot: `docs/images/casino_hall_carpet_podium.jpg`.
+(the tile also shadowed it). Screenshot: `docs/images/casino_hall_carpet_podium.webp`.
 
 ### 9.5 The real slot machines (2026-11-04, `win`)
 
@@ -509,7 +509,7 @@ and `DETAIL1B` its blurred strip. VS `Var_VS` c60-63 WVP, c64 CamPos, c65 DirLig
 while `v < UV_symbol_space.y` the vertex gets `uv1 + scroll_uvk.xy`. So a reel
 shows three symbol slots (top, payline, bottom), each scrolled on its own.
 
-The sheets (`docs/images/casino_reel_symbol_sheets.png`) hold the symbols in
+The sheets (`docs/images/casino_reel_symbol_sheets.webp`) hold the symbols in
 reading order: SlotMachineCar = lamp, wheel, stopwatch, flag, trophy, **the R8**
 (its top symbol, the car prize); Classic = cherry, raspberry, strawberry, BAR,
 2 BAR, 3 BAR, 7, diamond; Hawai ("Beach") = flowers, surf boards, coconut, sun;
@@ -529,8 +529,8 @@ it, `-noslotcamera` keeps the walk view).
 
 Verified: `-casinoroom slots -casinoselect 6 -casinoseed 7` + one spin: the
 five reels blur, stop one after the other, and the 66-chip win is three speed
-boats on the reels (`docs/images/casino_slot_highlife_spin.png`); all six
-machine types after a spin: `docs/images/casino_slot_machines_real_reels.png`.
+boats on the reels (`docs/images/casino_slot_highlife_spin.webp`); all six
+machine types after a spin: `docs/images/casino_slot_machines_real_reels.webp`.
 
 Not done: the avatar sit-in and the `C_SLOT_ACTIVATE_0x` / `C_SLOT_WIN_0x` /
 `C_JACKPOT_*` beats are not played. `SlotMachineSpinner` `RotationSpeed` is not
@@ -639,13 +639,13 @@ pin the three faces of a reel to one sheet column (`scroll_uvk.x = (column - k) 
 it together (`scroll_uvk.y = k / rows - roll`): the symbols enter at the top and leave at the bottom.
 Speed: `RotationSpeed` 1.3 read as drum turns a second, one turn = the column x 3 [INF]; the retail turns
 the spinner's own bone (it has a skeleton and an `AnimStop` clip), not decoded. `-reelspeedscale <f>` slows
-it for a look (`docs/images/casino_reels_spin_down.png`, x0.04, frames 20 apart).
+it for a look (`docs/images/casino_reels_spin_down.webp`, x0.04, frames 20 apart).
 
 **The handle.** `Entity__Actor__SlotMachineTrigger` (38 `SC_Trigger_Car`: the lever `SMcar_Levier`, the
 button panel `Boutons`, own skeleton) was never loaded. Its `Anim` is `cas_sm_spin-tri.bas` - a "BAS!"
 layer naming `cas_sm_spin-tri.xan`, held in the bank as `cas_sm_spin-tri.anm` (1.21 s) [DATA]. It plays
 from the spin order (`IntroCinematic::setPropClip`, a game-driven clip on a prop; the start on the spin is
-INF): the lever holds ~0.4 s, pulls down, springs back (`docs/images/casino_slot_handle_pull.png`).
+INF): the lever holds ~0.4 s, pulls down, springs back (`docs/images/casino_slot_handle_pull.webp`).
 
 **The screen on the machine.** Each machine's `SlotScreen` is an `Entity__Actor__CasinoFlashScreen`
 (`SM_FlashScreen_Stack`, Movie `Cas_SlotScreen`, Material `flash`, BitmapId 1) and `SlotLinesScreen` one
@@ -656,14 +656,14 @@ played machine's live screen, one idle screen for the 37 others, the lines overl
 emissive is `dp4( NEONGLOW, AnimValue ) x WeatherEmissive` (eden_neons.h), and props are never registered
 with the neon manager, so it drew black whatever its texture: the screens get the movie in slot 1, a white
 glow and `AnimValue (1, 0, 0, 0)`, `WeatherEmissive 1` [INF]. `-slotscreenpanel` = the old 2D panel,
-`-slotscreenclear` clears the target red (the binding A/B). `docs/images/casino_slot_screen_on_machine.png`.
+`-slotscreenclear` clears the target red (the binding A/B). `docs/images/casino_slot_screen_on_machine.webp`.
 
 **The tops / buttons.** `Entity__Actor__Neon` (436: the machines' top pay art `PartOfSM<type>_gain_<n>`, the
 room signs) and `Entity__Actor__NeonSlotMachine` (171: `Buttons_0x`, the lit buttons) were never loaded, so
 the drums stood open at the top. Loaded now (the slots room only [INF: not checked in other banks]) and lit
 steadily: `AnimValue` = the entity's Red / Green / Blue `IlluminationFactor` (the buttons: `NeonInactive`),
 `WeatherEmissive 1` [DATA: the factors; INF: no `TimeFactor` blink, no win flash]; `-nocasinoneonlight`.
-`docs/images/casino_slot_tops_neons.png`, `casino_slot_machines_parts.png`.
+`docs/images/casino_slot_tops_neons.webp`, `casino_slot_machines_parts.png`.
 
 **A render pass fix that came with it.** The 2D pipelines are built for the main pass; drawing them into a
 render target was `VUID-vkCmdDraw-renderPass-02684` (dependencyCount 2 != 1). The main pass now declares the
@@ -678,10 +678,10 @@ checked frame by frame); Cas_SlotLines is drawn at rest (no active lines shown o
 
 **The Fashion chest drum.** The symbol sheets leave cells empty: the Fashion sheets hold their four outfits as
 row 0 + one cell of row 1 (the rest of row 1 is grey, row 2 repeats row 0); the 4 x 3 sheets leave row 2 /
-column 3 empty [DATA: `docs/images/casino_reel_symbol_sheets.png`]. A horizontal drum spun along row
+column 3 empty [DATA: `docs/images/casino_reel_symbol_sheets.webp`]. A horizontal drum spun along row
 "reel index", so the chest drum (reel 1) ran along the empty row (the owner's grey stripes). Horizontal drums
 spin along row 0; vertical drums only use full columns (0..2 on a 4 x 3 sheet, 0..3 on the card sheet).
-`docs/images/casino_fashion_chest_spin.png`.
+`docs/images/casino_fashion_chest_spin.webp`.
 
 **The reel stops.** Every spinner has its own `TimeAfterPrevSpinner` (High Life 0 / 0.7 / 0.7 / 0.9 / 1.1,
 TDU 2 0 / 0.7 / 1.1, Fashion 0.5 / 0.5 / 0.7) [DATA]; reel k stops at TimeBeforeFirstStop + the running sum
@@ -700,7 +700,7 @@ TDU 2 0 / 0.7 / 1.1, Fashion 0.5 / 0.5 / 0.7) [DATA]; reel k stops at TimeBefore
   room's `entities.xmb` (330 in the slots room: `Curve_Low`, `Curve_Middle`, `Curve_One_Very_High` ...).
 * `FUN_00b44500` / `FUN_00b44400`: AnimValue = ( R, G, B, 0 ) of the evaluation.
 `IntroCinematic::updateNeons` plays that every frame for the casino neons (WeatherEmissive 1 [INF]); the gain
-panels pulse (frame diffs 4.7 .. 7.3 at a fixed eye, `docs/images/casino_neon_blink.png`).
+panels pulse (frame diffs 4.7 .. 7.3 at a fixed eye, `docs/images/casino_neon_blink.webp`).
 
 **The machines' light states** [DATA]: `Entity__Actor__NeonSlotMachine` has NeonInactive / NeonActive /
 NeonWin / NeonLoose / NeonJackpot / NeonWinRelaunch / NeonLooseRelaunch, each `CanBeActivate`, `Duration`,
@@ -733,7 +733,7 @@ The port (`GMCasino` `eRelaunch`, `startSlotSpin`, `autoHold`, `settleSecondChan
 `setPayNextSpin`):
 * **Poker**: the stake is taken, five cards are dealt from a shuffled deck (seeded by `-casinoseed`) and shown on
   the five card reels - the `Cards` sheet (`cards02.2db`, 8 x 8) holds hearts, spades, diamonds, clubs, each
-  A 2..10 J Q K in reading order, cell 52 the back [DATA, `docs/images/casino_poker_card_sheet.png`]. The paying
+  A 2..10 J Q K in reading order, cell 52 the back [DATA, `docs/images/casino_poker_card_sheet.webp`]. The paying
   hand's cards hold themselves (a pair or better: the cards of that rank; a straight / flush / full house /
   straight flush: all five) [INF: the rule]. The second draw replaces the cards not held; the Jacks or Better
   hand after it pays stake x the 9/6 table (`CasinoPoker`) [INF: the machine's own table was the server's]; its
@@ -747,7 +747,7 @@ The port (`GMCasino` `eRelaunch`, `startSlotSpin`, `autoHold`, `settleSecondChan
 Verified: Poker deal 7d 4s 5c Qd 8c -> hold the 4s (X) -> 3s 4s 2s 4h 8d (the 4s kept), "No win"; seeds 8 / 9 deal
 a pair of jacks or better, auto-held 01100, Jacks or better paid; Beach reel 2 locked through the respin; seeds 22 /
 61 win on the first spin (150 / 450 if kept), all three reels auto-lock, the respin pays (955 -> 1105 / 1405).
-`docs/images/casino_slot_second_chance.png`. 0 VUIDs.
+`docs/images/casino_slot_second_chance.webp`. 0 VUIDs.
 
 Not done: the Poker machine's second chance return (99.54 % is the table's optimal-play figure, not measured on
 this machine); the hand cursor over the machine; the `NeonWinRelaunch` / `NeonLooseRelaunch` button states.
@@ -804,7 +804,7 @@ director (`NPC_Director`) and the hostess (`NPC_Hostess`) present the R8 on the
 (`Fx_Confetis`) and white flash cuts [DATA: the actors; going to the hall for it is INF].
 `-nocasinowincar` stays at the machine. Test:
 `-gm CASINO -casinoroom slots -casinoselect 7 -casinoprize car` on a profile without
-the car. Shots: `docs/images/casino_jackpot_keys_wincar.jpg`.
+the car. Shots: `docs/images/casino_jackpot_keys_wincar.webp`.
 
 Not done:
 - The rankings tube: see 9.11.
@@ -848,7 +848,7 @@ waits for data the game never sends offline. The port has no casino time-attack
 mode either, so there are no times to show; none are invented.
 Flags: `-nocasinorankings`, `-norankingmovie`, `-rankingsopen` (raised at once),
 `-rankingspage <label>`, `-rankingsclear` (red clear: the binding A/B),
-`-logcasinorankings`. Shots: `docs/images/casino_rankings_tube.jpg`.
+`-logcasinorankings`. Shots: `docs/images/casino_rankings_tube.webp`.
 
 Not done: the movie's data protocol (how the game fills the rows); the casino
 time attack itself (the race in the podium car) and recording its times; the
@@ -910,7 +910,7 @@ on the slider page D-pad down / X = Min, D-pad up / Y = Max.
 
 Verified (`-gm casino -casinoroom hall -casinoselect 1|0 -fixedtimestep`): the list with its ticket and
 locks, a ¤200 cocktail with `-cherry` -> the barman / avatar cutscenes -> "You win - Level 2 free pass"
-(`docs/images/casino_bar_raffle_tutorial.png`, `casino_bar_drink_and_raffle.png`); a ¤50 cocktail without
+(`docs/images/casino_bar_raffle_tutorial.webp`, `casino_bar_drink_and_raffle.webp`); a ¤50 cocktail without
 the cherry logs `lose`; $5000 -> 5000 chips at Max and 3 chips -> $3 (`casino_cashier_converter.png`).
 Not done: the popup's level icon shows "1" for a level 2 win (the `content/level` art; the text is right);
 the walk reticle draws over the bar cutscenes; the passes are not spent anywhere yet (the tournament
@@ -946,7 +946,7 @@ test hooks, `-cinisland <island>` places a `-gm CINVIEWER` scene on another
 island. Verified: `-gm FREERIDE -casinotrip -casinoleave 200` plays departure ->
 arrival -> CASINO hall -> casino departure; `-gm casino -casinoleave 60` plays
 the casino departure -> Ibiza arrival -> FREERIDE on Ibiza at the dock
-(`docs/images/casino_trip_to_casino.png`, `casino_trip_home.png`).
+(`docs/images/casino_trip_to_casino.webp`, `casino_trip_home.png`).
 Not done: the Hawai legs are wired but not played through yet; the car after
 the home arrival is not checked for a parked pose (one run's last frame showed
 the chase camera in a hedge, 13 s after the handoff).

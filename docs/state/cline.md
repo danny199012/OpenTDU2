@@ -35,9 +35,9 @@ look of the Ibiza spawn is the retail data (its terrain material's only detail l
   `V_CHEN_C/D/E` 352, `V_HPIN_*` 125, `V_FIG_*` 22), `-O.pmi` = 2043 (bushes, rocks, walls);
   the sector resolves 2967 instances in total (`-verbose`).
 - Green-coverage A/B (Pillow, strict `g > r+12 and g > b+12`): Ibiza FREERIDE spawn 0.21 %,
-  the **retail** `docs/images/retail-pause-freeride.png` 0.24 % (the same arid look), the
-  port's own `docs/images/freeride.png` 0.27 %. Hawai `ETUN_G` (`-gm WORLD_VIEWER -island
-  hawai -spot ETUN_G -weather 18`) **7.71 %** (the reference `world_hawai.png` is 12.2 %),
+  the **retail** `docs/images/retail-pause-freeride.webp` 0.24 % (the same arid look), the
+  port's own `docs/images/freeride.webp` 0.27 %. Hawai `ETUN_G` (`-gm WORLD_VIEWER -island
+  hawai -spot ETUN_G -weather 18`) **7.71 %** (the reference `world_hawai.webp` is 12.2 %),
   the casino reference 9.16 %. The same pipeline renders lush vegetation where the data has it.
 
 ### What changed (the one real gap: `pmi_streaming_spec` §9 #3, LOD0 only)
@@ -156,7 +156,7 @@ for everything below — no guessing was needed.
    (`openTicks == 45 && !bSpotsBuilt`). The owner's log has two `MapScreen: open label 'map_open'`
    (lines 1468 and 80102) and **one** `74 spot icons created`. `open()` now clears `bSpotsBuilt` so
    the clones are rebuilt on every open: the same two-open run logs `75 spot icons created` twice and
-   the reopened map draws its POI tiles (`docs/images/world_map_icons_reopen_s86.png`).
+   the reopened map draws its POI tiles (`docs/images/world_map_icons_reopen_s86.webp`).
 3. **A texture-cache owner is keyed by bank path, and two views can hold the same path.** A shop
    interior is its own `EdenSceneView` with its own `EdenWorld`, initialised with the same island
    (`InteriorWalk::enter(spot, island)`), so it loads the *same* `commonworld.bnk`, `ibiza.bnk`,
@@ -172,7 +172,7 @@ for everything below — no guessing was needed.
    `Euro/Bnk/islands/ibiza/level/ibiza.bnk' released, 1 holder(s) left` and
    `Euro/Bnk/fx/weatherfx.bnk' released, 3 holder(s) left` — under the old code every one of those
    destroyed the shared textures. The map opened after the interior is whole
-   (`docs/images/world_map_after_interior_s86.png`).
+   (`docs/images/world_map_after_interior_s86.webp`).
 
 ### The island holes (tunnels / bridges) — measured, then fixed
 
@@ -267,12 +267,12 @@ rotor were also 0.120 m under the wheel centre (see below).
   wheel centre, at the bottom of the rim, while the glow quad was drawn at the physics hub — the
   caliper was never concentric with the disc it was supposed to straddle.
 - Docs: `docs/re/surface_effects_spec.md` 7.3/7.4, `PROGRESS.md`, this entry, and the A/B screenshot
-  `docs/images/surface_fx_brake_glow_before_after.png` (same camera, pre-fix binary vs now).
+  `docs/images/surface_fx_brake_glow_before_after.webp` (same camera, pre-fix binary vs now).
 
 ### Verified
 
 - The A/B at the same camera: wheel region mean **11.24**, **3,716 px > 24** against the pre-fix
-  binary; the tyre, the arch and the spokes are no longer orange (`surface_fx_brake_glow_before_after.png`).
+  binary; the tyre, the arch and the spokes are no longer orange (`surface_fx_brake_glow_before_after.webp`).
 - The glow still draws: against `-nobrakeheat`, wheel region mean 5.02, **1,206 px > 24** (the ring
   only — the old effect changed 5,302 px because it flooded the wheel).
 - `CinematicCar: brake node 'BRAKE_FL' lifted 0.120 m with the wheel 'D_RIM_FL'` — 8 lines, the four
@@ -666,10 +666,10 @@ feature in the original game"*.
   `BrakeHeat: 35 C` cold, then `737 C/0.92 603 C/0.66 558 C/0.57 528 C/0.52` at the end of one hard stop
   from ~110 km/h, then `716 -> 591 -> 556` after the release (**it cools**).
 - **The glow draws** (A/B against `-nobrakeheat`, same drive, shot at 378): the wheel region differs by a
-  mean of 5.2 with **5,302 px > 24**. `docs/images/surface_fx_brake_disc.png` (night, both wheels).
+  mean of 5.2 with **5,302 px > 24**. `docs/images/surface_fx_brake_disc.webp` (night, both wheels).
 - **The marks** (`-logsurfacefx`): `206 decals, ground tarmac` after the brake; A/B against
   `-surfacefxscale 0` gives a road-region mean of 8.1 and **14,215 px > 24**.
-  `docs/images/surface_fx_brake_marks.png`.
+  `docs/images/surface_fx_brake_marks.webp`.
 - **No regression**: `-surfacefxtest` still gives `186 particles, 483 decals, ground dirt` (the spec's
   numbers), and `EdenSurfaceFx: ready (3000 particles, 1024 decals)`.
 
@@ -725,10 +725,10 @@ on both Hawaii and casino island"*.
   `islands/hawai/vehicules/traffic/police1.bnk` (`police1`, 5.40 m, lift 0.232); `chaseconfig.cpr`
   CopCar level Low = 2032. Ibiza: 3009 -> `ibiza_police.bnk`.
 - **Hawaii police**: `-trafficpark -trafficparkpolice` now parks **type 18 (id 2032, lift 0.232)** - the
-  white Hawai police sedan with its roof bar (`docs/images/hawaii-police-car-s78.png`). Ibiza parks type 8
+  white Hawai police sedan with its roof bar (`docs/images/hawaii-police-car-s78.webp`). Ibiza parks type 8
   (id 3009, `ibiza_police`). `-police` starts the chase with "2 cops (traffic police model)"; the back
   view at frame 300 shows the Hawai police car behind the California with headlights and roof bar, and the
-  arrest sequence fires (`docs/images/hawaii-chase-cop-s78.png`).
+  arrest sequence fires (`docs/images/hawaii-chase-cop-s78.webp`).
 - **Tunnels / bridges, Hawai**: `-scantunnels` -> **2860 sectors scanned, 3476 banks missing, 1516
   keyword nodes, 1 with terrain inside** - the exact result of session 56: `TUNSOR`,
   `sector-8-5-4-6`, x 52213..52257, y -19..8, z 35277..35338, band 33 of 33, terrain h 2.7..5.3. The carve
@@ -742,8 +742,8 @@ on both Hawaii and casino island"*.
   3 s apart, `-notide`): Hawai **384,574 px > 8 (233,400 > 24, mean 38.4)**, Casino **448,394 > 8
   (318,149 > 24, mean 42.9)**. Tide at a shore camera (fixed timestep, same frame, `-notide` vs
   `-tide 20`): Hawai cliff `-tp 36859,9210 -heading 0` **56,082 px > 8 / 35,525 > 24** in the lower half
-  (`docs/images/hawaii-tide-s78.png`); Casino bay (world viewer `-campos 2642,40,2600 -camyaw 200`)
-  **37,209 > 8 / 7,392 > 24** (`docs/images/casino-tide-s78.png`).
+  (`docs/images/hawaii-tide-s78.webp`); Casino bay (world viewer `-campos 2642,40,2600 -camyaw 200`)
+  **37,209 > 8 / 7,392 > 24** (`docs/images/casino-tide-s78.webp`).
 - **Stability**: Hawai FREERIDE 1,200 frames with traffic, 0 stalls (worst gap 2.9 s at frame 0),
   `_hawaii_drive.ppm`; two builds exit 0.
 
@@ -982,18 +982,18 @@ under the minimap), and the fuel bar at the top right reading **`Tank 78 L 71435
 -width 1280 -height 720 -exitframe 420 -autoplay "240:hold=accel;400:shot=_hud_after3.ppm"
 ```
 - the beige box is gone: `(160,700)` is now `(38, 37, 32)` (road), was `(224, 219, 209)`; the fuel bar reads
-  `Tank 78 L / 497.2 km` under the odometer (`docs/images/fuel-hud-s75.png`).
+  `Tank 78 L / 497.2 km` under the odometer (`docs/images/fuel-hud-s75.webp`).
 - the empty enter card is gone while driving: 18,225 pixels changed in the panel region (canvas 540..820 x
   500..720) against the before frame, and the region now reads road colours (12..26) instead of the card's
   `(47, 53, 59)`. Stopped at the spot the card and the `Enter` prompt are still there (136 bright pixels in the
-  text area, max 255; 0 while driving). The final frame is `docs/images/hud-fixes-s75.jpg`.
+  text area, max 255; 0 while driving). The final frame is `docs/images/hud-fixes-s75.webp`.
 - `Fuel: 'California' tank 78.0 L, row 0.1/13.1/0.0 l/100 km -> city 15.7, 60 13.1, 90 9.2, 200 32.8, grade 0`.
 - `-fuel 0.02` + `hold=accel`: consumption follows the curve (15.7 -> 14.8 -> 13.5 -> 11.4 -> 10.0 -> 16.4),
   `Fuel: tank empty after 149 m - Breakdown`, and the `Breakdown` line is on screen
-  (`docs/images/fuel-breakdown-s75.png`).
+  (`docs/images/fuel-breakdown-s75.webp`).
 - FUEL1 station prop, `A` twice: `Fuel: pump screen at FUEL1 (tank 20.0 / 78.0 L, grade 0)` — the screen shows
   `20.0 / 78.0 L  127 km`, `Fill: 58.0 L`, `$86` — then `Fuel: filled 58.0 L Shell basic for $86.42 (money
-  4996305)` (`docs/images/fuel-pump-s75.png`).
+  4996305)` (`docs/images/fuel-pump-s75.webp`).
 - `build-cline.ps1` -> **build exit 0** (5 incremental builds; only pre-existing warnings).
 
 ### Ruled out (with the test that ruled it out)
@@ -1043,8 +1043,8 @@ TDUWorld runs the same game at 4K 130-160 fps when this port cannot — answered
   never registered before: only cinematic sets and spot exteriors were). `-lognightlmaps` dumps them; the
   exterior cap is 512 for a loaded world (the retail 63 was a spot-scene array).
 - `docs/re/night_lights_camera_glass_spec.md` §5 — the shader evidence, the NIGHTLMAP dead end, and the
-  remaining lamp-light work. Screenshots: `docs/images/night-fix-ab-s73.png` (before / `.y` / `.y + .w`) and
-  `docs/images/night-windows-s73.png` (tuning shop, rows of lit windows).
+  remaining lamp-light work. Screenshots: `docs/images/night-fix-ab-s73.webp` (before / `.y` / `.y + .w`) and
+  `docs/images/night-windows-s73.webp` (tuning shop, rows of lit windows).
 
 ### Verified
 ```
@@ -1067,7 +1067,7 @@ TDUWorld runs the same game at 4K 130-160 fps when this port cannot — answered
 ### Not done / next
 - **Lamp colour** still needs the owner's screenshot (or the spot + `-clocktime`). The lamp head is the unlit
   `TD_Lamp` quad (`sf_light_c`); retail's `streetlamps.xml` `#f8d6a6` colour and light pools are not
-  implemented. Compare against `docs/images/night-windows-s73.png`.
+  implemented. Compare against `docs/images/night-windows-s73.webp`.
 - **TD_ShadowBox light pools** (car headlights / lamp ground pools) remain skipped: the world-view-proj and
   ground-projection constants are not written (`docs/re/night_lights_camera_glass_spec.md` §4).
 - Performance: see the new `docs/re/quality_profiles.md` §5b and §6 — instancing / merged static batches /
@@ -1175,7 +1175,7 @@ standalone doc for another agent - that is `docs/re/ui_viewer.md`.
   `game/pause_menu.cpp` already resolves by name (16 of them).
 - `docs/re/ui_viewer.md` - the spec, the verified numbers, the state-machine dumps
   and what is next.
-- `docs/images/ui_viewer.png`, `docs/images/ui_viewer_log_in2.png`.
+- `docs/images/ui_viewer.webp`, `docs/images/ui_viewer_log_in2.webp`.
 - `source/game/gm_base.{h,cpp}` - `GM_UiViewer` + `"UI_VIEWER"` (appended last so
   the existing mode values do not move); `source/tdu_instance.cpp` - the factory
   case and the `-uiviewer` shortcut.
@@ -1318,12 +1318,12 @@ Specs: `docs/re/traffic_spec.md` "Lane side", `docs/re/ocean_spec.md` 11.4, `doc
 - Far sea, `-campos 36070,260,5960 -camyaw 90 -campitch -15`, fixed timestep, frame 60: `-noareaobjects` against the
   new run = **82 428 px above 24/255 (mean 1.91)** in the horizon band y 658..1181; at the largest difference pixel
   (18, 669) the new run is sea `[16,25,34]`, `-noareaobjects` is sky `[255,255,218]`.
-  `docs/images/ocean-far-sea-ab-s70.png` (top: new, bottom: -noareaobjects).
+  `docs/images/ocean-far-sea-ab-s70.webp` (top: new, bottom: -noareaobjects).
 - Surf, `-campos 36070,12,5960 -camyaw 90 -campitch -15`, fixed timestep, frame 105: `-tide 20` (level +0.142 m)
   against `-notide` = **232 061 px above 24/255 (mean 1.71)**; the retail foam run-up is 13.6 m per m of sea level on
   `sector-5-0-6-7` (Ibiza) and 12.1 m/m on Hawai `sector-5-1-7-3`; the foam band's own UV animation changes
   **46 910 px (mean 11.7)** between two still-water frames 3 s apart, so it is alive.
-  `docs/images/ocean-shore-surf-s70.png`.
+  `docs/images/ocean-shore-surf-s70.webp`.
 - `OTDU_OCEAN_LOG=1` prints the area groups (`area-2-0: 68 items, 68 sector groups`, ...), the foam gradients and the
   live sea level. World viewer run 480 beats / FREERIDE runs 0 stalls; only the known Havok / flash warnings.
 ### Ruled out (with the test that ruled it out)
@@ -1427,7 +1427,7 @@ Everything else on the exe is new.
 - **Watermark render A/B** (`-fixedtimestep`, frame 120, 3840x2160): `-tester Daniel` vs `-tester Daniel
   -nowatermark` — a control region is bit-identical (mean diff 0.0) while the top-right differs in exactly the
   watermark panel's box (crop bbox 231,27 → 593,130); the log keeps `Tester:` with the watermark off.
-- **UI**: screenshots of all five pages (Play: `docs/images/launcher_s69.png`); the 225 % DPI layout was fixed after
+- **UI**: screenshots of all five pages (Play: `docs/images/launcher_s69.webp`); the 225 % DPI layout was fixed after
   the first capture (text overflowed its boxes) and re-captured.
 
 ### Not done / next
@@ -1549,14 +1549,14 @@ six next steps). This entry is the summary.
   `Aircraft: 11 planes on 4 routes, 2 on the ground, 5 take-off / landing since the last line` - the loops really
   land and take off.
 - `-aircraftpark` vs `-aircraftpark -noaircraft`, same frame: **mean pixel difference 30.0, 237,667 pixels above
-  8/255**; `docs/images/aircraft_parked_terminal.png` is the 747 Paradise Airline airliner standing on the Ibiza
+  8/255**; `docs/images/aircraft_parked_terminal.webp` is the 747 Paradise Airline airliner standing on the Ibiza
   apron in front of the car.
 - The airport bank's own **parked plane already worked**: `SpotExterior: eair_a.bnk: 2 set models, 1 props` ->
-  `docs/images/airport_apron_parked_planes.png` (two airliners at the terminal, `-noaircraft`, so it is the bank's
+  `docs/images/airport_apron_parked_planes.webp` (two airliners at the terminal, `-noaircraft`, so it is the bank's
   `CF_Plane` prop, not the new system).
 - `Birds: ibiza: 5 species ... in 5 flocks`, `Birds: 35 drawn of 35`; `-birdsfront` vs `-nobirds`, same frame:
   **5302 pixels above 8/255 in the sky** (a block map of the difference shows isolated birds, not a rectangle);
-  `docs/images/birds_sky.png`.
+  `docs/images/birds_sky.webp`.
 - Frame cost unchanged (`[perf] frame 120: avg 18.3 ms` with and without).
 
 ### Ruled out (with the test that ruled it out)
@@ -1638,10 +1638,10 @@ steps). This entry is the summary.
 
 ### Verified (all headless, screenshots committed)
 - `EdenSurfaceFx: ready (3000 particles, 1024 decals)` (`-logsurfacefx`).
-- Splashes under the wheels: `SurfaceFx: 193 particles`, `docs/images/surface_fx_splash.png`
+- Splashes under the wheels: `SurfaceFx: 193 particles`, `docs/images/surface_fx_splash.webp`
   (`-surfacefxtest`).
 - Tracks behind the car: `SurfaceFx: 183 particles, 543 decals, ground dirt`,
-  `docs/images/surface_fx_tracks.png`.
+  `docs/images/surface_fx_tracks.webp`.
 - A dry road throws nothing and a slipping tyre still leaves a skid: `0 particles, 8 decals, ground
   tarmac` on the plaza.
 - Rain soaks: `-weather 14 -intempery 3` took tarmac `0.09 -> 0.83`, dirt `0.03 -> 0.54`, sand `0.76`.

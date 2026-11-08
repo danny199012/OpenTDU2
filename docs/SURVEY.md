@@ -76,7 +76,7 @@ fit).
     `players` / `gme` / `profiles` were selectable and opened the empty online
     "TDU2 Friends" screen and a "Link to player" page stuck on "Loading…"; they
     are locked (padlock) again. These four are **open** (compare
-    `docs/images/retail-pause-freeride.png`):
+    `docs/images/retail-pause-freeride.webp`):
     - the map panel's island badges read **HAWAII** on Ibiza (retail: blue
       "IBIZA 7" / "IBIZA 2") — `refreshEntries()`'s
       `gotoLabel( "/pause_menu/data_extd/map/island/i1", "i1", false )` has no

@@ -228,8 +228,8 @@ AssetViewer: 'cubemap_ecas.2db' - 256x256, depth 6, 7 mip(s), format 55 (cube ma
 | `docs/images/asset_viewer_pick.png` | the click-to-label moment: the picked asset selected in the list, its identity in the preview panel, the status line and the camera zoomed onto it |
 | `docs/images/asset_viewer_movie.png` | `LOG_IN2.vmf` playing in the 3D view panel |
 | `docs/images/asset_viewer_search.png` | the Search tab: `ferrari` -> 913 hit(s), the index counts above the list |
-| `docs/images/asset_viewer_entities.png` | the Entities tab on `cam_entree` (the fields of the entity) and the 3D view from that camera |
-| `docs/images/asset_viewer_interior.png` | the Ferrari showroom interior from `cam_entree` with the collision wireframe overlay |
+| `docs/images/asset_viewer_entities.webp` | the Entities tab on `cam_entree` (the fields of the entity) and the 3D view from that camera |
+| `docs/images/asset_viewer_interior.webp` | the Ferrari showroom interior from `cam_entree` with the collision wireframe overlay |
 
 ### Verified - the feedback round (2026-10-29, Cline, second session)
 

@@ -30,9 +30,11 @@ docs/re/ps3/physics_names.txt
 docs/re/ps3/ps3_enc_twins.json
 docs/re/savegame_schema_360.txt
 
-# Session screenshots: local evidence only. The 257 referenced by the README /
-# specs stay tracked; new shots are untracked by default (git add -f to keep one)
-docs/images/
+# Session screenshots: local evidence only (raw PNGs stay out of the repo).
+# Only compressed .webp copies that the README / specs reference are tracked;
+# a new shot becomes tracked by converting it to .webp (or git add -f for one)
+docs/images/*
+!docs/images/*.webp
 
 # Local archives and helper scripts
 *.tgz

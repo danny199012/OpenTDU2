@@ -16,7 +16,7 @@ the retail developer menu.
 | `-cheatspanel` | the panel is up from the first frame (any mode) |
 | the pad's option button | CASINO only (its D-pad is the menu, so the code cannot be entered there) |
 
-![The cheats panel over FREERIDE](images/cheats_panel.png)
+![The cheats panel over FREERIDE](images/cheats_panel.webp)
 
 ## The rows
 

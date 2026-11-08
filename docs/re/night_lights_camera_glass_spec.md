@@ -120,9 +120,9 @@ weather hour, lit 20:00-06:00). Day is unchanged: `(1, 0, 0, 0)`.
 **Verified** (FREERIDE, `-night`, fixed timestep, frame 240):
 
 * building spot `-tp 21796.3,24188.1`: the walls/ground gain the night bake and one window strip lights
-  (`docs/images/night-fix-ab-s73.png`, panels: before / `.y` / `.y + .w`).
+  (`docs/images/night-fix-ab-s73.webp`, panels: before / `.y` / `.y + .w`).
 * tuning shop `-tp 12605.4,16698.1`: **rows of lit windows** on both sides of the street
-  (`docs/images/night-windows-s73.png`).
+  (`docs/images/night-windows-s73.webp`).
 
 ### The NIGHTLMAP trail (what it is not)
 
@@ -139,7 +139,7 @@ the windows.
 * **Lamp colour**: the street lamp head is still the unlit `TD_Lamp` quad (`sf_light_c`) plus its baked
   lightmap; the retail `streetlamps.xml` colour `#f8d6a6` and the lamp light pools are not implemented. The
   owner's screenshot of "too yellow" was not received, so the exact mismatch is not measurable yet — re-share
-  it (or say the spot + `-clocktime`) and compare against `docs/images/night-windows-s73.png`.
+  it (or say the spot + `-clocktime`) and compare against `docs/images/night-windows-s73.webp`.
 * **Car headlight / lamp ground pools** (`TD_ShadowBox`, spec §4 above) are still skipped: the constants are
   not written, so `-shadowboxes` draws solid black.
 
@@ -162,7 +162,7 @@ rule leaves visible: `BODY_MR` / `BODY_LR` are hidden whole anyway). The params 
 without it a params draw records its blended items at once, out of the sorted pass, and the head lamp glass
 darkened the lamps (that is also what the swinging wipers' params did). Measured against the old rule
 (`-lrnodehide` = the A/B): Range Rover Sport, Mustang Fastback '68 and SLK 55 pixel-identical (mean diff 0.000),
-Q7 whole (`docs/images/q7_body_before_after.png`).
+Q7 whole (`docs/images/q7_body_before_after.webp`).
 
 So no LOD bug was found. The likely reading of "detail seems wrong" is the glass: the windows render as
 near-black panels (the `G_I` black base plus the exterior reflection cube) and hide the cabin, while the

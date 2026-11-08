@@ -19,7 +19,7 @@ CLAUDE.md: `[DATA]` read from the game files, `[CODE]` from the readable exe / t
    is `islands/<island>/exterior/ecw_a.bnk` (`Euro/Spots/Carwash/CW_A/…`) — 1 Scenery set
    model + 4 props, local bounds **(-19.3, -0.2, -21.9) – (23.1, 11.1, 33.9)** (42 x 56 m),
    **3 placements on Ibiza / 5 on Hawai** (spots.bin `ECW_A`). The Ibiza forecourt at
-   (8129, 26222): `docs/images/carwash-forecourt-s25.png`.
+   (8129, 26222): `docs/images/carwash-forecourt-s25.webp`.
 2. **There are no fuel pumps in it** — the port's own asset index (153,690 assets, 9,452
    banks) has no `pump` / `pompe` / `gas` asset in `ecw_a.bnk`; the game's only gas-pump
    model, `gaspump_d.2db`, exists in **one** bank in the whole game, the player-house garage
@@ -106,7 +106,7 @@ build-cline\bin\opentdu2-cline.exe -game C:\TDU2-Gamedata\TestDrive2 ^
 Log: `ENTITY cinematic 'C_WASHING' …`, `CINVIEWER: playing 'C_WASHING' of
 'islands/ibiza/exterior/ecw_a.bnk'`, then `CINVIEWER: t 1.0 main 'C_WASHING' 1.0 camera
 (8115.7, 149.6, 26210.0) heading 116.6 fov 0.66` — the first shot, camera on the forecourt.
-Screenshot: `docs/images/carwash-scene-s25.png` (the three babes walking out to the car).
+Screenshot: `docs/images/carwash-scene-s25.webp` (the three babes walking out to the car).
 
 The bank is not in `otdu2_cine_tool list`'s default sweep (that walks
 `scenarics/cinematics`); `otdu2_cine_tool dump <bank>.bnk <out>` reads a spot bank directly,
@@ -257,7 +257,7 @@ All seven steps of §4 are in, with the deviations the code taught:
 
 Verified headless (the fuel method): `-gm FREERIDE -island ibiza -atwash -logwash -money
 20000 -no3d -nopad -fixedtimestep -autoplay "100:shot=…;120:press=validate;…;1300:shot=…"
--exitframe 1600` → `CarWash: 3 wash(es) on 'ibiza'` → prompt at 18.1 m (`carwash-prompt-s58.png`:
+-exitframe 1600` → `CarWash: 3 wash(es) on 'ibiza'` → prompt at 18.1 m (`carwash-prompt-s58.webp`:
 the retail 3913 hint and the sponge tile) → `car wash 'ECW_A': paid $10 (money 19990) ->
 C_WASHING` → `CINVIEWER: playing 'C_WASHING'` (`carwash-scene-washing-s58.png`: the
 California on the forecourt, the babes walking in — the scene renders, this shot is
@@ -279,7 +279,7 @@ instrumentation (reverted): from frame ~122 on, **411,696 draw calls per frame**
 buffer (`V_TreeBranch_A` × 22.3k, `V_HPin_G_Spr` × 13.4k, `V_TreeBark_B` × 13.4k in the
 shadow pass alone); the first ~131k draws get constants, everything after fails its
 allocation and skips — the black screen the owner sees where the in-car animation should
-be. `docs/images/carwash-incar-nan-s58.png` is the t=3.0 frame: the fallback camera inside
+be. `docs/images/carwash-incar-nan-s58.webp` is the t=3.0 frame: the fallback camera inside
 the character group instead of the car interior.
 
 The `.sce` data shows why: `c_washing_02` has **4 tracks** (the others 3) and its position
@@ -335,7 +335,7 @@ entering ... except the todd driving you to the used car dealer"*.
 
 `CinViewerRequest` carries it: `Then` (the chain), `PromptAfter` / `PromptLoop` / `Price`, `InCar` /
 `InCarBackgrounds`. `-washonly` plays the old single `C_WASHING` (no fee asked). Evidence:
-`docs/images/carwash_retail_sequence.png` (drive-in, fee box, car, face, radio, the girls, in-car x2,
+`docs/images/carwash_retail_sequence.webp` (drive-in, fee box, car, face, radio, the girls, in-car x2,
 outro, back on the road). The CINVIEWER browser and timeline are now the tool's only: a game or story
 request (`bFromStory`) draws neither (`-cinehud` forces them).
 

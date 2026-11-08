@@ -1708,7 +1708,7 @@ void GMCasino::updateReels( float deltaTime ) {
             // Only the columns that are full top to bottom: the 4 x 3 sheets
             // leave their last cell (row 2, column 3) empty, the card sheet its
             // last rows past card 52 (columns 0..3 reach row 6) [DATA: the
-            // sheets, docs/images/casino_reel_symbol_sheets.png].
+            // sheets, docs/images/casino_reel_symbol_sheets.webp].
             const int32_t fullColumns = slotAtlasColumns == 4 ? 3 : slotAtlasColumns == 8 ? 4 : slotAtlasColumns;
             const int32_t column = reel % Max( 1, fullColumns );
             // -reelspeedscale <f>: a test aid (a slow drum shows its direction).

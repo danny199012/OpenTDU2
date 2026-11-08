@@ -152,7 +152,7 @@ The motion is **retail scale**, not cartoon: the spec's own measurement of a rea
 up to ~7 degrees per lip bone (`docs/re/facefx_spec.md` 3.5), and the synthesized curves land in the
 same range (the left lower lip translation moves 0.0512 -> 0.0487 in the model's units over 5 mm of
 speech). At 1280x720 that is two or three pixels, which is why
-`docs/images/lipsync-say-s26.png` is a 3x crop of the face rather than the full frame.
+`docs/images/lipsync-say-s26.webp` is a 3x crop of the face rather than the full frame.
 
 **What is still missing for custom *audio*:** the port has `AudioClip` / `GSAudio` and the
 cinematics' `CinematicSounds`, but no "play a wav from the mods folder" route. That is the other

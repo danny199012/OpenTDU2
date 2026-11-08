@@ -59,9 +59,9 @@ lift was the headline.
 
 ### Verified
 - `-grasstallgrass -tpin 19584,24960 -clock 12` (farm sector), build 510:
-  `docs/images/grass_tallgrass_s81.png` (the TD_TallGrass path: green-yellow
+  `docs/images/grass_tallgrass_s81.webp` (the TD_TallGrass path: green-yellow
   crossed-card tufts with the noise patch tint) vs
-  `docs/images/grass_tallgrass_off_s81.png` (the default Gouraud path at the
+  `docs/images/grass_tallgrass_off_s81.webp` (the default Gouraud path at the
   same build — unchanged regression, same 9000 cards, guid 73078865ca37336d).
 - Validation layer (`-vk_enable_validation_layer`, same teleport): 0 VUIDs in
   the frames; the one shutdown `vkDestroyDevice-device-05137` notice also
@@ -136,9 +136,9 @@ rendered the plain one.
 
 ### Verified
 - A/B cube faces, headless (`-trafficpark -showenvface F -fixedtimestep`, shot at frame 240/400): new build —
-  the parked ambulance + car in face 5 (`docs/images/env_cube_cars_face5_s80.png`) and the teal car in face 4
-  (`docs/images/env_cube_cars_face4_s80.png`); old build (git stash rebuild) — the same face 5 street with no
-  cars (`docs/images/env_cube_cars_face5_old_s80.png`). The faces are world-aligned, so which face holds the
+  the parked ambulance + car in face 5 (`docs/images/env_cube_cars_face5_s80.webp`) and the teal car in face 4
+  (`docs/images/env_cube_cars_face4_s80.webp`); old build (git stash rebuild) — the same face 5 street with no
+  cars (`docs/images/env_cube_cars_face5_old_s80.webp`). The faces are world-aligned, so which face holds the
   parked trio varies with the spawn yaw run to run (the one trap of this session: face 5 had cars in the first
   run and not in the next three — the cars had moved to face 4, the copy was innocent).
 - Validation layer (`-vk_enable_validation_layer -trafficnear`, 300 frames): **0 VUIDs**. It caught two real
@@ -147,8 +147,8 @@ rendered the plain one.
   all six (22 VUIDs).
 - `[perf]` (`-trafficnear`, 720 frames, no validation): old 8.4 / 8.3 ms avg vs new 8.3 / 8.2, offscreen
   7.3 / 7.2 — the copy is free.
-- Cockpit: the interior rear-view mirror samples the cube live (`docs/images/mirror_cockpit_s80.png` — the
-  road behind while parked; `docs/images/parked_traffic_main_s80.png` shows the parked trio the cube now
+- Cockpit: the interior rear-view mirror samples the cube live (`docs/images/mirror_cockpit_s80.webp` — the
+  road behind while parked; `docs/images/parked_traffic_main_s80.webp` shows the parked trio the cube now
   sees). Catching a car inside the small mirror on a headless shot is shot roulette (4 attempts missed); the
   slot law is the garage mirror's CUBECAR binding (session 45), the same TD_Mirror path.
 
@@ -373,12 +373,12 @@ garage shows no 2D HUD).
 ### Verified (all `-fixedtimestep`, autoplay shots in `_s78/`)
 
 - Seated rev: `-fwmrev 1.0` frame 1830 - the tach needle at the red zone
-  (9-10), the speedo at 0 (`docs/images/garage_rev_needle_s78.jpg`).
+  (9-10), the speedo at 0 (`docs/images/garage_rev_needle_s78.webp`).
 - C_OUT close-up: frames 1990 / 2020 - the needle sweeps ~5500 -> ~7800 rpm
-  across the shot (`docs/images/garage_cout_sweep_early_s78.jpg`, `garage_cout_sweep_late_s78.jpg`), matching
+  across the shot (`docs/images/garage_cout_sweep_early_s78.webp`, `garage_cout_sweep_late_s78.jpg`), matching
   the logged 36.5 -> 64 deg.
 - C_OUTRO wheels: the spoke pattern rotates between frames while the camera
-  holds (`docs/images/garage_wheels_roll_a_s78.jpg` vs `garage_wheels_roll_b_s78.jpg`, 0.167 s apart at ~2.2 m/s) and the
+  holds (`docs/images/garage_wheels_roll_a_s78.webp` vs `garage_wheels_roll_b_s78.jpg`, 0.167 s apart at ~2.2 m/s) and the
   moving-camera pair agrees (`outro_wheel_400/410`).
 - Outro audio: `CinematicSounds: .cin Fx at 0.00 ... play
   'm_first_outro_CINEMATIC'` now in the log (silent before - zero
@@ -479,7 +479,7 @@ sprite + the line / binder_key clips, and the button map)
   retail layout - Acceleration / RT / Button 7 / Xbox 360 controller, Brake
   / LT / Button 6, Left / Stick 1 left, Handbrake / X / Button 2, Clutch /
   Left Ctrl / Keyboard (no glyph), Gear up / Y / Button 3 ...
-  (`controls-list-filled-s77.png`); LB / RB badges and the colored bottom
+  (`controls-list-filled-s77.webp`); LB / RB badges and the colored bottom
   bar (Y Save / Bind / Unbind / X Detect Device / B Back) render with it.
 - The rebind: Down x3 to Right, Enter -> the binder dialog
   (`controls-binder-s77.png`), key G -> `controls bind 'Right' rebound`,
@@ -634,12 +634,12 @@ sprite that places it)
 - The focus fix: Down on the opened Image settings page → `options gamma
   focus slot 1 (game rows 1..7 of 10)`, Right → `opts:gama:rnsc:scne` →
   `options row 'rnsc' -> 105 %` (was: the slider stepped gamma itself).
-  `docs/images/options-gamma-focus-rows-s76.png` — Render scale focused with
+  `docs/images/options-gamma-focus-rows-s76.webp` — Render scale focused with
   its arrows, the Gamma slider unfocused (grey handle, no arrows).
 - The treadmill: the 8th Down → `focus slot 7 ... [window scrolled]` (game
   rows 2..8 of 10), Right on it → `options row 'snfl' -> Off` while
   scrolled; the ups walk back and the up at slot 1 shifts the window back.
-  `docs/images/options-gamma-treadmill-s76.png` (Upscaling filter at the
+  `docs/images/options-gamma-treadmill-s76.webp` (Upscaling filter at the
   top, Sun flare — Off focused at the bottom),
   `options-gamma-treadmill-back-s76.png` (Render scale back at the top).
 - OK saves: Enter on the page → `options gamma 'vali'` → `GameOptions:
@@ -649,14 +649,14 @@ sprite that places it)
   scale"), reorders (Haze first) and drops (Sharpening) → `menu_rows.ini: 10
   rows from ...`, the page shows exactly that and Right on the first row
   steps it (`options row 'shze' -> Off`),
-  `docs/images/options-menu-rows-ini-s76.png`.
+  `docs/images/options-menu-rows-ini-s76.webp`.
 - The resume entry: validate on Resume now closes the menu and hands
   `eResult::Resume` to the mode (the close flow completes; previously the
   world stayed frozen with no menu).
 - Regressions: the Video page through LB (the page's own button still drives
   Move — Down to Display mode, Right → `Window mode: borderless fullscreen
   desktop`), the audio page untouched (sliders + its own focus),
-  `docs/images/options-audio-page-s76.png`; the slider refocuses with its
+  `docs/images/options-audio-page-s76.webp`; the slider refocuses with its
   retail look (orange handle + arrows) when the focus walks back to slot 0.
 
 ### Ruled out (with the test that ruled it out)
@@ -772,7 +772,7 @@ L2 / R2 to go left and right in the pages"*.
 
 - Video page: `options video extended with 1 game rows (setParam 1..1)`;
   Display mode focused shows Windowed with arrows
-  (`options-display-mode-row.png`), Right → `opts:vide:wnmd:scne` →
+  (`options-display-mode-row.webp`), Right → `opts:vide:wnmd:scne` →
   `options row 'wnmd' -> Borderless` + **`Window mode: borderless fullscreen
   desktop`** (the window really switches — the next shot is the desktop's own
   1920×1080), B/Quit → `opts:vide:quit` → **`Window mode: windowed`**
@@ -827,15 +827,15 @@ L2 / R2 to go left and right in the pages"*.
 
 ## Session 2026-11-06 (74, `glm`): the property enter-marker anchored and fed — the tile anchor now compensates the arrangement's offset for every kind (the property kinds drew it ~448 px below the projection, off screen), the Spot subtree parks after its kind goto (the movie's loop rewind was erasing the icon slot), the offroad child's "invisible placeholder" is really a glass plate and hides for the property kinds, and the distant world markers finally carry the map spots (dealers, shops, owned homes as 'home') — the tile art itself still does not composite into the card window (fully traced, see the delta)
 
-**The owner's report**: the picture they sent (`docs/images/enter_marker_owner_reference.png`)
+**The owner's report**: the picture they sent (`docs/images/enter_marker_owner_reference.webp`)
 is the marker that stands over properties — houses, the caravan, clothes shops,
 dealerships — "roughly a marker which when near allows you to enter its
 destination"; the latest changes had also fixed the return-to-the-road badge
-(their confirmation in play, `docs/images/rtr_badge_s74.png` is the port's
+(their confirmation in play, `docs/images/rtr_badge_s74.webp` is the port's
 render of it, matching their reference).
 
 **What the data says** (all from `-dumpbot` / `-dumphud -dumpsprite 251,227,<children>`
-+ the decoded atlas page, `docs/images/hud_atlas_page001_marker_arts_s74.png`):
++ the decoded atlas page, `docs/images/hud_atlas_page001_marker_arts_s74.webp`):
 - `/HUD/enter` (char 251) holds the Spot tile (char 227, 751 frames, 94 kind
   labels — home f391, estates f349, cardealer f413, clothes f356, carwash f469,
   tuning f462 …), the prompt (enter_txt) and the card groups. Each kind frame
@@ -875,12 +875,12 @@ render of it, matching their reference).
 ### Verified (headless, build 488+)
 - The Caravan approach (`-tp 10513.7,7.4,15743.2 -heading 180`, the s71
   userdata): the enter card renders at the spot's projection with the tile
-  anchored to it (`docs/images/enter_marker_caravan_s74.png`); the element no
+  anchored to it (`docs/images/enter_marker_caravan_s74.webp`); the element no
   longer throws the tile off screen. The 'on' state was tried and rejected —
   its f6 only removes d24/d25, the card groups (#4/#5/#9/#10/#13) stay placed
   and draw as loose floating panels (documented in the code comment).
 - The off-road badge unchanged: `-offroadhud` renders the ring + label exactly
-  as s70 left it (`docs/images/rtr_badge_s74.png`) — no regression from the
+  as s70 left it (`docs/images/rtr_badge_s74.webp`) — no regression from the
   freeride_hud changes; the owner confirms the badge in play.
 - The default-spawn probe: `FREERIDE: spot markers fed 0 (300 m)` with the
   600 m probe `home@383m` — the finder and the home law work; the spawn is
@@ -914,7 +914,7 @@ render of it, matching their reference).
 **The player's own**: per-cone `Tint` + pool-shape overrides on `EdenHeadlightCone` — the reverse pool is **white** now (it shared the red rear tint), and the indicators cast a small **amber patch** beside the car on the blink phase (`isIndicatorLampOn`). The pool falloff (`surfacedecal.frag` Params.z = 1) is a **beam** now: brightest just ahead of the lamps, dying toward the far rim (v = 0 is the near edge — checked `appendQuad`'s uv order), instead of the even blob; regenerated the builtin SPIR-V.
 
 **Verified** (headless, `-night -snaproad 100`, build 487):
-- Hawai road node 31058,37150 (session 69's embankment road): road-region mean brightness **+17.2** vs `-noheadlights` parked, **+9.6** mid-drive (`60:hold=accel`, speed 116 — same car spot in both runs, the drive is deterministic) — `light_pool_hawaii_road_s73.png`; the cut + wall spot 19942,24566 casts clean up the slope.
+- Hawai road node 31058,37150 (session 69's embankment road): road-region mean brightness **+17.2** vs `-noheadlights` parked, **+9.6** mid-drive (`60:hold=accel`, speed 116 — same car spot in both runs, the drive is deterministic) — `light_pool_hawaii_road_s73.webp`; the cut + wall spot 19942,24566 casts clean up the slope.
 - Traffic at night (`-trafficpark`): oncoming sedan with white headlight glows + its own ground pool, two parked SUVs with red tail glows + red brake pools on the tarmac — `traffic_lamps_night_s73.png`.
 - Indicators (`-indicatortest`, t = 3.2 s): amber lens glow + the amber ground patch beside the car, correct side — `indicator_pool_s73.png`. Reverse (hold=brake at standstill → gear R): white reverse lamps + the white pool behind the car — `reverse_pool_s73.png`.
 - `Traffic: lamp glows drawn (4/6/12 quads)` in every night log; perf unchanged (79 fps avg, update 0.6 ms — one surface-grid lookup per pool corner); 0 VUIDs, 0 errors.
@@ -935,7 +935,7 @@ the dealership"): the Zondas sit in **ECD_ITAL_1207I**, the Italian-cars dealer 
 only dealer stocking them; buyable slots 5-8 = C12S Roadster 115, Cinque 413, Zonda F 368,
 F Roadster 414 — the Tricolore 654 is not on sale). Reproduced with `-wheellift`
 (the pre-merge behaviour): the F's rim rides **0.094 m** up into its arch
-(cinematic_car.cpp:1187, `docs/images/dealer_zonda_f_wheellift_oddity.png`) — the same
+(cinematic_car.cpp:1187, `docs/images/dealer_zonda_f_wheellift_oddity.webp`) — the same
 Zonda F that anchored the owner's earlier "wheels poke through the body" report, fixed on
 `win` in a9cdf3b. On the merged build all four sit and size correctly
 (`dealer_zonda_f_wheels_in_arches.png`, `dealer_zonda_cinque_wheels.png`), and the F
@@ -1055,14 +1055,14 @@ root causes, both in the data:
   plane x 3.5 — the straight line to the garage clips its frame, the walkout
   needs no steering), across the yard on the island ground (17.55 → 0.41 m in
   the SELECT log), the `Garage` prompt live at the garage door
-  (docs/images/house_caravan_yard_garage_s71.png), A → gph_l0c with the three
+  (docs/images/house_caravan_yard_garage_s71.webp), A → gph_l0c with the three
   owned cars on the D_CAR slots (Enzo / R8 Spyder / Q7,
   house_caravan_garage_cars_s71.png), the garage's `Living` walks back and the
   living room reloads at `cam_entree_garage` **in the yard** looking at the
   caravan — shell, deck, awning, pool, streamed hotels, sea
   (house_caravan_backyard_s71.png).
 - The story house (-home, EPH_L3DI): the glass wall now shows the terrace
-  pool, the sea, the coast (house_story_glass_s71.png); 13 furniture slots
+  pool, the sea, the coast (house_story_glass_s71.webp); 13 furniture slots
   unchanged.
 - Regressions: the dealership interior walk unchanged (icd_ferr, its 9
   sectors); `-nointeriorworld` streams 0 sectors around the house (the A/B
@@ -1109,10 +1109,10 @@ The owner: *"could you implement the colision etc... please thanks"* (the 5.1
 ### Verified
 - The walk into the garage building freezes at the shell's inner wall
   (0.66 m at the volume → 5.85 m past it, two identical SELECT readings =
-  stopped; docs/images/house_caravan_garage_shell_block_s71.png — before: it
+  stopped; docs/images/house_caravan_garage_shell_block_s71.webp — before: it
   sailed through everything).
 - The walk to the campsite's exit freezes at the barrier gate / kerb line
-  (16.6 m east from the yard, docs/images/house_caravan_site_barrier_s71.png).
+  (16.6 m east from the yard, docs/images/house_caravan_site_barrier_s71.webp).
 - The full Caravan loop still passes (no false blocks on door → yard →
   garage → Living back), the cars on the slots, no fuel-menu leak.
 - The story house walk unchanged (13 furniture slots, the glass view; 6448

@@ -123,7 +123,7 @@ namespace {
     constexpr float kTabRowLift = 30.0f; // stage px, see the gap note in tick
     // (18 left the card's top edge touching the icons' bottom edge - measured
     // y239 vs y240 on the 720p capture; retail keeps ~10 px of daylight there,
-    // docs/images/retail-pause-freeride.png, so the row is raised the rest.)
+    // docs/images/retail-pause-freeride.webp, so the row is raised the rest.)
     constexpr int32_t kSquareCount = 9;  // sq0..sq8 of menu_sq
     // Indices of the entries the game modes control (setEntryEnabled).
     constexpr int32_t kEntryResume = 0;
@@ -699,7 +699,7 @@ bool PauseMenu::load() {
     // Audio & Video lists Audio, Video, Image settings (gamma) and Stereo.
     // "set square menu GAMMA" pushes the gamma icon on /:GammaEnabled and the
     // stereo icon on /:is3DAllowed [DATA, MAIN.vmf]; the retail PC build shows
-    // both (OBS capture, docs/images/retail-options-audiovideo.png). Stereo 3D
+    // both (OBS capture, docs/images/retail-options-audiovideo.webp). Stereo 3D
     // is not implemented, so that page stays locked [INF].
     player.setVariableBool( "/:GammaEnabled", true );
     player.setVariableBool( "/:LockGamma", false );
@@ -3097,7 +3097,7 @@ void PauseMenu::tick( float deltaTime ) {
     if ( bMovieDriven ) {
         // The tab row (and its tooltip) sits on the top edge of the info card
         // in our render; retail leaves a gap of about 10 px (OBS capture,
-        // docs/images/retail-pause-tab-progress.png) [DATA]. The movie's own y
+        // docs/images/retail-pause-tab-progress.webp) [DATA]. The movie's own y
         // for menu_sq is 222.8; the card's missing objective header is not
         // explained, so only the gap is matched here [INF]. The lift is applied
         // once the row has settled; the matrix is not locked, so whenever the

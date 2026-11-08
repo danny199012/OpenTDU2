@@ -64,7 +64,7 @@ home". **A** buys (`Money -= _buyprice`, `OwnedHouses += _spotname`,
 `_sellprice` (the last house cannot be sold; if it was the home house the home
 moves to another owned one). Verified: ERE_B_3336I, "Cala Moli residence"
 bought for $283,300, `houses_owned = EPH_L2E_0345I` written to profile.sav
-(docs/images/estate-menu-s46.png, estate-buy-s46.png).
+(docs/images/estate-menu-s46.webp, estate-buy-s46.png).
 
 profile.sav keys (player_profile.cpp, the `cars_owned` / `car_paints` patterns):
 `houses_owned = <spotname>,...`, `home_house = <spotname>`.
@@ -96,8 +96,8 @@ The flow (`InteriorWalk::enterHouse`, the shops' `loadRoom` shared):
 - `-housegarage`: straight into the garage (test hook).
 
 Verified on `EPH_L3DI_5067I`: living room walked (13 furniture slots placed,
-docs/images/house-living-s46.png), garage with the 3 owned cars on its slots
-(docs/images/house-garage-s46.png), A on 'living' → `interior/lph_l3di.bnk`
+docs/images/house-living-s46.webp), garage with the 3 owned cars on its slots
+(docs/images/house-garage-s46.webp), A on 'living' → `interior/lph_l3di.bnk`
 loaded again (log). The living→garage aim is the standard walk selection at a
 counter-height volume (same law as the shops; not scripted).
 
@@ -115,7 +115,7 @@ the garage building, the plot; missing file → the bare room, warned) and the
 island streams with the `bWorld` law (`setup.bWorld = true`, the party-house
 setup: per-frame streaming around the camera, the ocean on). That is the world
 out of the windows (the story house's glass wall shows the terrace pool, the
-sea; docs/images/house_story_glass_s71.png) and it is what makes the plot
+sea; docs/images/house_story_glass_s71.webp) and it is what makes the plot
 walkable: the Caravan's (EPH_L0C_1254I, the DBHouse row localized "Caravan")
 living bank carries its `Garage` FpSelectable **14 m out across the yard** —
 outside the room's .shk floors, so the walk froze at the front door before
@@ -131,7 +131,7 @@ streamed living room; the garage room keeps its closed frame at the island
 origin, and the shops keep the session-51 `bStreamWorld` law untouched.
 `-nointeriorworld` puts the old closed-room presentation back (A/B).
 
-The Caravan loop, verified headless (docs/images/house_caravan_yard_garage_s71.png,
+The Caravan loop, verified headless (docs/images/house_caravan_yard_garage_s71.webp,
 house_caravan_backyard_s71.png, house_caravan_garage_cars_s71.png): through the
 front door (the doorway gap at the wall plane x 3.5 of lph_l0c's .shk — 0.85 m,
 the straight retail start pose cam_entree yaw -92.3° already aims through it),
@@ -165,9 +165,9 @@ The same step-height law holds without any road filter: the body sphere's
 bottom rides kStepUp (0.4 m) above the feet, so every surface within the step
 height (roads, kerbs, the deck) is floor and never touches the sphere; above
 it is a wall. Verified headless: the walk into the garage building freezes at
-the shell's inner wall (house_caravan_garage_shell_block_s71.png), the walk to
+the shell's inner wall (house_caravan_garage_shell_block_s71.webp), the walk to
 the campsite's exit freezes at the barrier gate / kerb line
-(house_caravan_site_barrier_s71.png), the full Caravan loop still passes (no
+(house_caravan_site_barrier_s71.webp), the full Caravan loop still passes (no
 false blocks on the door → yard → garage path), the story house walk is
 unchanged (13 furniture slots, the glass view), the 700-frame drive exit 0
 (0 stalls), update avg 1.4 ms in the walk.
@@ -218,14 +218,14 @@ home house moves the home to another owned house.
   higher limiter alone changed nothing). Measured (level 3 each): 0-100 4.52 →
   3.27 s, 402 m 12.60 → 10.93 s, top 309.7 → 337.6 km/h, 100-0 34.4 → 31.9 m.
   Verified bought earlier: two accel levels ($12k, $24k), saved
-  (docs/images/tuning-menu-s46.png).
+  (docs/images/tuning-menu-s46.webp).
 - **ESTICK_\*** (`interior/istick_b.bnk`, seller Type 28 "npc_stickers"): the
   car's colour catalogue (its DBCarsAndColors rows — the dealer colour
   picker's data, spot_interiors_spec.md "The colour picker") repainting the
   car you drove in with, live (`CinematicCar::applyDatabasePaint`), for the
   row's price, saved to `OwnedCarPaints` like a dealer order. California:
   23 rows. Verified: 'Rosso Scuderia' applied and saved
-  (docs/images/paint-menu-s46.png). The decal banks (DBStickersBanks, logged
+  (docs/images/paint-menu-s46.webp). The decal banks (DBStickersBanks, logged
   under `-logshops`) are not applied — applying decals to a model is its own
   feature.
 
@@ -335,14 +335,14 @@ gloves 4 [INF: matched on the key text; the slot pairs are FUN_00cb2f30's, skin_
 **Worn clothes on the avatar**: `EdenAvatar::load` replaces a slot's DBPNJ row by the worn
 DBClothe row when the config is the player's (`Avatars: <cfg> wears closet item ...`;
 `-noworn` = the A/B). Verified: the Cowboy hat picked in the closet is on the player who
-walks into the Ferrari dealer (`docs/images/house_closet_hat_worn_in_shop.png`).
+walks into the Ferrari dealer (`docs/images/house_closet_hat_worn_in_shop.webp`).
 
 **Garage**: within 3 m of an owned car's slot, A makes it `PlayerProfile::DrivenCarId`
 (saved `driven_car`); leaving the house after a change reloads FREERIDE at the house's
 road-side entrance in that car (FREERIDE loads the profile's car at enter - no runtime model
 swap). Elsewhere in the garage the pump prompt stays [INF: HOME's own `/garage` page -
 `change_place`, `list`, "validation de la voiture a changer" - is not decoded].
-`docs/images/house_garage_pick_car.png`.
+`docs/images/house_garage_pick_car.webp`.
 
 **Not done**: the closet's camera on the avatar (`came` is ignored, the walk stays first
 person, so the change is seen in the next scene that shows the player); the brand logo frame
@@ -374,7 +374,7 @@ the hint shows name, n/N and price; **A** buys it for its `_price` [INF: the ret
 the old model back. `loadFurniture` applies the saved choice on every load of that house
 (`IntroCinematic::setFurnitureChoices`). Verified on `EPH_L3DI_5067I`: sofaL_A IMPACT (1/13)
 -> KOPOLA (2/13) -> SOGUT (3/13) -> bought, $500,000 -> $480,000, and the next visit loads
-`sofal_e` (`docs/images/house_mytduhouse_furniture_swap.png`). Test hook: `-furnaim <slot>`.
+`sofal_e` (`docs/images/house_mytduhouse_furniture_swap.webp`). Test hook: `-furnaim <slot>`.
 
 **Not done**: the colour variants inside a model (`DefaultColor`, the `_MHA_/_MHB_` materials),
 the walls / floors (`MAT_WALL1_`, `MAT_FLOOR1_`, the `ground_01..25` banks), the `_level`
@@ -390,11 +390,11 @@ same library, all parts at once (`EdenModel::setMyHouseColor`; the draws read th
 material index each frame, nothing is rebuilt) [INF: one index for every part - the retail
 per-part choice, if any, is ENC]. The slot's `DefaultColor` is that index (0 on every slot of
 lph_l3di) [DATA]. Verified: IMPACT sofa 1/5 cream -> 2/5 brown -> 3/5 navy, the cushions follow
-on their B part (`docs/images/house_mytduhouse_colours.png`).
+on their B part (`docs/images/house_mytduhouse_colours.webp`).
 
 **The sets are `Group`** [DATA: lph_l3di's six dining chairs are group 2, the three bar stools
 group 3, the single pieces 0 or 1]: editing a piece of a Group > 0 changes every slot of that
-group and type together [INF], the price is per piece (`docs/images/house_mytduhouse_group_barstools.png`:
+group and type together [INF], the price is per piece (`docs/images/house_mytduhouse_group_barstools.webp`:
 CONTEXT -> BUBBLE x3, $600).
 
 The edit: **Left / Right** model, **Up / Down** colour, **A** buy (a new model: `_price` per
@@ -428,7 +428,7 @@ down (forward.y < -0.45), else the **walls** [INF: the retail pick is ENC]; Left
 through "the house's own" + the DBMaterial rows of that type, A buys for `_price` [INF], B
 reverts. Saved `furniture_choices = <house>:#floor=<bank>;<house>:#wall=<bank>;`, applied when
 the living room loads. Verified on lph_l3di: floor own -> Light Marble Tiling -> Massaranduba
-Parquet (`docs/images/house_mytduhouse_floor.png`); walls Tuscany-red -> Titanium-grey Concrete
+Parquet (`docs/images/house_mytduhouse_floor.webp`); walls Tuscany-red -> Titanium-grey Concrete
 -> Yellow-saffron Plaster (`house_mytduhouse_walls.png`, 7.9-8.7 % of the frame changed). Test
 hook `-surfaceedit floor|wall`.
 
@@ -465,4 +465,4 @@ requires the zone digit + `_` + digits, because lph_l1bi also has an unpaintable
 A second zone (l2e's `MAT_Floor2_23`) takes the same finish [INF]. Verified by `-enterhouse
 <spot>` (new test hook: straight into any house's living room) + `-surfaceedit`: EPH_L2E_0345I
 floor 2 materials / wall 1, EPH_L1D_1455I 1 / 1, EPH_L0C_1254I 2 / 0
-(`docs/images/house_mytduhouse_floor_other_houses.png`: l1d wood -> marble, l2e slate -> marble).
+(`docs/images/house_mytduhouse_floor_other_houses.webp`: l1d wood -> marble, l2e slate -> marble).

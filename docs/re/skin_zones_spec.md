@@ -289,7 +289,7 @@ outside [0,1] on that axis: `Airport_lines` (TD_Road, `beton_b_c` = (3,1), u 0.4
 7 of 11 at the car wash. Clamped, those faces collapse to one texel column/row. On the apron that column is the
 red/white kerb strip at the right edge of `beton_b_c`: the owner's red runway stripes / red speckle ground.
 OpenTDU2 now samples 3 (and 4) as **wrap** (`AddressIndex`, eden_renderer.cpp). `-edenclamp3` is the A/B.
-`docs/images/airport_runway_address3_before_after.png` and `airport_apron_address3_before_after.png` show
+`docs/images/airport_runway_address3_before_after.webp` and `airport_apron_address3_before_after.png` show
 before on top and after below. What the retail does with 3 is still [ENC]: wrap is the reading that matches
 the data.
 
