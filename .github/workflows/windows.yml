@@ -86,3 +86,48 @@ jobs:
         with:
           files: opentdu2-windows-${{ github.ref_name }}.zip
           generate_release_notes: true
+
+  release-main:
+    # Every push to main publishes an auto-tagged prerelease
+    # (v0.2.<run number>): the launcher's update check compares release tag
+    # names as plain strings (launcher_updater.cpp FillFromGitHub), so each
+    # build gets its own tag - a reused tag would never be seen as new - and
+    # its one-click update always finds the newest integrated build. The
+    # v* tag releases above stay the stable channel.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the built binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: opentdu2-windows
+          path: bin
+
+      - name: Zip
+        run: |
+          cd bin
+          zip -r "opentdu2-windows-v0.2.${{ github.run_number }}.zip" .
+          cd ..
+
+      - name: Publish the auto release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.2.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          files: opentdu2-windows-v0.2.${{ github.run_number }}.zip
+          generate_release_notes: true
+          body: Automatic build of main (build ${{ github.run_number }}). The launcher's "Download this release" applies it one-click.
+
+      - name: Prune old auto releases
+        # Keep the newest 3 auto builds; older ones only clutter the list the
+        # launcher reads (the first non-draft release wins).
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease --jq \
+            '.[] | select(.isPrerelease) | .tagName' | tail -n +4 | while read -r tag; do
+              case "$tag" in v0.2.*)
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag ;; esac
+            done
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -20,8 +20,14 @@ std::string LocString( uint32_t id ) {
 }
 
 std::string PlayerName() {
-    // profile+0xc1 (the profile name). OpenTDU2 has no profile yet:
-    // -playername, else the system user name [INF].
+    // profile+0xc1 (the profile name). One law everywhere: the profile name
+    // first (the New profile screen of LOGIN writes it, -playername is
+    // applied over the save at start), then -playername, else the system
+    // user name [INF].
+    const std::string &profileName = GetPlayerProfile().Name;
+    if ( !profileName.empty() ) {
+        return profileName;
+    }
     if ( const char *pName = CmdLine::GetArgValue( "-playername" ) ) {
         return pName;
     }

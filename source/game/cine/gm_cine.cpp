@@ -41,7 +41,13 @@ float DoorEase( float f, bool bOpening ) {
 }
 
 std::string PlayerName() {
-    // profile+0xc1; no profile yet: -playername, else the system user name [INF].
+    // profile+0xc1; one law everywhere: the profile name first (the New
+    // profile screen of LOGIN writes it, -playername is applied over the
+    // save at start), then -playername, else the system user name [INF].
+    const std::string &profileName = GetPlayerProfile().Name;
+    if ( !profileName.empty() ) {
+        return profileName;
+    }
     if ( const char *pName = CmdLine::GetArgValue( "-playername" ) ) {
         return pName;
     }

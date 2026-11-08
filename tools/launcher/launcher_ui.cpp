@@ -1300,24 +1300,37 @@ void LauncherApp::DrawPlayerPage() {
     ImGui::PopStyleColor();
     ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + 16.0f ) );
 
-    if ( CardBegin( "##player_name", ImVec2( width, S( 176.0f ) ) ) ) {
-        SectionTitle( "PLAYER NAME" );
-        ImGui::SetNextItemWidth( -S( 108.0f ) );
-        ImGui::InputTextWithHint( "##playername", "Your name", mPlayerName,
+    if ( CardBegin( "##player_name", ImVec2( width, S( 214.0f ) ) ) ) {
+        // The retail "New profile" dialog, launcher edition: the same
+        // nickname the game's own dialog (MAIN.vmf popup, first launch)
+        // pre-fills.
+        SectionTitle( "NEW PROFILE" );
+        ImGui::SetNextItemWidth( -S( 210.0f ) );
+        ImGui::InputTextWithHint( "##playername", "Nickname", mPlayerName,
                                   sizeof( mPlayerName ) );
         ImGui::SameLine();
-        if ( GhostButton( "Save name", ImVec2( S( 98.0f ), 0.0f ) ) ) {
+        if ( GhostButton( "OK", ImVec2( S( 66.0f ), 0.0f ) ) ) {
             SyncSettingsFromFields();
             SaveSettings();
             RefreshProfileSummary();
-            SetStatus( "Player name saved: " + mSettings.PlayerName );
+            SetStatus( mSettings.PlayerName.empty() ? "Nickname cleared."
+                                                    : "Nickname saved: " + mSettings.PlayerName );
+        }
+        ImGui::SameLine();
+        if ( GhostButton( "Offline", ImVec2( S( 96.0f ), 0.0f ) ) ) {
+            mPlayerName[0] = '\0';
+            SyncSettingsFromFields();
+            SaveSettings();
+            RefreshProfileSummary();
+            SetStatus( "Nickname cleared - the game falls back to the system user name." );
         }
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
         ImGui::PushFont( mFontSmall );
         ImGui::TextWrapped(
-            "Passed to the game as -playername. It is the profile's name (profile.sav `name`), "
-            "shown in the story's 'Starring' card, and - with the name watermark on - the "
-            "name beside the build id in the top-right corner of the game and its screenshots." );
+            "Passed to the game as -playername. The game shows this same dialog on first launch "
+            "with the nickname pre-filled: OK there writes it to profile.sav and it prints in the "
+            "story's 'Starring' card; the account fields on the Online page stay the online "
+            "identity. With the name watermark on it is also the name beside the build id." );
         ImGui::PopFont();
         ImGui::PopStyleColor();
         ImGui::Spacing();
@@ -1403,8 +1416,8 @@ void LauncherApp::DrawOnlinePage() {
         ImGui::TextUnformatted( "USERNAME" );
         ImGui::PopStyleColor();
         ImGui::SetNextItemWidth( -1.0f );
-        ImGui::InputTextWithHint( "##onlineuser", "online name", mOnlineUsername,
-                                  sizeof( mOnlineUsername ) );
+        ImGui::InputTextWithHint( "##onlineuser", "atari.com account (online play, not the nickname)",
+                                  mOnlineUsername, sizeof( mOnlineUsername ) );
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
         ImGui::TextUnformatted( "PASSWORD" );
         ImGui::PopStyleColor();
@@ -1438,8 +1451,9 @@ void LauncherApp::DrawOnlinePage() {
             "The port has no network layer yet. These values are saved in launcher.ini "
             "([online] username / password / server) and passed to the game as "
             "-onlineusername and -onlineserver, so the day a server exists the account is "
-            "already configured. Nothing is transmitted today - and until then, use a "
-            "throwaway password." );
+            "already configured. This is the online identity only - the nickname the game "
+            "uses lives on the Player page. Nothing is transmitted today - and until then, "
+            "use a throwaway password." );
         ImGui::PopFont();
         ImGui::PopStyleColor();
     }

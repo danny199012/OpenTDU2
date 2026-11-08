@@ -382,6 +382,37 @@ next = 23;    // state 23 calls FUN_00d97c90(gameMgr, mode)
     `…\Atari\TDU2\Steam` exists. Games for Windows Live is not referenced (`edLive*` is Eden's own online
     layer) [INF].
 
+### 4.1 OpenTDU2: the retail "New profile" screen (port law, 2026-11-08)
+
+The port has no GameSpy/Atari account layer, so the state 2 slot shows the **New profile dialog** of the
+frontend movie instead: MAIN.vmf `/menus/profile/new_profile` (sprite 257) + its `popup` (sprite 250), the same
+art the retail first-run screen uses (title "New profile" loc 1394, Nickname 1397, the green Online badge,
+account name 7445, Password 1396, the atari.com note 7446, OK 219 / Quit 519 / Offline 965). The dialog exists
+in the shipped data; the exe-side handler of its FSCommands was never decompiled, so the laws below are the
+port's [INF]:
+
+- Navigation from press start (`stok`): root `root_in` (f9: places + shows `/menus`; the WhatGameMode 0 branch
+  of its script also starts the main-menu page, the port stops the root at `root_stop` f16 right after) →
+  `/menus` `profiles_in` (f52) → `/menus/profile` `open` (f1) → `new_profile` `open` (f1: sets
+  `/:TextToFocus = /:nickname`, `popup.gotoAndStop("gamespy_on")`, FSCommand `tfoc`).
+- Movie laws driven game-side [DATA: `_main_vmf.txt` S250/S257]: `/:NoProfile = 1` (the B/Backspace button,
+  cond 0x1000, then fires `FSCommand:quit` + `pcan` instead of closing = the dialog has no cancel without a
+  profile), `BetaPC` false (`x_online._visible = !_root.BetaPC`), the caption variables (`/:mpc_NewProfile`,
+  `/:mpc_Nickname`, `/:m_Username_`, `/:mpc_Password`, `/:m_Ok`, `/:m_Quit`, `/:m_OnLine`, `/:m_OffLine_`,
+  `/:m_AvertAtariAccount_`) from the DBLoc ids above.
+- Text entry is game-side (the port's flash player renders edit texts but has no input focus of its own):
+  `GSInput::startTextInput` while the dialog is up, the typed buffer lands in the focused field and is pushed
+  into its bound variable (`/:nickname`, `/:email`, `/:password` — the edit texts of sprite 250; the password
+  field masks itself). Tab / Up / Down cycle the fields (the focus order of the movie's own `tfoc` protocol),
+  a click follows `/:TextToFocus`. Backspace edits; on an empty field it is the movie's B (quit).
+- FSCommands handled: `pnew` (OK, button 254 cond 0x1a00 / 255 click) = trim `/:nickname`; non-empty ⇒ profile
+  name = it, `SaveProfile("new profile")`, close, save check (state 6); empty ⇒ the dialog stays open. `quit` /
+  `pcan` = the game exits. `tfoc` = follow `/:TextToFocus`. The teardown of the movie waits for
+  `FlashPlayer::tick` to return (the FSCommand arrives inside its pending-action walk).
+- The nickname pre-fills from the current name law (profile.sav `name`, else `-playername`; `gm_avatar_choice`
+  / `gm_cine` read the profile name first from now on, so the "Starring" card of AVATAR_CHOICE prints the name
+  this dialog committed). The launcher's Player page passes `-playername` and shows the same dialog as a card.
+
 ---------------------------------------------------------------------------------------------------
 ## 5. Flash stage → screen, bands, 3D viewport
 
