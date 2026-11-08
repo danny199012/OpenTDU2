@@ -107,7 +107,7 @@ jobs:
       - name: Zip
         run: |
           cd bin
-          zip -r "opentdu2-windows-v0.2.${{ github.run_number }}.zip" .
+          zip -r "../opentdu2-windows-v0.2.${{ github.run_number }}.zip" .
           cd ..
 
       - name: Publish the auto release
@@ -117,6 +117,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           files: opentdu2-windows-v0.2.${{ github.run_number }}.zip
+          fail_on_unmatched_files: true
           generate_release_notes: true
           body: Automatic build of main (build ${{ github.run_number }}). The launcher's "Download this release" applies it one-click.
 
