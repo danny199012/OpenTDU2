@@ -154,18 +154,97 @@ was solved and verified (`_grass/solve_spec3.py`, the method
 authored spec. The port resolves `TD_TallGrass vs0/ps0` with it (verified in
 the log).
 
-**The TD_TallGrass VS is car-anchored and does not multiply by a matrix**
-(disassembly, `tools_probe/dxso_dis.py` — minimal D3D9 disassembler written
-for this): its symbol table carries `.LPHADIS` / `.CALEDIS` (frame),
-`SECTOFF.`, `SHADOCLR`, **`CARPOS` / `CARFWD` / `CARRIGHT`** (scene) and the
-material block; the body rebuilds positions from the car basis through
-rsq/rcp chains (no `m4x4` anywhere), with `def` phases (2π, 1/3.333…) for
-the wind. Its output law is **not lifted yet** — with the GUID rewritten the
-materials resolve but draw nothing visible (the position law needs the
-retail per-frame car feed, or vertices authored in car space). The port
-therefore keeps the declared `kTD_Gouraud` for v1 (the cards draw textured,
-alpha-blended 5/6, no depth write — exactly the `.2dm`'s own states) and
-`-grasstallgrass` opts into the rewrite for the next step.
+### 4.1 The lifted VS (`vs_0`, session 81) `[CODE]`
+
+The bytecode is stock SM1; `tools_probe/dxso_dis.py` disassembles it (its
+first draft numbered the opcodes from a half-remembered table and dropped
+`SUB`, shifting every mnemonic from index 3 up — the fixed table follows the
+vendored DXVK decoder, which is also what compiles these files at runtime)
+and `tools_probe/dxso_lift.py` transcribes it to SSA with the CTAB struct
+member names substituted (the full transcript: `_grass/vs0_lift.txt`).
+
+Constant blocks (`CTAB`, all `set=2`):
+
+| Registers | Block | Members |
+|---|---|---|
+| c0-c8 | `Var_Frame_VS` | `UserVector0`/`1` runtime (c0.x = the wind strength, c1 = the light gradient scale); `UserVector2-6` are def-inlined literals (the wind phases: c2 = (-0.4, 2.857, -0.5, 3.333), c3 = (0.1, 0.05, 0.1592 = 1/2π, 0.5), c4 = (6.283 = 2π, -3.142, 3.0, 0.004), c5 = (0.001302 = 1/768, -0.3, 0, 0), c6 = (1, 0, 2, -1)); `Time_` = c8 (unused by vs_0 — the wind clock rides in through `UserVector0`) |
+| c9-c55 | `Var_Scene_VS` | the standard scene block (`ViewProj`, `View`, `Proj`, `LastView`, `InvViewProj`, **`InvView` c29-32**, `InvProj`, `FogColor`/`FogConfig`, the shadow block, `Shadow_SlicesDist` c54) |
+| c60-c81 | `Var_VS` | `__World_View__` c60-63, `__Inv_World_View__` c64-67, `__World__` c68-71, `__DirLight_Dir_0` c72, `__AmbLight_Ambient_0` c73, `__DirLight_Diffuse_0` c74, **`alphaDist` c75** (the `.LPHADIS` of the first session: fade start / range / wind phase offset / sway amplitude), **`scaleDist` c76** (the `.CALEDIS`: the car-flatten falloff start / range / scale / -), **`sectOff` c77** (the sector origin for the noise uv), **`CarPos` c78**, **`CarFwd` c79**, **`CarRight` c80** (`.w` = the car-flatten radii), `Whirlwind` c81 (only vs_4-7 read it — the whirlwind variants; vs_0-3 are the plain family; no permutation reads `Time_`) |
+
+**The draw runs with `World = identity`.** The law composes `InvView` with
+`__World_View__` around the local corner (the final view position is
+`World_View·(corner + InvView·delta)`, which only collapses back to
+`viewPos + delta` for World = I), so the vertices carry **absolute world
+positions**.
+
+Vertex packing (what the CPU stream must carry):
+
+* `v0` (position): the corner's world X/Z; **Y is authored 0** — the ground
+  height travels in `v2.y`.
+* `v1` (color): `x` = the corner u across the card (0/1; the shader maps it
+  to ±1), `y` = the height fraction (0 root / 1 tip; also the atlas V as
+  `1 - y`, roots at the image bottom), `z`/`w` = a hemisphere-encoded normal
+  (`(z·2-1, sqrt(1-u²-v²), w·2-1)`) — the card's face normal, feeding the
+  diffuse term.
+* `v2` (texcoord): `x` = the atlas u (`+ v1.x·sectOff.y` — sectOff.y = 0 in
+  practice), `y` = the **Y addend**: the corner renders at
+  `v0.y + v3.x + v2.y`, so the ground height plus the corner height minus
+  the lever lands here.
+* `v3` (tangent): `x` = the blade-height **lever** — it drives the bend
+  terms below AND adds into the corner Y; `y` = the per-card wind amplitude;
+  `z` = the noise amount the PS lerps the noise tint with; `w` unused.
+
+The position law (transcribed from the lift; everything renders through
+`InvView`/`__World_View__` round-trips):
+
+1. **The hemisphere normal** from `v1.zw` → view-space xy via
+   `__World_View__` rows 0/1, and the diffuse factor
+   `max(dot(normalize(H), -DirLight_Dir_0), 0)` → `oT5` (color0) as
+   `diffuse·(DirDiffuse - Ambient)`.
+2. **A view-X shear**: `±1/sqrt(2)` (the sign of the normal's view-X)
+   scaled by `(2·v1.y - 1)·(v0.y + v3.x)` — tips lean one way, roots the
+   other — un-projected to world by `InvView` and added.
+3. **The car flatten**: `t = max(-0.5 - dot(CarPos-corner, CarRight)·CarRight.w, -0.4 - dot(CarPos-corner, CarFwd)·CarFwd.w)·(3.333 | 2.857) + 0.1`;
+   its deltas replace the delta-vector's view Y slot and push the final view
+   Z by `∓3·delta·sign(...)` — **per-corner magnitudes differ between root
+   and tip by `2·(v0.y + v3.x)`, which shears the card in depth**, so the
+   port ships the lever at 1/8 of the blade height (below). `t` also scales
+   `oT2` (texcoord1) = the PS's light-gradient factor.
+4. **The wind**: phase = `frac((v0.x - v0.z + alphaDist.z)/2π + 0.5)·2π - π`;
+   sway = `(alphaDist.w·sin(phase) + 0.5)·UserVector0.x²·v1.y` added into
+   view x/z (tips only) — plus a `∓3·delta` view-Z push like the flatten.
+5. **Distance**: the view-space length of the corner drives `alphaDist`
+   (`t = 1 - (len - alphaDist.x)/alphaDist.y`, a plain rcp — the fade),
+   `scaleDist` (the same shape, scaling the flatten deltas), the fog factor
+   (`oT6`), and the pop: `oT0.xyz *= (t >= 0.5)` — cards past the fade
+   midpoint collapse to a degenerate point.
+6. **Outputs**: `oT0` = position (Proj·viewPos), `oT1` = texcoord0
+   (atlas u, `max(1 - v1.y, 0.004)`, and `(worldXZ - sectOff.xz)/768` — the
+   sector uv, from the *un-bent* corner via `__Inv_World_View__`),
+   `oT2` = texcoord1 (the light gradient), `oT3` = texcoord5 (the noise
+   amount, the fade `t`), `oT5`/`oT6` = the light color and the fog.
+
+### 4.2 The PS (`ps_0`) `[CODE]`
+
+`_grass/ps0_lift.txt`. Samplers: s0 = the grass atlas (v0.xy), s1 = the
+NOISE texture (v0.zw = the sector uv!), s15 = the screen shadow buffer
+(sampled at `(0.5 + vPos)·RenderTargetSize` — vPos is declared with the
+`position` semantic, `MiscType` register). Final color:
+
+```
+alpha = atlas.a · oT3.y (the fade t)
+tint  = lerp(noise, 1, oT3.x (the noise amount))
+color = atlas.rgb · tint · ((Ambient + oT5) · oT2.x + decode(s15.g, s15.b))
+oC0   = color · (1 - fog) + FogColor · fog
+```
+
+**The shadow decode reads the buffer's G/B channels** (packed additional
+lighting per the `pShadowRealTime` fallback's comment) — *not* the R sun
+visibility `TD_Vegetation`'s PS uses; with the port's buffer those channels
+are 0, so the shadow add-in is inert and the grass brightness rides on the
+`(Ambient + oT5) · oT2.x` term. `alphaDist`/`scaleDist`/`CarPos`/`CarFwd`/
+`CarRight`/`sectOff`/`UserVector*` ship **no defaults in the `.2dm`** (only
+`FADEALFA`) — they are runtime-fed, values chosen by the port [INF].
 
 ## 5. The card model `[DATA]` + `[INF]`
 
@@ -192,21 +271,53 @@ correctly placed, sized and blended under the plain Gouraud shader
   the §1.2 document-order table `[INF]`, size from the GrassType law, atlas
   cell + variation roll from the GrassType. Transient upload, one draw per
   frame (the impostor-batch mechanics). Physics untouched.
+* Two draw paths: the default renders the declared `kTD_Gouraud` with the
+  template layout (5-float corners + f16 normals, session 81's baseline);
+  **`-grasstallgrass` resolves `TD_TallGrass`** (the §4 spec-byte selector)
+  and emits the §4.1 packing — one 64-byte stream (position/color/texcoord/
+  tangent, 4 × f32), `World = identity`, and the per-draw constant feed
+  (exact CTAB member names, case-sensitive):
+  `CarPos` = the camera, `CarFwd`/`CarRight` = the camera basis with
+  `.w = 0.12` (the flatten radii), `sectOff` = the camera's sector origin,
+  `alphaDist` = `(dist, 2·dist, 0, 0.3)` — keeps `t ∈ [1, 1.5]`: the pop
+  never fires inside the radius and the light gradient lands tips in
+  `[1, 2]`, roots in `[-1, 0]` — `scaleDist` = `(0.3·dist, 0.6·dist, 0, 0)`
+  (the flatten falloff inert at scale 0), `UserVector0` = `(0.7, 0, 0, 0)`
+  (the wind strength), `UserVector1` = `(1, 1, 0, 0)`. The blade-height
+  lever ships at **1/8 of the card height** — the law's root/tip depth
+  shear is `2·lever`, which at full height tore the cards into streaks
+  (measured: `_gtg_on2` iteration). The noise amount (v3.z) = 0.35; the
+  noise texture's mean luminance is 0.392, so the tint averages ~0.6.
+  Verified: `docs/images/grass_tallgrass_s81.png` vs the Gouraud path at
+  the same spot `grass_tallgrass_off_s81.png` (farm sector,
+  `-tpin 19584,24960 -clock 12`); validation layer 0 VUIDs during the
+  frames (only the pre-existing shutdown `vkDestroyDevice` notice).
 * Flags: `-nograss` (off), `-grassdist <m>` (card radius, default 140),
   `-grassmax <n>` (per-frame cap, default 9000), `-grassstride <n>`,
   `-grassflip` (grid row order A/B), `-loggrass` (per-frame counts),
-  `-grasstallgrass` (the TD_TallGrass GUID rewrite — resolves, draws
-  nothing yet). Grid orientation vs the sector origin is still `[INF]`
-  (world axes = grid axes; `-grassflip` is the A/B).
+  `-grasstallgrass` (the TD_TallGrass path). Grid orientation vs the
+  sector origin is still `[INF]` (world axes = grid axes; `-grassflip` is
+  the A/B).
 
 ## 7. Open
 
-* The TD_TallGrass VS output law (car basis, `.LPHADIS`/`.CALEDIS` fade,
-  wind sway) — the disassembly is readable (`tools_probe/dxso_dis.py`); the
-  remaining step is decoding the position arithmetic and feeding CARPOS /
-  CARFWD / CARRIGHT per frame (or re-authoring the vertices in car space).
-* `noise.rle` layout (wind animation frames); the wind draw at all.
+* The car flatten is effectively inert in the port feed (the lever at 1/8
+  and `scaleDist.z = 0` tame its depth shear); recovering the retail
+  behaviour needs the per-frame `CarFwd.w`/`CarRight.w` law [ENC-adjacent —
+  the PS3 twins of the grass generator are the route].
+* The wind phase runs spatially (`sin` of world x - z) but carries no time
+  — `UserVector0` is constant; wiring `wind_continuous_grass_amplitude` /
+  `frequency` (and `noise.rle`, still undecoded) into it is the next
+  increment.
+* The PS's G/B shadow decode: what writes those channels retail-side
+  (packed additional lighting — street lamps?) is untraced; the port's
+  shadow buffer leaves them 0.
 * Grid orientation + the road markers (`GRASSASTARMAC` interaction,
   `_OffRoad_*` ladder) — needs a retail A/B.
 * Atlas cell layout precision (9 cells over 2048 px) and the `Bush` rule.
-* Density/size tuning against a retail capture; perf measurement.
+* Density/size tuning against a retail capture. Perf measured (s81,
+  frame-240 steady state, farm teleport, 1280x720): on = 16.8 ms,
+  `-nograss` = 8.2 ms, `-grassdist 60` (2000 cards) = 10.0 ms - ~0.9 us per
+  card, linear: the radius/cap flags are the lever.
+* The whirlwind family (vs_4-7 reads `Whirlwind` c81) is unexplored — the
+  spec-byte selector for those permutations, and what feeds it.

@@ -469,6 +469,9 @@ private:
         uint32_t NumVertices = 0;
     };
     GrassBatch grassBatch;
+    GrassBatch grassTallBatch;         // TD_TallGrass path: one 64-byte-corner stream
+    EdenMesh grassTallLayout;          // position / color / texcoord / tangent, 4 x f32
+    bool bGrassTallGrass = false;      // -grasstallgrass: the materials resolve TD_TallGrass
 
 private:
     Vector3f instanceHideCenter;

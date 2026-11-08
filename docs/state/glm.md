@@ -6,6 +6,106 @@ same handoff file — `docs/STATE.md` used to be edited by both sides of 32 of
 the last 38 merges (every session prepends to the same block), which is what
 kept stopping `E:\OpenTDU2-main\update-and-rebuild.bat`.
 
+## Session 2026-11-08 (81, `glm`): the TD_TallGrass retail shader lifts and draws - `-grasstallgrass` now renders the real grass path (car-anchored feed, hemisphere-normal lighting, noise tint, distance pop), not the Gouraud stand-in
+
+Continuing the open list from the grass commit (3a6d385): "the TallGrass VS
+lift, noise.rle wind, density vs retail, grid orientation, perf line". The VS
+lift was the headline.
+
+### What changed
+- `tools_probe/dxso_dis.py` — the disassembler's opcode table was wrong from
+  index 3 up (it dropped `SUB`, shifting every mnemonic: its "rcp" was MUL,
+  its "pow" was DCL, its "m4x4" was FRC). The fixed table follows the vendored
+  DXVK decoder (`third_party/dxvk/src/dxso/dxso_enums.h` — `Cnd = 80, Def = 81`,
+  dcl usage in bits 0-3 / index in 16-19, CTAB offsets relative to the struct
+  after the fourcc), and it now dumps CTAB struct member → register maps.
+  The bytecode was stock SM1 all along; the instruction stream of session 81's
+  predecessor was trustworthy, only the names were shifted.
+- `tools_probe/dxso_lift.py` (new) — symbolic SSA lift of any SM1 shader with
+  the CTAB member names substituted; transcripts in `_grass/vs0_lift.txt` /
+  `_grass/ps0_lift.txt`.
+- `source/world/eden_world.{h,cpp}` — `loadGrassAssets` builds the TallGrass
+  vertex layout when `-grasstallgrass` (one 64-byte stream: position/color/
+  texcoord/tangent as 4 × f32, usage 0/10/5/6); `drawGrass` branches the emit
+  and the draw. The old `CARPOS`/`.LPHADIS` spellings were wrong twice over:
+  the CTAB names are `CarPos` / `alphaDist` / `scaleDist` / `sectOff`
+  (`.LPHADIS` = alphaDist, `.CALEDIS` = scaleDist), and fillConstants matches
+  case-sensitively.
+
+### The lifted law (grass_spec.md 4.1/4.2, the full constant map is there)
+- vs_0-3 = the plain family, vs_4-7 read `Whirlwind` (c81); NO permutation
+  reads `Time_` — the wind rides in through `UserVector0` (frame block).
+- The draw runs with **World = identity** and absolute world-space vertices:
+  the law composes `InvView` with `__World_View__` around the corner
+  (`WV·(corner + InvView·delta)`), which only cancels for World = I.
+- Vertex packing: v0 = corner world XZ (Y=0), v1 = (corner u, height fraction,
+  hemisphere face normal in zw), v2 = (atlas u, Y addend = ground + corner
+  height − lever), v3 = (blade lever, wind amp, noise amount, -). The corner
+  renders at `v0.y + v3.x + v2.y`.
+- Position law: a view-X shear at ±1/√2 (the hemisphere normal's view-X sign,
+  scaled by lever·(2h−1)); the car flatten `t` from CarPos projections with
+  per-corner deltas that **shear the card in depth by 2·lever** (root vs tip
+  magnitudes always differ by exactly the lever — structural, measured: full
+  height tore cards into screen-edge streaks); spatial wind phase
+  `sin(frac((x−z+phase)/2π)·2π−π)` with tips-only sway; the fade
+  `t = 1 − (len−a.x)/a.y` (plain rcp) plus the pop `oT0.xyz *= (t ≥ 0.5)`
+  collapsing far cards to a degenerate point; the sector uv
+  `(worldXZ − sectOff)/768` computed from the *un-bent* corner.
+- ps_0: atlas × noise tint × `((Ambient + oT5)·oT2.x + decode(s15.G,B))`, fog
+  lerp, `alpha = atlas.a·t`. **The shadow decode reads G/B** (packed
+  additional lighting) — TD_Vegetation's PS reads R; the port's buffer has
+  G/B = 0, so brightness rides the lit term (why the first runs rendered
+  black).
+
+### Verified
+- `-grasstallgrass -tpin 19584,24960 -clock 12` (farm sector), build 510:
+  `docs/images/grass_tallgrass_s81.png` (the TD_TallGrass path: green-yellow
+  crossed-card tufts with the noise patch tint) vs
+  `docs/images/grass_tallgrass_off_s81.png` (the default Gouraud path at the
+  same build — unchanged regression, same 9000 cards, guid 73078865ca37336d).
+- Validation layer (`-vk_enable_validation_layer`, same teleport): 0 VUIDs in
+  the frames; the one shutdown `vkDestroyDevice-device-05137` notice also
+  fires without the grass flag (pre-existing, not grass-related).
+- **Perf line** (`[perf]` frame 240, steady state, same teleport, 1280×720):
+  grass on = 16.8 ms avg (draw 16.4), `-nograss` = 8.2 ms (draw 7.9),
+  `-grassdist 60` (1998 cards / 8k tris vs 9000 / 36k) = 10.0 ms — ~0.9 µs
+  per card, linear in card count: the radius/card-cap flags are the perf
+  lever, no fixed overhead.
+- Feed values that matter (all [INF], the .2dm ships none of them):
+  `alphaDist = (dist, 2·dist, 0, 0.3)` keeps t ∈ [1, 1.5] — no pop inside the
+  radius, tips lit 1-2×, roots dark; `UserVector1 = 1`; `UserVector0.x = 0.7`;
+  the blade lever at **1/8 card height**; noise amount 0.35 (noise texture
+  mean luminance 0.392 → the tint averages ~0.6).
+
+### Ruled out (with the test that ruled it out)
+- The empty first render: the pop (`t ≥ 0.5`) killed every card — my first
+  alphaDist read assumed a sqrt(rsp) normalization in the fade; the fixed
+  decode shows a plain rcp, so a = (dist−900, 900) put t ≈ 0.15 everywhere.
+- The streak render: not the shear bend (±0.35 m) — hand-decoding the
+  sign-extraction block (`slt r0.z, -r1.y, r1.y` etc., offsets 0xa04-0xa34)
+  showed the car-flatten's per-corner depth push `∓3·delta·sign(BC)` with
+  `BB = min(−viewX·0.05, 1)` amplifying the right screen edge 8× at far
+  scaleDist; shrinking the lever scales the whole chain down.
+- The dark render: not the atlas/UV (cells and V convention match the
+  Gouraud baseline), not the noise alone (tint ≥ 0.35) — the 4× UserVector1
+  probe blew the tufts out white, pinning the brightness on the lit term and
+  the G/B shadow decode.
+
+### Not done / next
+- The wind carries no time (`UserVector0` is constant) — wire
+  `wind_continuous_grass_amplitude`/`frequency` from the weather into it;
+  `noise.rle` (124 KB, RLE wind frames) is still undecoded
+  (`source/world/eden_world.cpp`, the `UserVector0` feed in `drawGrass`).
+- The car flatten is inert by design in the port feed (lever 1/8 +
+  `scaleDist.z = 0`); recovering it needs the retail per-frame
+  `CarFwd.w`/`CarRight.w` law — the PS3 generator twins
+  (`get_func.py 0x6e05b4` area) are the route.
+- What writes the shadow buffer's G/B channels retail-side (street lamps?)
+  is untraced.
+- The whirlwind permutations (vs_4-7, `Whirlwind` c81) — selector + feed —
+  unexplored. Density/size vs a retail capture, grid orientation A/B, and
+  the perf line stay open from the grass commit.
+
 ## Session 2026-11-07 (80, `glm`): cars ride in the dynamic environment cube (retail's WITH_CARS variant) - they show in the mirrors / paint / glass reflections now, and the cube render no longer samples the image it writes
 
 The owner asked: *"can we improve the game's car reflections and car mirror reflections they look ok but

@@ -2896,7 +2896,8 @@ bool EdenWorld::loadGrassAssets( const char *pIsland ) {
     // law is not lifted yet, so the rewritten materials resolve but draw
     // nothing visible. Scoped to this model on purpose: the rain shares
     // Gouraud, a handler-table entry would hijack it.
-    static const bool bGrassTallGrass = CmdLine::HasArg( "-grasstallgrass" );
+    static const bool bGrassTallGrassArg = CmdLine::HasArg( "-grasstallgrass" );
+    bGrassTallGrass = bGrassTallGrassArg;
     for ( EdenMaterial &material : grassModel.getMaterials() ) {
         if ( bGrassTallGrass && material.ShaderSetGUID == 0x73078865ca37336dull /* kTD_Gouraud */ ) {
             material.ShaderSetGUID = 0xcafe8deca8c8cacaull; /* TD_TallGrass */
@@ -2935,6 +2936,26 @@ bool EdenWorld::loadGrassAssets( const char *pIsland ) {
         OTDU_LOG_INFO( "EdenWorld: grass '%s' resolved %s\n", material.Name.c_str(),
                        material.pProgram != nullptr ? material.pProgram->Name.c_str() : "NOTHING" );
     }
+    if ( bGrassTallGrass ) {
+        // The TD_TallGrass VS reads 4 float4 inputs (grass_spec.md 6, the
+        // lifted vs_0): v0 position (corner world XZ, Y = 0 - the ground
+        // height travels through v2.y), v1 color (corner u, height fraction,
+        // hemisphere face normal), v2 texcoord (atlas u, the Y addend), v3
+        // tangent (blade height lever, wind amplitude, noise amount). One
+        // 64-byte stream, World = identity (the law composes InvView with
+        // World_View, which only cancels for World = I).
+        grassTallLayout = EdenMesh();
+        grassTallLayout.NumStreams = 1;
+        grassTallLayout.Strides[0] = 64;
+        grassTallLayout.Attributes = {
+            { 0 /* position */, 0, 0, VAF_POSITION_R32G32B32A32_SFLOAT, 0 },
+            { 10 /* color */, 0, 0, VAF_POSITION_R32G32B32A32_SFLOAT, 16 },
+            { 5 /* texcoord */, 0, 0, VAF_POSITION_R32G32B32A32_SFLOAT, 32 },
+            { 6 /* tangent */, 0, 0, VAF_POSITION_R32G32B32A32_SFLOAT, 48 },
+        };
+        grassTallLayout.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        grassTallLayout.computeLayoutKey();
+    }
     for ( const EdenModel::Item &item : grassModel.getItems() ) {
         if ( item.Mesh.Strides[0] != 0 ) {
             grassLayout = item.Mesh;
@@ -2952,7 +2973,7 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     if ( !GrassEnabled() || !bGrassLoaded || grassTypes.empty() ) {
         return;
     }
-    GrassBatch &batch = grassBatch;
+    GrassBatch &batch = bGrassTallGrass ? grassTallBatch : grassBatch;
     batch.Streams[0].clear();
     batch.Streams[1].clear();
     batch.Indices.clear();
@@ -3054,24 +3075,66 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
                     const float qdz = quad == 0 ? dz : dx;
                     const float hx = qdx * w * 0.5f;
                     const float hz = qdz * w * 0.5f;
-                    const float corners[4][5] = {
-                        { px - hx, y,              pz - hz, u0, 1.0f },
-                        { px + hx, y,              pz + hz, u1, 1.0f },
-                        { px - hx, y + cardHeight, pz - hz, u0, 0.0f },
-                        { px + hx, y + cardHeight, pz + hz, u1, 0.0f },
-                    };
-                    const uint32_t base = batch.NumVertices;
-                    for ( const auto &corner : corners ) {
-                        batch.Streams[0].insert( batch.Streams[0].end(), reinterpret_cast<const uint8_t *>( corner ),
-                                                 reinterpret_cast<const uint8_t *>( corner ) + 20 );
-                        const uint16_t normal[4] = { GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 1.0f ),
-                                                     GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 0.0f ) };
-                        batch.Streams[1].insert( batch.Streams[1].end(), reinterpret_cast<const uint8_t *>( normal ),
-                                                 reinterpret_cast<const uint8_t *>( normal ) + 8 );
+                    if ( bGrassTallGrass ) {
+                        // The TD_TallGrass vertex packing (the lifted vs_0,
+                        // grass_spec.md 6): v0 = the corner world XZ (Y = 0 -
+                        // the ground height travels in v2.y), v1 = (corner u,
+                        // height fraction, hemisphere face normal), v2 =
+                        // (atlas u, Y addend - the corner renders at
+                        // v0.y + v3.x + v2.y = ground + corner height), v3 =
+                        // (blade height lever, wind amplitude, noise amount).
+                        // The lever drives every bend term of the VS (the
+                        // view shear, the car-flatten deltas and their depth
+                        // push); it ships at 1/8 of the blade height so the
+                        // law's per-corner depth shear stays sub-decimeter
+                        // [INF: the retail lever scale is not recovered].
+                        // The face normal mixes the card direction with the
+                        // per-card hash lean (lit variation), kept inside the
+                        // unit disc so the VS's sqrt stays real.
+                        const float lever = cardHeight * 0.125f;
+                        const float mixX = qdz + ( f0 - 0.5f );
+                        const float mixZ = -qdx + ( f1 - 0.5f );
+                        const float mixLen = sqrtf( mixX * mixX + mixZ * mixZ );
+                        const float hemiU = mixLen > 1e-4f ? 0.98f * mixX / mixLen : 0.98f * qdz;
+                        const float hemiV = mixLen > 1e-4f ? 0.98f * mixZ / mixLen : -0.98f * qdx;
+                        const float cornerV[4][16] = {
+                            { px - hx, 0.0f, pz - hz, 0.0f, 0.0f, 0.0f, hemiU, hemiV, u0, y - lever, 0.0f,
+                              0.0f, lever, 0.0f, 0.35f, 0.0f },
+                            { px + hx, 0.0f, pz + hz, 0.0f, 1.0f, 0.0f, hemiU, hemiV, u1, y - lever, 0.0f,
+                              0.0f, lever, 0.0f, 0.35f, 0.0f },
+                            { px - hx, 0.0f, pz - hz, 0.0f, 0.0f, 1.0f, hemiU, hemiV, u0, y + cardHeight - lever,
+                              0.0f, 0.0f, lever, 0.0f, 0.35f, 0.0f },
+                            { px + hx, 0.0f, pz + hz, 0.0f, 1.0f, 1.0f, hemiU, hemiV, u1, y + cardHeight - lever,
+                              0.0f, 0.0f, lever, 0.0f, 0.35f, 0.0f },
+                        };
+                        const uint32_t base = batch.NumVertices;
+                        for ( const auto &corner : cornerV ) {
+                            batch.Streams[0].insert( batch.Streams[0].end(), reinterpret_cast<const uint8_t *>( corner ),
+                                                     reinterpret_cast<const uint8_t *>( corner ) + 64 );
+                        }
+                        const uint32_t indices[6] = { base, base + 1, base + 2, base + 1, base + 3, base + 2 };
+                        batch.Indices.insert( batch.Indices.end(), indices, indices + 6 );
+                        batch.NumVertices += 4;
+                    } else {
+                        const float corners[4][5] = {
+                            { px - hx, y,              pz - hz, u0, 1.0f },
+                            { px + hx, y,              pz + hz, u1, 1.0f },
+                            { px - hx, y + cardHeight, pz - hz, u0, 0.0f },
+                            { px + hx, y + cardHeight, pz + hz, u1, 0.0f },
+                        };
+                        const uint32_t base = batch.NumVertices;
+                        for ( const auto &corner : corners ) {
+                            batch.Streams[0].insert( batch.Streams[0].end(), reinterpret_cast<const uint8_t *>( corner ),
+                                                     reinterpret_cast<const uint8_t *>( corner ) + 20 );
+                            const uint16_t normal[4] = { GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 1.0f ),
+                                                         GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 0.0f ) };
+                            batch.Streams[1].insert( batch.Streams[1].end(), reinterpret_cast<const uint8_t *>( normal ),
+                                                     reinterpret_cast<const uint8_t *>( normal ) + 8 );
+                        }
+                        const uint32_t indices[6] = { base, base + 1, base + 2, base + 1, base + 3, base + 2 };
+                        batch.Indices.insert( batch.Indices.end(), indices, indices + 6 );
+                        batch.NumVertices += 4;
                     }
-                    const uint32_t indices[6] = { base, base + 1, base + 2, base + 1, base + 3, base + 2 };
-                    batch.Indices.insert( batch.Indices.end(), indices, indices + 6 );
-                    batch.NumVertices += 4;
                 }
                 cards++;
                 if ( cards >= maxCards ) {
@@ -3090,9 +3153,9 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     }
     // Transient upload + draw, the drawImpostors mechanics: the layout is
     // the PLANE_01 template (position + UV in stream 0, f16 normal in
-    // stream 1, grass_spec.md 1.1).
+    // stream 1, grass_spec.md 1.1), or the 4 x f32 TallGrass packing.
     RenderDevice &device = gpRender->getDevice();
-    EdenMesh mesh = grassLayout;
+    EdenMesh mesh = bGrassTallGrass ? grassTallLayout : grassLayout;
     bool bOk = true;
     for ( uint32_t stream = 0; stream < 2; stream++ ) {
         if ( batch.Streams[stream].empty() ) {
@@ -3117,18 +3180,36 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     mesh.IndexCount = static_cast<uint32_t>( batch.Indices.size() );
     mesh.VertexOffset = 0;
     mesh.BlasAddress = 0;
-    // The TD_TallGrass VS is car-anchored: its symbol table carries CARPOS /
-    // CARFWD / CARRIGHT (the player-car basis the retail renderer feeds per
-    // frame) and .LPHADIS / .CALEDIS (the display fade distances; shipped
-    // defaults 0 would divide by zero). v1 feeds the camera as the anchor and
-    // a pass-through fade [INF: the VS disassembly is not lifted yet,
-    // grass_spec.md 7].
+    // The TD_TallGrass feed (the lifted vs_0, grass_spec.md 6). Exact CTAB
+    // member names - fillConstants matches case-sensitively, the old CARPOS
+    // spellings never reached the shader. The draw runs with World = identity
+    // (the law composes InvView with World_View; that only cancels for
+    // World = I), the vertices carrying absolute world positions. The .2dm
+    // ships none of these (only FADEALFA), so every value below is port-chosen
+    // [INF] where the retail generator writes per-frame values; alphaDist.x +
+    // alphaDist.y = the fade end, sqrt(alphaDist.y) = the fade band.
     EdenDrawParams params;
-    params.Vectors["CARPOS"] = Vector4f( cameraPosition.x, cameraPosition.y, cameraPosition.z, 1.0f );
-    params.Vectors["CARFWD"] = Vector4f( 0.0f, 0.0f, 1.0f, 0.0f );
-    params.Vectors["CARRIGHT"] = Vector4f( 1.0f, 0.0f, 0.0f, 0.0f );
-    params.Vectors[".LPHADIS"] = Vector4f( 1.0f, 1.0f, 1.0f, 1.0f );
-    params.Vectors[".CALEDIS"] = Vector4f( 0.0f, 0.0f, 0.0f, 0.0f );
+    if ( bGrassTallGrass ) {
+        const Vector3f fwd = renderer.getRtCameraDirection().normalized();
+        Vector3f right = fwd.cross( Vector3f( 0.0f, 1.0f, 0.0f ) );
+        right = right.length() > 1e-4f ? right.normalized() : Vector3f( 1.0f, 0.0f, 0.0f );
+        params.Vectors["CarPos"] = Vector4f( cameraPosition.x, cameraPosition.y, cameraPosition.z, 1.0f );
+        params.Vectors["CarFwd"] = Vector4f( fwd.x, fwd.y, fwd.z, 0.12f );
+        params.Vectors["CarRight"] = Vector4f( right.x, right.y, right.z, 0.12f );
+        params.Vectors["sectOff"] =
+            Vector4f( floorf( cameraPosition.x / kSectorSize ) * kSectorSize, 0.0f,
+                      floorf( cameraPosition.z / kSectorSize ) * kSectorSize, 0.0f );
+        // t = 1 - (len - a.x)/a.y (a plain rcp, the lift). a = (dist, 2*dist)
+        // keeps t in [1, 1.5] over the whole card radius: the pop (t >= 0.5)
+        // never fires, the VS car lever AC = 2*(t+h-1)-1 lands tips in [1, 2]
+        // and roots in [-1, 0] (the root-to-tip light gradient), and the
+        // oT3.y alpha (t) clamps above 1 - the hard radius cut, like the
+        // Gouraud baseline [INF: the retail values write per frame, [ENC]].
+        params.Vectors["alphaDist"] = Vector4f( dist, 2.0f * dist, 0.0f, 0.3f );
+        params.Vectors["scaleDist"] = Vector4f( dist * 0.3f, dist * 0.6f, 0.0f, 0.0f );
+        params.Vectors["UserVector0"] = Vector4f( 0.7f, 0.0f, 0.0f, 0.0f ); // wind strength; weather wiring is open
+        params.Vectors["UserVector1"] = Vector4f( 1.0f, 1.0f, 0.0f, 0.0f ); // the light gradient scale [INF]
+    }
     renderer.draw( mesh, *pGrassMaterial, Matrix4x4f::Identity(), &params );
 }
 
