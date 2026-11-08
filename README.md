@@ -9,6 +9,9 @@
 OpenTDU2 is an open source re-implementation (C++17 / Vulkan / Jolt Physics) of the engine of
 **Test Drive Unlimited 2** (Eden Games, 2011).
 
+📸 **[Screenshot gallery](https://github.com/danny199012/OpenTDU2/issues/2)** — 565 screenshots of the
+fixes and new features, organized by area, hosted outside the repo so clones stay small.
+
 The project is built on the structure of
 [OpenTestDriveUnlimited](https://github.com/opentestdriveunlimited/OpenTestDriveUnlimited) (OpenTDU, the TDU1
 re-implementation). It uses the same conventions: `GS*` game services, `GM*` game modes, original file formats
