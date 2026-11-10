@@ -4950,14 +4950,16 @@ void GMFreeRide::tick( float deltaTime ) {
                 vehicle.addVelocity( deltaVelocity );
                 riskFrame.bCrash = true;
                 bTrafficCrash = true;
-                // The pad takes the hit (input/gamepad_output.h).
+                // The pad takes the hit (input/gamepad_output.h), the wheel too.
                 gamepad.pulse( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ), 0.3f );
+                wheelFfb.kick( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ) );
             }
             // The race opponents: the same contact (no violation - racing).
             if ( opponents.isActive() && opponents.resolveCollision( vehicle.getPosition(), flatHeading, vehicle.getVelocity(),
                                                                      setup.Size.x, setup.Size.z, setup.Mass, deltaVelocity ) ) {
                 vehicle.addVelocity( deltaVelocity );
                 gamepad.pulse( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ), 0.3f );
+                wheelFfb.kick( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ) );
             }
             riskFrame.DeltaTime = deltaTime;
             riskFrame.SpeedKmh = CmdLine::HasArg( "-riskdemo" ) ? 180.0f : vehicle.getSpeedKmh(); // -riskdemo: HUD check
@@ -6012,6 +6014,51 @@ void GMFreeRide::tick( float deltaTime ) {
             }
         }
         gamepad.setTriggerFeel( triggers );
+        // Wheel FFB (input/wheel_ffb.h): the rim torque from the front axle's
+        // lateral load (the self-aligning pull), the centring pull at speed,
+        // light past the tyres' grip peak, silent under the option / without a
+        // haptic device (docs/re/ffb_spec.md).
+        WheelFFB::Feel ffb;
+        ffb.bActive = triggers.bActive;
+        if ( ffb.bActive ) {
+            const float speedKmh = vehicle.getSpeedKmh();
+            const float speedNorm = Clamp( speedKmh / 180.0f, 0.0f, 1.0f );
+            const std::vector<VehicleDynamics::WheelDesc> &descs = vehicle.getWheelDescs();
+            const std::vector<VehicleDynamics::WheelState> &states = vehicle.getWheels();
+            // Front axle: the lateral forces (the self-aligning load) against
+            // the grip actually on offer (load x surface), each contribution
+            // falling to a quarter past the tyre's grip peak - the rim "goes
+            // light" when the tyres slide [INF: the feel, not a retail law].
+            float latSum = 0.0f, maxLat = 0.0f, gripSum = 0.0f;
+            uint32_t contacts = 0;
+            const float optimalSlip = Max( vehicle.getSetup().TyreFront.Config[TyreSetup::Tarmac].OptimalSlipAngle, 0.02f );
+            for ( size_t i = 0; i < states.size() && i < descs.size(); i++ ) {
+                if ( !states[i].bContact ) {
+                    continue;
+                }
+                contacts++;
+                if ( !descs[i].bFront ) {
+                    continue;
+                }
+                const float slipFalloff =
+                    1.0f - 0.75f * Saturate( ( fabsf( states[i].SlipAngle ) - optimalSlip ) / ( 2.0f * optimalSlip ) );
+                latSum += states[i].LateralForce * slipFalloff;
+                maxLat += states[i].Load * states[i].SurfaceFriction;
+                gripSum += states[i].SurfaceFriction;
+            }
+            // No fight at a standstill (full force from 10 km/h); the axle's
+            // mean surface grip scales the centring, the sat term is
+            // normalized by the load x grip itself.
+            const float speedGate = Saturate( ( speedKmh - 2.0f ) / 8.0f );
+            const float axleGrip = contacts > 0 ? gripSum / static_cast<float>( contacts ) : 1.0f;
+            const float satTerm = latSum / Max( maxLat, 2000.0f );
+            const float centerTerm =
+                Clamp( vehicle.getSteerAngle() / 0.6f, -1.0f, 1.0f ) * speedNorm * 0.35f * axleGrip;
+            ffb.Torque = Clamp( ( satTerm + centerTerm ) * speedGate, -1.0f, 1.0f );
+            ffb.Damper = speedNorm;
+        }
+        wheelFfb.setFeel( ffb );
+        wheelFfb.update( deltaTime );
         gamepad.update( deltaTime );
     }
     // The island's buildings around the car (or the map camera): the same
@@ -6222,6 +6269,7 @@ void GMFreeRide::exit() {
     ambience.unload();
     trafficAudio.unload();
     gamepad.shutdown();
+    wheelFfb.shutdown(); // never leave the wheel torqued
     radio.stop();
     opponents.stop();
     traffic.unload();
@@ -6287,6 +6335,8 @@ void GMFreeRide::drawDebug() {
                          trafficAudio.getHornCount() );
             ImGui::Text( "pad: %s%s%s", gamepad.isAttached() ? "attached" : "none",
                          gamepad.hasRumble() ? ", rumble" : "", gamepad.hasLED() ? ", led" : "" );
+            ImGui::Text( "ffb: %s%s, torque %+.2f", wheelFfb.isAttached() ? "attached" : "none",
+                         wheelFfb.hasConstant() ? ", constant" : "", wheelFfb.getTorque() );
             // Live toggles (the same values options.ini keeps).
             GameOptions &options = GetGameOptions();
             bool bAmbience = options.Ambience != 0;
@@ -6297,6 +6347,11 @@ void GMFreeRide::drawDebug() {
             bool bDualSense = options.DualSense != 0;
             if ( ImGui::Checkbox( "pad light bar + haptics", &bDualSense ) ) {
                 options.DualSense = bDualSense ? 1 : 0;
+                SaveGameOptions();
+            }
+            bool bFfb = options.FFB != 0;
+            if ( ImGui::Checkbox( "wheel force feedback", &bFfb ) ) {
+                options.FFB = bFfb ? 1 : 0;
                 SaveGameOptions();
             }
         }

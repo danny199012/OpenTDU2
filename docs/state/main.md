@@ -15,6 +15,65 @@ appends its entry at the top of this file**, newest first, in the
 
 ---
 
+## Session 2026-11-10 (wheel force feedback, `main`): `source/input/wheel_ffb.*` - the rim torque on a haptic steering wheel (front-axle lateral load, slip lightness, centring pull, speed damper, crash kick), the port's own composition documented in docs/re/ffb_spec.md; headless drive proves the feed end to end, the feel awaits the owner's wheel
+
+The owner's task: "you can start the FFB work ... it's something we were aiming
+on doing before" - the same-day follow-up to GitHub issue #3 ("TDU2 never had
+a proper implementation for force feedback on wheels") and the OpenTDU1
+licence ask (org #548; TDU1's device layer is the documented *shape*,
+unlicensed upstream - **nothing copied**, the composition is ours).
+
+### What changed
+- `source/input/wheel_ffb.h/.cpp` (new) - `WheelFFB`, beside GMFreeRide's
+  `GamepadOutput`: attaches the SDL haptic device off the open gamepad's
+  joystick (SDL 3.4.20 has no haptic-from-gamepad opener -
+  `SDL_GetGamepadJoystick` + `SDL_OpenHapticFromJoystick`; DirectInput wheels
+  expose it, XInput / DualSense pads never do, which gates the feature
+  naturally), drives a `SDL_HAPTIC_CONSTANT` effect (level ±0x7fff x gain,
+  INFINITY, updated on a 0.004-of-scale change + a 0.25 s heartbeat) and a
+  `SDL_HAPTIC_DAMPER` condition (coefficient = speed norm), a crash `kick()`
+  (0.18 s decaying overlay in the torque's own direction), `shutdown()` stops
+  the effects (exit, option off, unplug). Flags: `-noffb` (also the
+  `options.ini` `ffb` row + the debug panel checkbox "wheel force feedback"),
+  `-ffbgain <0.1..4>`, `-ffbinvert`, `-logffb` (attach line + a ~2 Hz state
+  line printed device or not).
+- `source/game/freeride/gm_freeride.cpp/.h` - the composition, in the
+  pad-extras block (the same block that feeds `GamepadOutput`): from
+  `VehicleDynamics`'s per-wheel state - the front axle's `LateralForce` (each
+  contribution falling to 0.25 by 3x the tyre's own `OptimalSlipAngle` - the
+  rim "goes light" past the grip peak), normalized by `Load x SurfaceFriction`
+  (grip loss on grass is automatic), the centring term
+  (steerAngle/0.6 rad x speedNorm x 0.35 x axle grip), no fight below 2 km/h
+  (full at 10), `Damper = speedNorm`; `wheelFfb.kick()` beside the two crash
+  `gamepad.pulse()` calls; the `ffb:` line + checkbox in the debug panel;
+  `wheelFfb.shutdown()` at terminate. `docs/re/ffb_spec.md` (new) is the
+  design record: the TDU1 shape table (§1), the composition (§2), the attach
+  law (§3), flags/logs (§4), the evidence split (§5).
+- `source/game/game_options.h/.cpp` - the `FFB` field + the `ffb` save row.
+
+### Verified (headless, build 15 (4827bfd+dirty), `-gm FREERIDE -skipcine
+-nopad -fixedtimestep -logffb`, accel f60, steer-left hold f280-330,
+steer-right f360-410)
+- The state line follows the script exactly: damper ramps 0 -> 0.48 with
+  speed after the accel hold, torque jumps +0.707 -> the +1.00 rail on the
+  steer-left hold (the centring/SAT pull against the turn), settles with
+  small counter-swings (-0.135 / +0.216) as the steering recentres, parked
+  frames print torque 0.000.
+- `-noffb` A/B: zero FFB lines (fully silent); 0 errors, 0 stalls both runs.
+- No wheel on the headless runs: every line reads "no device" - the *feel*
+  is the owner's test (plug a wheel in; if the pull reads backwards,
+  `-ffbinvert`). PROGRESS rows (bug table + feature board), README flags row.
+
+### Not done / next
+- Config curves (TDU1's per-input piecewise tables) instead of the fixed
+  feel constants - only if the owner wants tuning depth after a first drive.
+- FFB in GM_TestCar (only FREERIDE feeds a wheel today; the class lifts out
+  in one include + one update call).
+- The feel report from the owner's wheel (and any `-ffbinvert` outcome) ->
+  `docs/re/ffb_spec.md` 6.
+- The licence answers (org #548, Milli) still pending - recorded in this
+  morning's docs session (4827bfd).
+
 ## Session 2026-11-10 (OpenTDU1 reference re-point + physics/FFB inventory, `main`): the reference clone now tracks the org repo (the fork was 278 commits behind) and docs/re/opentdu1_reuse.md gains §2.11 — upstream's handling physics is done on Jolt (5,874-line physics_vehicle, retail-Havok replay validation, a bike roll-limit constraint) and the full FFB chain is in the clear; both gated on the licence ask (org issue #548, filed by the owner)
 
 The owner's task: the repoint behind issue #3 (silentvelour: drop TDU2

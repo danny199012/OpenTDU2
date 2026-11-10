@@ -24,6 +24,7 @@ constexpr OptionField kFields[] = {
     { "sfx_volume", &GameOptions::SfxVolume },         { "voiceip_volume", &GameOptions::VoiceIPVolume },
     { "mike", &GameOptions::Mike },
     { "speaker_layout", &GameOptions::SpeakerLayout }, { "dualsense", &GameOptions::DualSense },
+    { "ffb", &GameOptions::FFB },
     { "ambience", &GameOptions::Ambience },
     { "video_width", &GameOptions::VideoWidth },       { "video_height", &GameOptions::VideoHeight },
     { "vsync", &GameOptions::VSync },                  { "environment_quality", &GameOptions::EnvQuality },

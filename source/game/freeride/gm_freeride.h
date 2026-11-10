@@ -8,6 +8,7 @@
 #include "audio/vehicle_audio.h"
 #include "audio/radio_player.h"
 #include "input/gamepad_output.h"
+#include "input/wheel_ffb.h"
 #include "game/cheats.h"
 #include "game/cinematic/cinematic_car.h"
 #include "game/cinematic/gps_screen.h"
@@ -139,6 +140,9 @@ private:
     // The pad (DualSense light bar / haptics): chase flash, crash punches, the
     // road feel of this frame.
     GamepadOutput gamepad;
+    // The steering wheel (haptic devices only): the rim torque / damper of
+    // this frame, a kick on a crash (input/wheel_ffb.h).
+    WheelFFB wheelFfb;
     float roadFeel = 0.0f;
     RadioPlayer radio;
     bool bRadioOpen = false;

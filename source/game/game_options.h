@@ -34,6 +34,10 @@ struct GameOptions {
     // DualSense extras of the pad (OpenTDU2): 1 = light bar + haptics on,
     // 0 = off (the same as -nods). Ignored by pads without the feature.
     int32_t DualSense = 1;
+    // Wheel force feedback (OpenTDU2): 1 = the rim torque / damper of a
+    // haptic steering wheel on, 0 = off (the same as -noffb). Ignored by
+    // pads without a haptic device (input/wheel_ffb.h).
+    int32_t FFB = 1;
     // Ambient beds (OpenTDU2): the island ambience of ambiences.xmb on / off.
     int32_t Ambience = 1;
 
