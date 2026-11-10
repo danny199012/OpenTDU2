@@ -1,4 +1,6 @@
 #include "shared.h"
+#include <functional>
+#include <set>
 #include "map_screen.h"
 
 #include "database/gs_database.h"
@@ -1350,6 +1352,50 @@ void MapScreen::buildSpots() {
         }
         // The pin and the arrow under the icon are selection / GPS markers; the
         // retail grabs show the bare icon.
+        // -dumpmaplocator: the art of the first spot's fleche / locator
+        // children (the GPS-destination dressing hunt): character, labels and
+        // the bitmaps of every shape under them.
+        if ( i == 0 && CmdLine::HasArg( "-dumpmaplocator" ) ) {
+            const FlashDefinitions &defs = player.getDefinitions();
+            std::function<void( uint16_t, int )> walk = [&]( uint16_t id, int level ) {
+                if ( level > 5 ) {
+                    return;
+                }
+                if ( const FlashShape *pShape = defs.getShape( id ) ) {
+                    for ( const FlashFill &fill : pShape->Fills ) {
+                        OTDU_LOG_INFO( "MapScreen: %*sshape %u fill type %d bitmap %u color %08x bounds (%.1f %.1f)-(%.1f %.1f)\n",
+                                       level * 2, "", id, static_cast<int>( fill.Type ), fill.BitmapId, fill.Color,
+                                       pShape->XMin / 20.0f, pShape->YMin / 20.0f, pShape->XMax / 20.0f, pShape->YMax / 20.0f );
+                    }
+                    return;
+                }
+                if ( const FlashTimeline *pSprite = defs.getSprite( id ) ) {
+                    std::string labels;
+                    for ( const auto &label : pSprite->Labels ) {
+                        labels += " '" + label.first + "'@" + std::to_string( label.second + 1 );
+                    }
+                    OTDU_LOG_INFO( "MapScreen: %*ssprite %u frames %u labels%s\n", level * 2, "", id, pSprite->FrameCount,
+                                   labels.c_str() );
+                    std::set<uint16_t> seen;
+                    for ( const auto &frame : pSprite->Frames ) {
+                        for ( const FlashControlTag &tag : frame ) {
+                            if ( tag.Type == eFlashControlType::CT_Place && tag.Place.bHasCharacter &&
+                                 seen.insert( tag.Place.CharacterId ).second ) {
+                                OTDU_LOG_INFO( "MapScreen: %*s depth %u name '%s'\n", level * 2, "", tag.Place.Depth,
+                                               tag.Place.Name.c_str() );
+                                walk( tag.Place.CharacterId, level + 1 );
+                            }
+                        }
+                    }
+                }
+            };
+            for ( const char *pChild : { "/fleche", "/locator" } ) {
+                if ( const FlashPlayer::Clip *pClip = player.findClip( path + pChild ) ) {
+                    OTDU_LOG_INFO( "MapScreen: --- %s%s ---\n", path.c_str(), pChild );
+                    walk( pClip->pInstance != nullptr ? pClip->pInstance->CharacterId : 0, 0 );
+                }
+            }
+        }
         player.setClipVisible( path + "/fleche", false );
         player.setClipVisible( path + "/locator", false );
         // NOTE: the status children (news / shape / glow / target / hlight /

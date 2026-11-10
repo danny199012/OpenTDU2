@@ -704,6 +704,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( pass != EdenSceneView::ePass::ShadowCasters && pass != EdenSceneView::ePass::ProjectorActors &&
              pass != EdenSceneView::ePass::Environment ) {
             raceGates.draw( renderer );
+            spotHolograms.draw( renderer );
         }
         const bool bScenePass = pass != EdenSceneView::ePass::Environment && pass != EdenSceneView::ePass::Reflection;
         // The other cars ride in the dynamic environment cube: the retail layer
@@ -843,6 +844,11 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     bRaceGates = !CmdLine::HasArg( "-noracegates" );
     if ( bRaceGates ) {
         raceGates.load( view, islandName );
+    }
+    // The spot holograms (the retail 3D markers over the shops and houses,
+    // scenarics/packs/pack_spots.bnk).
+    if ( !CmdLine::HasArg( "-nospotholo" ) ) {
+        spotHolograms.load( view );
     }
     // The island's car washes (docs/re/car_wash_spec.md) - a second walk over
     // spots.bin for the ECW_* records only (the prompt + the washing scene).
@@ -2342,6 +2348,26 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
         }
     }
     hud.setWorldMarkers( markers, numMarkers );
+    // -spotholotest [<first>]: up to 12 hologram models in a row 30 m ahead of
+    // the car, 7 m apart (the art check of pack_spots.bnk; -logspotholo lists
+    // the index of each).
+    if ( spotHolograms.isLoaded() && CmdLine::HasArg( "-spotholotest" ) ) {
+        const int32_t first = CmdLine::GetArgInt( "-spotholotest", 0 );
+        const Vector3f forward( carWorld.m[2][0], 0.0f, carWorld.m[2][2] );
+        const Vector3f right( carWorld.m[0][0], 0.0f, carWorld.m[0][2] );
+        const float heading = std::atan2( forward.x, forward.z );
+        std::vector<SpotHolograms::Placement> placements;
+        const int32_t count = static_cast<int32_t>( spotHolograms.getModels().size() );
+        for ( int32_t i = first; i < count && i < first + 12; i++ ) {
+            SpotHolograms::Placement placement;
+            placement.ModelIndex = i;
+            const float side = ( static_cast<float>( i - first ) - 5.5f ) * 7.0f;
+            placement.Position = carPosition + forward * 30.0f + right * side + Vector3f( 0.0f, 4.0f, 0.0f );
+            placement.Heading = heading + 3.14159265f; // facing the car
+            placements.push_back( placement );
+        }
+        spotHolograms.setPlacements( placements );
+    }
     // The race gates on the minimap (its own objectif icons): the same gates
     // the world shows this frame (updateRaceGates).
     {

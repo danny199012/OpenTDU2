@@ -1256,6 +1256,13 @@ void FreeRideHud::setWorldMarkers( const WorldMarker *pMarkers, int32_t count ) 
                 }
             }
             hud.stopSubtree( path ); // the goto's fresh children play otherwise
+            if ( !halo.empty() && CmdLine::HasArg( "-markerhaloplay" ) ) {
+                hud.gotoLabel( path + "/Spot/" + halo, "on", true );
+            } else if ( !halo.empty() && !hud.gotoLabel( path + "/Spot/" + halo, "on", false ) ) {
+                // 'target' has no 'on': its states are 'open' (the intro) and
+                // 'loop' - played after the subtree stop.
+                hud.gotoLabel( path + "/Spot/" + halo, CmdLine::HasArg( "-markerhaloopen" ) ? "open" : "loop", true );
+            }
             markerClones_[i].LogoIndex = -2; // the kind goto re-placed ic
         }
         if ( markerClones_[i].LogoIndex != pMarkers[i].LogoIndex ) {

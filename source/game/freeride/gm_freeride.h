@@ -33,6 +33,7 @@
 #include "game/freeride/discovery_points.h"
 #include "game/freeride/race_events.h"
 #include "game/freeride/race_gates.h"
+#include "game/freeride/spot_holograms.h"
 #include "game/freeride/race_opponents.h"
 #include "game/freeride/risk_driving.h"
 #include "game/freeride/traffic.h"
@@ -290,6 +291,8 @@ private:
     // The gates of the race being driven (the retail checkpoint pack's start /
     // checkpoint / finish holograms, game/freeride/race_gates.h).
     RaceGates raceGates;
+    // The 3D spot markers over shops / houses (pack_spots.bnk holograms).
+    SpotHolograms spotHolograms;
     bool bRaceGates = true; // -noracegates
     void updateRaceGates();
     // The furniture of a licence test, built once per run: the slalom poles,
