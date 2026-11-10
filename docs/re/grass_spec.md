@@ -293,19 +293,43 @@ correctly placed, sized and blended under the plain Gouraud shader
   `-tpin 19584,24960 -clock 12`); validation layer 0 VUIDs during the
   frames (only the pre-existing shutdown `vkDestroyDevice` notice).
 * **The road-cover suppression (the poke-through fix):** every sector
-  indexes its TD_Road triangles at load (`BuildRoadIndex` — the
-  carve-ground mechanics on the road ribbons: items whose material resolves
-  `kRoadShaderSet`, up-facing triangles only, 8 m XZ buckets over the
+  indexes its paved surfaces at load (`BuildRoadIndex` — the carve-ground
+  mechanics: items whose material resolves `kRoadShaderSet` **or** the
+  architecture family `183157b81c6cff57` ('Village_Bandero',
+  'SF_Wall_Stone', 'FU_TractA'... — the material census under `-loggrass`
+  lists them), up-facing triangles only, 8 m XZ buckets over the
   sector-local collision soup). The emitter asks `SampleRoadSurface`
-  whether a road surface lies within `cardHeight + 0.25 m` above the
-  heightfield at the card's spot and skips the card when it does — the
-  roads ride above the sheet, so a card rooted under them poked through
-  the tarmac (the owner's report from the first Ferrari California test
-  drive). Cards well below a road surface (under a bridge deck) stay.
-  `-noroadskip` is the A/B; `-loggrass` counts the skips. Roads arriving
-  as `.pmi` instances (some parking lots) are not indexed; a card may
-  still overlap a road edge by up to `w/2` — the suppression tests the
-  card centre only.
+  whether a paved surface lies within `cardHeight + 0.25 m` above the
+  heightfield (tolerance `-roadskiptol` below it, default 0.05 m) at the
+  card's spot and skips the card when it does — the roads ride above the
+  sheet, so a card rooted under them poked through the tarmac (the owner's
+  report from the first Ferrari California test drive). Cards well below a
+  road surface (under a bridge deck) stay; walls and roofs are filtered by
+  the up-facing rule and the height window. `-noroadskip` is the A/B;
+  `-loggrass` counts the skips. Roads arriving as `.pmi` instances (some
+  parking lots) are not indexed; a card may still overlap a road edge by up
+  to `w/2` — the suppression tests the card centre only.
+* **The road-graph suppression (2026-11-10, the village cobble fix):** the
+  village streets and plazas are **terrain paint** — no road or
+  architecture geometry the index could find (the sector `-o` census proves
+  it: only walls / buildings carry collision there). The suppression now
+  also asks the **ROAD_MAP graph** (the `<Island>_ROAD_MAP.IA` /
+  `_ROAD_DETAIL.IA` network the map screen and the traffic parse — the
+  GRASSASTARMAC anchor's "grass interacts with the path network", §3):
+  every road polyline segment goes into an XZ segment hash
+  (`EdenWorld::GrassRoadIndex`, built once per island from the game mode),
+  and a card within `-grassroadwidth` (default 5.5 m) of a centreline is
+  skipped. The first-test-drive village renders clean cobbles
+  (`docs/images/grass_village_cobble_before/after.png`); the farm keeps its
+  density (20000 cards CAPPED, 685 graph-skipped at the farm teleport).
+  Junction plazas wider than ~11 m still take grass in their middle — the
+  width is a feel dial, not a pavement mask.
+* **The out-of-class `.pgr` skip (2026-11-10):** the grid's values beyond
+  the 24 `grasstypes.xml` classes used to clamp onto the last type and
+  render — including the road / path-marker-looking cells (§2's `0x59 /
+  0x5f / 0x60 / 0x9d` here, `0x7b / 0x7c` in sector-5-0-6-7). They skip
+  now (187-188 cells at the village spawn), counted as "path-marker cells
+  skipped" in `-loggrass`.
 * **One emit per frame:** every pass that draws the world (the prepass,
   the shadow casters, the ocean mirror, the environment cube faces, the
   main pass) used to re-walk the grids and re-upload the batch — the emit
@@ -351,9 +375,28 @@ correctly placed, sized and blended under the plain Gouraud shader
   shadow buffer leaves them 0.
 * Grid orientation + the road markers (`GRASSASTARMAC` interaction,
   `_OffRoad_*` ladder) — needs a retail A/B. The road *surfaces* are
-  handled now (§6: the poke-through suppression), but the roadside
-  grass-shrinking ladder is not: a card can still overlap a road edge by
-  up to `w/2` (centre-only test).
+  handled now (§6: the poke-through suppression + the ROAD_MAP graph
+  width), but the roadside grass-shrinking ladder is not: a card can still
+  overlap a road edge by up to `w/2` (centre-only test), and junction
+  plazas wider than ~11 m still take grass in their middle.
+* **The `.pgr` row-offset table is not settled (2026-11-10 deep probe).**
+  Both probed sectors' tables are index-shuffled (~50 % ascending steps)
+  and each carries one `0x1008` entry pointing back into the table itself.
+  The table-order decode is organic on the farm sector (visually validated
+  earlier) but produces full-width uniform bands on sector-5-0-6-7 (the
+  first-test-drive village): whole rows of one value, class strips crossing
+  the plaza — the bands the owner sees as grass on the streets. Sorted
+  storage order, reversal and 10-bit row bit-reversal all score the same
+  or worse on adjacent-row coherence (the metric saturates: one class
+  holds > 50 % of both sectors' cells). Hypotheses not yet exhausted: the
+  `(0, x)` RLE pairs as escapes (skipping them loses exactly the cells
+  needed for 1024 rows: farm 97,280 short / 4,955 pairs ≈ 19.6 cells per
+  pair; s5067 15,807 / 709 ≈ 22.3), a per-bank table variant, or the grid
+  not being a terrain map at all (the retail anchors point at per-EDGE
+  billboards: `MAX_GRASS_BILLBOARD_PER_EDGE`, `GRASSASTARMAC` — grass
+  along the path graph, not over the terrain). The port's placement keeps
+  the table-order decode + today's three suppressions; a real fix wants
+  the PS3 twins or a retail capture A/B.
 * Atlas cell layout precision (9 cells over 2048 px) and the `Bush` rule.
 * Density/size tuning against a retail capture — the port-native defaults
   are stride 2 / 20000 cards (§6, the once-per-frame emit made the raise

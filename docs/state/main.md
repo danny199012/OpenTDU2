@@ -15,6 +15,64 @@ appends its entry at the top of this file**, newest first, in the
 
 ---
 
+## Session 2026-11-10 (grass on the village cobbles, `main`): three more grass suppressions - the architecture family in the paved index, the ROAD_MAP road-graph width test, the out-of-class .pgr skip - the first-test-drive village renders clean cobbles (docs/images/grass_village_cobble_before/after.png); the .pgr row-table shuffle probed and documented as open
+
+The owner's task: "g_on1.png has grass where it shouldn't on road behind the
+car are you able to try fix the grass issue" - the village cobble plaza of
+the first test drive, still grassy after the morning's TD_Road suppression.
+
+### Root cause (three layers, all fixed)
+1. **Out-of-class `.pgr` values clamped onto a grass type**: the emit took
+   any cell value, `Min(v, 24 types - 1)` - the road/path-marker-looking
+   cells (`0x59/0x5f/0x60/0x9d` in the spec's sectors, `0x7b/0x7c` here)
+   rendered as the last (tallest) family. They skip now, counted as
+   "path-marker cells skipped" (187-188 at the village spawn).
+2. **The village plaza is not road geometry**: the sector `-o` material
+   census (new, `-loggrass`) shows the collision soup carries walls /
+   buildings / 'Village_Bandero' in the architecture family
+   `183157b81c6cff57` - the plaza streets are terrain paint. That family
+   joins `BuildRoadIndex` (up-facing + height-window rules keep walls /
+   roofs out automatically; the index grew 1445 -> 3213 triangles here, the
+   skip count ~unchanged - the streets really are paint).
+3. **The ROAD_MAP graph suppression** (the faithful GRASSASTARMAC shape):
+   `EdenWorld::GrassRoadIndex` - the ROAD_DETAIL polylines the map screen
+   already parses, as an XZ segment hash built once per island from
+   GMFreeRide; a card within `-grassroadwidth` (default 5.5 m) of a
+   centreline skips. The village renders clean
+   (`docs/images/grass_village_cobble_before/after.png`, same pose); the
+   farm keeps its cap (20000 CAPPED, 685 graph-skips, `-grassroadwidth
+   5.5`); `-roadskiptol` exposes the below-sheet window (0.05 m default).
+
+### The .pgr deep probe (documented in grass_spec.md 7, open)
+The row-offset table is index-shuffled in both probed sectors (~50 %
+ascending steps, one `0x1008` entry pointing back into the table) and the
+table-order decode is organic on the farm sector but full-width uniform
+bands on sector-5-0-6-7 - the bands read as grass stripes on the village.
+Sorted storage / reversal / 10-bit bit-reversal score no better on
+adjacent-row coherence (the metric saturates: one class > 50 % of both
+sectors). The `(0, x)` RLE pairs as escapes fit the missing-cell counts
+exactly (farm 97,280 short / 4,955 pairs = 19.6 cells; s5067 15,807 / 709 =
+22.3) but decoding them that way breaks row completeness. The retail
+anchors point at per-EDGE billboards (`MAX_GRASS_BILLBOARD_PER_EDGE`,
+`GRASSASTARMAC`) - the grid may not be a terrain map at all. The port keeps
+the table-order placement + today's suppressions; the true layout wants the
+PS3 twins or a retail capture.
+
+### Verified (headless, build 16, `-gm FREERIDE -skipcine -nopad
+-fixedtimestep -clock 13:00 -loggrass`)
+- Village (default spawn, the owner's repro): 482 road-skipped + 189
+  graph-skipped + 187 marker cells skipped; the cobble plaza and street
+  clean in the shot, planters / verge grass intact.
+- Farm (`-tpin 19584,24960`): 20000 cards CAPPED, 615 road + 685
+  graph-skips - the fields stay dense.
+- 0 errors, 0 stalls on every run.
+
+### Not done / next
+- The `.pgr` layout research (grass_spec.md 7) - PS3 twins or a retail
+  capture A/B; junction plazas wider than ~11 m still take grass in their
+  middle (the width dial is not a pavement mask).
+- The roadside `_OffRoad_` grass-shrinking ladder stays open.
+
 ## Session 2026-11-10 (wheel force feedback, `main`): `source/input/wheel_ffb.*` - the rim torque on a haptic steering wheel (front-axle lateral load, slip lightness, centring pull, speed damper, crash kick), the port's own composition documented in docs/re/ffb_spec.md; headless drive proves the feed end to end, the feel awaits the owner's wheel
 
 The owner's task: "you can start the FFB work ... it's something we were aiming

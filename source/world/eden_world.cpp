@@ -32,6 +32,12 @@ constexpr uint8_t kSamplerLinearClampUV = 5 + 3 * 2 + 2;
 constexpr uint64_t kGroundShaderSet = 0xb0f1234b0f123473ull;
 constexpr uint64_t kGroundHMShaderSet = 0xa0a0a1a1a2a2a3a3ull;
 constexpr uint64_t kRoadShaderSet = 0xc8ad93c95455291bull;
+// The architecture family (the material census, BuildRoadIndex -loggrass):
+// village models, walls, tracts, ruins ('Village_Bandero', 'SF_Wall_Stone',
+// 'FU_TractA'...). The village streets / plazas are up-facing geometry in
+// THIS family, not TD_Road - grass rooted on the sheet poked through them
+// (the owner's report, 2026-11-10, the first test-drive village).
+constexpr uint64_t kArchitectureShaderSet = 0x183157b81c6cff57ull;
 const uint64_t kShadowSlotType = GetIdentifier64bit( "SHADOW" );
 const uint64_t kSectorOffset = GetIdentifier64bit( "SECTROFF" );
 
@@ -85,6 +91,28 @@ bool GrassFlip() {
 bool GrassRoadSkip() {
     static const bool b = !CmdLine::HasArg( "-noroadskip" );
     return b;
+}
+
+// How far below the heightfield sheet a paved surface may sit and still
+// suppress the card (the plaza slabs the sheet covers by centimetres).
+float RoadSkipTolerance() {
+    static const float v = [] {
+        const char *p = CmdLine::GetArgValue( "-roadskiptol" );
+        return p != nullptr ? static_cast<float>( atof( p ) ) : 0.05f;
+    }();
+    return v;
+}
+
+// Half width of the road-graph suppression around a road centreline (the
+// village streets / plazas are terrain paint, the geometric road index never
+// sees them; the graph is the ROAD_MAP network the car drives - the
+// GRASSASTARMAC path law, grass_spec.md 3).
+float GrassRoadWidth() {
+    static const float v = [] {
+        const char *p = CmdLine::GetArgValue( "-grassroadwidth" );
+        return p != nullptr ? Clamp( static_cast<float>( atof( p ) ), 0.5f, 30.0f ) : 5.5f;
+    }();
+    return v;
 }
 
 bool LogGrass() {
@@ -383,14 +411,17 @@ bool EdenWorld::SampleCarveGround( const Sector &sector, float x, float z, float
     return bFound;
 }
 
-// The road ribbons of the sector -o model (materials resolving TD_Road,
-// kRoadShaderSet): indexed like the carve ground so drawGrass can ask
-// "does a road surface cover this spot". Roads ride ABOVE the heightfield -
-// on embankments by metres - so a card rooted on the sheet under a road
-// poked through the tarmac (the owner's grass-through-the-road report; the
-// drive physics never saw it because the car stands on the road's Havok
-// triangles). Roads arriving as .pmi instances (some parking lots) are not
-// indexed - the sector -o ribbons are the ones grass crosses.
+// The paved surfaces of the sector -o model the grass crosses: the TD_Road
+// ribbons AND the architecture family (kArchitectureShaderSet - the village
+// streets / plazas are its up-facing geometry; walls / roofs are filtered by
+// the up-facing rule and the height window below). Indexed like the carve
+// ground so drawGrass can ask "does a paved surface cover this spot".
+// Roads ride ABOVE the heightfield - on embankments by metres - so a card
+// rooted on the sheet under a road poked through the tarmac (the owner's
+// grass-through-the-road report; the drive physics never saw it because the
+// car stands on the road's Havok triangles). Roads arriving as .pmi
+// instances (some parking lots) are not indexed - the sector -o ribbons are
+// the ones grass crosses.
 void EdenWorld::BuildRoadIndex( Sector &sector ) {
     sector.RoadTriangles.clear();
     sector.RoadCells.clear();
@@ -403,11 +434,28 @@ void EdenWorld::BuildRoadIndex( Sector &sector ) {
     const std::vector<uint32_t> &soupIndices = sector.Objects.getCollisionIndices();
     constexpr float kCellSize = 8.0f;
     uint32_t numTriangles = 0;
+    // The material census (-loggrass): every collision-carrying item grouped
+    // by shader set, so the paved / plaza families that grass also crosses
+    // can be told apart from the TD_Road ribbons (the village cobble streets
+    // are NOT TD_Road items - the owner's second poke-through report).
+    struct GuidStat {
+        uint32_t Triangles = 0;
+        std::string Name;
+    };
+    std::unordered_map<uint64_t, GuidStat> census;
     for ( const EdenModel::Item &item : items ) {
         if ( item.CollisionCount < 3 || item.MaterialIndex >= materials.size() ) {
             continue;
         }
-        if ( materials[item.MaterialIndex].ShaderSetGUID != kRoadShaderSet ) {
+        const EdenMaterial &material = materials[item.MaterialIndex];
+        if ( material.ShaderSetGUID != kRoadShaderSet &&
+             material.ShaderSetGUID != kArchitectureShaderSet ) {
+            const uint32_t tris = item.CollisionCount / 3;
+            GuidStat &stat = census[ material.ShaderSetGUID ];
+            stat.Triangles += tris;
+            if ( stat.Name.empty() ) {
+                stat.Name = material.Name;
+            }
             continue;
         }
         for ( uint32_t i = 0; i + 2 < item.CollisionCount; i += 3 ) {
@@ -449,6 +497,13 @@ void EdenWorld::BuildRoadIndex( Sector &sector ) {
     if ( numTriangles != 0 && LogGrass() ) {
         OTDU_LOG_INFO( "EdenWorld: %s: %u road triangles indexed (%zu buckets)\n", SectorName( sector.Id ).c_str(),
                        numTriangles, sector.RoadCells.size() );
+    }
+    if ( LogGrass() && !census.empty() ) {
+        for ( const auto &entry : census ) {
+            OTDU_LOG_INFO( "EdenWorld: %s: census %016llx '%s' %u tris\n", SectorName( sector.Id ).c_str(),
+                           static_cast<unsigned long long>( entry.first ), entry.second.Name.c_str(),
+                           entry.second.Triangles );
+        }
     }
 }
 
@@ -3152,6 +3207,8 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
     const float atlasCellU = 1.0f / 9.0f;      // 9 tuft cells over the 2048 px strip [INF]
     uint32_t cards = 0;
     uint32_t roadSkipped = 0;
+    uint32_t roadGraphSkipped = 0; // within the ROAD_MAP graph's half width
+    uint32_t markerSkipped = 0; // out-of-class .pgr values (the path markers)
     const uint32_t maxCards = GrassMaxCards();
 
     // Near-first order: the sectors sorted by the distance of their centre
@@ -3262,7 +3319,18 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                     break;
                 }
                 const uint32_t v = pgrRowScratch[gx];
-                if ( v == 0x00 || v == 0xff ) {
+                // 0x00 = bare and anything at / past the class count is not a
+                // grass class (0xff included): the .pgr also carries road /
+                // path marker cells (0x59 / 0x5f / 0x60 / 0x9d, the
+                // GRASSASTARMAC law - grass interacts with the path network,
+                // grass_spec.md 2; the village cobble streets ARE the path
+                // network). They clamped onto the last grass type here and
+                // rendered ON the streets (the owner's second poke-through
+                // report, 2026-11-10). 0xff >= size, one predicate for all.
+                if ( v < 1 || v >= grassTypes.size() ) {
+                    if ( v != 0x00 && v != 0xff ) {
+                        markerSkipped++;
+                    }
                     continue;
                 }
                 const uint32_t hash = GrassHash( static_cast<uint32_t>( gx ), static_cast<uint32_t>( gy ) );
@@ -3280,17 +3348,29 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 const float scale = 1.0f + type.SizeDelta * ( f2 * 2.0f - 1.0f );
                 const float w = type.Width * scale;
                 const float cardHeight = type.Height * scale;
-                // A road surface within the card's reach of the sheet: the
+                // A paved surface within the card's reach of the sheet: the
                 // card would root under the tarmac and poke through it (the
                 // roads ride above the heightfield, the BuildRoadIndex
                 // comment). The +0.25 m margin covers the heightfield's
-                // bilinear vs the terrain-mesh triangles on slopes; a card
-                // well below a road surface (under a bridge deck) stays.
-                // -noroadskip restores the poke-through for the A/B.
+                // bilinear vs the terrain-mesh triangles on slopes; the
+                // tolerance below the sheet covers plaza slabs the terrain
+                // sheet covers by centimetres (grass rooted on the sheet
+                // pokes through them; the village streets, the owner's
+                // report). A card well below a road surface (under a bridge
+                // deck) stays. -noroadskip restores the poke-through for the
+                // A/B; -roadskiptol widens the below-sheet window.
                 float roadY;
                 if ( GrassRoadSkip() && SampleRoadSurface( *pSector, px, pz, y + cardHeight + 0.25f, roadY ) &&
-                     roadY > y - 0.05f ) {
+                     roadY > y - RoadSkipTolerance() ) {
                     roadSkipped++;
+                    continue;
+                }
+                // The road-graph test: the village streets / plazas are
+                // terrain paint inside the ROAD_MAP network's half width -
+                // the geometric index above has nothing to find there (the
+                // GRASSASTARMAC path law, grass_spec.md 3).
+                if ( GrassRoadSkip() && grassRoads.bBuilt && grassRoads.nearRoad( px, pz, GrassRoadWidth() ) ) {
+                    roadGraphSkipped++;
                     continue;
                 }
                 uint32_t bmp = static_cast<uint32_t>( Max( 0, type.GrassBitmap ) );
@@ -3391,9 +3471,11 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
         return;
     }
     if ( LogGrass() ) {
-        OTDU_LOG_INFO( "EdenWorld: grass %u cards (%u tris) within %.0f m%s, %u road-skipped, material guid %016llx\n",
+        OTDU_LOG_INFO( "EdenWorld: grass %u cards (%u tris) within %.0f m%s, %u road-skipped, %u graph-skipped, "
+                       "%u path-marker cells skipped, material guid %016llx\n",
                        cards, static_cast<uint32_t>( batch.Indices.size() / 3 ), dist, bCapped ? " CAPPED" : "",
-                       roadSkipped, static_cast<unsigned long long>( pGrassMaterial->ShaderSetGUID ) );
+                       roadSkipped, roadGraphSkipped, markerSkipped,
+                       static_cast<unsigned long long>( pGrassMaterial->ShaderSetGUID ) );
     }
     // Transient upload, the drawImpostors mechanics: the layout is the
     // PLANE_01 template (position + UV in stream 0, f16 normal in stream 1,

@@ -761,6 +761,12 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     }
     mapScreen.loadSpots( islandName );
     mapScreen.loadRoads( islandName );
+    // The grass road-graph suppression (input to drawGrass; the village
+    // streets / plazas are terrain paint the geometric road index never
+    // sees - docs/re/grass_spec.md 3 / 7).
+    if ( !mapScreen.getRoadShapes().empty() ) {
+        view.getWorld().buildGrassRoadIndex( mapScreen.getRoadShapes() );
+    }
     // Instant challenges (race markers on the road graph) and the police
     // chase (the cop car of the island's chaseconfig.cpr).
     raceEvents.load( islandName, mapScreen.getRoadNodes(), mapScreen.getRoadEdges() );

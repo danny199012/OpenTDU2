@@ -443,6 +443,92 @@ private:
 
 public:
     void setImpostorAmbient( const Vector3f &color ) { impostorAmbient = color; }
+    // The road-graph suppression (GRASSASTARMAC, grass_spec.md 3: grass
+    // interacts with the path network): the ROAD_MAP / ROAD_DETAIL graph the
+    // map screen parses, as an XZ segment hash. The village streets / plazas
+    // the graph covers are terrain paint - the geometric road index never
+    // sees them - so buildGrassBatch asks this whether a card sits within
+    // GrassRoadWidth() of a road edge's polyline.
+    struct GrassRoadIndex {
+        bool bBuilt = false;
+        static constexpr float kBucket = 8.0f;
+        std::vector<Vector3f> segmentPoints; // pairs (a, b); only x / z used
+        std::unordered_map<uint64_t, std::vector<uint32_t>> buckets;
+        static uint64_t CellKey( int32_t x, int32_t z ) {
+            return ( static_cast<uint64_t>( static_cast<uint32_t>( x ) ) << 32 ) |
+                   static_cast<uint32_t>( z );
+        }
+        // Every polyline segment of the ROAD_DETAIL curves, registered in
+        // every 8 m XZ bucket its bbox touches.
+        void build( const std::vector<std::vector<Vector3f>> &shapes ) {
+            bBuilt = false;
+            segmentPoints.clear();
+            buckets.clear();
+            for ( const std::vector<Vector3f> &shape : shapes ) {
+                for ( size_t i = 0; i + 1 < shape.size(); i++ ) {
+                    const Vector3f &a = shape[ i ];
+                    const Vector3f &b = shape[ i + 1 ];
+                    if ( a.x == b.x && a.z == b.z ) {
+                        continue;
+                    }
+                    const float minX = Min( a.x, b.x ), maxX = Max( a.x, b.x );
+                    const float minZ = Min( a.z, b.z ), maxZ = Max( a.z, b.z );
+                    const int32_t cx0 = static_cast<int32_t>( std::floor( minX / kBucket ) );
+                    const int32_t cx1 = static_cast<int32_t>( std::floor( maxX / kBucket ) );
+                    const int32_t cz0 = static_cast<int32_t>( std::floor( minZ / kBucket ) );
+                    const int32_t cz1 = static_cast<int32_t>( std::floor( maxZ / kBucket ) );
+                    if ( ( cx1 - cx0 ) > 256 || ( cz1 - cz0 ) > 256 ) {
+                        continue; // degenerate (an island-spanning jump between shapes)
+                    }
+                    const uint32_t slot = static_cast<uint32_t>( segmentPoints.size() / 2 );
+                    segmentPoints.push_back( a );
+                    segmentPoints.push_back( b );
+                    for ( int32_t cz = cz0; cz <= cz1; cz++ ) {
+                        for ( int32_t cx = cx0; cx <= cx1; cx++ ) {
+                            buckets[ CellKey( cx, cz ) ].push_back( slot );
+                        }
+                    }
+                }
+            }
+            if ( !segmentPoints.empty() ) {
+                bBuilt = true;
+            }
+        }
+        // Point -> segment distance in XZ (the roads follow the terrain; y
+        // unused), against the buckets the point's neighbourhood covers.
+        bool nearRoad( float x, float z, float radius ) const {
+            const int32_t cx = static_cast<int32_t>( std::floor( x / kBucket ) );
+            const int32_t cz = static_cast<int32_t>( std::floor( z / kBucket ) );
+            const int32_t reach = static_cast<int32_t>( std::floor( radius / kBucket ) ) + 1;
+            for ( int32_t dz = -reach; dz <= reach; dz++ ) {
+                for ( int32_t dx = -reach; dx <= reach; dx++ ) {
+                    const auto it = buckets.find( CellKey( cx + dx, cz + dz ) );
+                    if ( it == buckets.end() ) {
+                        continue;
+                    }
+                    for ( uint32_t slot : it->second ) {
+                        const Vector3f &a = segmentPoints[ slot * 2 ];
+                        const Vector3f &b = segmentPoints[ slot * 2 + 1 ];
+                        const float dxs = b.x - a.x, dzs = b.z - a.z;
+                        const float lengthSq = dxs * dxs + dzs * dzs;
+                        float t = lengthSq > 1e-9f ? ( ( x - a.x ) * dxs + ( z - a.z ) * dzs ) / lengthSq : 0.0f;
+                        t = Clamp( t, 0.0f, 1.0f );
+                        const float qx = a.x + dxs * t - x, qz = a.z + dzs * t - z;
+                        if ( qx * qx + qz * qz <= radius * radius ) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+    };
+    // One-time per island from the game mode: the road graph the map screen
+    // parsed (map_screen.h getRoadShapes) as the grass road-suppression
+    // index. Empty shapes (no ROAD_MAP) leave it unbuilt and the test inert.
+    void buildGrassRoadIndex( const std::vector<std::vector<Vector3f>> &roadShapes ) {
+        grassRoads.build( roadShapes );
+    }
 
 private:
     // Tall grass (docs/re/grass_spec.md): the retail ground-cover layer —
@@ -472,6 +558,7 @@ private:
     // all call EdenWorld::draw).
     void buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraPosition );
     void drawGrass( EdenRenderer &renderer, const Vector3f &cameraPosition );
+    GrassRoadIndex grassRoads;          // the ROAD_MAP graph as an XZ segment hash
     std::vector<GrassType> grassTypes;
     Bank grassBank;
     EdenModel grassModel;               // the PLANE_01 / PLANE_02 card template
