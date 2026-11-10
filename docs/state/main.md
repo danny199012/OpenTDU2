@@ -1,21 +1,45 @@
-# Session handoff — `win` / `main` (the integrator shard)
+# Session handoff — `main` (the one tree)
 
-**Only the integrator tree writes this file.** The agents have their own shard
-(`docs/state/glm.md`, `docs/state/cline.md`), so two branches never edit the
-same handoff file — `docs/STATE.md` used to be edited by both sides of 32 of the
-last 38 merges (every session prepends to the same block), which is what kept
-stopping `update-and-rebuild.bat`.
+One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
+appends its entry at the top of this file**, newest first, in the
+`## Session <date> (<topic>): <one-line result>` shape of `CLAUDE.md`
+§"The session-entry template".
 
-* **Append the new entry at the top**, directly under the rule, newest first, in
-  the `## Session <date> (<ordinal>, `win`): <one-line result>` shape of
-  `CLAUDE.md` §"The session-entry template".
-* **Do not** edit `docs/state/glm.md` or `docs/state/cline.md`, and **do not**
-  append to `docs/STATE.md` (frozen history up to session 62, 2026-11-01, plus
-  the shared `## Where we are` block).
-* Read order for a fresh agent: `CLAUDE.md` → this file → the agent shards →
-  `docs/STATE.md` for the deep history.
+* Read order for a fresh agent: your vendor's onboarding (`CLAUDE.md` /
+  `CLINE.md`) → this file → `PROGRESS.md` (the `WIP` rows especially) →
+  `docs/STATE.md` for the deep history (frozen up to session 62, 2026-11-01).
+* `docs/state/glm.md` / `cline.md` are the retired three-tree model's shards,
+  kept as history — do not append to them.
+* A session that is not pushed did not happen: commit + push `main` at the end
+  (RULES §4); a push publishes the auto prerelease the launcher reads.
 
 ---
+
+## Session 2026-11-10 (single-tree migration, `main`): the workflow moved to one directory, one public repo, one line
+
+The owner's decision: agents run one at a time in one shared directory
+(`C:\OpenTDU2`), rotating when the 5h / weekly quota runs out, and everything
+publishes to the public repo. Done: cloned `origin` =
+`https://github.com/danny199012/OpenTDU2` as `C:\OpenTDU2`; cherry-picked
+glm's two unpushed commits (the docs/images WebP shrink 218 MB → 22 MB + the
+README gallery links); captured the old win tree's uncommitted spot-holograms
+feature as `wip/spot-holograms` (compiles clean on top of `main`, never run);
+verified the win tip's shop/house world markers and the cline casino cashier
+work were already in `main` (the shader-blob drift between the old branches
+and `main` is stale, not missing work); `WORKSPACES.md` / `RULES.md` /
+`PROGRESS.md` / this handoff rewritten to the single-tree model; pushed as
+`4289a76` (the docs landed one push later than the images — the first push
+went out before the docs commit was moved onto `main`; two auto prereleases
+fired and the launcher sees the newest). Verified: `build-main\bin\opentdu2-main.exe`
+exit 0. Not done / next: the old trees (`C:\OpenTDU2-win` / `-glm` / `-cline`)
+are disposable — the owner deletes them when ready, never while an agent has
+one as its cwd; the owner's `E:` copy still points `origin` at the private
+archive (flip it with `git remote set-url origin
+https://github.com/danny199012/OpenTDU2.git` when next opened); the private
+repo stays frozen (optionally Archive it on GitHub); the RE data files
+(`docs/re/ps3/*`, `savegame_schema_360.txt`) live only there and must never be
+created in this tree. Next work: whatever the owner brings to the next agent;
+the hologram WIP row in `PROGRESS.md` names its own next step.
 
 ## Session 2026-11-05 (shop markers, `win`): shops and houses get their retail world marker tile
 
