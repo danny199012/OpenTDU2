@@ -3,16 +3,27 @@
 Tags: [CODE] read from the OpenTDU1 repository · [INF] inferred, reason given ·
 [DATA] game files.
 
-Repo: <https://github.com/CamilleKMI/OpenTestDriveUnlimited> — the **Test Drive
-Unlimited 1 (2006)** source port by the same author as our upstream
-(`CamilleKMI/OpenTDU2`). A local clone lives at `C:\temp\opentdu1-ref`
-(shallow, added 2026-10-29; re-clone or `git pull` there to update — it is
-**outside** this tree on purpose, do not commit it). Everything below was read
-from that clone; `FUN_00xxxxxx` comments in its code are the original TDU1 exe
-addresses, the same convention as ours.
+Repo: <https://github.com/opentestdriveunlimited/OpenTestDriveUnlimited> — the
+**Test Drive Unlimited 1 (2006)** source port. The org repo is canonical;
+CamilleKMI's personal fork (the author of our upstream `CamilleKMI/OpenTDU2`)
+sat 278 commits behind it and is no longer tracked. A local clone lives at
+`C:\temp\opentdu1-ref` (shallow, re-cloned 2026-11-10 at `5487449`; re-clone or
+`git pull` there to update — it is **outside** this tree on purpose, do not
+commit it). Everything below was read from that clone; `FUN_00xxxxxx` comments
+in its code are the original TDU1 exe addresses, the same convention as ours.
 
-Maturity (README): VideoBumper / CarShowCase / Sandbox / Login / **CinViewer** /
-BoatTour **done**; Living / Garage / Dressing / FreeRide in progress. Same
+**Licence status (2026-11-10): the org repo ships no licence** (no LICENSE
+file; GitHub reports `license: null`). No licence = all rights reserved: read
+it, extract laws, reimplement — but **no verbatim port into this GPL-3 tree
+until that changes**. The owner filed org issue #548 (2026-11-10) asking for
+GPL or explicit permission; revisit when it is answered.
+
+Maturity (README progress table, 2026-11-10): **FreeRide done** — as are Map,
+Home, Shop, Mission, Garage, Living, Sandbox, Dressing, Aftermarket,
+CarShowCase, TestCar, InstantChallenge, Estates, Login, Intro, CinViewer,
+VideoBumper, AITrainer; in progress: DriveIn, Club, OnlineReplay. Handling
+physics exists and runs **on Jolt** (Havok swapped out;
+`third_party/JoltPhysics`, CMake `OTDU_USE_JOLT`) — see §2.11. Same
 layout as ours (`source/{render,game,world,flash,...}`, `tdu_instance.cpp`,
 `gs_*` services), C++17/Vulkan.
 
@@ -281,6 +292,50 @@ Particles → Post2D). Useful as the authoritative ordering when we compare our
 own pass order (env cube → ocean refl → Z prepass → shadows → planar →
 opaque).
 
+### 2.11 Handling physics + force feedback (new 2026-11-10, post re-clone)
+
+The handling model the owner's issue #3 (silentvelour: "Drop TDU2 handling
+completely, implement TDU1 physics") asks about is now substantially
+implemented upstream — on **Jolt**, not Havok:
+
+- `source/physics/vehicle/physics_vehicle.cpp` — 5,874 lines, 3 stubs;
+  `vehicle_simulation.cpp` — 1,795 lines, 0 stubs; `gs_physics.cpp` — 6,754
+  lines, 11 stubs. `physics_vehicle_replay.cpp` (610 lines, upstream calls it
+  a throwaway tool) replays **retail Havok snapshots** (record header 0x10,
+  per-vehicle record 0x43b0, wheel stride 0x450) into the Jolt rebuild "to
+  evaluate the faithfulness of the physics model" — upstream validates its
+  handling against captures of the shipped game, the same evidence bar we
+  hold our own ports to.
+- **Bike physics exists too**: `bike_roll_limit_constraint.cpp` (101 lines,
+  0 stubs), a custom Jolt `TwoBodyConstraint` (`mRollLimit = 0.01f`) — the
+  lean-limit law. Issue #3 wants TDU2 bikes kept; with this, a TDU1-bike A/B
+  is on the table as well.
+- Port consequences [INF]: a handling port either brings Jolt in as a
+  dependency or translates the model onto our collision substrate (our
+  `docs/re/havok_collision_spec.md`); the Havok-snapshot replay tool would
+  not transfer either way — it exists to validate *their* Havok→Jolt swap.
+- **Force feedback, complete chain** [CODE]:
+  - tuning externs `input/gs_device.h:132-141`: `gFFBFactor`,
+    `gFFBLoadFactor[3]`, `gFFBLoadFromAccel[3]`, `gFFBSlipAngle[3][2]`,
+    `gFFBSpeedFactor[4][2]`; `config/device.cpp:168` registers `FFB_FACTOR`
+    (FUN_009859b0), `device.cpp:215-217` parse the load-curve args.
+  - composition `physics/gs_physics.cpp`: `EvalFFBCurve` (6441) piecewise
+    curve eval; per-frame block ~6481-6578: impact rumble (`sImpactRumble`,
+    `getRumbleMax` at 6504), speed-factor curve (6518-6522), load from
+    longitudinal G (6524), slip-angle term (6548+), `bFFBInvert` (6541),
+    slide rumble (6578+); debug graph at 3628 ("FFB graph (red = slip,
+    blue = slip factor, magenta = torque)").
+  - device out `input/gs_device.cpp:356-407`: SDL haptic constant + damper
+    effects, `ToSDLHapticLevel` (79), `kFFBUnitsScale`.
+  This is the whole issue-#3 FFB ask, written and exercised against the real
+  game — the licence ask (org #548) is the only gate on porting it.
+- **No refuel**: TDU1's gas stations are not implemented upstream (no
+  `fuel`/`refuel` anywhere in `source/`), so refueling for OpenTDU2 has no
+  OpenTDU1 code path — `docs/re/fuel_gas_station_spec.md` (TDU2's own
+  disabled Shell feature) stays the only source; the TDU Platinum mod's
+  reworked refuel is UX reference at most, never code or data in this tree
+  (see NOTICE / the retail-grabs rule).
+
 ---
 
 ## 3. Ranked reuse list (what to port, in order)
@@ -307,6 +362,18 @@ opaque).
    dashboard gauges (our ND_RPM/ND_SPD nodes are static today).
 9. **Streaming shape** — 7-sector/4-area slot manager + stream-center hooks,
    if our (2r+1)² ring ever shows pop-in.
+10. **Force feedback** — the §2.11 chain (curve externs → composition →
+    SDL haptic out), gated on the licence ask; benefits whichever handling
+    model is live and is small enough to reimplement from the laws alone.
+11. **TDU1 handling model as `-physicstdu1`** — issue #3's main ask; port
+    behind a toggle on player cars (TDU2 model stays default; the bike
+    question is decided separately), gated on the licence + a car-data
+    conversion plan (TDU1 has ~125 cars, TDU2 100+, partial overlap — every
+    ported car needs derived TDU1-style parameters; TDU2's
+    `DBCarPhysicsData` does not map 1:1).
+12. **Retail-physics replay validation** — upstream's idea, generalised:
+    capture retail TDU2 car states, replay them through our physics, diff —
+    the same faithfulness evidence for any handling work we do.
 
 ## 4. What TDU1 can NOT give us
 

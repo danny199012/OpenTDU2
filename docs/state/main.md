@@ -15,6 +15,52 @@ appends its entry at the top of this file**, newest first, in the
 
 ---
 
+## Session 2026-11-10 (OpenTDU1 reference re-point + physics/FFB inventory, `main`): the reference clone now tracks the org repo (the fork was 278 commits behind) and docs/re/opentdu1_reuse.md gains §2.11 — upstream's handling physics is done on Jolt (5,874-line physics_vehicle, retail-Havok replay validation, a bike roll-limit constraint) and the full FFB chain is in the clear; both gated on the licence ask (org issue #548, filed by the owner)
+
+The owner's task: the repoint behind issue #3 (silentvelour: drop TDU2
+handling, implement TDU1 physics; take OpenTDU's camera; keep TDU2 bikes) and
+the TDU Platinum question (can Milli's mod feed physics/camera/refuel).
+
+### What changed
+- `C:\temp\opentdu1-ref` re-cloned from the org repo
+  `opentestdriveunlimited/OpenTestDriveUnlimited` (shallow, `5487449`) —
+  CamilleKMI's personal fork sat 278 commits behind (stale since 2026-09-13);
+  the doc now names the org repo as canonical.
+- `docs/re/opentdu1_reuse.md`:
+  - header: repo + maturity refreshed (FreeRide **done** upstream now;
+    physics runs on Jolt — `third_party/JoltPhysics`, CMake
+    `OTDU_USE_JOLT`); **licence status recorded**: the org repo ships no
+    licence (GitHub `license: null`) — read-and-reimplement only, no
+    verbatim port into this GPL-3 tree until org issue #548 (the owner's
+    GPL/permission ask, filed 2026-11-10) is answered.
+  - new §2.11: the handling inventory (physics_vehicle.cpp 5,874 lines /
+    3 stubs; vehicle_simulation.cpp 1,795 / 0; gs_physics.cpp 6,754 / 11;
+    physics_vehicle_replay.cpp replays retail Havok snapshots — header 0x10,
+    per-vehicle record 0x43b0, wheel stride 0x450 — into Jolt to evaluate
+    faithfulness), the bike roll-limit constraint (101 lines, a Jolt
+    `TwoBodyConstraint`, `mRollLimit = 0.01f`), the complete FFB chain
+    (`input/gs_device.h:132-141` externs; `config/device.cpp:168`
+    `FFB_FACTOR`; `gs_physics.cpp` `EvalFFBCurve` 6441 + composition
+    6481-6578; `input/gs_device.cpp:356-407` SDL haptic constant + damper),
+    and the no-refuel finding (no `fuel`/`refuel` anywhere in OpenTDU1
+    source — TDU1's gas stations are unimplemented upstream, so
+    fuel_gas_station_spec.md stays the only code path; the Platinum mod's
+    reworked refuel is UX reference at most, never code or data in this
+    tree, NOTICE rule).
+  - ranked list gains 10-12: FFB (gated on the licence), TDU1 handling as
+    `-physicstdu1` behind a toggle (gated on the licence + a car-data
+    conversion plan), retail-physics replay validation as our
+    faithfulness-evidence pattern.
+
+### Not done / next
+- The physics / FFB / camera ports wait on org #548 (licence) — nothing else
+  blocks them; FFB is the smallest first move, then chase-cam laws, then the
+  handling epic with a car-data conversion plan.
+- Owner outreach to Milli, no reply yet: the 2026-10-30 DM (still unread),
+  the Turboduck forum message, and a Discord DM (2026-11-10, notes the
+  earlier attempts and that she is credited regardless of outcome).
+  Platinum files stay local-only reference regardless of the answer.
+
 ## Session 2026-11-10 (grass through roads + density, `main`): tufts no longer poke through the tarmac (each sector indexes its TD_Road triangles; the emitter skips covered cards) and the grass is 2.2x denser at ~the same frame cost (one emit per frame + a near-first scan + stride 2 / cap 20000)
 
 The owner's task: "Grass/Vegetation needs work During some tests I seen grass
