@@ -60,6 +60,21 @@ public:
     // /:SelItemType of the selection ("garage", "car"...), empty if none.
     const char *getSelectedType( const IntroCinematic &scene ) const;
 
+    // The self view (docs/re/emotes_spec.md; the retail walk-avatar state
+    // machine 6.3.3, states 5-7): the camera glides from the eye to a
+    // third-person spot behind the player avatar, which stands at the body's
+    // floor place (IntroCinematic::playPlayerEmote / startPlayerSelfView
+    // pose it; setPlayerEmotePlace is fed here every frame). Movement and
+    // selection are paused; endSelfView puts the first person camera back.
+    // [INF: the type 10 camera law is not decoded, the offsets are ours.]
+    void startSelfView( IntroCinematic &scene );
+    void endSelfView( IntroCinematic &scene );
+    inline bool isInSelfView() const { return bSelfView; }
+    // The emote picker (Dear ImGui; the retail wheel movie is ENC,
+    // docs/re/emotes_spec.md): one button per retail slot + the state line.
+    // Drawn by the walk modes' drawUI while the walk is live.
+    void drawEmotePickerUi( IntroCinematic &scene );
+
 private:
     WalkController controller;
     float fov = 1.0472f;
@@ -70,7 +85,11 @@ private:
     SelectionCallback selectionCallback;
     WorldHook worldHook;
     bool bCursorLabels = false;
+    bool bSelfView = false;
+    float selfViewBlend = 0.0f; // 0: the eye pose, 1: the third person pose
+    Vector3f selfViewEye;       // the pose the glide starts from
 
     Vector3f collide( const IntroCinematic &scene, const Vector3f &from, const Vector3f &to ) const;
     void updateSelection( IntroCinematic &scene, float deltaTime );
+    void updateSelfView( IntroCinematic &scene, float deltaTime );
 };

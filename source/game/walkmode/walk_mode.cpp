@@ -1,7 +1,9 @@
 #include "shared.h"
 #include "walk_mode.h"
 
+#include "debug/gs_imgui.h"
 #include "game/avatarchoice/intro_cinematic.h"
+#include "imgui.h"
 #include "physics/havok_collision.h"
 #include "system/cmd_line.h"
 
@@ -359,7 +361,80 @@ void WalkMode::updateSelection( IntroCinematic &scene, float deltaTime ) {
     }
 }
 
+void WalkMode::startSelfView( IntroCinematic &scene ) {
+    if ( bSelfView ) {
+        return;
+    }
+    bSelfView = true;
+    selfViewBlend = 0.0f;
+    selfViewEye = controller.getPosition();
+    clearSelection( scene );
+    // FUN_0094f440's selection off + the retail state 5 fade start
+    // (facefx_spec.md 6.3.3); the avatar itself is posed by the caller
+    // (IntroCinematic::startPlayerSelfView / playPlayerEmote).
+    scene.startPlayerSelfView();
+    static const bool bLogEmotes = CmdLine::HasArg( "-logemotes" );
+    if ( bLogEmotes ) {
+        const Vector3f &p = controller.getPosition();
+        OTDU_LOG_INFO( "EMOTE: self view in, eye (%.2f, %.2f, %.2f)\n", p.x, p.y, p.z );
+    }
+}
+
+void WalkMode::endSelfView( IntroCinematic &scene ) {
+    if ( !bSelfView ) {
+        return;
+    }
+    bSelfView = false;
+    scene.stopPlayerEmote();
+    resume( scene );
+    static const bool bLogEmotes = CmdLine::HasArg( "-logemotes" );
+    if ( bLogEmotes ) {
+        OTDU_LOG_INFO( "EMOTE: self view out\n" );
+    }
+}
+
+void WalkMode::updateSelfView( IntroCinematic &scene, float deltaTime ) {
+    // The glide (0.25 s) from the stored eye pose to a third person spot
+    // behind the avatar [INF: the retail type 10 camera re-aims instantly
+    // at avatar + (0, 1.6), FUN_00950760; the glide is ours]. While in the
+    // self view the body does not move (retail states 6/7) and the avatar
+    // holds the body's floor place, facing the walk yaw.
+    constexpr float kGlideTime = 0.25f;
+    constexpr float kCameraBack = 2.2f;
+    constexpr float kCameraHeight = 1.75f;
+    constexpr float kLookHeight = 1.2f;
+    selfViewBlend = Clamp( selfViewBlend + deltaTime / kGlideTime, 0.0f, 1.0f );
+    const Vector3f eye = controller.getPosition();
+    const Vector3f forward = controller.getForward();
+    const float yaw = std::atan2( forward.x, forward.z );
+    const Vector3f floor = eye - Vector3f( 0.0f, eyeHeight, 0.0f );
+    const Vector3f flatForward( std::sin( yaw ), 0.0f, std::cos( yaw ) );
+    scene.setPlayerEmotePlace( floor, yaw );
+    const Vector3f orbit = floor - flatForward * kCameraBack + Vector3f( 0.0f, kCameraHeight, 0.0f );
+    const Vector3f target = floor + Vector3f( 0.0f, kLookHeight, 0.0f );
+    const Vector3f position = selfViewEye + ( orbit - selfViewEye ) * selfViewBlend;
+    // Aim at a target that starts where the eye was looking and swings onto
+    // the avatar (a position lerp + derived heading, no quaternion slerp).
+    const Vector3f eyeTarget = selfViewEye + forward * 2.0f;
+    const Vector3f lookAt = eyeTarget + ( target - eyeTarget ) * selfViewBlend;
+    const Vector3f direction = ( lookAt - position ).normalized();
+    const float camYaw = std::atan2( direction.x, direction.z );
+    const float camPitch = std::asin( Clamp( direction.y, -1.0f, 1.0f ) );
+    // The walk heading law (WalkController::getHeading): q* = Ry(yaw) Rx(-pitch),
+    // passed conjugated like every setLocalCamera caller.
+    const Quaternionf conjugate = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), camYaw ) *
+                                  Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), -camPitch );
+    scene.setLocalCamera( position, Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w ), fov,
+                          kWalkNearPlane );
+}
+
 void WalkMode::update( IntroCinematic &scene, float deltaTime, bool bInputEnabled ) {
+    if ( bSelfView ) {
+        // Retail states 6/7: the body is parked, the camera is the self view
+        // (updateSelfView); the game mode drives the emote choice / the end.
+        updateSelfView( scene, deltaTime );
+        return;
+    }
     controller.update( deltaTime, bInputEnabled );
     resume( scene );
     // -logwalk: eye position + PNJ proximity every 0.5 s (body collisions).
@@ -395,4 +470,39 @@ void WalkMode::placeLooking( IntroCinematic &scene, const Vector3f &eye, const V
                                   Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), -pitch );
     controller.reset( eye, Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w ) );
     resume( scene );
+}
+
+// The emote picker (docs/re/emotes_spec.md): one button per retail slot,
+// the state line underneath. The retail emote wheel is a Flash movie the
+// port does not have (the emop / emcl FSCommands reach the manager, the
+// movie itself is undocumented); this panel is the OpenTDU2 stand-in.
+void WalkMode::drawEmotePickerUi( IntroCinematic &scene ) {
+    ImGui::SetNextWindowPos( DpiScaled( 20.0f, 260.0f ), ImGuiCond_FirstUseEver );
+    ImGui::SetNextWindowSize( DpiScaled( 220.0f, 240.0f ), ImGuiCond_FirstUseEver );
+    if ( !ImGui::Begin( "EMOTES" ) ) {
+        ImGui::End();
+        return;
+    }
+    const std::vector<IntroCinematic::PlayerEmote> &emotes = IntroCinematic::getPlayerEmotes();
+    char label[64];
+    for ( int32_t i = 0; i < static_cast<int32_t>( emotes.size() ); i++ ) {
+        snprintf( label, sizeof( label ), "%d  %s", i + 1, emotes[static_cast<size_t>( i )].pLabel );
+        if ( ImGui::Button( label ) ) {
+            if ( !bSelfView ) {
+                startSelfView( scene );
+            }
+            scene.playPlayerEmote( i );
+        }
+    }
+    ImGui::Separator();
+    if ( scene.isPlayerEmotePlaying() ) {
+        ImGui::Text( "playing %s (%.1f s)",
+                     emotes[static_cast<size_t>( scene.getPlayerEmoteIndex() )].pLabel,
+                     scene.getPlayerEmoteDuration() );
+    } else if ( bSelfView ) {
+        ImGui::TextDisabled( "self view (X: back)" );
+    } else {
+        ImGui::TextDisabled( "X: self view" );
+    }
+    ImGui::End();
 }

@@ -15,6 +15,67 @@ appends its entry at the top of this file**, newest first, in the
 
 ---
 
+## Session 2026-11-10 (walk-mode emotes, `main`): the 8 retail avatar emotes play in the self view — X / 1..8 / the EMOTES panel, `-emote <label>` for tests
+
+The owner's task: "implement the characters emotes if possible" (after confirming
+`origin` = `https://github.com/danny199012/OpenTDU2`).
+
+### What changed
+- `docs/re/emotes_spec.md` (new) — the feature spec: the 16 `em_*.anm` of
+  `avatarsdriver.bnk` (`anims\emotes\em_xan`, 8 emotes x sex = the `animAvatar[8..16]`
+  slots of `Entity__AvatarOnline`, the "hello(a)" of tess_garage_spec 4.2 is
+  `em_helloa-w`), the retail trigger path refs, the port's [INF] choices, the [ENC] gaps.
+- `source/game/avatarchoice/intro_cinematic.*` — the clip table (`getPlayerEmotes`, the
+  retail slot order), `playPlayerEmote` / `startPlayerSelfView` / `stopPlayerEmote` /
+  `setPlayerEmotePlace` + `updateEmotePlayer` (bind -> `co_stand` looped ->
+  `BlendPoses` toward the clip, 0.2 s ease each way, the `SeatedAvatar::setOverride`
+  pattern), called from `updatePnjs()` in the `bPlayerSeated` chain.
+- `source/game/walkmode/walk_mode.*` — `startSelfView` / `endSelfView` / `updateSelfView`
+  (the body parks, the camera glides 0.25 s to a 2.2 m / 1.75 m orbit aimed at floor
+  + 1.2 m, feeds `setPlayerEmotePlace`; the retail type-10 camera law is [ENC]) and the
+  shared `drawEmotePickerUi` (Dear ImGui; the retail wheel movie is undocumented).
+- `source/game/firstwalkmode/gm_first_walk_mode.*`, `source/game/spots/interior_walk.*`,
+  `source/game/casino/casino_interior.*` + `gm_casino.cpp` — the same emote law in the
+  three walk hosts: `IA_Emote` (X) toggles the self view, 1..8 the slots, the view
+  returns at the clip end (the retail state 7 -> 4), B in the self view goes back instead
+  of leaving the room, A ignored; `-emote <label>` plays on the walk start.
+- `source/input/gs_input.*` — `IA_Emote` / `EMOTE_MENU`, default X (the retail action
+  0x22 binding is [ENC]; X collides with nothing in the walk contexts, rebindable via
+  controls.ini).
+- `source/tdu_instance.cpp` — autoplay action `emote` (the `press=` path; autoplay
+  `key=X` injects the raw scancode and does not map through the action bindings — a
+  real keyboard X does, that was the one test dead end).
+- `README.md` flags row, `PROGRESS.md` Done row, `docs/re/casino_spec.md` §8 row (the
+  emote half of "no cocktail or emote to *use*" is now built).
+
+### Verified
+- `powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1` exit 0 (build 11,
+  509d6ce+dirty); check-build: exe newer than every source.
+- FIRST_WM headless (`-allowskip -emote hello -logemotes`, autoplay skip + shots):
+  `EMOTE: self view in, eye (-7.73, 1.69, 16.32)` -> `EMOTE: playing 'hello'
+  (em_hello-m.anm, 4.92 s)` -> `EMOTE: self view out` at the clip end (~frame 417);
+  screenshots `docs/images/emote_hello_garage.webp` (the wave, third person) and
+  `emote_return_firstperson.webp` (after the return, the A/B).
+- Trigger paths: `press=emote` toggles the self view (idle), then autoplay `key=3`
+  played `funny` (`em_funny-m.anm, 4.16 s`) — `docs/images/emote_funny_garage.webp`.
+- Casino hall (`-gm CASINO -casinoroom hall -skipcine -walkat ... -emote cheers`):
+  `playing 'cheers' (em_cheers-m.anm, 4.32 s)` — `docs/images/emote_cheers_casino.webp`.
+
+### Ruled out / notes
+- The retail emote wheel is a Flash movie that never shipped readable (`emop`/`emcl`
+  reach the manager, the movie is undocumented) — the ImGui panel is the stand-in.
+- The retail avatar opacity fade (FUN_00b85460) needs skin-shader alpha the port has no
+  path for; the camera glide carries the transition instead.
+- The `Emote_11..33` -> slot mapping is not decoded; the unlockables stay inert and the
+  emotes are not gated.
+- The woman clips are in the bank and the per-sex branch is the SeatedAvatar law, but
+  the runs played the default male profile (no CLI flag forces the avatar sex).
+
+### Not done / next
+- The cocktails (the other half of casino_spec §8's row) still need the prop work.
+- If the owner wants the pad: the emote key is keyboard-only right now (a pad binding
+  for IA_Emote wants the owner's button preference).
+
 ## Session 2026-11-10 (single-tree migration, `main`): the workflow moved to one directory, one public repo, one line
 
 The owner's decision: agents run one at a time in one shared directory

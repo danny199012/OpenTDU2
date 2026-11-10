@@ -141,6 +141,10 @@ public:
     inline bool isActive() const { return bActive; }
     inline eRoom getRoom() const { return room; }
     inline const Vector3f &getWalkPosition() const { return walk.getPosition(); }
+    // The emote hooks (docs/re/emotes_spec.md): the owner mode's drawUI draws
+    // the picker through these while the walk is live.
+    inline bool isWalking() const { return bWalking; }
+    inline WalkMode &getWalk() { return walk; }
 
     // The selectable the walk mode currently points at (empty if none).
     std::string getSelectedType() const {
@@ -275,6 +279,10 @@ private:
     // the camera to the walker, so it ran over every cutscene (the walker sat
     // at the room origin before the walk started - the C_INTRO "dunes").
     bool bWalking = false;
+    // The emote key / slots / auto return (the FIRST_WM law, shared).
+    void updateEmotes( float deltaTime );
+    bool bEmoteWasPlaying = false;
+    bool bAutoEmotePlayed = false;
     // The hall's rankings tube behind the podium (casino_spec 9.11).
     CasinoRankingScreen rankings;
     bool bViewingRankings = false; // looking at the screen (RankingCamera)

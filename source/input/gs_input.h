@@ -48,6 +48,9 @@ enum class eInputAction : uint32_t {
     IA_AccessoriesRight,
     IA_AccessoriesUp,
     IA_AccessoriesDown,
+    // OpenTDU2 extra: the walk-mode emote / self view (docs/re/emotes_spec.md;
+    // the retail action 0x22 binding is ENC, X is ours).
+    IA_Emote,
 
     IA_Count
 };

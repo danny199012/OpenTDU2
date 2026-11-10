@@ -359,6 +359,39 @@ public:
     // driveiklayer6 IK (hands / feet / back on the car nodes); replaces the
     // .sce "Avatar" actor while set (C_OUTRO message avm4:CIN_CAR) [INF].
     bool setPlayerSeated( bool bSeated );
+    // Player emotes (docs/re/emotes_spec.md): the retail walk-avatar emote
+    // clips of avatarsdriver.bnk (anims\emotes\em_xan, em_*.anm, one per sex)
+    // played on the player avatar, standing at a walk-mode place (the
+    // self-view camera type 10 law, docs/re/facefx_spec.md 6.3.3 states 6/7).
+    struct PlayerEmote {
+        const char *pLabel; // picker / -emote name ("hello")
+        const char *pMan;   // anims\emotes\em_xan\avatar clip (.anm in the bank)
+        const char *pWoman; // anims\emotes\em_xan\avatrice clip
+    };
+    // The retail emote slots, tess_garage_spec.md 4.2 animAvatar[8..16] order
+    // (names [DATA]; slot 8 repeats followme in the dump, the 8 unique kept).
+    static const std::vector<PlayerEmote> &getPlayerEmotes();
+    static int32_t findPlayerEmote( const char *pLabel );
+    // Plays the emote on the player avatar at the place set by
+    // setPlayerEmotePlace (bind pose -> co_stand idle -> the clip, 0.2 s ease
+    // each way [INF: the retail blend weights are ENC]); false without the
+    // avatar / the bank / the clip.
+    bool playPlayerEmote( int32_t index );
+    // Self-view idle: the avatar stands at the place without a clip (the
+    // retail state 6 look-at-your-avatar view before an emote is chosen).
+    bool startPlayerSelfView();
+    void stopPlayerEmote();
+    inline bool isPlayerEmoteActive() const { return bPlayerEmote; }
+    // True while the clip is under way (the caller's "emote ended -> leave
+    // the self view" test, the retail state 7 -> 4 return).
+    inline bool isPlayerEmotePlaying() const {
+        return bPlayerEmote && playerEmoteClip != nullptr && playerEmoteTime < playerEmoteClip->getDuration();
+    }
+    inline int32_t getPlayerEmoteIndex() const { return playerEmoteIndex; }
+    float getPlayerEmoteDuration() const;
+    // The walk-mode floor place of the avatar (island world position of the
+    // feet, heading in radians); fed every frame while the self view is on.
+    void setPlayerEmotePlace( const Vector3f &floorPosition, float headingY );
     // SHOP "Enter" (FUN_00a519b0): the player avatar on the driver seat of a
     // showroom car (index of addShowCar) instead of the scene car; -1 = the
     // scene car (default).
@@ -653,6 +686,17 @@ private:
     bool loadDriverIKOffsets( int32_t idCar, bool bWoman );
     bool bPlayerSeated = false;
     void updateSeatedPlayer();
+    // The walk-mode emote / self-view state (playPlayerEmote).
+    bool bPlayerEmote = false;      // avatar posed at the emote place
+    int32_t playerEmoteIndex = -1;  // -1: self-view idle (no clip)
+    float playerEmoteTime = 0.0f;
+    float playerEmoteFade = 0.0f;   // emote pose weight over the stand idle
+    Vector3f playerEmoteFloor;
+    float playerEmoteHeading = 0.0f;
+    std::unique_ptr<EdenAnimation> playerEmoteClip;
+    EdenAnimation standClip;        // co_stand-<sex>, the idle base pose
+    bool bStandClip = false;
+    void updateEmotePlayer();
     CineSubtitles subtitles;        // the authored captions of the main cinematic
     bool bSubtitles = true;         // -subtitles 0|1 (default on when a file exists)
     std::string weatherName;

@@ -3390,6 +3390,11 @@ void GMFreeRide::teleportTo( const Vector3f &target, float heading, bool bHasHea
 }
 
 void GMFreeRide::drawUI() {
+    // The emote picker over an interior walk (the shops / houses; the garage
+    // story walk has its own in gm_first_walk_mode).
+    if ( interior.isWalking() ) {
+        interior.getWalk().drawEmotePickerUi( interior.getScene() );
+    }
     // The cheats panel: F4, or the retail dev-feature pad code (a circle of the
     // D-pad three times with the option button mashed - see Cheats::feedPadCode).
     // gpInput::wasKeyPressed, like the world viewer's F2, so the autoplay can

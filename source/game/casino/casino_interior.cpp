@@ -9,6 +9,8 @@
 #include "render/eden/eden_scene_view.h"
 #include "system/cmd_line.h"
 
+#include <SDL3/SDL_scancode.h>
+
 namespace {
 // The walk camera Fov of the spot interiors (InteriorWalk::kWalkFov) [INF].
 constexpr float kWalkFov = 1.0472f;
@@ -215,6 +217,10 @@ void CasinoInterior::startWalk() {
             }
         }
     }
+    if ( walk.isInSelfView() ) {
+        walk.endSelfView( scene ); // a room swap restarts the walk cleanly
+    }
+    bEmoteWasPlaying = false;
     if ( camera.empty() || !walk.start( scene, camera, kWalkFov ) ) {
         OTDU_LOG_WARN( "CasinoInterior: no walk start camera in '%s'\n", bankPath.c_str() );
     }
@@ -227,6 +233,52 @@ void CasinoInterior::startWalk() {
         OTDU_LOG_INFO( "CasinoInterior: walking '%s' at '%s' (%.2f, %.2f, %.2f)%s\n", RoomName( room ), camera.c_str(),
                        position.x, position.y, position.z, bFound ? "" : " [no entity camera]" );
     }
+}
+
+// The emotes (docs/re/emotes_spec.md), the FIRST_WM law: X toggles the self
+// view, 1..8 the slots, the view returns at the clip end; -emote <label>
+// plays one on the walk start (headless tests). The casino is where the
+// retail Emote_11..33 unlockables come from (casino_spec.md 7).
+void CasinoInterior::updateEmotes( float deltaTime ) {
+    (void)deltaTime;
+    // -emote <label>: play once on the walk start; before the self view gate
+    // (it is what starts the view).
+    static const char *pAutoEmote = CmdLine::GetArgValue( "-emote" );
+    if ( pAutoEmote != nullptr && !bAutoEmotePlayed ) {
+        bAutoEmotePlayed = true;
+        const int32_t index = IntroCinematic::findPlayerEmote( pAutoEmote );
+        if ( index >= 0 ) {
+            if ( !scene.isPlayerEmoteActive() ) {
+                walk.startSelfView( scene );
+            }
+            scene.playPlayerEmote( index );
+        } else {
+            OTDU_LOG_WARN( "EMOTE: -emote '%s' is not one of the slots\n", pAutoEmote );
+        }
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_Emote ) ) {
+        if ( walk.isInSelfView() ) {
+            walk.endSelfView( scene );
+        } else {
+            walk.startSelfView( scene );
+        }
+    }
+    if ( !walk.isInSelfView() ) {
+        bEmoteWasPlaying = false;
+        return;
+    }
+    const int32_t emoteCount = static_cast<int32_t>( IntroCinematic::getPlayerEmotes().size() );
+    for ( int32_t i = 0; i < emoteCount && i < 9; i++ ) {
+        if ( gpInput->wasKeyPressed( static_cast<SDL_Scancode>( SDL_SCANCODE_1 + i ) ) ) {
+            scene.playPlayerEmote( i );
+            break;
+        }
+    }
+    const bool bPlaying = scene.isPlayerEmotePlaying();
+    if ( bEmoteWasPlaying && !bPlaying ) {
+        walk.endSelfView( scene );
+    }
+    bEmoteWasPlaying = bPlaying;
 }
 
 namespace {
@@ -859,17 +911,26 @@ CasinoInterior::eAction CasinoInterior::tick( float deltaTime ) {
     handleEndEvents();
     if ( bWalking ) {
         walk.update( scene, deltaTime, true );
+        updateEmotes( deltaTime );
     }
     rankings.update( scene, walk.getPosition(), bWalking, deltaTime );
     if ( bConsumed || !bWalking ) {
         return eAction::None;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
+        if ( walk.isInSelfView() ) {
+            // B in the self view goes back to first person, not out of the room.
+            walk.endSelfView( scene );
+            return eAction::None;
+        }
         // B: back to the hall from a game room, out of the casino from the hall.
         return room == eRoom::Hall ? eAction::Leave : eAction::BackToHall;
     }
     if ( !gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         return eAction::None;
+    }
+    if ( walk.isInSelfView() ) {
+        return eAction::None; // the selection is cleared in the self view
     }
     const int32_t selected = walk.getSelected();
     if ( selected < 0 ) {

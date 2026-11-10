@@ -654,8 +654,12 @@ void GMFirstWalkMode::tick( float deltaTime ) {
     // door pose (model space transforms) wins while the door moves.
     garage.getCar().updateWindows( deltaTime );
     updateDoor( deltaTime );
+    if ( state != eState::Walk && walk.isInSelfView() ) {
+        walk.endSelfView( garage ); // the self view lives in the walk state only
+    }
     if ( state == eState::Walk ) {
         walk.update( garage, deltaTime, true );
+        updateEmotes( deltaTime );
         bAimingAtCar = aimingAtCar();
         // ACCESSORIES_LEFT with the reticle on the car and the door closed:
         // FSCommand opdo (intro.vmf ItemType 'vehicle' over sends it; the
@@ -792,5 +796,60 @@ void GMFirstWalkMode::draw() {
     if ( bLoaded ) {
         garage.draw();
         pauseMenu.draw( gpRender->get2DRenderer() );
+    }
+}
+
+// The emotes (docs/re/emotes_spec.md): the retail self view flow — the emote
+// key opens it (state 6, facefx_spec.md 6.3.3), a chosen emote plays (state
+// 7) and the first person view returns at its end (state 4). Keys 1..8 pick
+// the emote slots while the self view is on; -emote <label> plays one on the
+// walk start (headless tests).
+void GMFirstWalkMode::updateEmotes( float deltaTime ) {
+    (void)deltaTime;
+    // -emote <label>: play once on the walk start (headless emote tests).
+    // Before the self view gate: it is what starts the view.
+    static const char *pAutoEmote = CmdLine::GetArgValue( "-emote" );
+    if ( pAutoEmote != nullptr && !bAutoEmotePlayed ) {
+        bAutoEmotePlayed = true;
+        const int32_t index = IntroCinematic::findPlayerEmote( pAutoEmote );
+        if ( index >= 0 ) {
+            if ( !garage.isPlayerEmoteActive() ) {
+                walk.startSelfView( garage );
+            }
+            garage.playPlayerEmote( index );
+        } else {
+            OTDU_LOG_WARN( "EMOTE: -emote '%s' is not one of the slots\n", pAutoEmote );
+        }
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_Emote ) ) {
+        if ( walk.isInSelfView() ) {
+            walk.endSelfView( garage );
+        } else {
+            walk.startSelfView( garage );
+        }
+    }
+    if ( !walk.isInSelfView() ) {
+        bEmoteWasPlaying = false;
+        return;
+    }
+    const int32_t emoteCount = static_cast<int32_t>( IntroCinematic::getPlayerEmotes().size() );
+    for ( int32_t i = 0; i < emoteCount && i < 9; i++ ) {
+        if ( gpInput->wasKeyPressed( static_cast<SDL_Scancode>( SDL_SCANCODE_1 + i ) ) ) {
+            garage.playPlayerEmote( i );
+            break;
+        }
+    }
+    const bool bPlaying = garage.isPlayerEmotePlaying();
+    if ( bEmoteWasPlaying && !bPlaying ) {
+        walk.endSelfView( garage );
+    }
+    bEmoteWasPlaying = bPlaying;
+}
+
+// The emote picker is WalkMode::drawEmotePickerUi (shared with the freeride
+// interiors); it shows while the walk state is live.
+void GMFirstWalkMode::drawUI() {
+    if ( state == eState::Walk ) {
+        walk.drawEmotePickerUi( garage );
     }
 }

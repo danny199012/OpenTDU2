@@ -814,6 +814,7 @@ void TestDriveGameInstance::runAutoplay() {
         {"accup",       eInputAction::IA_AccessoriesUp   },
         {"accdown",     eInputAction::IA_AccessoriesDown },
         {"map",         eInputAction::IA_Map             },
+        {"emote",       eInputAction::IA_Emote           },
     };
     for ( const AutoplayCommand &command : autoplay ) {
         if ( command.Frame != frameIndex ) {

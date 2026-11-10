@@ -22,6 +22,7 @@ public:
     void tick( float deltaTime ) override;
     void drawOffscreen() override;
     void draw() override;
+    void drawUI() override;
     void exit() override;
 
 private:
@@ -111,6 +112,9 @@ private:
     float outroWheelSpin = 0.0f;
     Vector3f outroPrevCarPos;
     bool bOutroPrevValid = false;
+    // The walk-mode emotes (docs/re/emotes_spec.md): self view + clip.
+    bool bEmoteWasPlaying = false; // the auto return once the clip ends
+    bool bAutoEmotePlayed = false; // -emote <label> one-shot on the walk start
 
     void onCinematicEnd( const std::string &name );
     void onCommand( const std::string &command );
@@ -130,4 +134,5 @@ private:
     bool aimingAtCar() const;
     bool wasAccessoriesLeftPressed() const;
     void updateCockpitCamera();
+    void updateEmotes( float deltaTime );
 };

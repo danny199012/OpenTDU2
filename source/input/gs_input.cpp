@@ -56,6 +56,8 @@ constexpr ActionName kActionNames[] = {
     { eInputAction::IA_AccessoriesRight, "ACCESSORIES_RIGHT" },
     { eInputAction::IA_AccessoriesUp, "ACCESSORIES_UP" },
     { eInputAction::IA_AccessoriesDown, "ACCESSORIES_DOWN" },
+    // OpenTDU2 extra, no Default_KB.xmb row (the extras block binds it).
+    { eInputAction::IA_Emote, "EMOTE_MENU" },
 };
 
 // Eden key channel names (DeviceXXX.xmb / Default_KB.xmb) to SDL scancodes.
@@ -214,6 +216,7 @@ void GSInput::loadDefaultBindings() {
     bind( eInputAction::IA_AccessoriesRight, { SDL_SCANCODE_KP_6 } );
     bind( eInputAction::IA_AccessoriesUp, { SDL_SCANCODE_KP_8 } );
     bind( eInputAction::IA_AccessoriesDown, { SDL_SCANCODE_KP_2 } );
+    bind( eInputAction::IA_Emote, { SDL_SCANCODE_X } );
 }
 
 void GSInput::loadDefaultPadBindings() {
@@ -364,6 +367,9 @@ bool GSInput::initialize( TestDriveGameInstance *pInstance ) {
     // BACK_ON_TRACK has no key in Default_KB.xmb (pad only, B / circle):
     // OpenTDU2 adds R for the keyboard players.
     bindings[static_cast<size_t>( eInputAction::IA_BackOnTrack )].Scancodes.push_back( SDL_SCANCODE_R );
+    // The walk-mode emote / self view (no Default_KB.xmb action 0x22 row):
+    // X, rebindable like the rest (controls.ini).
+    bindings[static_cast<size_t>( eInputAction::IA_Emote )].Scancodes.push_back( SDL_SCANCODE_X );
     // Radio, keyboard only (the pad uses the accessories D-pad): the game's
     // own keys 1 / 2 / 3.
     bindings[static_cast<size_t>( eInputAction::IA_RadioChannel )].Scancodes.push_back( SDL_SCANCODE_1 );

@@ -1160,6 +1160,157 @@ void IntroCinematic::updateSeatedPlayer() {
     computeAvatarLighting( player.World.getTranslation(), player.Lighting );
 }
 
+// The retail walk-avatar emotes (docs/re/emotes_spec.md): anims\emotes\em_xan
+// in scenarics/avatars/avatarsdriver.bnk, one clip per sex, slot order of
+// Entity__AvatarOnline animAvatar[8..16] (tess_garage_spec.md 4.2 [DATA];
+// the dump lists followme twice at slot 16, the 8 unique kept here).
+const std::vector<IntroCinematic::PlayerEmote> &IntroCinematic::getPlayerEmotes() {
+    static const std::vector<PlayerEmote> emotes = {
+        { "hello",    "em_hello-m.anm",    "em_helloa-w.anm" },
+        { "cheers",   "em_cheers-m.anm",   "em_cheers-w.anm" },
+        { "funny",    "em_funny-m.anm",    "em_funny-w.anm" },
+        { "followme", "em_followme-m.anm", "em_followme-w.anm" },
+        { "angry",    "em_angry-m.anm",    "em_angry-w.anm" },
+        { "sad",      "em_sad-m.anm",      "em_sad_02-w.anm" },
+        { "strong",   "em_strong-m.anm",   "em_strong-w.anm" },
+        { "laugh",    "em_laugh-m.anm",    "em_laugh-w.anm" },
+    };
+    return emotes;
+}
+
+int32_t IntroCinematic::findPlayerEmote( const char *pLabel ) {
+    const std::vector<PlayerEmote> &emotes = getPlayerEmotes();
+    for ( size_t i = 0; i < emotes.size(); i++ ) {
+        if ( _stricmp( emotes[i].pLabel, pLabel ) == 0 ) {
+            return static_cast<int32_t>( i );
+        }
+    }
+    return -1;
+}
+
+bool IntroCinematic::playPlayerEmote( int32_t index ) {
+    const std::vector<PlayerEmote> &emotes = getPlayerEmotes();
+    if ( index < 0 || index >= static_cast<int32_t>( emotes.size() ) || !player.Avatar ) {
+        return false;
+    }
+    if ( !bStandClip ) {
+        // scenarics/avatars/avatarsdriver.bnk, the same bank the seated drive
+        // pose reads (setPlayerSeated); the stand idle is animAvatar[0]
+        // (co_stand-w / co_stand-m, tess_garage_spec.md 4.2 [DATA]).
+        const std::string path = gpFile->getBankFolder() + "scenarics/avatars/avatarsdriver.bnk";
+        if ( driverBank.getEntries().empty() && !driverBank.load( path.c_str() ) ) {
+            OTDU_LOG_WARN( "IntroCinematic: '%s' not found\n", path.c_str() );
+            return false;
+        }
+        const char *pStand = player.Avatar->isWoman() ? "co_stand-w.anm" : "co_stand-m.anm";
+        const BankEntry *pEntry = driverBank.findEntry( pStand );
+        bStandClip = pEntry != nullptr && standClip.parse( pEntry->pData, pEntry->Size );
+        if ( !bStandClip ) {
+            OTDU_LOG_WARN( "IntroCinematic: stand idle '%s' not found\n", pStand );
+        }
+    }
+    const PlayerEmote &emote = emotes[static_cast<size_t>( index )];
+    const char *pClipName = player.Avatar->isWoman() ? emote.pWoman : emote.pMan;
+    const BankEntry *pEntry = driverBank.findEntry( pClipName );
+    if ( pEntry == nullptr ) {
+        OTDU_LOG_WARN( "IntroCinematic: emote clip '%s' not found\n", pClipName );
+        return false;
+    }
+    playerEmoteClip = std::make_unique<EdenAnimation>();
+    if ( !playerEmoteClip->parse( pEntry->pData, pEntry->Size ) ) {
+        playerEmoteClip.reset();
+        return false;
+    }
+    playerEmoteIndex = index;
+    playerEmoteTime = 0.0f;
+    playerEmoteFade = 0.0f;
+    bPlayerEmote = true;
+    OTDU_LOG_INFO( "EMOTE: playing '%s' (%s, %.2f s)\n", emote.pLabel, pClipName, playerEmoteClip->getDuration() );
+    return true;
+}
+
+bool IntroCinematic::startPlayerSelfView() {
+    if ( !player.Avatar ) {
+        return false;
+    }
+    if ( !bStandClip ) {
+        // The idle base pose loads with the first emote / self view.
+        const std::string path = gpFile->getBankFolder() + "scenarics/avatars/avatarsdriver.bnk";
+        if ( driverBank.getEntries().empty() && !driverBank.load( path.c_str() ) ) {
+            OTDU_LOG_WARN( "IntroCinematic: '%s' not found\n", path.c_str() );
+            return false;
+        }
+        const char *pStand = player.Avatar->isWoman() ? "co_stand-w.anm" : "co_stand-m.anm";
+        const BankEntry *pEntry = driverBank.findEntry( pStand );
+        bStandClip = pEntry != nullptr && standClip.parse( pEntry->pData, pEntry->Size );
+        if ( !bStandClip ) {
+            OTDU_LOG_WARN( "IntroCinematic: stand idle '%s' not found\n", pStand );
+        }
+    }
+    playerEmoteIndex = -1;
+    playerEmoteClip.reset();
+    playerEmoteTime = 0.0f;
+    playerEmoteFade = 0.0f;
+    bPlayerEmote = true;
+    return true;
+}
+
+void IntroCinematic::stopPlayerEmote() {
+    bPlayerEmote = false;
+    playerEmoteIndex = -1;
+    playerEmoteClip.reset();
+}
+
+float IntroCinematic::getPlayerEmoteDuration() const {
+    return playerEmoteClip != nullptr ? playerEmoteClip->getDuration() : 0.0f;
+}
+
+void IntroCinematic::setPlayerEmotePlace( const Vector3f &floorPosition, float headingY ) {
+    playerEmoteFloor = floorPosition;
+    playerEmoteHeading = headingY;
+}
+
+void IntroCinematic::updateEmotePlayer() {
+    player.bVisible = false;
+    if ( !player.Avatar || !bPlayerEmote ) {
+        return;
+    }
+    // The clip eases in over 0.2 s and out over its last 0.2 s onto the
+    // stand idle (the retail fade pace, facefx_spec.md 6.3.3 state 5; the
+    // blend weights themselves are ENC, SeatedAvatar::setOverride pattern).
+    constexpr float kFadeTime = 0.2f;
+    const float duration = playerEmoteClip != nullptr ? playerEmoteClip->getDuration() : 0.0f;
+    const bool bPlaying = playerEmoteClip != nullptr && playerEmoteTime < duration;
+    float fade = 0.0f;
+    if ( bPlaying ) {
+        fade = Clamp( playerEmoteTime / kFadeTime, 0.0f, 1.0f ) *
+               Clamp( ( duration - playerEmoteTime ) / kFadeTime, 0.0f, 1.0f );
+    }
+    const EdenSkeleton &skeleton = player.Avatar->getSkeleton();
+    std::vector<BoneTransform> locals( skeleton.getNumBones() );
+    for ( uint32_t b = 0; b < skeleton.getNumBones(); b++ ) {
+        locals[b] = skeleton.getBindLocal( b );
+    }
+    if ( bStandClip ) {
+        standClip.sample( skeleton, playerEmoteTime, true, locals );
+    }
+    if ( bPlaying && fade > 0.0f ) {
+        std::vector<BoneTransform> clip = locals;
+        playerEmoteClip->sample( skeleton, playerEmoteTime, false, clip );
+        BlendPoses( locals, clip, fade, locals );
+    }
+    skeleton.computeSkinMatrices( locals, player.WorldBones, player.Skin );
+    // The walk place is scene-local (the walk controller frame, the same the
+    // first person camera feeds setLocalCamera); the avatar world is island.
+    player.World = sceneOrigin * Matrix4x4f::Translation( playerEmoteFloor ) *
+                   Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ),
+                                                                           playerEmoteHeading ) );
+    player.bVisible = true;
+    computeAvatarLighting( player.World.getTranslation(), player.Lighting );
+    // Advance after the sample: the first frame is the clip at t = 0.
+    playerEmoteTime += lastDeltaTime;
+}
+
 void IntroCinematic::closeGoal() {
     // FUN_00d61700: pop_goal.close_popup().
     goalTimer = -1.0f;
@@ -4278,6 +4429,10 @@ void IntroCinematic::updatePnjs() {
     }
     if ( bPlayerSeated ) {
         updateSeatedPlayer();
+    } else if ( bPlayerEmote ) {
+        // The walk-mode self view / emote (playPlayerEmote): posed from the
+        // walk place, not from a .sce actor.
+        updateEmotePlayer();
     } else {
         update( player, "Avatar" );
         // The casino slot machines' cutscenes (icasslo1.bnk *_totem) name the

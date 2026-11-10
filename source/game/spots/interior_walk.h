@@ -81,6 +81,12 @@ public:
     // The display car's _id_car (-1 past the end).
     int32_t getDisplayCarCarId( int32_t index ) const;
 
+    // The walk-mode emotes (docs/re/emotes_spec.md): the owner mode's drawUI
+    // draws the picker through these while the walk state is live.
+    IntroCinematic &getScene() { return scene; }
+    WalkMode &getWalk() { return walk; }
+    inline bool isWalking() const { return state == eState::Walk; }
+
     eResult tick( float deltaTime );
     // GENERAL "Tip" box over the interior.
     void showMessage( const std::string &text );
@@ -125,6 +131,10 @@ private:
 
     void startWalk( const char *pPreferredCamera = nullptr );
     void applyTestAim(); // -walkaim
+    // The emote key / slots / auto return (the FIRST_WM law, shared).
+    void updateEmotes( float deltaTime );
+    bool bEmoteWasPlaying = false;
+    bool bAutoEmotePlayed = false;
 
     // The house rooms' retail UI (HOME.vmf): the page open over the walk
     // ("" = walking), its FSCommands, the pad routed to it.

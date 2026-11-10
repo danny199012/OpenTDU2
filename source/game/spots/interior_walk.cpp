@@ -10,6 +10,8 @@
 #include "input/gs_input.h"
 #include "system/cmd_line.h"
 
+#include <SDL3/SDL_scancode.h>
+
 #include <algorithm>
 #include <cctype>
 #include <unordered_map>
@@ -454,6 +456,10 @@ void InteriorWalk::exit() {
 }
 
 void InteriorWalk::startWalk( const char *pPreferredCamera ) {
+    if ( walk.isInSelfView() ) {
+        walk.endSelfView( scene ); // a room swap restarts the walk cleanly
+    }
+    bEmoteWasPlaying = false;
     scene.stopMain();
     // Entity__FirstPerson StartCamera; a bank without one starts at its
     // first walk / entry camera [INF]. A room swap names the door camera it
@@ -536,6 +542,51 @@ void InteriorWalk::applyTestAim() {
     }
 }
 
+// The emotes (docs/re/emotes_spec.md), the same law as the FIRST_WM walk:
+// X toggles the self view, 1..8 the slots, the view returns at the clip end;
+// -emote <label> plays one on the walk start (headless tests).
+void InteriorWalk::updateEmotes( float deltaTime ) {
+    (void)deltaTime;
+    // -emote <label>: play once on the walk start; before the self view gate
+    // (it is what starts the view).
+    static const char *pAutoEmote = CmdLine::GetArgValue( "-emote" );
+    if ( pAutoEmote != nullptr && !bAutoEmotePlayed ) {
+        bAutoEmotePlayed = true;
+        const int32_t index = IntroCinematic::findPlayerEmote( pAutoEmote );
+        if ( index >= 0 ) {
+            if ( !scene.isPlayerEmoteActive() ) {
+                walk.startSelfView( scene );
+            }
+            scene.playPlayerEmote( index );
+        } else {
+            OTDU_LOG_WARN( "EMOTE: -emote '%s' is not one of the slots\n", pAutoEmote );
+        }
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_Emote ) ) {
+        if ( walk.isInSelfView() ) {
+            walk.endSelfView( scene );
+        } else {
+            walk.startSelfView( scene );
+        }
+    }
+    if ( !walk.isInSelfView() ) {
+        bEmoteWasPlaying = false;
+        return;
+    }
+    const int32_t emoteCount = static_cast<int32_t>( IntroCinematic::getPlayerEmotes().size() );
+    for ( int32_t i = 0; i < emoteCount && i < 9; i++ ) {
+        if ( gpInput->wasKeyPressed( static_cast<SDL_Scancode>( SDL_SCANCODE_1 + i ) ) ) {
+            scene.playPlayerEmote( i );
+            break;
+        }
+    }
+    const bool bPlaying = scene.isPlayerEmotePlaying();
+    if ( bEmoteWasPlaying && !bPlaying ) {
+        walk.endSelfView( scene );
+    }
+    bEmoteWasPlaying = bPlaying;
+}
+
 InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     if ( !bActive ) {
         return eResult::None;
@@ -580,10 +631,16 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         return eResult::None;
     }
     walk.update( scene, deltaTime, true );
+    updateEmotes( deltaTime );
     if ( bConsumed ) {
         return eResult::None;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
+        if ( walk.isInSelfView() ) {
+            // B in the self view goes back to first person, not out of the room.
+            walk.endSelfView( scene );
+            return eResult::None;
+        }
         if ( myHouseMode ) {
             // "Quit MyTDUHouse" (the header's B prompt [DATA]): the movie's own
             // back, not the way out of the house.
@@ -597,6 +654,9 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         return eResult::Leave;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+        if ( walk.isInSelfView() ) {
+            return eResult::None; // the selection is cleared in the self view
+        }
         const char *pType = walk.getSelectedType( scene );
         OTDU_LOG_INFO( "InteriorWalk: validate on '%s'\n", pType );
         if ( myHouseMode && strcmp( pType, "furniture" ) == 0 ) {
