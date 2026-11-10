@@ -44,7 +44,9 @@ std::string SectorName( const EdenWorld::SectorId &id ) {
 // Tall grass switches (docs/re/grass_spec.md 6): -nograss off, -grassdist <m>
 // the card radius around the camera, -grassmax <n> the per-frame card cap,
 // -grassstride <n> grid cells between cards (0.75 m each), -grassflip the
-// grid row order A/B, -loggrass the per-frame counts.
+// grid row order A/B, -loggrass the per-frame counts. The batch is built once
+// per frame and re-drawn by every pass (the drawGrass cache), which paid for
+// the denser defaults: stride 2 (was 3) and a 20000-card cap (was 9000).
 bool GrassEnabled() {
     static const bool b = !CmdLine::HasArg( "-nograss" );
     return b;
@@ -61,7 +63,7 @@ float GrassDistance() {
 uint32_t GrassMaxCards() {
     static const uint32_t v = [] {
         const char *p = CmdLine::GetArgValue( "-grassmax" );
-        return p != nullptr ? static_cast<uint32_t>( Max( 1, atoi( p ) ) ) : 9000u;
+        return p != nullptr ? static_cast<uint32_t>( Max( 1, atoi( p ) ) ) : 20000u;
     }();
     return v;
 }
@@ -69,13 +71,19 @@ uint32_t GrassMaxCards() {
 int32_t GrassStride() {
     static const int32_t v = [] {
         const char *p = CmdLine::GetArgValue( "-grassstride" );
-        return p != nullptr ? Max( 1, atoi( p ) ) : 3;
+        return p != nullptr ? Max( 1, atoi( p ) ) : 2;
     }();
     return v;
 }
 
 bool GrassFlip() {
     static const bool b = CmdLine::HasArg( "-grassflip" );
+    return b;
+}
+
+// The road-cover suppression A/B (-noroadskip restores the poke-through).
+bool GrassRoadSkip() {
+    static const bool b = !CmdLine::HasArg( "-noroadskip" );
     return b;
 }
 
@@ -365,6 +373,127 @@ bool EdenWorld::SampleCarveGround( const Sector &sector, float x, float z, float
         // few centimetres under the floor between two frames re-catches (the
         // raycast's t = 0 rule).
         if ( y <= fromY + 0.25f && y > best ) {
+            best = y;
+            bFound = true;
+        }
+    }
+    if ( bFound ) {
+        outHeight = best;
+    }
+    return bFound;
+}
+
+// The road ribbons of the sector -o model (materials resolving TD_Road,
+// kRoadShaderSet): indexed like the carve ground so drawGrass can ask
+// "does a road surface cover this spot". Roads ride ABOVE the heightfield -
+// on embankments by metres - so a card rooted on the sheet under a road
+// poked through the tarmac (the owner's grass-through-the-road report; the
+// drive physics never saw it because the car stands on the road's Havok
+// triangles). Roads arriving as .pmi instances (some parking lots) are not
+// indexed - the sector -o ribbons are the ones grass crosses.
+void EdenWorld::BuildRoadIndex( Sector &sector ) {
+    sector.RoadTriangles.clear();
+    sector.RoadCells.clear();
+    if ( !sector.Objects.isLoaded() ) {
+        return;
+    }
+    const std::vector<EdenMaterial> &materials = sector.Objects.getMaterials();
+    const std::vector<EdenModel::Item> &items = sector.Objects.getItems();
+    const std::vector<Vector3f> &soup = sector.Objects.getCollisionVertices();
+    const std::vector<uint32_t> &soupIndices = sector.Objects.getCollisionIndices();
+    constexpr float kCellSize = 8.0f;
+    uint32_t numTriangles = 0;
+    for ( const EdenModel::Item &item : items ) {
+        if ( item.CollisionCount < 3 || item.MaterialIndex >= materials.size() ) {
+            continue;
+        }
+        if ( materials[item.MaterialIndex].ShaderSetGUID != kRoadShaderSet ) {
+            continue;
+        }
+        for ( uint32_t i = 0; i + 2 < item.CollisionCount; i += 3 ) {
+            const uint32_t indexA = soupIndices[item.CollisionFirst + i];
+            const uint32_t indexB = soupIndices[item.CollisionFirst + i + 1];
+            const uint32_t indexC = soupIndices[item.CollisionFirst + i + 2];
+            if ( indexA >= soup.size() || indexB >= soup.size() || indexC >= soup.size() ) {
+                continue;
+            }
+            const Vector3f &a = soup[indexA];
+            const Vector3f &b = soup[indexB];
+            const Vector3f &c = soup[indexC];
+            const Vector3f normal = ( b - a ).cross( c - a );
+            const float length = normal.length();
+            if ( length < 1e-6f || normal.y <= 0.5f * length ) {
+                continue; // not walkable from above (the carve rule)
+            }
+            const float minX = Min( a.x, Min( b.x, c.x ) ), maxX = Max( a.x, Max( b.x, c.x ) );
+            const float minZ = Min( a.z, Min( b.z, c.z ) ), maxZ = Max( a.z, Max( b.z, c.z ) );
+            const int32_t cellX0 = static_cast<int32_t>( std::floor( minX / kCellSize ) );
+            const int32_t cellX1 = static_cast<int32_t>( std::floor( maxX / kCellSize ) );
+            const int32_t cellZ0 = static_cast<int32_t>( std::floor( minZ / kCellSize ) );
+            const int32_t cellZ1 = static_cast<int32_t>( std::floor( maxZ / kCellSize ) );
+            if ( ( cellX1 - cellX0 ) > 64 || ( cellZ1 - cellZ0 ) > 64 ) {
+                continue; // degenerate
+            }
+            const uint32_t slot = static_cast<uint32_t>( sector.RoadTriangles.size() / 3 ); // triangle ordinal
+            sector.RoadTriangles.push_back( indexA );
+            sector.RoadTriangles.push_back( indexB );
+            sector.RoadTriangles.push_back( indexC );
+            for ( int32_t cz = cellZ0; cz <= cellZ1; cz++ ) {
+                for ( int32_t cx = cellX0; cx <= cellX1; cx++ ) {
+                    sector.RoadCells[CellKey( cx, cz )].push_back( slot );
+                }
+            }
+            numTriangles++;
+        }
+    }
+    if ( numTriangles != 0 && LogGrass() ) {
+        OTDU_LOG_INFO( "EdenWorld: %s: %u road triangles indexed (%zu buckets)\n", SectorName( sector.Id ).c_str(),
+                       numTriangles, sector.RoadCells.size() );
+    }
+}
+
+// Topmost road surface at (x, z) below fromY (world), the SampleCarveGround
+// query on the road index (barycentric in the XZ plane, sector-local soup).
+bool EdenWorld::SampleRoadSurface( const Sector &sector, float x, float z, float fromY, float &outHeight ) {
+    if ( sector.RoadTriangles.empty() ) {
+        return false;
+    }
+    const float localX = x - sector.Origin.x;
+    const float localZ = z - sector.Origin.z;
+    const auto &it = sector.RoadCells.find( CellKey( static_cast<int32_t>( std::floor( localX / 8.0f ) ),
+                                                    static_cast<int32_t>( std::floor( localZ / 8.0f ) ) ) );
+    if ( it == sector.RoadCells.end() ) {
+        return false;
+    }
+    const std::vector<Vector3f> &soup = sector.Objects.getCollisionVertices();
+    bool bFound = false;
+    float best = -FLT_MAX;
+    for ( uint32_t slot : it->second ) {
+        const uint32_t indexA = sector.RoadTriangles[slot * 3 + 0];
+        const uint32_t indexB = sector.RoadTriangles[slot * 3 + 1];
+        const uint32_t indexC = sector.RoadTriangles[slot * 3 + 2];
+        if ( indexA >= soup.size() || indexB >= soup.size() || indexC >= soup.size() ) {
+            continue;
+        }
+        const Vector3f &a = soup[indexA];
+        const Vector3f &b = soup[indexB];
+        const Vector3f &c = soup[indexC];
+        if ( localX < Min( a.x, Min( b.x, c.x ) ) || localX > Max( a.x, Max( b.x, c.x ) ) ||
+             localZ < Min( a.z, Min( b.z, c.z ) ) || localZ > Max( a.z, Max( b.z, c.z ) ) ) {
+            continue;
+        }
+        const float denominator = ( b.z - c.z ) * ( a.x - c.x ) + ( c.x - b.x ) * ( a.z - c.z );
+        if ( std::abs( denominator ) < 1e-8f ) {
+            continue;
+        }
+        const float u = ( ( b.z - c.z ) * ( localX - c.x ) + ( c.x - b.x ) * ( localZ - c.z ) ) / denominator;
+        const float v = ( ( c.z - a.z ) * ( localX - c.x ) + ( a.x - c.x ) * ( localZ - c.z ) ) / denominator;
+        const float w = 1.0f - u - v;
+        if ( u < 0.0f || v < 0.0f || w < 0.0f ) {
+            continue;
+        }
+        const float y = u * a.y + v * b.y + w * c.y + sector.Origin.y;
+        if ( y <= fromY && y > best ) {
             best = y;
             bFound = true;
         }
@@ -1587,6 +1716,9 @@ bool EdenWorld::loadSector( const SectorId &id ) {
             PruneUncoveredCarveCells( *pSector );
         }
     }
+    // The road-surface index the grass emitter suppresses against (the
+    // poke-through fix) - independent of the carve A/Bs.
+    BuildRoadIndex( *pSector );
     stage( "carve" );
     if ( CmdLine::HasArg( "-logtunnels" ) && pSector->Objects.isLoaded() ) {
         // World bounds of the sector nodes named like a tunnel (finding the
@@ -2963,6 +3095,10 @@ bool EdenWorld::loadGrassAssets( const char *pIsland ) {
         }
     }
     bGrassLoaded = pGrassMaterial != nullptr && grassLayout.Strides[0] != 0;
+    // A re-initialization must not hand the old frame's cached bindings to a
+    // draw (bGrassBatchBuilt=false forces the next drawGrass to rebuild).
+    bGrassBatchBuilt = false;
+    grassBatchMesh.IndexCount = 0;
     OTDU_LOG_INFO( "EdenWorld: grass model %zu items, material '%s', %s\n", grassModel.getItems().size(),
                    pGrassMaterial != nullptr ? pGrassMaterial->Name.c_str() : "-",
                    bGrassLoaded ? "ready" : "INCOMPLETE" );
@@ -2973,11 +3109,38 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     if ( !GrassEnabled() || !bGrassLoaded || grassTypes.empty() ) {
         return;
     }
+    // One emit per frame: every pass that draws the world (the prepass, the
+    // shadow casters, the ocean mirror, the environment cube faces, the main
+    // pass) used to re-walk the .pgr grids and re-upload the batch - the emit
+    // cost ~4-8x per frame, which is what kept the density defaults low. The
+    // other passes draw the cached bindings (the transient allocations live
+    // for the whole frame); a rebuild happens when the frame rolls over or
+    // the pass camera left the built radius.
+    const uint64_t frame = gpRender->getDevice().getFrameNumber();
+    if ( !bGrassBatchBuilt || frame != grassBatchFrame ||
+         ( cameraPosition - grassBatchCamera ).length() > 2.0f ) {
+        buildGrassBatch( renderer, cameraPosition );
+    }
+    if ( grassBatchMesh.IndexCount == 0 ) {
+        return;
+    }
+    renderer.draw( grassBatchMesh, *pGrassMaterial, Matrix4x4f::Identity(),
+                   bGrassTallGrass ? &grassBatchParams : nullptr );
+}
+
+void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
     GrassBatch &batch = bGrassTallGrass ? grassTallBatch : grassBatch;
     batch.Streams[0].clear();
     batch.Streams[1].clear();
     batch.Indices.clear();
     batch.NumVertices = 0;
+    // The cap's worth of bytes reserved once (clear keeps the capacity, so
+    // repeated builds reuse it): the emit never reallocates.
+    batch.Streams[0].reserve( static_cast<size_t>( GrassMaxCards() ) * 4 * ( bGrassTallGrass ? 64 : 20 ) );
+    if ( !bGrassTallGrass ) {
+        batch.Streams[1].reserve( static_cast<size_t>( GrassMaxCards() ) * 4 * 8 );
+    }
+    batch.Indices.reserve( static_cast<size_t>( GrassMaxCards() ) * 6 );
 
     const float dist = GrassDistance();
     const float x0 = cameraPosition.x - dist;
@@ -2988,10 +3151,63 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     const int32_t stride = GrassStride();
     const float atlasCellU = 1.0f / 9.0f;      // 9 tuft cells over the 2048 px strip [INF]
     uint32_t cards = 0;
+    uint32_t roadSkipped = 0;
     const uint32_t maxCards = GrassMaxCards();
 
-    bool bCapped = false;
+    // Near-first order: the sectors sorted by the distance of their centre
+    // to the camera, then every row and column scan alternating outward from
+    // the camera's lattice lines. When the card cap truncates the walk it
+    // now loses the far ring (whose cards the alphaDist fade half hides
+    // anyway) instead of an arbitrary list-order band of the grid - and the
+    // road-covered cells near the camera are always among the visited ones
+    // (the road suppression must see them before the cap stops the walk).
+    auto buildLatticeOrder = [stride]( std::vector<int32_t> &order, int32_t lo, int32_t hi, int32_t cam ) {
+        cam = Max( lo, Min( hi, cam ) );
+        cam = lo + ( ( cam - lo ) / stride ) * stride;
+        order.clear();
+        const int32_t spanDown = ( cam - lo ) / stride;
+        const int32_t spanUp = ( hi - cam ) / stride;
+        for ( int32_t o = 0; o <= Max( spanDown, spanUp ); o++ ) {
+            if ( o == 0 ) {
+                order.push_back( cam );
+                continue;
+            }
+            if ( o <= spanDown ) {
+                order.push_back( cam - o * stride );
+            }
+            if ( o <= spanUp ) {
+                order.push_back( cam + o * stride );
+            }
+        }
+    };
+    std::vector<std::pair<float, Sector *>> orderedSectors;
     for ( const auto &pSector : sectors ) {
+        if ( pSector->Pgr.empty() || pSector->bPreloaded || pSector->Terrain.Heights.empty() ) {
+            continue;
+        }
+        const Vector3f &origin = pSector->Origin;
+        const float sx0 = Max( x0, origin.x );
+        const float sx1 = Min( x1, origin.x + kSectorSize );
+        const float sz0 = Max( z0, origin.z );
+        const float sz1 = Min( z1, origin.z + kSectorSize );
+        if ( sx0 >= sx1 || sz0 >= sz1 ) {
+            continue;
+        }
+        const float dxs = origin.x + kSectorSize * 0.5f - cameraPosition.x;
+        const float dzs = origin.z + kSectorSize * 0.5f - cameraPosition.z;
+        orderedSectors.emplace_back( dxs * dxs + dzs * dzs, pSector.get() );
+    }
+    std::sort( orderedSectors.begin(), orderedSectors.end(),
+               []( const std::pair<float, Sector *> &a, const std::pair<float, Sector *> &b ) {
+                   return a.first < b.first;
+               } );
+    std::vector<int32_t> rowOrder, colOrder;
+    bool bCapped = false;
+    for ( const auto &ordered : orderedSectors ) {
+        if ( bCapped ) {
+            break;
+        }
+        Sector *pSector = ordered.second;
         if ( pSector->Pgr.empty() || pSector->bPreloaded || pSector->Terrain.Heights.empty() ) {
             continue;
         }
@@ -3013,7 +3229,11 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
         // colour maps look area-level]).
         gx0 = ( ( gx0 + stride - 1 ) / stride ) * stride;
         gy0 = ( ( gy0 + stride - 1 ) / stride ) * stride;
-        for ( int32_t gy = gy0; gy <= gy1 && !bCapped; gy += stride ) {
+        buildLatticeOrder( rowOrder, gy0, gy1, static_cast<int32_t>( ( cameraPosition.z - origin.z ) / cell ) );
+        for ( const int32_t gy : rowOrder ) {
+            if ( bCapped ) {
+                break;
+            }
             const int32_t row = GrassFlip() ? 1023 - gy : gy;
             // Decode the row: u32 file offset at 0x28 + row * 4, then
             // (u8 count, u8 value) runs; (00, 00) pairs are no-ops; a run
@@ -3036,7 +3256,11 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
                     pgrRowScratch[filled++] = static_cast<uint8_t>( value );
                 }
             }
-            for ( int32_t gx = gx0; gx <= gx1 && !bCapped; gx += stride ) {
+            buildLatticeOrder( colOrder, gx0, gx1, static_cast<int32_t>( ( cameraPosition.x - origin.x ) / cell ) );
+            for ( const int32_t gx : colOrder ) {
+                if ( bCapped ) {
+                    break;
+                }
                 const uint32_t v = pgrRowScratch[gx];
                 if ( v == 0x00 || v == 0xff ) {
                     continue;
@@ -3056,6 +3280,19 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
                 const float scale = 1.0f + type.SizeDelta * ( f2 * 2.0f - 1.0f );
                 const float w = type.Width * scale;
                 const float cardHeight = type.Height * scale;
+                // A road surface within the card's reach of the sheet: the
+                // card would root under the tarmac and poke through it (the
+                // roads ride above the heightfield, the BuildRoadIndex
+                // comment). The +0.25 m margin covers the heightfield's
+                // bilinear vs the terrain-mesh triangles on slopes; a card
+                // well below a road surface (under a bridge deck) stays.
+                // -noroadskip restores the poke-through for the A/B.
+                float roadY;
+                if ( GrassRoadSkip() && SampleRoadSurface( *pSector, px, pz, y + cardHeight + 0.25f, roadY ) &&
+                     roadY > y - 0.05f ) {
+                    roadSkipped++;
+                    continue;
+                }
                 uint32_t bmp = static_cast<uint32_t>( Max( 0, type.GrassBitmap ) );
                 if ( type.GrassVariation >= 0 &&
                      ( ( hash >> 28 ) & 255 ) / 255.0f < type.VariationProbability ) {
@@ -3143,19 +3380,28 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
             }
         }
     }
+    // The cache markers go up before the upload: an empty batch (a sea view,
+    // -nograss sectors only) is a valid this-frame answer for the other
+    // passes - without them every pass would re-run the grid walk.
+    bGrassBatchBuilt = true;
+    grassBatchFrame = gpRender->getDevice().getFrameNumber();
+    grassBatchCamera = cameraPosition;
     if ( batch.Indices.empty() ) {
+        grassBatchMesh.IndexCount = 0;
         return;
     }
     if ( LogGrass() ) {
-        OTDU_LOG_INFO( "EdenWorld: grass %u cards (%u tris) within %.0f m%s, material guid %016llx\n", cards,
-                       static_cast<uint32_t>( batch.Indices.size() / 3 ), dist, bCapped ? " CAPPED" : "",
-                       static_cast<unsigned long long>( pGrassMaterial->ShaderSetGUID ) );
+        OTDU_LOG_INFO( "EdenWorld: grass %u cards (%u tris) within %.0f m%s, %u road-skipped, material guid %016llx\n",
+                       cards, static_cast<uint32_t>( batch.Indices.size() / 3 ), dist, bCapped ? " CAPPED" : "",
+                       roadSkipped, static_cast<unsigned long long>( pGrassMaterial->ShaderSetGUID ) );
     }
-    // Transient upload + draw, the drawImpostors mechanics: the layout is
-    // the PLANE_01 template (position + UV in stream 0, f16 normal in
-    // stream 1, grass_spec.md 1.1), or the 4 x f32 TallGrass packing.
+    // Transient upload, the drawImpostors mechanics: the layout is the
+    // PLANE_01 template (position + UV in stream 0, f16 normal in stream 1,
+    // grass_spec.md 1.1), or the 4 x f32 TallGrass packing. drawGrass hands
+    // the bound mesh to every pass of the frame.
     RenderDevice &device = gpRender->getDevice();
-    EdenMesh mesh = bGrassTallGrass ? grassTallLayout : grassLayout;
+    grassBatchMesh = bGrassTallGrass ? grassTallLayout : grassLayout;
+    EdenMesh &mesh = grassBatchMesh;
     bool bOk = true;
     for ( uint32_t stream = 0; stream < 2; stream++ ) {
         if ( batch.Streams[stream].empty() ) {
@@ -3172,6 +3418,10 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     }
     const TransientAllocation indices = device.allocateTransient( batch.Indices.size() * sizeof( uint32_t ), 16 );
     if ( !bOk || indices.pData == nullptr ) {
+        // The half-bound mesh must not reach a pass: drawGrass hands it out
+        // on the cache hit, and the copy above still carries the template's
+        // IndexCount.
+        mesh.IndexCount = 0;
         return;
     }
     memcpy( indices.pData, batch.Indices.data(), batch.Indices.size() * sizeof( uint32_t ) );
@@ -3188,7 +3438,8 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     // ships none of these (only FADEALFA), so every value below is port-chosen
     // [INF] where the retail generator writes per-frame values; alphaDist.x +
     // alphaDist.y = the fade end, sqrt(alphaDist.y) = the fade band.
-    EdenDrawParams params;
+    grassBatchParams = EdenDrawParams();
+    EdenDrawParams &params = grassBatchParams;
     if ( bGrassTallGrass ) {
         const Vector3f fwd = renderer.getRtCameraDirection().normalized();
         Vector3f right = fwd.cross( Vector3f( 0.0f, 1.0f, 0.0f ) );
@@ -3210,7 +3461,6 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
         params.Vectors["UserVector0"] = Vector4f( 0.7f, 0.0f, 0.0f, 0.0f ); // wind strength; weather wiring is open
         params.Vectors["UserVector1"] = Vector4f( 1.0f, 1.0f, 0.0f, 0.0f ); // the light gradient scale [INF]
     }
-    renderer.draw( mesh, *pGrassMaterial, Matrix4x4f::Identity(), &params );
 }
 
 void EdenWorld::drawImpostors( EdenRenderer &renderer ) {

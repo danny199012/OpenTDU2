@@ -218,6 +218,13 @@ private:
     // Topmost up-facing carve-ground surface below fromY at (x, z) (sector
     // local + Origin).
     static bool SampleCarveGround( const Sector &sector, float x, float z, float fromY, float &outHeight );
+    // Indexes the up-facing triangles of the sector's road items (materials
+    // resolving the TD_Road shader set) into 8 m XZ buckets - the carve-ground
+    // mechanics on the road ribbons: drawGrass suppresses the cards a road
+    // surface covers (docs/re/grass_spec.md 6). Built once at sector load.
+    static void BuildRoadIndex( Sector &sector );
+    // Topmost road surface below fromY at (x, z) (world; sector local inside).
+    static bool SampleRoadSurface( const Sector &sector, float x, float z, float fromY, float &outHeight );
     // Unmarks the carved cells with no up-facing tunnel / bridge surface over
     // them: those are holes (the sheet is drawn without depth write over
     // nothing and the drive height function has no answer there - the owner's
@@ -267,6 +274,12 @@ private:
         // stands on where the heightfield is carved away (getGroundHeight).
         std::vector<uint32_t> CarveTriangles;
         std::unordered_map<uint64_t, std::vector<uint32_t>> CarveCells;
+        // The same shape for the sector's TD_Road items (BuildRoadIndex): the
+        // road ribbons ride above the heightfield, so drawGrass asks this
+        // whether a road surface covers a card's spot before emitting it - a
+        // card rooted on the sheet under a road pokes through the tarmac.
+        std::vector<uint32_t> RoadTriangles;
+        std::unordered_map<uint64_t, std::vector<uint32_t>> RoadCells;
         // .pmi lists (V / O static library models, A actors).
         std::vector<PmiInstance> Instances;
         std::vector<int32_t> InstanceModels;   // library node or actor model index
@@ -451,6 +464,13 @@ private:
         bool bNoShadow = false;
     };
     bool loadGrassAssets( const char *pIsland );
+    // Emits the card batch around cameraPosition into the streams, uploads it
+    // and fills grassBatchMesh / grassBatchParams (the draw itself happens in
+    // drawGrass). One call per frame - every pass that draws the world used to
+    // re-run the whole grid walk and re-upload (the prepass, the shadow
+    // casters, the ocean mirror, the environment cube faces and the main pass
+    // all call EdenWorld::draw).
+    void buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraPosition );
     void drawGrass( EdenRenderer &renderer, const Vector3f &cameraPosition );
     std::vector<GrassType> grassTypes;
     Bank grassBank;
@@ -460,8 +480,8 @@ private:
     std::vector<uint8_t> pgrRowScratch; // per-frame row decode scratch
     bool bGrassLoaded = false;
     float grassDistance = 140.0f;
-    uint32_t grassMaxCards = 9000;
-    int32_t grassStride = 3;            // grid cells between cards (2.25 m)
+    uint32_t grassMaxCards = 20000;
+    int32_t grassStride = 2;            // grid cells between cards (1.5 m)
     bool bGrassFlip = false;            // grid row order A/B (-grassflip)
     struct GrassBatch {
         std::vector<uint8_t> Streams[2];
@@ -472,6 +492,14 @@ private:
     GrassBatch grassTallBatch;         // TD_TallGrass path: one 64-byte-corner stream
     EdenMesh grassTallLayout;          // position / color / texcoord / tangent, 4 x f32
     bool bGrassTallGrass = false;      // -grasstallgrass: the materials resolve TD_TallGrass
+    // The built batch (drawGrass re-draws it for the pass cameras without
+    // re-emitting): the frame number and camera it was emitted around, the
+    // bound transient buffers, and the TD_TallGrass feed of that build.
+    bool bGrassBatchBuilt = false;
+    uint64_t grassBatchFrame = 0;
+    Vector3f grassBatchCamera;
+    EdenMesh grassBatchMesh;
+    EdenDrawParams grassBatchParams;
 
 private:
     Vector3f instanceHideCenter;

@@ -292,10 +292,47 @@ correctly placed, sized and blended under the plain Gouraud shader
   the same spot `grass_tallgrass_off_s81.webp` (farm sector,
   `-tpin 19584,24960 -clock 12`); validation layer 0 VUIDs during the
   frames (only the pre-existing shutdown `vkDestroyDevice` notice).
+* **The road-cover suppression (the poke-through fix):** every sector
+  indexes its TD_Road triangles at load (`BuildRoadIndex` — the
+  carve-ground mechanics on the road ribbons: items whose material resolves
+  `kRoadShaderSet`, up-facing triangles only, 8 m XZ buckets over the
+  sector-local collision soup). The emitter asks `SampleRoadSurface`
+  whether a road surface lies within `cardHeight + 0.25 m` above the
+  heightfield at the card's spot and skips the card when it does — the
+  roads ride above the sheet, so a card rooted under them poked through
+  the tarmac (the owner's report from the first Ferrari California test
+  drive). Cards well below a road surface (under a bridge deck) stay.
+  `-noroadskip` is the A/B; `-loggrass` counts the skips. Roads arriving
+  as `.pmi` instances (some parking lots) are not indexed; a card may
+  still overlap a road edge by up to `w/2` — the suppression tests the
+  card centre only.
+* **One emit per frame:** every pass that draws the world (the prepass,
+  the shadow casters, the ocean mirror, the environment cube faces, the
+  main pass) used to re-walk the grids and re-upload the batch — the emit
+  cost ~4-8x per frame. `drawGrass` now re-draws the cached bindings for
+  the pass cameras and rebuilds only when the frame rolled over or the
+  pass camera moved > 2 m (the transient allocations live for the whole
+  frame).
+* **Near-first scan + denser defaults:** the sectors sort by their
+  centre's distance to the camera and every row / column scan alternates
+  outward from the camera's lattice lines, so the card cap truncates the
+  faded far ring instead of an arbitrary list-order band — and the
+  road-covered cells near the camera are always among the visited ones
+  (before this, a capped dense sector never reached the road cells at
+  all). The defaults went to stride 2 (1.5 m spacing, was 3) and a
+  20000-card cap (was 9000): the scene CPU is ~flat in the card count now
+  (measured, `-logscenetimes` at the farm teleport: 9000 capped vs 20000
+  capped both ~10-13 ms total scene record). Evidence: the density A/B
+  `docs/images/grass_density_before.webp` / `grass_density_after.webp`
+  (same spot, old vs new defaults), the road A/Bs
+  `grass_road_highway_off/on.webp` (the autovia embankment) and
+  `grass_road_ferrari_off/on.webp` (the dealer road: 4957 cards + 206
+  road-skipped with the skip, 5163 without — the counts reconcile).
 * Flags: `-nograss` (off), `-grassdist <m>` (card radius, default 140),
-  `-grassmax <n>` (per-frame cap, default 9000), `-grassstride <n>`,
-  `-grassflip` (grid row order A/B), `-loggrass` (per-frame counts),
-  `-grasstallgrass` (the TD_TallGrass path). Grid orientation vs the
+  `-grassmax <n>` (per-frame cap, default 20000), `-grassstride <n>`
+  (default 2), `-grassflip` (grid row order A/B), `-loggrass` (per-frame
+  counts + road skips), `-grasstallgrass` (the TD_TallGrass path),
+  `-noroadskip` (the road suppression A/B). Grid orientation vs the
   sector origin is still `[INF]` (world axes = grid axes; `-grassflip` is
   the A/B).
 
@@ -313,11 +350,19 @@ correctly placed, sized and blended under the plain Gouraud shader
   (packed additional lighting — street lamps?) is untraced; the port's
   shadow buffer leaves them 0.
 * Grid orientation + the road markers (`GRASSASTARMAC` interaction,
-  `_OffRoad_*` ladder) — needs a retail A/B.
+  `_OffRoad_*` ladder) — needs a retail A/B. The road *surfaces* are
+  handled now (§6: the poke-through suppression), but the roadside
+  grass-shrinking ladder is not: a card can still overlap a road edge by
+  up to `w/2` (centre-only test).
 * Atlas cell layout precision (9 cells over 2048 px) and the `Bush` rule.
-* Density/size tuning against a retail capture. Perf measured (s81,
-  frame-240 steady state, farm teleport, 1280x720): on = 16.8 ms,
-  `-nograss` = 8.2 ms, `-grassdist 60` (2000 cards) = 10.0 ms - ~0.9 us per
-  card, linear: the radius/cap flags are the lever.
+* Density/size tuning against a retail capture — the port-native defaults
+  are stride 2 / 20000 cards (§6, the once-per-frame emit made the raise
+  free); what the retail per-edge law actually generates
+  (`TALL_GRASS_MAX_PER_EDGE`) is still unknown. Perf measured (s81,
+  frame-240 steady state, farm teleport, 1280x720, the old per-pass emit):
+  on = 16.8 ms, `-nograss` = 8.2 ms, `-grassdist 60` (2000 cards) =
+  10.0 ms - ~0.9 us per card, linear: the radius/cap flags are the lever.
+  After the once-per-frame cache the scene record is ~flat in the card
+  count (§6).
 * The whirlwind family (vs_4-7 reads `Whirlwind` c81) is unexplored — the
   spec-byte selector for those permutations, and what feeds it.

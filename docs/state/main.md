@@ -15,6 +15,69 @@ appends its entry at the top of this file**, newest first, in the
 
 ---
 
+## Session 2026-11-10 (grass through roads + density, `main`): tufts no longer poke through the tarmac (each sector indexes its TD_Road triangles; the emitter skips covered cards) and the grass is 2.2x denser at ~the same frame cost (one emit per frame + a near-first scan + stride 2 / cap 20000)
+
+The owner's task: "Grass/Vegetation needs work During some tests I seen grass
+poking through roads noticed at when you can start your 1st test drive of
+california also believe grass should be more dense in area's it seems patchy
+as if there's not enough" (the California = the Ferrari California, the
+first test drive at the Ferrari dealer on Ibiza).
+
+### What changed
+- `source/world/eden_world.h/.cpp`:
+  - **The road index**: `Sector.RoadTriangles` + `RoadCells` (8 m XZ
+    buckets, the carve-ground mechanics on the road ribbons);
+    `BuildRoadIndex` at sector load — items whose material resolves
+    `kRoadShaderSet` (the TD_Road ribbons of the sector -o, collision kept
+    anyway), up-facing triangles only; `SampleRoadSurface` = the
+    `SampleCarveGround` query on that index.
+  - **The suppression** in the grass emitter: a card whose spot has a road
+    surface within `cardHeight + 0.25 m` above the heightfield is skipped
+    (the roads ride above the sheet — on embankments by metres — so a card
+    rooted under a road poked through the tarmac). Cards well below a road
+    (bridge decks) stay. `-noroadskip` = the A/B; `-loggrass` counts the
+    skips. Cards can still overlap a road *edge* by up to w/2 (centre-only
+    test — the retail roadside answer is the `.pgr` markers +
+    `_OffRoad_` ladder, still open).
+  - **One emit per frame**: `drawGrass` split into the emit
+    (`buildGrassBatch`) and the draw; every pass that calls
+    `EdenWorld::draw` (prepass, shadow casters, ocean mirror, env-cube
+    faces, main — up to ~8x per frame) used to re-walk the `.pgr` grids
+    and re-upload. The passes now re-draw the cached bindings; rebuild on
+    frame rollover or > 2 m of camera movement. The upload-failure path
+    zeroes the mesh (the copy carried the template's IndexCount).
+  - **Near-first scan**: sectors sorted by centre distance, rows and
+    columns alternating outward from the camera's lattice lines — the cap
+    truncates the faded far ring instead of an arbitrary list-order band
+    (before, a capped dense sector never reached the road cells at all:
+    0 road-skipped at the farm highway).
+  - **Denser defaults**: `-grassstride` 3 → 2 (2.25 m → 1.5 m spacing),
+    `-grassmax` 9000 → 20000, streams reserved once per build. The scene
+    record is ~flat in the card count now (9000 capped vs 20000 capped
+    both ~10-13 ms `-logscenetimes` at the farm teleport).
+- `docs/re/grass_spec.md` §6 (the three mechanics + evidence) + §7 (the
+  poke-through item built; the `_OffRoad_` roadside ladder stays open).
+- README flags row, PROGRESS.md tall-grass row (now `main`).
+
+### Evidence (build 13+dirty, headless)
+- `docs/images/grass_road_ferrari_off/on.webp` — the dealer road (the
+  owner's repro area): 5163 cards with 0 skipped (poke-through) vs 4957 +
+  206 road-skipped (clean tarmac; the counts reconcile exactly).
+- `grass_road_highway_off/on.webp` — the autovia embankment: tufts crossed
+  the guardrail line onto the shoulder in the off shot; the on shot keeps
+  the embankment grass and the tarmac clean (159 skipped while capped).
+- `grass_density_before/after.webp` — the farm field, old defaults vs new:
+  the patchy dirt fills in.
+- Regressions: `-grasstallgrass` renders through the same paths (guid
+  cafe8deca8c8caca, 20000 cards, 591 skips), `-nograss` silent, no
+  validation VUIDs, no stalls.
+
+### Open / next
+- The roadside `_OffRoad_*` ladder + the `.pgr` road markers (the retail
+  way to *shrink* grass toward roads; the port deletes the covered cards).
+- Retail-capture density A/B (what `TALL_GRASS_MAX_PER_EDGE` really
+  generates), the wind time, the car flatten — the spec's §7 as before.
+
 ## Session 2026-11-10 (map icons + discovery, `main`): every dealer pin shows its brand (the retail-grabs law) and the map hides undiscovered spots — `KnownSpots` in the profile, All spots cheat, `-cheat allspots`
 
 The owner's task: "Is it possible we can add the icons on map I believe some of the
