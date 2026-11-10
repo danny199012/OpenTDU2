@@ -44,11 +44,13 @@ bool gbOpenFromCommandLine = false;
 // (DealerMenu::buySelected reads it through Cheats::isAllCarsBuyable).
 bool gbAllCarsBuyable = false;
 
-// `-cheat houses` / `-cheat allroads`: the two rows that need the mode's world
-// (the island's spots, the map's road graph). applyCommandLine runs before any
-// mode exists, so it flags them and the constructors pick the flags up.
+// `-cheat houses` / `-cheat allroads` / `-cheat allspots`: the rows that need
+// the mode's world (the island's spots, the map's road graph).
+// applyCommandLine runs before any mode exists, so it flags them and the
+// constructors pick the flags up.
 bool gbPendingAllHousesFromCommandLine = false;
 bool gbPendingAllRoadsFromCommandLine = false;
+bool gbPendingAllSpotsFromCommandLine = false;
 
 // The quick destinations of the teleport row. The bank names are the game's
 // own (spots.bin: EAIR_A the airport, EGAMHA the gambling hall, ECD_FERR the
@@ -78,6 +80,7 @@ std::string gsPendingDestination;
 Cheats::Cheats() : bOpen( gbOpenFromCommandLine ) {
     bPendingAllHouses = gbPendingAllHousesFromCommandLine;
     bPendingAllRoads = gbPendingAllRoadsFromCommandLine;
+    bPendingAllSpots = gbPendingAllSpotsFromCommandLine;
 }
 
 void Cheats::setSpots( std::vector<Spot> newSpots, const std::string &newIsland ) {
@@ -197,6 +200,14 @@ bool Cheats::takeUnlockAllRoads() {
     return true;
 }
 
+bool Cheats::takeUnlockAllSpots() {
+    if ( !bPendingAllSpots ) {
+        return false;
+    }
+    bPendingAllSpots = false;
+    return true;
+}
+
 bool Cheats::takeTargetNearestLockedRoad() {
     if ( !bPendingNearestLockedRoad ) {
         return false;
@@ -209,6 +220,11 @@ void Cheats::setRoadStatus( int32_t percent, int32_t explored, int32_t total ) {
     roadPercent = percent;
     roadExplored = explored;
     roadTotal = total;
+}
+
+void Cheats::setSpotStatus( int32_t discovered, int32_t total ) {
+    spotsDiscovered = discovered;
+    spotsTotal = total;
 }
 
 void Cheats::feedPadCode( bool bUp, bool bRight, bool bDown, bool bLeft, bool bOption ) {
@@ -389,6 +405,8 @@ void Cheats::applyCommandLine() {
                 unlockAllClothes();
             } else if ( row == "allroads" ) {
                 gbPendingAllRoadsFromCommandLine = true;
+            } else if ( row == "allspots" ) {
+                gbPendingAllSpotsFromCommandLine = true;
             } else if ( row == "buyable" ) {
                 setAllCarsBuyable( true );
             } else if ( row == "achievements" ) {
@@ -590,6 +608,10 @@ void Cheats::drawUI( const char *pModeName ) {
             bPendingAllRoads = true;
         }
         ImGui::SameLine();
+        if ( ImGui::Button( "All spots" ) ) {
+            bPendingAllSpots = true;
+        }
+        ImGui::SameLine();
         if ( !spots.empty() && ImGui::Button( "Nearest locked road" ) ) {
             bPendingNearestLockedRoad = true;
         }
@@ -601,9 +623,9 @@ void Cheats::drawUI( const char *pModeName ) {
         if ( ImGui::Checkbox( "cars on stock (buyable)", &bBuyable ) ) {
             setAllCarsBuyable( bBuyable );
         }
-        ImGui::Text( "cars owned: %zu, clothes: %zu, houses: %d, roads: %d%% (%d/%d)",
+        ImGui::Text( "cars owned: %zu, clothes: %zu, houses: %d, roads: %d%% (%d/%d), spots: %d/%d",
                      GetPlayerProfile().OwnedCars.size(), GetPlayerProfile().OwnedClothes.size(),
-                     GetPlayerProfile().NbHouses, roadPercent, roadExplored, roadTotal );
+                     GetPlayerProfile().NbHouses, roadPercent, roadExplored, roadTotal, spotsDiscovered, spotsTotal );
         ImGui::TextDisabled( "no row for car dealers: the dealer buildings are always there" );
 
         // ---- The scale of every ImGui panel (cheats, advanced settings, the

@@ -13,6 +13,11 @@ struct ShopCar {
     int32_t PhysicsRow = -1;
     std::string FileName;
     std::string Brand;
+    // The car's DBBrands row hashcode (DBCarPhysicsData _car_brand; the
+    // _manufacturer_name strings are display names and not id-safe: the
+    // Charger's manufacturer name is "Charger"). The map's dealer logos
+    // resolve through it.
+    uint64_t BrandHash = 0;
     std::string Model;
     int32_t Price = 0;
     bool bBuyable = false;

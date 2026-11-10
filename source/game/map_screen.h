@@ -218,6 +218,18 @@ public:
     // per spot (clones of the movie's /pack/point). Call before the screen
     // opens; the icons are created once the movie is up.
     void loadSpots( const std::string &island );
+    // Spot discovery (the retail law: a spot's icon only shows on the map
+    // once the car drove within discovery range of the building; the port
+    // keeps the state in PlayerProfile::KnownSpots). Call every frame with
+    // the car position while driving; returns how many spots it newly
+    // discovered (the caller saves the profile when that is > 0).
+    int32_t discoverNear( const Vector3f &position );
+    // The dev menu's "ALL SPOTS": every loaded spot counts as discovered.
+    void unlockAllSpots();
+    // Spots with an icon / how many of them are discovered (the cheats panel's
+    // status line and the map-open log).
+    inline int32_t getNumIconSpots() const { return static_cast<int32_t>( spots.size() ); }
+    int32_t getNumDiscovered() const;
     // World position -> stage pixels of the movie (1280 x 960, the 16:9 band is
     // y 120..840) under the current view. False behind the camera.
     bool projectToStage( const Vector3f &world, float &outX, float &outY ) const;
@@ -300,6 +312,11 @@ private:
         std::string Clip;     // name of the clone under /pack
     };
     std::vector<Spot> spots;
+    // The island loadSpots read and, per spot, whether it has been discovered
+    // (the profile's KnownSpots + the auto-knowns: owned houses, home spots).
+    // An undiscovered spot draws no icon and the cursor does not snap to it.
+    std::string spotsIsland;
+    std::vector<uint8_t> spotDiscovered;
     // Fuel station icons (setFuelStations / drawFuelIcons): the positions of the
     // `fuel` props and the icon art (nullptr: the built-in glyph).
     std::vector<Vector3f> fuelStations;

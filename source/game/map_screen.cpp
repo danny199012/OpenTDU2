@@ -6,6 +6,7 @@
 #include "flash/gs_flash.h"
 #include "filesystem/bank.h"
 #include "filesystem/gs_file.h"
+#include "game/car_shop.h"
 #include "game/freeride/chase_camera.h"
 #include "game/freeride/cruising_zones.h"
 #include "game/game_options.h"
@@ -74,6 +75,75 @@ bool PlayFirstLabel( FlashPlayer &player, const char *const *pLabels, size_t cou
     OTDU_LOG_WARN( "MapScreen: no %s label found (see -logmap for the movie's labels)\n", pWhat );
     return false;
 }
+
+// The DBBrands _logo_global_index of a brand hashcode (DBCarPhysicsData
+// _car_brand), -1 when the database or the row is missing.
+int32_t brandLogoIndex( uint64_t brandHash ) {
+    if ( gpDatabase == nullptr || brandHash == 0 ) {
+        return -1;
+    }
+    XmbValue root = gpDatabase->getDocument().getRoot();
+    const uint32_t numBrands = root.getArraySize( "DBBrands" );
+    for ( uint32_t i = 0; i < numBrands; i++ ) {
+        XmbValue brand = root.getArrayElement( "DBBrands", i );
+        if ( brand["_hashcode"].asUInt64() == brandHash ) {
+            return brand["_logo_global_index"].asInt();
+        }
+    }
+    return -1;
+}
+
+// The map pin's brand logo of a car dealer (the spots.bin category 0x01
+// records): one brand logo cell of the brands_map atlas per dealer, which is
+// what the retail map shows [DATA: the retail grabs of the "Spots for
+// Vehicles" tab, both islands - see docs/re/map_spots_spec.md]. The retail
+// pick per dealer is hand-authored (not derivable from the stock: "British
+// Cars" sells six Aston Martins and shows Lotus), so the grabbed logos are
+// the law, keyed by the building-bank prefix; a dealer the grabs do not
+// settle falls back to the most-represented brand of its DBCarShop stock
+// (ties: the priciest car's brand), else the "Generic Car" cell (62).
+// Brand hashcodes are the DBBrands _hashcode values (the cars' _car_brand).
+int32_t dealerLogoIndex( const std::string &name, uint64_t spotId ) {
+    static const struct {
+        const char *pPrefix;
+        uint64_t brandHash;
+    } kRetailPick[] = {
+        // hashcodes: AUDI FERRARI MERCO ASCA LOTUS SPYK PAGANI SUBARU CHEVY DODGE HUMMER
+        { "ECD_AUDI", 0x5 },  { "ECD_FERR", 0xf },  { "ECD_MERC", 0x1b }, { "ECD_BRI1", 0x17 },
+        { "ECD_BRI2", 0x3 },  { "ECD_EUR2", 0x27 }, { "ECD_ITAL", 0x1f }, { "ECD_ASIA", 0x44 },
+        { "ECD_US1", 0x8 },   { "ECD_US2", 0xb },   { "ECDC_WLD", 0x3f },
+    };
+    auto startsWith = [&]( const char *pPrefix ) { return name.compare( 0, strlen( pPrefix ), pPrefix ) == 0; };
+    for ( const auto &pick : kRetailPick ) {
+        if ( startsWith( pick.pPrefix ) ) {
+            return brandLogoIndex( pick.brandHash );
+        }
+    }
+    // The stock law: the shop of this spot (DBCarShop._spot_name), its cars'
+    // brands counted; a tie goes to the brand of the most expensive car.
+    const CarShop *pShop = FindShopBySpotId( spotId );
+    if ( pShop != nullptr && !pShop->Cars.empty() ) {
+        std::map<uint64_t, int32_t> counts;
+        int32_t bestCount = 0;
+        uint64_t bestBrand = 0;
+        int32_t bestPrice = -1;
+        for ( const ShopCar &car : pShop->Cars ) {
+            const int32_t count = ++counts[car.BrandHash];
+            if ( count > bestCount || ( count == bestCount && car.Price > bestPrice ) ) {
+                bestCount = count;
+                bestBrand = car.BrandHash;
+                bestPrice = car.Price;
+            }
+        }
+        const int32_t index = brandLogoIndex( bestBrand );
+        if ( index >= 0 ) {
+            return index;
+        }
+    }
+    // The grouped dealers without a settled retail pick and without stock:
+    // the movie's "Generic Car" cell [INF: the port's pre-retail-pin choice].
+    return 62;
+}
 } // namespace
 
 bool MapScreen::load() {
@@ -121,9 +191,13 @@ bool MapScreen::load() {
         }
         // The tab row reports its tab with 'bmap:fltr:icf<N>' (N = 0..5), the cue
         // for the game to fill that tab (the 'icf' without a digit is the
-        // initial one) [DATA: -logmaptab].
+        // initial one) [DATA: -logmaptab]. -maptab <n> pins the game's tab for
+        // the whole open (a test hook: the movie's own lit row still follows
+        // its clicks; the retail MapTabObjective seeding only holds during the
+        // open animation, which would land the row back on 0).
         if ( command.size() == 14 && command.compare( 0, 13, "bmap:fltr:icf" ) == 0 && command[13] >= '0' && command[13] <= '5' ) {
-            currentTab = command[13] - '0';
+            const int32_t tabArg = CmdLine::GetArgInt( "-maptab", -1 );
+            currentTab = ( tabArg >= 0 && tabArg <= 5 ) ? tabArg : command[13] - '0';
             return;
         }
         if ( command == "cred:open" ) {
@@ -173,7 +247,10 @@ void MapScreen::open() {
     bClosing = false;
     openTicks = 0;
     transition = 0.0f;
-    currentTab = 0;
+    // -maptab <n>: open on that tab (the retail MapTabObjective variable; the
+    // movie resets its row during the open animation, so the icf cue is pinned
+    // above while openTicks < 60).
+    currentTab = Clamp( CmdLine::GetArgInt( "-maptab", 0 ), 0, 5 );
     // The spot icon clones do not survive a close: close_free is a root
     // timeline frame that drops /pack, so the next map_open builds a fresh one
     // (verified: a run that opened the map twice logged '74 spot icons
@@ -651,10 +728,15 @@ void MapScreen::updateSnap() {
     };
     // 1) Shops and the other points of interest of the tab on screen: they win
     // over the road, so the cursor lands on the icon of a shop it is over.
+    // Undiscovered spots are skipped: no icon on the map, no snap, and so no
+    // fast travel to them (the same reason the icons are not drawn).
     float bestSpot = 1e30f;
     for ( size_t i = 0; i < spots.size(); i++ ) {
         const Spot &spot = spots[i];
         if ( spot.pIcon == nullptr || spot.Tab != currentTab ) {
+            continue;
+        }
+        if ( i >= spotDiscovered.size() || spotDiscovered[i] == 0 ) {
             continue;
         }
         float sx = 0.0f, sy = 0.0f;
@@ -1091,6 +1173,8 @@ void MapScreen::buildCredits() {
 
 void MapScreen::loadSpots( const std::string &island ) {
     spots.clear();
+    spotDiscovered.clear();
+    spotsIsland.clear();
     if ( CmdLine::HasArg( "-logbrands" ) && gpDatabase != nullptr ) {
         XmbValue root = gpDatabase->getDocument().getRoot();
         const uint32_t numBrands = root.getArraySize( "DBBrands" );
@@ -1137,9 +1221,7 @@ void MapScreen::loadSpots( const std::string &island ) {
         case 0x01:
             spot.pIcon = "cardealer";
             spot.Tab = 3;
-            // [INF] single-brand dealers show their make; the grouped ones
-            // (ECD_EUR1, ECD_US2...) the "Generic Car" logo (index 62).
-            spot.LogoIndex = startsWith( "ECD_AUDI" ) ? 4 : startsWith( "ECD_FERR" ) ? 12 : startsWith( "ECD_MERC" ) ? 24 : 62;
+            spot.LogoIndex = dealerLogoIndex( spot.Name, spot.Id );
             break;
         // 3 and 5 [DATA: the source paths inside the interior banks]: EAS_* /
         // ESHOP_CA are spots\avatshp (the clothes shops), ECH_* spots\clubhous.
@@ -1175,11 +1257,41 @@ void MapScreen::loadSpots( const std::string &island ) {
             spots.push_back( spot );
         }
     }
-    OTDU_LOG_INFO( "MapScreen: %zu spots with an icon (of %zu in spots.bin)\n", spots.size(), count );
+    // The discovery state (the retail law: a spot's icon shows on the map only
+    // once the car drove within discovery range of the building; the profile
+    // keeps the ids per island). Auto-known: the houses the player owns (their
+    // home icon is on the map from the start) and the home spots (0x19, the
+    // story's hotel) [INF: the retail KnownSpots seeding is not decoded].
+    spotsIsland = island;
+    spotDiscovered.assign( spots.size(), 0 );
+    const PlayerProfile &profile = GetPlayerProfile();
+    const auto known = profile.KnownSpots.find( island );
+    int32_t numDiscovered = 0;
+    for ( size_t i = 0; i < spots.size(); i++ ) {
+        const Spot &spot = spots[i];
+        const bool bAutoKnown = ( spot.pIcon != nullptr && strcmp( spot.pIcon, "estates" ) == 0 &&
+                                  spot.Name.compare( 0, 3, "EPH" ) == 0 && IsHouseOwned( spot.Id ) ) ||
+                                strcmp( spot.pIcon, "home" ) == 0;
+        if ( bAutoKnown ) {
+            spotDiscovered[i] = 1;
+            numDiscovered++;
+        } else if ( known != profile.KnownSpots.end() ) {
+            for ( uint64_t id : known->second ) {
+                if ( id == spot.Id ) {
+                    spotDiscovered[i] = 1;
+                    numDiscovered++;
+                    break;
+                }
+            }
+        }
+    }
+    OTDU_LOG_INFO( "MapScreen: %zu spots with an icon (of %zu in spots.bin), %d discovered\n", spots.size(), count,
+                   numDiscovered );
     if ( CmdLine::HasArg( "-logspots" ) ) {
-        for ( const Spot &spot : spots ) {
-            OTDU_LOG_INFO( "MapScreen: spot '%s' icon '%s' at (%.0f, %.0f)\n", spot.Name.c_str(), spot.pIcon, spot.Position.x,
-                           spot.Position.z );
+        for ( size_t i = 0; i < spots.size(); i++ ) {
+            const Spot &spot = spots[i];
+            OTDU_LOG_INFO( "MapScreen: spot '%s' icon '%s' logo %d %s at (%.0f, %.0f)\n", spot.Name.c_str(), spot.pIcon,
+                           spot.LogoIndex, spotDiscovered[i] ? "known" : "undiscovered", spot.Position.x, spot.Position.z );
         }
     }
 }
@@ -1187,11 +1299,16 @@ void MapScreen::loadSpots( const std::string &island ) {
 void MapScreen::buildSpots() {
     // The native clones /pack/point per spot (PS3 strings "/pack/point%03d",
     // "resetIconStatus"...) and picks the art with the frame label of
-    // pack/point/spot [DATA].
+    // pack/point/spot [DATA]. Undiscovered spots get no clone: the retail map
+    // draws a spot's icon only once the car discovered it [INF, see
+    // discoverNear] - which is also why the icons are rebuilt on every open.
     bSpotsBuilt = true;
     int32_t made = 0;
     for ( size_t i = 0; i < spots.size(); i++ ) {
         const Spot &spot = spots[i];
+        if ( i >= spotDiscovered.size() || spotDiscovered[i] == 0 ) {
+            continue;
+        }
         if ( !player.duplicate( "/pack/point", spot.Clip, 200 + static_cast<int32_t>( i ) ) ) {
             continue;
         }
@@ -1247,7 +1364,65 @@ void MapScreen::buildSpots() {
     // the icons are placed in stage pixels.
     player.setClipVisible( "/pack/point", false );
     applySpotLod(); // the clones are built on zoom_default; the open level decides
-    OTDU_LOG_INFO( "MapScreen: %d spot icons created\n", made );
+    OTDU_LOG_INFO( "MapScreen: %d spot icons created (%d undiscovered hidden)\n", made,
+                   static_cast<int32_t>( spots.size() ) - made );
+}
+
+// The discovery radius [INF: the retail range is not decoded - 150 m covers
+// the spot's forecourt from the road, the distance the enter prompt appears
+// at]. Retail's own seeding of KnownSpots (what a fresh profile knows) is not
+// decoded either; the port starts empty and auto-knows owned houses and the
+// home spots (loadSpots).
+constexpr float kSpotDiscoverRadius = 150.0f;
+
+int32_t MapScreen::discoverNear( const Vector3f &position ) {
+    if ( spots.empty() || spotsIsland.empty() ) {
+        return 0;
+    }
+    const float radiusSq = kSpotDiscoverRadius * kSpotDiscoverRadius;
+    int32_t found = 0;
+    PlayerProfile &profile = GetPlayerProfile();
+    std::vector<uint64_t> &known = profile.KnownSpots[spotsIsland];
+    for ( size_t i = 0; i < spots.size(); i++ ) {
+        if ( i < spotDiscovered.size() && spotDiscovered[i] != 0 ) {
+            continue;
+        }
+        const Vector3f delta = spots[i].Position - position;
+        if ( delta.x * delta.x + delta.z * delta.z <= radiusSq ) {
+            spotDiscovered[i] = 1;
+            known.push_back( spots[i].Id );
+            found++;
+            OTDU_LOG_INFO( "MapScreen: discovered '%s' (%s)\n", spots[i].Name.c_str(), spots[i].pIcon );
+        }
+    }
+    if ( found > 0 ) {
+        SaveProfile( "map: spots discovered" );
+    }
+    return found;
+}
+
+void MapScreen::unlockAllSpots() {
+    // The dev menu's "ALL SPOTS" (the KnownSpots twin of unlockAllRoads).
+    if ( spots.empty() || spotsIsland.empty() ) {
+        return;
+    }
+    PlayerProfile &profile = GetPlayerProfile();
+    std::vector<uint64_t> &known = profile.KnownSpots[spotsIsland];
+    for ( size_t i = 0; i < spots.size(); i++ ) {
+        if ( i < spotDiscovered.size() && spotDiscovered[i] == 0 ) {
+            spotDiscovered[i] = 1;
+            known.push_back( spots[i].Id );
+        }
+    }
+    OTDU_LOG_INFO( "MapScreen: all %d spots discovered\n", static_cast<int32_t>( spots.size() ) );
+}
+
+int32_t MapScreen::getNumDiscovered() const {
+    int32_t count = 0;
+    for ( size_t i = 0; i < spots.size() && i < spotDiscovered.size(); i++ ) {
+        count += spotDiscovered[i] != 0 ? 1 : 0;
+    }
+    return count;
 }
 
 void MapScreen::applySpotLod() {

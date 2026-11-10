@@ -15,6 +15,72 @@ appends its entry at the top of this file**, newest first, in the
 
 ---
 
+## Session 2026-11-10 (map icons + discovery, `main`): every dealer pin shows its brand (the retail-grabs law) and the map hides undiscovered spots — `KnownSpots` in the profile, All spots cheat, `-cheat allspots`
+
+The owner's task: "Is it possible we can add the icons on map I believe some of the
+dealership icons on the map are missing / also we need to also have it so no icons
+show on the map as they normally show on map once you've discovered them", with two
+retail grabs of the "Spots for Vehicles" tab attached (Ibiza + Hawai).
+
+### What changed
+- `docs/re/map_spots_spec.md` (new) — the spots.bin category→icon table, the dealer
+  logo law + the retail pick table, the discovery law, the open [ENC]s.
+- `source/game/map_screen.cpp/.h` — the dealer pin logo (the 3-prefix hack → the
+  retail picks table + the stock law; the brand resolves through
+  `DBCarPhysicsData._car_brand` → `DBBrands._logo_global_index`, both read at
+  runtime), and the discovery state (`spotDiscovered` per island:
+  `discoverNear` 150 m [INF], `buildSpots` clones only known spots,
+  `updateSnap` skips unknown ones so fast travel cannot target them;
+  `unlockAllSpots`; `-logspots` logs logo + state). `-maptab <n>` now actually
+  pins the tab (the movie's open animation reset it before; a test hook).
+- `source/game/car_shop.cpp/.h` — `ShopCar.BrandHash` (`_car_brand`; the
+  `_manufacturer_name` display strings are not id-safe — the Charger's says
+  "Charger").
+- `source/game/player_profile.cpp/.h` — `KnownSpots` per island, saved as
+  `knownspots_<island> = id,…` (the `ExploredRoads` pattern).
+- `source/game/freeride/gm_freeride.cpp` — `discoverNear(carPosition)` beside
+  `trackCar`; the All spots cheat handler.
+- `source/game/cheats.cpp/.h` — the **All spots** delock row (the retail dev
+  menu's shape), `spots: n/m` in the status line, `-cheat allspots`.
+- `README.md` flags + feature rows; `PROGRESS.md` World map row.
+
+### Verified (build 12, headless)
+- All 20 Ibiza dealer pins resolve to distinct logos matching the owner's retail
+  grab, position by position — `docs/images/map_dealer_brands_retail_vs_port.webp`
+  (retail over port). Before: only Audi/Ferrari/Mercedes had brands, 17 pins were
+  the generic car cell.
+- Fresh profile: `75 spots with an icon …, 2 discovered` (the auto-knowns: the
+  story house + the hotel), `2 spot icons created (73 undiscovered hidden)`, the
+  vehicles tab draws nothing (`docs/images/map_discovery_fresh.webp`).
+- Discovery: `-tp 21700,8,24188` (96 m from the Ferrari dealer) → `MapScreen:
+  discovered 'ECD_FERR' (cardealer)`, the map shows exactly that pin
+  (`docs/images/map_discovery_one_pin.webp`); 296 m out does not fire (the radius
+  is real). `-playername` run: `knownspots_ibiza = …` lands in `profile.sav` and a
+  later run reloads `3 discovered` (round-trip).
+- `-cheat allspots`: `75 spot icons created (0 undiscovered hidden)`, profile
+  saved (`cheat: all spots`).
+
+### Ruled out / notes
+- The retail per-dealer pick is hand-authored in the encrypted band — "British
+  Cars" (6 Astons) shows Lotus, "Asian Cars" (2 Nissans) shows Subaru, "U.S. Cars
+  (north)" shows Hummer. The grabs settle 11 of 14 dealer banks; the rest use the
+  stock law (most-represented brand, tie → priciest car's brand).
+- Hawai's 25 `EDI_B` diners (category 0x08, no prefix match) stayed icon-less
+  **faithfully**: MAP.vmf has no diner/food kind. `bikeDealer` /
+  `carDealerClassic` kinds exist in the movie but no base-game spot or DBCarShop
+  row uses them (bike dealers = DLC data the port does not read).
+- The HUD's floating world markers + enter prompts stay unfiltered on purpose:
+  driving past a shop is what discovers it (retail shows the enter tile of a
+  never-visited dealer).
+- An existing profile (pre-feature save) starts with nothing discovered except
+  owned houses / home — drive near spots to re-discover, or F4 → All spots.
+
+### Not done / next
+- Hawai's own pin layout not screenshot-verified (the owner's Hawai grab shows
+  the same 14 dealer banks; the law is island-independent).
+- The retail `carDealerClassic` tile art (if it differs from `cardealer`) is
+  unused; the port draws `cardealer` + brand for the ECDC classics too.
+
 ## Session 2026-11-10 (walk-mode emotes, `main`): the 8 retail avatar emotes play in the self view — X / 1..8 / the EMOTES panel, `-emote <label>` for tests
 
 The owner's task: "implement the characters emotes if possible" (after confirming

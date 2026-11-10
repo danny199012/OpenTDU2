@@ -441,6 +441,19 @@ void LoadProfile() {
                 list.push_back( static_cast<uint32_t>( id ) );
                 pText = *pEnd == ',' ? pEnd + 1 : pEnd;
             }
+        } else if ( key.compare( 0, 11, "knownspots_" ) == 0 ) {
+            // knownspots_<island> = u64 record id,u64,... (MapScreen Spot::Id)
+            std::vector<uint64_t> &list = profile.KnownSpots[key.substr( 11 )];
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const unsigned long long id = strtoull( pText, &pEnd, 10 );
+                if ( pEnd == pText ) {
+                    break;
+                }
+                list.push_back( static_cast<uint64_t>( id ) );
+                pText = *pEnd == ',' ? pEnd + 1 : pEnd;
+            }
         }
     }
     // The owned-house count drives the Game Progress page (retail keeps the
@@ -609,6 +622,16 @@ bool SaveProfile( const char *pReason ) {
         }
         for ( const auto &island : profile.ExploredRoads ) {
             file << "explored_" << island.first << " = ";
+            for ( size_t i = 0; i < island.second.size(); i++ ) {
+                file << ( i > 0 ? "," : "" ) << island.second[i];
+            }
+            file << "\n";
+        }
+        for ( const auto &island : profile.KnownSpots ) {
+            if ( island.second.empty() ) {
+                continue;
+            }
+            file << "knownspots_" << island.first << " = ";
             for ( size_t i = 0; i < island.second.size(); i++ ) {
                 file << ( i > 0 ? "," : "" ) << island.second[i];
             }

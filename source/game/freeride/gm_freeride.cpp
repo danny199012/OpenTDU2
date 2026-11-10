@@ -3465,11 +3465,16 @@ void GMFreeRide::drawUI() {
         mapScreen.unlockAllRoads();
         SaveProfile( "cheat: all roads" );
     }
+    if ( cheats.takeUnlockAllSpots() ) {
+        mapScreen.unlockAllSpots();
+        SaveProfile( "cheat: all spots" );
+    }
     if ( cheats.takeTargetNearestLockedRoad() ) {
         mapScreen.targetNearestUnexplored( carWorld.getTranslation() );
     }
     cheats.setRoadStatus( mapScreen.getExploredPercent(), mapScreen.getNumExploredRoads(),
                           mapScreen.getNumRoadEdges() );
+    cheats.setSpotStatus( mapScreen.getNumDiscovered(), mapScreen.getNumIconSpots() );
 }
 
 void GMFreeRide::deliverBoughtCar( int32_t carId ) {
@@ -5826,6 +5831,9 @@ void GMFreeRide::tick( float deltaTime ) {
             } );
         }
         mapScreen.trackCar( carPosition, deltaTime );
+        // Spot discovery: the buildings the car drives within range of get
+        // their map icon (the retail law; discoverNear saves the profile).
+        mapScreen.discoverNear( carPosition );
         for ( const std::string &event : mapScreen.takeEvents() ) {
             AwardSkillEvent( event.c_str() );
         }

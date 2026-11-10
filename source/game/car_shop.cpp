@@ -38,6 +38,7 @@ const std::vector<CarShop> &GetCarShops() {
         int32_t CarId;
         int32_t PhysicsRow;
         std::string FileName, Model, Brand;
+        uint64_t BrandHash;
         int32_t Price;
     };
     std::map<uint64_t, CarRow> cars;
@@ -61,6 +62,7 @@ const std::vector<CarShop> &GetCarShops() {
         const std::string version = clean( car["_version_name"].asString() );
         row.Model = clean( car["_model_name"].asString() ) + ( version.empty() ? std::string() : " " + version );
         row.Brand = clean( car["_manufacturer_name"].asString() );
+        row.BrandHash = car["_car_brand"].asUInt64();
         row.Price = static_cast<int32_t>( car["_price"].asInt() );
         // The shop slots hold the _id_car of the car row [DATA: 371, 380, 355 ...].
         cars[static_cast<uint64_t>( row.CarId )] = row;
@@ -98,6 +100,7 @@ const std::vector<CarShop> &GetCarShops() {
             car.PhysicsRow = found->second.PhysicsRow;
             car.FileName = found->second.FileName;
             car.Brand = found->second.Brand;
+            car.BrandHash = found->second.BrandHash;
             car.Model = found->second.Model;
             car.Price = found->second.Price;
             car.bBuyable = row[( "_isbuyable_" + std::to_string( slot ) ).c_str()].asBool();

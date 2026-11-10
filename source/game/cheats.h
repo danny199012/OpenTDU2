@@ -60,9 +60,13 @@ public:
     bool takeBackOnTrack();
     // The world side of the delock rows (the map owns the roads).
     bool takeUnlockAllRoads();
+    bool takeUnlockAllSpots();
     bool takeTargetNearestLockedRoad();
     // The mode feeds the road status back for the panel's line.
     void setRoadStatus( int32_t percent, int32_t explored, int32_t total );
+    // The map-spot discovery status (the panel's line; the ALL SPOTS row
+    // marks every spot of the island discovered).
+    void setSpotStatus( int32_t discovered, int32_t total );
 
     // The pad code (the retail dev-feature way in): a circle of the D-pad (up,
     // right, down, left) three times with the option button (X / square) mashed
@@ -85,6 +89,7 @@ public:
     //   ALL CLOTHES         PlayerProfile::OwnedClothes, from the DBClothe table
     //   ALL HOUSES          PlayerProfile::NbHouses (the island's EPH_* spots)
     //   ALL ROADS           MapScreen::unlockAllRoads (ExploredRoads + areas)
+    //   ALL SPOTS           MapScreen::unlockAllSpots (KnownSpots - the map icons)
     //   CARS ON STOCK       every DBCarShop row buyable (DealerMenu's check)
     //   ALL CAR DEALERS     nothing to unlock in the port: the shops are spots
     //   ACHIEVEMENTS        every DBRewardXP event awarded once
@@ -94,8 +99,8 @@ public:
     static void setAllCarsBuyable( bool bEnable );
     static bool isAllCarsBuyable();
     static void awardAllAchievements();
-    // `-cheat allcars,houses,allroads,buyable,achievements`: the same rows from
-    // the command line, so a scripted run can start with them applied.
+    // `-cheat <row>[,<row>]`: the same rows from the command line, so a
+    // scripted run can start with them applied.
     static void applyCommandLine();
 
     // The wallet: the profile, saved (the dealer menu and the casino read it).
@@ -113,8 +118,10 @@ private:
     // The delock rows' state.
     bool bPendingAllHouses = false;
     bool bPendingAllRoads = false;
+    bool bPendingAllSpots = false;
     bool bPendingNearestLockedRoad = false;
     int32_t roadPercent = 0, roadExplored = 0, roadTotal = 0;
+    int32_t spotsDiscovered = 0, spotsTotal = 0;
     std::vector<Spot> spots;
     std::string island;
     std::vector<Destination> destinations;
