@@ -2246,3 +2246,58 @@ was stale but fixed now but -win (Claude) should be heavily behind"*. It was:
 - Session number: this prep is not a numbered agent session; the next Claude
   session continues the numbering in this shard.
 
+
+## Session 2026-11-11 (`main`): the "Eden island" bisected out of Hawaii into its own playable island
+
+The owner: *"there's meant to be another island ... called eden island ... a small island off the hawaii
+island ... possible to glitch there ... was in tdu 1 also and has a road etc ... waterfalls ... it would be
+neat if we can use and expand it also be a nod to the creators"*. (Same session, earlier: the map-from-real-
+locations discussion that `docs/re/modding.md` / the map_gen notes feed into.)
+
+### What changed
+- **`docs/re/eden_island_spec.md` (new)**: the islet measured out of the retail data — area 10-7, sectors
+  10-7-3-1/3-2/4-2, ~600x650 m, peak 109 m, a **flooded crater** (interior -5.4 m inside a 73 m rim),
+  ~16 waterfall meshes, the `SB_FBRID` footbridge, `FU_LINEA`/`FU_CATAM` ferry props, its road only as
+  baked mesh + `-R.shk` (zero road-graph nodes within 1.2 km), painted on the retail minimap, **void at
+  the island-level heightfield** (retail never LODed it in). Section 2 lists the ten verified loader facts
+  the bisect relies on (name-fetched bank entries, index-derived sector positions, area-local Havok frames,
+  3dd node names = hashcodes, the data-driven sea level, the XTEA-CBC worldconfig...).
+- **`tools/mod/make_eden_island.py` (new)**: assembles `islands/eden/` into the mods overlay from the
+  user's own game data — banks renamed (`hawai`->`eden`, `area-10-7`->`area-0-0`, sectors kept at 3-1/3-2/
+  4-2 within area 0-0), the area `-o.3dd` sector-group hashcodes patched `Sector-10-7-*`->`Sector-0-0-*`
+  with the non-shipped sectors' CITY impostors sunk -500 m, the area heightfield flattened outside the
+  islet rect (drops O'ahu's severed coastline), the island heightfield flattened with the islet re-sampled
+  from the area sheet, the map screen cropped + sea-masked by the area sheet, road IA / spots deliberately
+  absent, `commonworld.bnk` / `worldactors.bnk` / `game_weathers.xmb` copied, and a fresh XTEA-CBC
+  `worldconfig.cpr` (`NbColumns="1" NbRows="1"`; the encrypt side is the decipher's exact inverse,
+  validated by decrypt->re-encrypt byte-identical on hawai's own file).
+- **`tools/x360/build_bank.py` layout bug fixed**: payloads were written back-to-back while the table
+  carried 16-aligned offsets — every entry after a payload of 4 mod 16 read garbage. It surfaced here
+  because the all-DXT banks the old `--roundtrip` validated never had an unaligned payload. Now pads each
+  payload to the alignment; round-trips re-verified on retail banks with .pmi/.shk/.uva (ibiza area-3-3,
+  hawai sector-10-7-3-1: 0 problems).
+- **`source/game/worldviewer/gm_world_viewer.{h,cpp}`**: `kIslands` gains `"eden"` (+ button label, F-key
+  hint), the F5-F8 island-switch loop covers all four (was hard-bound to 3), and `-nopanel` starts with
+  the F2 panel closed (headless screenshots).
+
+### Verified (build 17, bed87e8+dirty, headless)
+- XTEA self-test OK; the tool writes the full tree (~81 MB, mostly the verbatim commonworld copy) with a
+  per-bank read-back self-check.
+- `-gm FREERIDE -island eden -tp 2950,1350`: `eden: 1 x 1 areas (worldconfig.cpr)`, `1 areas loaded`,
+  `island ocean bounds (-98304 -2 -98304) - (165888 -2 153600)` (the -2 m plane is Hawaii's copied water
+  level — the crater floods at retail depth), sector 3-1 **75,042 triangles / 400 boxes / 370 capsules /
+  523 instances**, 3-2 4,503/135, 4-2 13,409/44; the baked road triggers "Return to the road" in the
+  flooded crater. The 61 missing pure-ocean sector banks warn-and-skip as designed; spots / race gates /
+  aircraft / birds warn-and-continue.
+- World viewer `-island eden`: aerials `docs/images/eden_island_aerial.webp` (islet + the moored
+  catamaran) and `eden_island_crater.webp` (summit road, crater bridge, dock buildings, causeway); the
+  drive shot `eden_island_crater_drive.webp`. Retail-map evidence `eden_island_minimap.webp`, flattened
+  area sheet `eden_island_heightfield.webp`. 0 stalls, no validation VUIDs.
+
+### Not done / next
+- The map screen crop is blurry (94x114 px source; spec 7); the HUD zone label says "Ibiza: Area 1"; the
+  shipped weather preset is Hawaii's.
+- Expansion (spec 4): spots via `add_spot.py`, props via `props.txt`, an authored road graph (the `.IA`
+  parsers take generated files), then the DEM+OSM generator on this 6x6 km canvas.
+- `-island eden` FREERIDE boot without `-tp` not exercised (no house/outro flow on a third island by
+  design); licences treat it as island 0 like any non-hawai name.

@@ -31,6 +31,9 @@ const char *IslandLabel( const char *pIsland ) {
     if ( strcmp( pIsland, "hawai" ) == 0 ) {
         return "Hawai";
     }
+    if ( strcmp( pIsland, "eden" ) == 0 ) {
+        return "Eden";
+    }
     return "Casino";
 }
 
@@ -59,6 +62,7 @@ bool GMWorldViewer::enter( TestDriveGameInstance *pInstance ) {
     GameMode::enter( pInstance );
     sectorRadius = Clamp( CmdLine::GetArgInt( "-sectorradius", 1 ), 0, 4 );
     bExteriors = !CmdLine::HasArg( "-noexteriors" );
+    bShowPanel = !CmdLine::HasArg( "-nopanel" );
     if ( const char *pSpeed = CmdLine::GetArgValue( "-flyspeed" ) ) {
         baseSpeed = Clamp( static_cast<float>( atof( pSpeed ) ), 1.0f, 5000.0f );
     }
@@ -68,7 +72,7 @@ bool GMWorldViewer::enter( TestDriveGameInstance *pInstance ) {
         name = "hawai";
     }
     if ( !IsKnownIsland( name ) ) {
-        OTDU_LOG_WARN( "WORLD_VIEWER: unknown island '%s' (ibiza, hawai, casino), using ibiza\n", name.c_str() );
+        OTDU_LOG_WARN( "WORLD_VIEWER: unknown island '%s' (ibiza, hawai, casino, eden), using ibiza\n", name.c_str() );
         name = "ibiza";
     }
     // The command line camera applies to the first island only.
@@ -248,8 +252,8 @@ void GMWorldViewer::updateCamera( float deltaTime ) {
     if ( gpInput->wasKeyPressed( SDL_SCANCODE_F2 ) ) {
         bShowPanel = !bShowPanel;
     }
-    // F5 / F6 / F7: Ibiza / Hawai / Casino (same as the panel buttons).
-    for ( uint32_t i = 0; i < 3; i++ ) {
+    // F5-F8: Ibiza / Hawai / Casino / Eden (same as the panel buttons).
+    for ( uint32_t i = 0; i < sizeof( kIslands ) / sizeof( kIslands[0] ); i++ ) {
         if ( gpInput->wasKeyPressed( SDL_SCANCODE_F5 + i ) && island != kIslands[i] ) {
             pendingIsland = kIslands[i];
         }
@@ -607,6 +611,6 @@ void GMWorldViewer::drawUI() {
     ImGui::TextDisabled( "RMB (or LMB outside panel): look, Tab: capture mouse" );
     ImGui::TextDisabled( "WSAD / arrows: move, E/Space up, Q/Ctrl down" );
     ImGui::TextDisabled( "Shift: x2, wheel: base speed, F2: panel, F1: debug" );
-    ImGui::TextDisabled( "F5 / F6 / F7: Ibiza / Hawai / Casino" );
+    ImGui::TextDisabled( "F5-F8: Ibiza / Hawai / Casino / Eden" );
     ImGui::End();
 }

@@ -230,6 +230,12 @@ def build_bank(entries, creation_date=0, bank_type=0, directory_order=None):
     out.extend(b"\0" * (data_offset - len(out)))
     for data in payloads:
         out.extend(data)
+        # the table's offsets are 16-aligned: pad each payload to keep the
+        # layout in step with the accounting (a payload of 4 mod 16 shifts
+        # every later entry - surfaces as "failed to parse" in the engine).
+        # No bytes change when a size is already aligned, so the
+        # byte-identical --roundtrip property is untouched.
+        out.extend(b"\0" * (_align(len(data), _DATA_ALIGNMENT) - len(data)))
     out.extend(b"\0" * (file_size - len(out)))
     return bytes(out)
 

@@ -26,7 +26,7 @@
 //   A / D (or Left / Right): strafe; E / Space / Page Up: up;
 //   Q / Ctrl / Page Down: down; Shift: speed x2; mouse wheel: base speed
 //   x1.1 / /1.1 (OpenTDU DAT_00f4174c / DAT_00f417e4); F2: hide the panel;
-//   F5 / F6 / F7: switch to Ibiza / Hawai / Casino (also in the panel).
+//   F5-F8: switch to Ibiza / Hawai / Casino / Eden (also in the panel);
 class GMWorldViewer : public GameMode {
 public:
     GMWorldViewer();
@@ -39,7 +39,7 @@ public:
     void exit() override;
     void drawUI() override;
 
-    static constexpr const char *kIslands[] = { "ibiza", "hawai", "casino" };
+    static constexpr const char *kIslands[] = { "ibiza", "hawai", "casino", "eden" };
 
 private:
     EdenSceneView view;
