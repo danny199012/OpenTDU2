@@ -15,6 +15,90 @@ appends its entry at the top of this file**, newest first, in the
 
 ---
 
+## Session 2026-11-11 (video settings that stick, `main`): the Resolution row works in Borderless / Fullscreen now and the Display mode row shows the mode the window is really in - the Discord user's "windowed keeps reverting back to Borderless" + "dropping resolution … staying at 4k" (RTX 3050 @ 4K); F4 answered (cheats, FREERIDE only; F2 anywhere)
+
+The owner's task (the Discord thread of a tester user, quoted): *"A user with
+those specs has had fps issues and some reason windowed keeps reverting please
+can we check that the settings are sticking he also mentioned earlier that
+dropping resolution didn't look like it was dropping but staying at 4k but
+unsure if it is or not"* — RTX 3050 8 GB, 16 GB RAM, Ryzen 5 5600X, 4K monitor.
+
+### Root cause (two bugs + one expectation gap)
+1. **The Resolution row was windowed-only.** `ApplyVideoOptions` skips
+   `SDL_SetWindowSize` while the window carries `SDL_WINDOW_FULLSCREEN`
+   (game_options.cpp), and the swapchain always follows the window's pixel
+   size (render_device.cpp `capabilities.currentExtent`). In Borderless the
+   window IS the desktop mode → the row changed its label only; in exclusive
+   the display mode was picked only inside `ApplyWindowMode`, which early-outed
+   on `mode == appliedMode` → the row changed its label only. Either way a 4K
+   panel rendered 4K however low the row went — "unsure if it is or not": it
+   was not.
+2. **The Display mode row lied about `-1`.** A window created from a retail
+   fullscreen `SystemPC.cpr` is born BORDERLESS (the `SDL_WINDOW_FULLSCREEN`
+   creation flag without a display mode = the borderless fullscreen desktop,
+   tdu_instance.cpp createWindow), but `WindowMode = -1` ("not chosen") was
+   shown as "Windowed" (extraRowText default case) and its first arrow step
+   initialized to EXCLUSIVE (both old fallbacks said fullscreen-exclusive for
+   `SetWindowed=false`, contradicting the creation). So the user opened the
+   page on "Windowed" (a lie — really Borderless), pressed an arrow, and the
+   row next to that lie was "Borderless" — *"it reverts back to Borderless"*.
+   (Their file can also hold `window_mode = 1` from any past Borderless
+   validation; that boots Borderless forever, by design.)
+3. F4 "doesn't do anything": it is the **cheats panel**, wired in FREERIDE and
+   casino only (`gm_freeride.cpp:3408`, `gm_casino.cpp:2378`). The graphics
+   panel is **F2 anywhere** (`AdvancedGraphics::drawUI` runs globally,
+   tdu_instance.cpp:614) or Y / Triangle on the pause screen. No code change.
+
+### What changed
+- `source/game/game_options.{h,cpp}` — `EffectiveWindowMode()`: `-1` resolves
+  to the mode the window was CREATED with (windowed / borderless desktop);
+  `ApplyWindowMode` uses it, keys its no-op on mode AND fullscreen size (a
+  Resolution step re-applies), and both fullscreen flavors now call
+  `ApplyFullscreenMode` = the display mode closest to `video_width/height`
+  (borderless rides a real mode too, so the Resolution row drives the scanout
+  there; null mode = desktop only with no size chosen; the picked size is in
+  the log line; exclusive with a failed enumeration degrades to the null mode
+  and re-applies on the next step instead of latching).
+- `source/game/pause_menu.cpp` — the Display mode row's label and first-step
+  start from `EffectiveWindowMode()`, so the row never shows a mode the window
+  is not in and one press lands on the true neighbour.
+
+### Verified (headless, build 17 (bed87e8+dirty) · main, 4K desktop, scratch userdata per run)
+- `window_mode=1` + 1280x720 → `Window mode: borderless fullscreen at 1280x720`
+  + `Swapchain created (1280x720, 3 images)` — the row's size now drives
+  Borderless (was impossible).
+- `window_mode=2` + 1280x720 → `Window mode: exclusive fullscreen at 1280x720`
+  + swapchain 1280x720.
+- `window_mode=0` + 1280x720 → `Window mode: windowed` on every boot (sticking).
+- `window_mode=1` with no size → `Window mode: borderless fullscreen (desktop
+  resolution)` + `Swapchain created (3840x2160, 3 images)` — the user's
+  Borderless state quantified: full-4K rendering (their FPS cost).
+- Run logs `_vmode_{a,a2,b,c,d,e}.log` (scratch, gitignored).
+
+### Ruled out
+- The launcher forcing a mode: no `-borderless` / `-fullscreen` / `-w` anywhere
+  in `tools/launcher` — the command line is not the revert.
+- options.ini being written behind the user's back: a plain boot+quit writes
+  no options.ini (verified: none appeared in the scratch userdata); every
+  `SaveGameOptions` site serializes the live state (F2 close, units, audio OK,
+  video OK/Test, three cheat checkboxes).
+- A quality profile touching the mode: `ApplyQualityProfile` never writes
+  `WindowMode`.
+
+### Not done / next
+- The movie menu stepping (open Video page, arrows on the Display mode row,
+  Cancel restore) not driven live headless — the autoplay drive of the retail
+  menu is fragile; label + step go through `EffectiveWindowMode` at one site
+  each, and the boot matrix above exercises the same resolver. Next: the
+  owner/user eyeballs the row on the next prerelease build; if a real revert
+  is still seen in play, get the build id + their options.ini `window_mode`.
+- The `-borderless` / `-fullscreen` flags force `WindowMode` on every load and
+  a save during that run would persist the forced value (dev-flags-only quirk,
+  users never pass them — noted, not fixed).
+- The user's actual FPS: the fix gives the Resolution row teeth, but a 3050 at
+  4K wants `-profile low` / the 60 fps preset or Render scale ~67 % too — say
+  so in the reply.
+
 ## Session 2026-11-10 (grass on the village cobbles, `main`): three more grass suppressions - the architecture family in the paved index, the ROAD_MAP road-graph width test, the out-of-class .pgr skip - the first-test-drive village renders clean cobbles (docs/images/grass_village_cobble_before/after.png); the .pgr row-table shuffle probed and documented as open
 
 The owner's task: "g_on1.png has grass where it shouldn't on road behind the

@@ -52,7 +52,10 @@ struct GameOptions {
     // 1 = borderless fullscreen desktop, 2 = exclusive fullscreen. Applied at
     // start-up by ApplyVideoOptions and live from the menu (SDL3
     // SDL_SetWindowFullscreen / SDL_SetWindowFullscreenMode) [INF: retail keeps
-    // windowed mode in SystemPC.cpr and has no menu row for it].
+    // windowed mode in SystemPC.cpr and has no menu row for it]. -1 resolves
+    // through EffectiveWindowMode: the creation flag without a display mode is
+    // the borderless fullscreen desktop, so a fullscreen SystemPC.cpr stands
+    // for Borderless (not exclusive).
     static constexpr int32_t kWindowModeWindowed = 0;
     static constexpr int32_t kWindowModeBorderless = 1;
     static constexpr int32_t kWindowModeFullscreen = 2;
@@ -159,6 +162,12 @@ void ApplyAudioOptions();
 std::vector<std::pair<int32_t, int32_t>> GetVideoResolutions();
 // Refresh rate of the display the window is on (0 if unknown).
 int32_t GetDisplayRefreshRate();
+// WindowMode with -1 ("not chosen yet") resolved to the mode the window was
+// created with: windowed, or borderless fullscreen desktop for a fullscreen
+// SystemPC.cpr (the creation flag carries no display mode). The menu row's
+// label and its first step start from this, so they never show a mode the
+// window is not in.
+int32_t EffectiveWindowMode();
 // Pushes the video options to the window / swapchain / LOD config.
 void ApplyVideoOptions();
 // Applies a quality profile (1 High, 2 Medium, 3 Low, 4 Steam Deck,

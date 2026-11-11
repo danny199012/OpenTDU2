@@ -351,6 +351,64 @@ int32_t GetDisplayRefreshRate() {
     return pMode != nullptr ? static_cast<int32_t>( pMode->refresh_rate + 0.5f ) : 0;
 }
 
+// WindowMode with -1 ("not chosen yet") resolved: the mode the window was
+// created with - SystemPC.cpr SetWindowed. The creation flag without a
+// display mode is the borderless fullscreen desktop (tdu_instance.cpp
+// createWindow), so a fullscreen SystemPC.cpr stands for Borderless, not
+// exclusive. The menu row's label and its first step start from this too, so
+// they never show a mode the window is not in.
+int32_t EffectiveWindowMode() {
+    const int32_t mode = GetGameOptions().WindowMode;
+    if ( mode >= 0 ) {
+        return mode;
+    }
+    return gpConfig != nullptr && !gpConfig->getVideoSettings().bWindowed
+               ? GameOptions::kWindowModeBorderless
+               : GameOptions::kWindowModeWindowed;
+}
+
+// Sets the fullscreen display mode closest to the video size and reports the
+// picked size (0x0 = the desktop mode itself, only while no resolution is
+// chosen or none enumerates). Exclusive and borderless fullscreen share the
+// pick, which is what makes the Resolution row live outside windowed mode:
+// exclusive switches the scanout, borderless keeps the desktop presentation
+// at the picked size - and the swapchain follows the window, so the render
+// resolution really changes [INF: retail has no runtime display mode].
+static bool ApplyFullscreenMode( SDL_Window *pWindow, int32_t &outWidth, int32_t &outHeight ) {
+    outWidth = 0;
+    outHeight = 0;
+    const GameOptions &options = GetGameOptions();
+    if ( options.VideoWidth <= 0 || options.VideoHeight <= 0 ) {
+        return SDL_SetWindowFullscreenMode( pWindow, nullptr );
+    }
+    int count = 0;
+    SDL_DisplayID display = SDL_GetDisplayForWindow( pWindow );
+    SDL_DisplayMode **ppModes = SDL_GetFullscreenDisplayModes( display, &count );
+    SDL_DisplayMode *pBest = nullptr;
+    if ( ppModes != nullptr && count > 0 ) {
+        pBest = ppModes[0];
+        for ( int i = 1; i < count; i++ ) {
+            const int32_t distance = std::abs( ppModes[i]->w - options.VideoWidth ) +
+                                     std::abs( ppModes[i]->h - options.VideoHeight );
+            const int32_t bestDistance =
+                std::abs( pBest->w - options.VideoWidth ) + std::abs( pBest->h - options.VideoHeight );
+            if ( distance < bestDistance ) {
+                pBest = ppModes[i];
+            }
+        }
+    }
+    // Applied before the list is freed (SDL copies the mode out).
+    const bool bApplied = SDL_SetWindowFullscreenMode( pWindow, pBest );
+    if ( pBest != nullptr ) {
+        outWidth = pBest->w;
+        outHeight = pBest->h;
+    }
+    if ( ppModes != nullptr ) {
+        SDL_free( ppModes );
+    }
+    return bApplied;
+}
+
 // Display mode (WindowMode): windowed, borderless fullscreen desktop or
 // exclusive fullscreen, switched at runtime with the SDL3 window API. Only a
 // change acts (the menu re-runs ApplyVideoOptions on every row step); the
@@ -364,62 +422,50 @@ static void ApplyWindowMode() {
     if ( pWindow == nullptr ) {
         return;
     }
+    // What is applied, mode AND fullscreen size: a Resolution step in a
+    // fullscreen mode re-picks the display mode (a windowed resize is the
+    // SDL_SetWindowSize of ApplyVideoOptions below, never this). Cancel's
+    // backup restore walks back through here the same way.
     static int32_t appliedMode = -1;
-    int32_t mode = GetGameOptions().WindowMode;
-    if ( mode < 0 ) {
-        // Not chosen yet (no options.ini value, no flag): the mode the window
-        // was created with - SystemPC.cpr SetWindowed. Cancel needs this path:
-        // the backup restores -1 while the live window sits in the switched
-        // mode, and the restore must walk it back.
-        mode = gpConfig != nullptr && !gpConfig->getVideoSettings().bWindowed
-                   ? GameOptions::kWindowModeFullscreen
-                   : GameOptions::kWindowModeWindowed;
-    }
-    if ( mode == appliedMode ) {
+    static int32_t appliedWidth = -1;
+    static int32_t appliedHeight = -1;
+    const int32_t mode = EffectiveWindowMode();
+    const GameOptions &options = GetGameOptions();
+    const int32_t width = mode != GameOptions::kWindowModeWindowed ? options.VideoWidth : -1;
+    const int32_t height = mode != GameOptions::kWindowModeWindowed ? options.VideoHeight : -1;
+    if ( mode == appliedMode && width == appliedWidth && height == appliedHeight ) {
         return;
     }
     bool bApplied = false;
+    int32_t pickedWidth = -1;
+    int32_t pickedHeight = -1;
     if ( mode == GameOptions::kWindowModeWindowed ) {
         // Leaving fullscreen restores the bordered window at the video size.
         bApplied = SDL_SetWindowFullscreen( pWindow, false ) &&
                    SDL_SetWindowBordered( pWindow, true );
-    } else if ( mode == GameOptions::kWindowModeBorderless ) {
-        // A null fullscreen mode = the borderless fullscreen desktop.
-        bApplied = SDL_SetWindowFullscreenMode( pWindow, nullptr ) &&
+    } else {
+        // Both fullscreen flavors ride the display mode closest to the video
+        // size; a null mode = the borderless fullscreen desktop, only while no
+        // resolution is chosen. (Exclusive with a failed enumeration degrades
+        // to the same null mode - the picked 0x0 then re-applies on the next
+        // Resolution step instead of latching.)
+        bApplied = ApplyFullscreenMode( pWindow, pickedWidth, pickedHeight ) &&
                    SDL_SetWindowFullscreen( pWindow, true );
-    } else if ( mode == GameOptions::kWindowModeFullscreen ) {
-        // Exclusive: the fullscreen display mode closest to the video size.
-        int count = 0;
-        SDL_DisplayID display = SDL_GetDisplayForWindow( pWindow );
-        SDL_DisplayMode **ppModes = SDL_GetFullscreenDisplayModes( display, &count );
-        SDL_DisplayMode *pBest = nullptr;
-        if ( ppModes != nullptr ) {
-            const GameOptions &options = GetGameOptions();
-            for ( int i = 0; i < count; i++ ) {
-                if ( pBest == nullptr ) {
-                    pBest = ppModes[i];
-                    continue;
-                }
-                const int32_t width = options.VideoWidth > 0 ? options.VideoWidth : pBest->w;
-                const int32_t height = options.VideoHeight > 0 ? options.VideoHeight : pBest->h;
-                const int32_t distance = std::abs( ppModes[i]->w - width ) + std::abs( ppModes[i]->h - height );
-                const int32_t bestDistance = std::abs( pBest->w - width ) + std::abs( pBest->h - height );
-                if ( distance < bestDistance ) {
-                    pBest = ppModes[i];
-                }
-            }
-        }
-        bApplied = SDL_SetWindowFullscreenMode( pWindow, pBest ) && SDL_SetWindowFullscreen( pWindow, true );
-        if ( ppModes != nullptr ) {
-            SDL_free( ppModes );
-        }
     }
     if ( bApplied ) {
         appliedMode = mode;
-        OTDU_LOG_INFO( "Window mode: %s\n",
-                       mode == GameOptions::kWindowModeWindowed   ? "windowed"
-                       : mode == GameOptions::kWindowModeBorderless ? "borderless fullscreen desktop"
-                                                                    : "exclusive fullscreen" );
+        appliedWidth = pickedWidth;
+        appliedHeight = pickedHeight;
+        const char *pName = mode == GameOptions::kWindowModeWindowed     ? "windowed"
+                            : mode == GameOptions::kWindowModeBorderless ? "borderless fullscreen"
+                                                                         : "exclusive fullscreen";
+        if ( mode != GameOptions::kWindowModeWindowed && pickedWidth > 0 ) {
+            OTDU_LOG_INFO( "Window mode: %s at %dx%d\n", pName, pickedWidth, pickedHeight );
+        } else if ( mode != GameOptions::kWindowModeWindowed ) {
+            OTDU_LOG_INFO( "Window mode: %s (desktop resolution)\n", pName );
+        } else {
+            OTDU_LOG_INFO( "Window mode: windowed\n" );
+        }
         gpRender->getDevice().requestSwapchainRecreation();
     } else {
         OTDU_LOG_WARN( "Window mode: SDL refused the switch (%s)\n", SDL_GetError() );

@@ -2037,7 +2037,12 @@ void PauseMenu::onVideoOptionsCommand( const std::string &what ) {
 std::string PauseMenu::extraRowText( const char *pCommand ) {
     const GameOptions &options = GetGameOptions();
     if ( StringCmpI( pCommand, "wnmd" ) == 0 ) {
-        switch ( options.WindowMode ) {
+        // The mode the window actually runs with: -1 ("not chosen") resolves
+        // through EffectiveWindowMode, so the row never says Windowed while
+        // the screen is a fullscreen desktop (that lie is what read as
+        // "windowed keeps reverting to borderless" - the first step away from
+        // it landed on Borderless and looked like a revert).
+        switch ( EffectiveWindowMode() ) {
         case GameOptions::kWindowModeBorderless:
             return "Borderless";
         case GameOptions::kWindowModeFullscreen:
@@ -2110,12 +2115,11 @@ bool PauseMenu::stepExtraRow( const std::string &command, int32_t step ) {
         }
         GameOptions &options = GetGameOptions();
         if ( StringCmpI( row.pCommand, "wnmd" ) == 0 ) {
-            // The first step starts from the mode the window runs with.
+            // The first step starts from the mode the window runs with (the
+            // same resolution extraRowText shows - EffectiveWindowMode), so
+            // one press lands exactly on the neighbour of what is on screen.
             if ( options.WindowMode < 0 ) {
-                options.WindowMode =
-                    gpConfig != nullptr && !gpConfig->getVideoSettings().bWindowed
-                        ? GameOptions::kWindowModeFullscreen
-                        : GameOptions::kWindowModeWindowed;
+                options.WindowMode = EffectiveWindowMode();
             }
             options.WindowMode = Clamp( options.WindowMode + step, 0, 2 );
             ApplyVideoOptions();
