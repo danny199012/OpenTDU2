@@ -18,6 +18,10 @@ namespace {
 
 const char *kUserAgent = "OpenTDU2-Launcher/" OTDU_BUILD_NUMBER;
 
+// "What's new" caps the compare-API commit list (the release page has the rest).
+constexpr int kWhatsNewMax = 30;
+constexpr size_t kWhatsNewSubjectMax = 140;
+
 std::string Trim( std::string text ) {
     while ( !text.empty() && ( text.back() == '\n' || text.back() == '\r' || text.back() == ' ' ) ) {
         text.pop_back();
@@ -67,6 +71,7 @@ UpdateSnapshot Snapshot( UpdateState &state ) {
     snapshot.RepoSlug = state.RepoSlug;
     snapshot.Branch = state.Branch;
     snapshot.RepoRoot = state.RepoRoot;
+    snapshot.WhatsNew = state.WhatsNew;
     snapshot.bAvailable = state.bAvailable;
     snapshot.bCanApply = state.bCanApply;
     snapshot.bChecked = state.bChecked.load();
@@ -78,11 +83,25 @@ UpdateSnapshot Snapshot( UpdateState &state ) {
     return snapshot;
 }
 
-std::wstring UpdateStagingDir() {
+std::wstring UpdateRootDir() {
     wchar_t tempPath[MAX_PATH * 2] = L"";
     const DWORD len = GetTempPathW( MAX_PATH * 2, tempPath );
-    std::wstring dir( tempPath, len );
-    return JoinPath( JoinPath( dir, L"opentdu2-update" ), L"staged" );
+    return JoinPath( std::wstring( tempPath, len ), L"opentdu2-update" );
+}
+
+std::wstring UpdateStagingDir() {
+    return JoinPath( UpdateRootDir(), L"staged" );
+}
+
+bool StagedDirHasFiles( const std::wstring &staged ) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    for ( const fs::directory_entry &entry : fs::directory_iterator( staged, ec ) ) {
+        if ( entry.is_regular_file( ec ) ) {
+            return true;
+        }
+    }
+    return false;
 }
 
 namespace {
@@ -182,7 +201,7 @@ void FillFromGit( UpdateState &state, const std::wstring &repoRoot, const std::w
     }
     if ( entries.empty() ) {
         state.Summary = "Up to date with origin/" + targetBranch + ".";
-        state.Hint = "No new commits. The running build is " OTDU_BUILD_STRING ".";
+        state.Hint = "No new commits. The running build is " OTDU_RELEASE_STRING ".";
         return;
     }
 
@@ -240,6 +259,7 @@ void FillFromGitHub( UpdateState &state, const std::string &repoSlug,
                 const std::string published = release.GetString( "published_at" );
                 entry.When = published.size() >= 10 ? published.substr( 0, 10 ) : published;
                 entry.Url = release.GetString( "html_url" );
+                entry.Commit = release.GetString( "target_commitish" );
                 if ( entry.Id.empty() && entry.Title.empty() ) {
                     continue;
                 }
@@ -273,6 +293,68 @@ void FillFromGitHub( UpdateState &state, const std::string &repoSlug,
     }
 
     if ( !entries.empty() ) {
+        // The honest comparison: this binary's commit hash against the newest
+        // release's target_commitish, resolved through the compare API (it
+        // answers "is the release ahead of this build?" instead of guessing
+        // from tag strings). last_tag - which the UI persists when a release
+        // is staged - is only the fallback when no hash is known. Without one
+        // of these a fresh install is offered the release it already runs.
+        const std::string &latestCommit = entries.front().Commit;
+        const std::string buildHash = OTDU_BUILD_HASH;
+        const bool bHashKnown = !latestCommit.empty() && buildHash != "unknown";
+        const bool bSelf = bHashKnown && ToLowerAscii( latestCommit ).find(
+                                              ToLowerAscii( buildHash ) ) == 0;
+        std::string whatsNew;
+        bool bCompareResolved = false;
+        bool bAhead = false; // the release carries commits this build lacks
+        if ( bHashKnown && !bSelf ) {
+            state.SetPhase( "Reading the changelog since this build..." );
+            const std::string compareUrl = "https://api.github.com/repos/" + repoSlug +
+                                           "/compare/" + buildHash + "..." + latestCommit;
+            const HttpResponse compare = HttpGet( compareUrl, kUserAgent );
+            JsonValue compareRoot;
+            std::string compareError;
+            if ( compare.bOk && JsonValue::Parse( compare.Body, compareRoot, compareError ) &&
+                 compareRoot.IsObject() ) {
+                bCompareResolved = true;
+                const JsonValue *ahead = compareRoot.Find( "ahead_by" );
+                bAhead = ahead != nullptr && ahead->GetType() == JsonValue::Type::Number &&
+                         ahead->AsNumber() > 0.0;
+                const JsonValue *commits = compareRoot.Find( "commits" );
+                if ( commits != nullptr && commits->IsArray() ) {
+                    int count = 0;
+                    for ( const JsonValue &node : commits->AsArray() ) {
+                        if ( count >= kWhatsNewMax ) {
+                            whatsNew += "... and the rest on the release page.\n";
+                            break;
+                        }
+                        const JsonValue *commitNode = node.Find( "commit" );
+                        if ( commitNode == nullptr || !commitNode->IsObject() ) {
+                            continue;
+                        }
+                        const std::string subject =
+                            FirstLine( commitNode->GetString( "message" ) );
+                        if ( subject.empty() ) {
+                            continue;
+                        }
+                        // This repo's commit subjects run long; the card is a
+                        // digest, the release page has the full text.
+                        if ( subject.size() > kWhatsNewSubjectMax ) {
+                            whatsNew += "\xC2\xB7 " +
+                                        subject.substr( 0, kWhatsNewSubjectMax ) + "...\n";
+                        } else {
+                            whatsNew += "\xC2\xB7 " + subject + "\n";
+                        }
+                        count++;
+                    }
+                }
+            }
+        }
+        const bool bAvailable =
+            bSelf ? false
+                  : ( bCompareResolved ? bAhead
+                                       : ( lastTag.empty() ? true : latestTag != lastTag ) );
+
         std::lock_guard<std::mutex> lock( state.Mutex );
         state.Source = "GitHub releases (" + repoSlug + ")";
         state.Entries = entries;
@@ -280,13 +362,20 @@ void FillFromGitHub( UpdateState &state, const std::string &repoSlug,
         state.LatestName = latestName;
         state.ReleasePage = releasePage;
         state.DownloadUrl = downloadUrl;
-        state.bAvailable = lastTag.empty() ? true : latestTag != lastTag;
+        state.WhatsNew = whatsNew;
+        state.bAvailable = bAvailable;
         state.bCanApply = !downloadUrl.empty();
-        state.Summary = "Latest release: " + ( latestTag.empty() ? latestName : latestTag ) +
-                        ( entries.front().When.empty() ? "" : " (" + entries.front().When + ")" );
-        state.Hint = downloadUrl.empty()
-                         ? "This release has no .zip asset - open the release page."
-                         : "The launcher downloads the package, then applies it on exit.";
+        state.Summary = bAvailable ? "Latest release: " +
+                                         ( latestTag.empty() ? latestName : latestTag ) +
+                                         ( entries.front().When.empty() ? ""
+                                                                        : " (" + entries.front().When + ")" )
+                                   : "This launcher is the newest release: " +
+                                         ( latestTag.empty() ? latestName : latestTag );
+        state.Hint = !bAvailable
+                         ? "New builds of main publish automatically - check again later."
+                         : downloadUrl.empty()
+                               ? "This release has no .zip asset - open the release page."
+                               : "The launcher downloads the package, then applies it on exit.";
         return;
     }
 
@@ -365,7 +454,7 @@ void CheckForUpdates( const std::string &repoSlug, const std::string &branch,
     state.DownloadTotal = 0;
     {
         std::lock_guard<std::mutex> lock( state.Mutex );
-        state.CurrentBuild = OTDU_BUILD_STRING;
+        state.CurrentBuild = OTDU_RELEASE_STRING;
         state.Source.clear();
         state.LatestName.clear();
         state.LatestTag.clear();
@@ -495,9 +584,11 @@ bool DownloadReleasePackage( UpdateState &state ) {
         state.Error = "No temporary folder.";
         return false;
     }
-    const std::wstring root =
-        JoinPath( std::wstring( tempPath, tempLength ), L"opentdu2-update" );
+    const std::wstring root = UpdateRootDir();
     MakeDirs( root );
+    // The staged release's tag, for the "Restart to apply" a later session
+    // re-detects (outside staged\ so the apply never copies it into the game).
+    WriteTextFile( JoinPath( root, L"tag.txt" ), snapshot.LatestTag );
     const std::wstring zip = JoinPath( root, L"package.zip" );
     DeleteFileW( zip.c_str() );
 
@@ -548,49 +639,34 @@ bool DownloadReleasePackage( UpdateState &state ) {
         state.bBusy = false;
         state.Phase = "Release staged.";
         state.Summary = "Release " + snapshot.LatestTag +
-                        " downloaded and unpacked. It is applied when the launcher closes.";
+                        " downloaded and unpacked. It is applied when the launcher closes - "
+                        "if the relaunch does not appear, " +
+                        WideToUtf8( UpdateApplyLogPath() ) + " tells why.";
     }
     return true;
 }
 
 bool StartStagedUpdate( const std::wstring &launcherDir, UpdateState &state ) {
+    const std::wstring root = UpdateRootDir();
     const std::wstring staged = UpdateStagingDir();
-    if ( !DirectoryExists( staged ) ) {
+    if ( !StagedDirHasFiles( staged ) ) {
         std::lock_guard<std::mutex> lock( state.Mutex );
-        state.Error = "No staged update to apply.";
+        state.Error = "No staged update to apply - download the release again.";
         return false;
     }
-    wchar_t tempPath[MAX_PATH * 2] = L"";
-    const DWORD tempLength = GetTempPathW( MAX_PATH * 2, tempPath );
-    const std::wstring root =
-        JoinPath( std::wstring( tempPath, tempLength ), L"opentdu2-update" );
     MakeDirs( root );
     const std::wstring script = JoinPath( root, L"apply-update.cmd" );
+    const std::wstring logPath = UpdateApplyLogPath();
 
     char pidText[32];
     std::snprintf( pidText, sizeof( pidText ), "%lu", GetCurrentProcessId() );
 
-    const std::wstring launcherExe = JoinPath( launcherDir, L"otdu2_launcher.exe" );
-    const std::string exeUtf8 = WideToUtf8( launcherExe );
-    const std::string stagedUtf8 = WideToUtf8( staged );
-    const std::string dirUtf8 = WideToUtf8( launcherDir );
+    // The real exe path, not a name: a renamed launcher must still come back.
+    const std::wstring launcherExe = ExePath();
 
-    std::string text;
-    text += "@echo off\r\n";
-    text += "setlocal\r\n";
-    text += "set PID=" + std::string( pidText ) + "\r\n";
-    text += "rem Wait for the launcher (PID %PID%) to close so its exe can be replaced.\r\n";
-    text += ":wait\r\n";
-    text += "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n";
-    text += "if not errorlevel 1 (\r\n";
-    text += "    ping -n 2 127.0.0.1 >nul\r\n";
-    text += "    goto wait\r\n";
-    text += ")\r\n";
-    text += "if exist \"" + exeUtf8 + "\" copy /Y \"" + exeUtf8 + "\" \"" + exeUtf8 +
-            ".bak\" >nul 2>&1\r\n";
-    text += "xcopy /E /I /Y \"" + stagedUtf8 + "\\*\" \"" + dirUtf8 + "\\\" >nul\r\n";
-    text += "start \"\" \"" + exeUtf8 + "\"\r\n";
-    text += "del \"%~f0\"\r\n";
+    DeleteFileW( logPath.c_str() ); // a fresh log per attempt
+    const std::string text =
+        BuildApplyScript( pidText, launcherExe, staged, launcherDir, logPath );
     if ( !WriteTextFile( script, text ) ) {
         std::lock_guard<std::mutex> lock( state.Mutex );
         state.Error = "Cannot write the update script.";
@@ -603,9 +679,11 @@ bool StartStagedUpdate( const std::wstring &launcherDir, UpdateState &state ) {
     startup.dwFlags = STARTF_USESHOWWINDOW;
     startup.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION process = {};
+    // CREATE_NO_WINDOW alone: MSDN - it is ignored next to DETACHED_PROCESS,
+    // and the mix produced the console flash a tester saw on "Restart to
+    // apply". The log carries whatever the script would have printed.
     if ( !CreateProcessW( nullptr, commandLine.data(), nullptr, nullptr, FALSE,
-                          DETACHED_PROCESS | CREATE_NO_WINDOW, nullptr, root.c_str(), &startup,
-                          &process ) ) {
+                          CREATE_NO_WINDOW, nullptr, root.c_str(), &startup, &process ) ) {
         std::lock_guard<std::mutex> lock( state.Mutex );
         state.Error = "Cannot start the update script (" +
                       std::to_string( GetLastError() ) + ").";
@@ -614,6 +692,106 @@ bool StartStagedUpdate( const std::wstring &launcherDir, UpdateState &state ) {
     CloseHandle( process.hThread );
     CloseHandle( process.hProcess );
     return true;
+}
+
+std::string BuildApplyScript( const std::string &pid, const std::wstring &launcherExe,
+                              const std::wstring &staged, const std::wstring &installDir,
+                              const std::wstring &logPath ) {
+    const std::string exeUtf8 = WideToUtf8( launcherExe );
+    const std::string stagedUtf8 = WideToUtf8( staged );
+    const std::string dirUtf8 = WideToUtf8( installDir );
+    const std::string logUtf8 = WideToUtf8( logPath );
+
+    std::string text;
+    text += "@echo off\r\n";
+    text += "setlocal\r\n";
+    text += "set PID=" + pid + "\r\n";
+    text += "set LOG=" + logUtf8 + "\r\n";
+    text += "set OK=0\r\n";
+    text += "rem Wait for the launcher (PID %PID%) to close so its exe can be replaced.\r\n";
+    text += "echo [%date% %time%] waiting for the launcher to close >> \"%LOG%\"\r\n";
+    text += ":wait\r\n";
+    // findstr, not find: find resolves over PATH and a Git-for-Windows PATH
+    // serves GNU find, which wants a filename - the wait would break exactly
+    // while the launcher is still alive.
+    text += "tasklist /FI \"PID eq %PID%\" 2>nul | findstr /C:\"%PID%\" >nul\r\n";
+    text += "if not errorlevel 1 (\r\n";
+    text += "    ping -n 2 127.0.0.1 >nul\r\n";
+    text += "    goto wait\r\n";
+    text += ")\r\n";
+    // The destination carries NO trailing backslash: "<dir>\" escapes the
+    // closing quote under the Windows argv rules, xcopy reads a broken path
+    // and the update silently never copies (the failure this replaces).
+    text += "if exist \"" + exeUtf8 + "\" copy /Y \"" + exeUtf8 + "\" \"" + exeUtf8 +
+            ".bak\" >> \"%LOG%\" 2>&1\r\n";
+    text += "xcopy /E /I /Y \"" + stagedUtf8 + "\\*\" \"" + dirUtf8 + "\" >> \"%LOG%\" 2>&1\r\n";
+    text += "if errorlevel 1 (\r\n";
+    text += "    echo [%date% %time%] apply FAILED - the old install is kept and this "
+            "script stays for diagnosis >> \"%LOG%\"\r\n";
+    text += ") else (\r\n";
+    text += "    echo [%date% %time%] staged tree copied >> \"%LOG%\"\r\n";
+    text += "    set OK=1\r\n";
+    text += ")\r\n";
+    // The relaunch happens either way: a failed apply must not leave the user
+    // with nothing on screen.
+    text += "start \"\" \"" + exeUtf8 + "\"\r\n";
+    text += "if errorlevel 1 echo [%date% %time%] relaunch FAILED >> \"%LOG%\"\r\n";
+    // Success reaches the self-delete, failure keeps the script for diagnosis
+    // and exits non-zero. The delete uses the `(goto) 2>nul &` idiom because
+    // it is the only one that exits clean: a plain `del "%~f0"` (the old
+    // script's last line) makes cmd read past the deleted file and end with
+    // "The batch file cannot be found." and errorlevel 1 - the selftest
+    // caught that too.
+    text += "if not \"%OK%\"==\"1\" exit /b 1\r\n";
+    text += "(goto) 2>nul & del \"%~f0\"\r\n";
+    return text;
+}
+
+std::wstring UpdateApplyLogPath() {
+    return JoinPath( UpdateRootDir(), L"apply.log" );
+}
+
+std::string StripMarkdownNoise( const std::string &markdown ) {
+    std::string out;
+    out.reserve( markdown.size() );
+    for ( size_t i = 0; i < markdown.size(); ) {
+        // An image ![alt](url) disappears; a link [text](url) keeps its text.
+        if ( markdown.compare( i, 2, "![") == 0 ) {
+            const size_t close = markdown.find( ')', i );
+            if ( close == std::string::npos ) {
+                break;
+            }
+            i = close + 1;
+            continue;
+        }
+        if ( markdown[i] == '[' ) {
+            const size_t mid = markdown.find( "](", i );
+            const size_t close =
+                mid == std::string::npos ? std::string::npos : markdown.find( ')', mid );
+            if ( mid != std::string::npos && close != std::string::npos ) {
+                out += markdown.substr( i + 1, mid - i - 1 );
+                i = close + 1;
+                continue;
+            }
+        }
+        if ( markdown.compare( i, 2, "**" ) == 0 || markdown.compare( i, 2, "__" ) == 0 ) {
+            i += 2;
+            continue;
+        }
+        if ( markdown[i] == '`' ) {
+            i++;
+            continue;
+        }
+        if ( markdown[i] == '#' ) {
+            while ( i < markdown.size() && markdown[i] == '#' ) {
+                i++;
+            }
+            continue;
+        }
+        out += markdown[i];
+        i++;
+    }
+    return Trim( out );
 }
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,12 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # StampBuildInfo.cmake bakes it into build_info.h (OTDU_RELEASE_TAG /
+      # OTDU_RELEASE_STRING) and the launcher's version resource follows it: a
+      # tag push stamps its own tag, a main push stamps the prerelease tag the
+      # release-main job below is about to publish. PR builds carry no tag.
+      OTDU_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || ( github.event_name == 'push' && format( 'v0.2.{0}', github.run_number ) || '' ) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,6 +75,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          # The release body is the changelog: the commit subjects since the
+          # previous release tag (the launcher shows the same list through the
+          # compare API; the release page carries it for everyone else).
+          fetch-depth: 0
+
       - name: Download the built binaries
         uses: actions/download-artifact@v4
         with:
@@ -81,23 +94,44 @@ jobs:
           zip -r "../opentdu2-windows-${{ github.ref_name }}.zip" .
           cd ..
 
+      - name: Collect the changelog since the previous release
+        id: changelog
+        run: |
+          PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            BODY="$(git log --format='* %s' "${PREV}..${GITHUB_REF_NAME}" | head -n 50)"
+          else
+            BODY="First release."
+          fi
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
           files: opentdu2-windows-${{ github.ref_name }}.zip
           generate_release_notes: true
+          body: ${{ steps.changelog.outputs.body }}
 
   release-main:
     # Every push to main publishes an auto-tagged prerelease
-    # (v0.2.<run number>): the launcher's update check compares release tag
-    # names as plain strings (launcher_updater.cpp FillFromGitHub), so each
-    # build gets its own tag - a reused tag would never be seen as new - and
-    # its one-click update always finds the newest integrated build. The
-    # v* tag releases above stay the stable channel.
+    # (v0.2.<run number>): each build gets its own tag and target_commitish,
+    # which the launcher matches against its own build hash
+    # (launcher_updater.cpp FillFromGitHub) to decide "is this release newer
+    # than me". The v* tag releases above stay the stable channel.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          # The body is the changelog: the commit subjects since the newest tag
+          # this push built on (normally the previous auto prerelease).
+          fetch-depth: 0
+
       - name: Download the built binaries
         uses: actions/download-artifact@v4
         with:
@@ -110,6 +144,21 @@ jobs:
           zip -r "../opentdu2-windows-v0.2.${{ github.run_number }}.zip" .
           cd ..
 
+      - name: Collect the changelog since the last tag
+        id: changelog
+        run: |
+          PREV="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            BODY="$(git log --format='* %s' "${PREV}..HEAD" | head -n 50)"
+          else
+            BODY="First build."
+          fi
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish the auto release
         uses: softprops/action-gh-release@v2
         with:
@@ -119,7 +168,10 @@ jobs:
           files: opentdu2-windows-v0.2.${{ github.run_number }}.zip
           fail_on_unmatched_files: true
           generate_release_notes: true
-          body: Automatic build of main (build ${{ github.run_number }}). The launcher's "Download this release" applies it one-click.
+          body: |
+            Automatic build of main (CI run #${{ github.run_number }}). The launcher's "Download this release" applies it one-click.
+
+            ${{ steps.changelog.outputs.body }}
 
       - name: Prune old auto releases
         # Keep the newest 3 auto builds; older ones only clutter the list the

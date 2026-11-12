@@ -17,6 +17,28 @@ target_link_libraries( otdu2_cine_tool PRIVATE otdu_engine )
 if( WIN32 )
     set( OTDU_LAUNCHER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/launcher" )
     set( OTDU_LAUNCHER_ART_DIR "${OTDU_LAUNCHER_DIR}/artwork" )
+
+    # The exe's version resource follows the release tag the build is for
+    # (OTDU_RELEASE_TAG - the same env the build stamp reads; CI sets it on the
+    # builds it publishes). A local build stays at 0.2.0.
+    set( OTDU_VERSION_MAJOR 0 )
+    set( OTDU_VERSION_MINOR 2 )
+    set( OTDU_VERSION_PATCH 0 )
+    if( DEFINED ENV{OTDU_RELEASE_TAG} AND NOT "$ENV{OTDU_RELEASE_TAG}" STREQUAL "" )
+        string( REGEX MATCHALL "[0-9]+" _version_parts "$ENV{OTDU_RELEASE_TAG}" )
+        list( LENGTH _version_parts _version_count )
+        if( _version_count GREATER_EQUAL 3 )
+            list( GET _version_parts 0 _v_major )
+            list( GET _version_parts 1 _v_minor )
+            list( GET _version_parts 2 _v_patch )
+            set( OTDU_VERSION_MAJOR "${_v_major}" )
+            set( OTDU_VERSION_MINOR "${_v_minor}" )
+            set( OTDU_VERSION_PATCH "${_v_patch}" )
+        endif()
+    endif()
+    set( OTDU_LAUNCHER_VERSION
+         "${OTDU_VERSION_MAJOR}.${OTDU_VERSION_MINOR}.${OTDU_VERSION_PATCH}" )
+
     configure_file( "${OTDU_LAUNCHER_DIR}/launcher.rc.in"
                     "${CMAKE_CURRENT_BINARY_DIR}/launcher.rc" @ONLY )
 

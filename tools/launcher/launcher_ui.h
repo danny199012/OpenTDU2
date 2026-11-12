@@ -132,6 +132,9 @@ private:
     // updater
     UpdateState mUpdate;
     std::thread mUpdateThread;
+    bool mCheckingForUpdates = false; // a check is out; announce its verdict once
+    bool mUpdateWasBusy = false;      // the worker's busy edge, for the finished hooks above
+    bool mStagedTagSaved = false;     // last_tag persisted for this session's staged release
     // "Update & rebuild": update-and-rebuild.bat streamed onto the Updates page.
     RebuildState mRebuild;
     std::thread mRebuildThread;

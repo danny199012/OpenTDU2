@@ -13,8 +13,8 @@
 106 RCDATA "@OTDU_LAUNCHER_ART_DIR@/banner_sidebar.png"
 
 1 VERSIONINFO
- FILEVERSION 0,1,0,0
- PRODUCTVERSION 0,1,0,0
+ FILEVERSION @OTDU_VERSION_MAJOR@,@OTDU_VERSION_MINOR@,@OTDU_VERSION_PATCH@,0
+ PRODUCTVERSION @OTDU_VERSION_MAJOR@,@OTDU_VERSION_MINOR@,@OTDU_VERSION_PATCH@,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -27,11 +27,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "OpenTDU2"
             VALUE "FileDescription", "OpenTDU2 launcher - Test Drive Unlimited 2"
-            VALUE "FileVersion", "0.1.0.0"
+            VALUE "FileVersion", "@OTDU_LAUNCHER_VERSION@.0"
             VALUE "InternalName", "otdu2_launcher"
             VALUE "OriginalFilename", "otdu2_launcher.exe"
             VALUE "ProductName", "OpenTDU2"
-            VALUE "ProductVersion", "0.1.0.0"
+            VALUE "ProductVersion", "@OTDU_LAUNCHER_VERSION@"
         END
     END
     BLOCK "VarFileInfo"

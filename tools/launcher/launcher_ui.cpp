@@ -289,7 +289,25 @@ bool LauncherApp::Initialize( HWND window, ID3D11Device *device, ID3D11DeviceCon
     mSettings.Load( mIniPath );
     {
         std::lock_guard<std::mutex> lock( mUpdate.Mutex );
-        mUpdate.CurrentBuild = OTDU_BUILD_STRING;
+        mUpdate.CurrentBuild = OTDU_RELEASE_STRING;
+    }
+    // A staged release from a previous session (the apply never ran, or its
+    // script failed): restore the "Restart to apply" state so the download is
+    // not thrown away.
+    if ( StagedDirHasFiles( UpdateStagingDir() ) ) {
+        std::string stagedTag;
+        ReadTextFile( JoinPath( UpdateRootDir(), L"tag.txt" ), stagedTag );
+        while ( !stagedTag.empty() &&
+                ( stagedTag.back() == '\n' || stagedTag.back() == '\r' ||
+                  stagedTag.back() == ' ' ) ) {
+            stagedTag.pop_back();
+        }
+        std::lock_guard<std::mutex> lock( mUpdate.Mutex );
+        mUpdate.bStaged = true;
+        mUpdate.Phase = "Release staged.";
+        mUpdate.Summary = ( stagedTag.empty() ? std::string( "A release from the last session" )
+                                              : "Release " + stagedTag ) +
+                          " is still staged - restart to apply it.";
     }
 
     LoadFonts( mDpiScale );
@@ -298,7 +316,7 @@ bool LauncherApp::Initialize( HWND window, ID3D11Device *device, ID3D11DeviceCon
     SyncFieldsFromSettings();
     RefreshGameState();
     RefreshProfileSummary();
-    SetStatus( "Launcher ready - " OTDU_BUILD_STRING "." );
+    SetStatus( "Launcher ready - " OTDU_RELEASE_STRING "." );
     return true;
 }
 
@@ -516,6 +534,30 @@ void LauncherApp::Frame() {
         StartUpdateCheck();
     }
 
+    // The check just finished: put an available update on the status line.
+    if ( mCheckingForUpdates && !mUpdate.bBusy.load() ) {
+        mCheckingForUpdates = false;
+        const UpdateSnapshot update = Snapshot( mUpdate );
+        if ( update.bAvailable && !update.bStaged ) {
+            SetStatus( "Update available: " +
+                           ( update.LatestTag.empty() ? update.LatestName : update.LatestTag ) +
+                           " - the Updates page has the changelog." );
+        }
+    }
+
+    // The download finished (possibly while another page was up): persist the
+    // release tag here too - the Updates-page copy only runs when it is open.
+    const bool bBusyNow = mUpdate.bBusy.load();
+    if ( mUpdateWasBusy && !bBusyNow ) {
+        const UpdateSnapshot update = Snapshot( mUpdate );
+        if ( update.bStaged && !update.LatestTag.empty() ) {
+            mStagedTagSaved = true;
+            mSettings.LastUpdateTag = update.LatestTag;
+            SaveSettings();
+        }
+    }
+    mUpdateWasBusy = bBusyNow;
+
     const ImGuiViewport *viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos( viewport->WorkPos );
     ImGui::SetNextWindowSize( viewport->WorkSize );
@@ -617,7 +659,7 @@ void LauncherApp::DrawSidebar() {
     ImGui::Separator();
     ImGui::Spacing();
     ImGui::PushFont( mFontSmall );
-    ImGui::TextUnformatted( OTDU_BUILD_STRING );
+    ImGui::TextUnformatted( OTDU_RELEASE_STRING );
     ImGui::TextUnformatted( OTDU_BUILD_TIMESTAMP );
     ImGui::TextUnformatted( mIsGitCheckout ? "git checkout" : "packaged build" );
     ImGui::PopFont();
@@ -679,7 +721,7 @@ void LauncherApp::DrawFooter() {
     ImGui::PushStyleColor( ImGuiCol_Text, kDim );
     ImGui::TextUnformatted( status.c_str() );
     const std::string right =
-        std::string( OTDU_BUILD_STRING ) + "   -   " + OTDU_BUILD_TIMESTAMP;
+        std::string( OTDU_RELEASE_STRING ) + "   -   " + OTDU_BUILD_TIMESTAMP;
     const float width = ImGui::CalcTextSize( right.c_str() ).x;
     ImGui::SameLine( ImGui::GetWindowWidth() - width - S( 30.0f ) );
     ImGui::TextUnformatted( right.c_str() );
@@ -792,7 +834,7 @@ void LauncherApp::DrawPlayPage() {
     if ( CardBegin( "##status_build", ImVec2( cardWidth, S( 136.0f ) ) ) ) {
         SectionTitle( "BUILD" );
         ImGui::PushFont( mFontBold );
-        ImGui::TextUnformatted( OTDU_BUILD_STRING );
+        ImGui::TextUnformatted( OTDU_RELEASE_STRING );
         ImGui::PopFont();
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
         ImGui::PushFont( mFontSmall );
@@ -1062,6 +1104,15 @@ void LauncherApp::DrawUpdatesPage() {
     ImDrawList *drawList = ImGui::GetWindowDrawList();
     const UpdateSnapshot update = Snapshot( mUpdate );
 
+    // The download finished (staged): remember the release tag - without it
+    // the next start would offer the same release again even when this apply
+    // succeeded (last_tag is the fallback when no build hash can be compared).
+    if ( update.bStaged && !mStagedTagSaved && !update.LatestTag.empty() ) {
+        mStagedTagSaved = true;
+        mSettings.LastUpdateTag = update.LatestTag;
+        SaveSettings();
+    }
+
     const ImVec2 bannerPos = ImGui::GetCursorScreenPos();
     const ImVec2 bannerSize( width, S( 104.0f ) );
     DrawCoverImage( drawList, mArtwork.Updates, bannerPos, bannerSize, 12.0f, 0.95f );
@@ -1079,7 +1130,7 @@ void LauncherApp::DrawUpdatesPage() {
 
     if ( CardBegin( "##update_status", ImVec2( width, S( 212.0f ) ) ) ) {
         ImGui::PushFont( mFontBold );
-        ImGui::TextUnformatted( OTDU_BUILD_STRING );
+        ImGui::TextUnformatted( OTDU_RELEASE_STRING );
         ImGui::PopFont();
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
         ImGui::PushFont( mFontSmall );
@@ -1150,6 +1201,18 @@ void LauncherApp::DrawUpdatesPage() {
         }
     }
     CardEnd();
+
+    // What the update carries: the commit subjects between this build and the
+    // release (the compare API; absent when no hash could be compared).
+    if ( update.bAvailable && !update.WhatsNew.empty() ) {
+        if ( CardBegin( "##whats_new", ImVec2( width, S( 236.0f ) ), true ) ) {
+            SectionTitle( "WHAT'S NEW SINCE YOUR BUILD" );
+            ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.78f, 0.81f, 0.86f, 1.0f ) );
+            ImGui::TextUnformatted( update.WhatsNew.c_str() );
+            ImGui::PopStyleColor();
+        }
+        CardEnd();
+    }
 
     // The git-checkout rebuild: the fast-forward above cannot apply here (the
     // tree carries its own merge commits) and a release download cannot build
@@ -1224,22 +1287,24 @@ void LauncherApp::DrawUpdatesPage() {
                 if ( !entry.Id.empty() || !entry.When.empty() ) {
                     ImGui::PushStyleColor( ImGuiCol_Text, kDim );
                     ImGui::PushFont( mFontSmall );
-                    const std::string meta = entry.Id + "    " + entry.When;
-                    ImGui::TextUnformatted( meta.c_str() );
-                    ImGui::PopFont();
-                    ImGui::PopStyleColor();
+                const std::string meta = entry.Id + "    " + entry.When;
+                ImGui::TextUnformatted( meta.c_str() );
+                ImGui::PopFont();
+                ImGui::PopStyleColor();
                 }
-                if ( !entry.Body.empty() ) {
+                // Release notes are markdown; the launcher renders plain text.
+                const std::string body = StripMarkdownNoise( entry.Body );
+                if ( !body.empty() ) {
                     ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.78f, 0.81f, 0.86f, 1.0f ) );
                     if ( entry.bDetailsCollapsed ) {
                         if ( ImGui::TreeNodeEx( "details", ImGuiTreeNodeFlags_SpanAvailWidth ) ) {
                             ImGui::PushFont( mFontSmall );
-                            ImGui::TextWrapped( "%s", entry.Body.c_str() );
+                            ImGui::TextWrapped( "%s", body.c_str() );
                             ImGui::PopFont();
                             ImGui::TreePop();
                         }
                     } else {
-                        ImGui::TextWrapped( "%s", entry.Body.c_str() );
+                        ImGui::TextWrapped( "%s", body.c_str() );
                     }
                     ImGui::PopStyleColor();
                 }
@@ -1631,6 +1696,8 @@ void LauncherApp::StartUpdateCheck() {
         mUpdateThread.join();
     }
     mUpdate.bChecked = false;
+    mUpdate.bAvailable = false;
+    mCheckingForUpdates = true;
     const std::string repo = mSettings.UpdateRepo;
     const std::string branch = mSettings.UpdateBranch;
     const std::string lastTag = mSettings.LastUpdateTag;

@@ -25,6 +25,7 @@
 #include <shellapi.h>
 
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -181,6 +182,9 @@ int RunSelfTest( int argc, wchar_t **argv ) {
     int failures = 0;
     std::string report = "OpenTDU2 launcher selftest\n";
     report += std::string( "build: " ) + OTDU_BUILD_STRING + " - " + OTDU_BUILD_TIMESTAMP + "\n";
+    report += std::string( "release: " ) +
+              ( OTDU_RELEASE_TAG[0] != '\0' ? OTDU_RELEASE_TAG : "(no tag - a local build)" ) +
+              "\n";
     report += "exe: " + Launcher::WideToUtf8( Launcher::ExePath() ) + "\n\n";
     const auto check = [&]( const char *name, bool ok ) {
         report += std::string( ok ? "[PASS] " : "[FAIL] " ) + name + "\n";
@@ -362,6 +366,17 @@ int RunSelfTest( int argc, wchar_t **argv ) {
             const Launcher::UpdateEntry &entry = snapshot.Entries[index];
             report += "  " + entry.Id + "  " + entry.When + "  " + entry.Title + "\n";
         }
+        if ( !snapshot.WhatsNew.empty() ) {
+            report += "what's new since this build:\n" + snapshot.WhatsNew;
+        }
+        if ( !snapshot.Entries.empty() && !snapshot.Entries.front().Body.empty() ) {
+            std::string body = Launcher::StripMarkdownNoise( snapshot.Entries.front().Body );
+            if ( body.size() > 400 ) {
+                body.resize( 400 );
+                body += " (...)";
+            }
+            report += "latest release notes:\n" + body + "\n";
+        }
     }
 
     // 7. End to end: start the game once with the launcher's own arguments.
@@ -422,6 +437,67 @@ int RunSelfTest( int argc, wchar_t **argv ) {
                 }
             }
         }
+    }
+
+    // 8. The staged-update apply script: its quoting must survive cmd.exe's
+    // argv rules (the release it replaces failed exactly there - a "<dir>\"
+    // destination that swallowed its own closing quote), and a run must copy,
+    // log, back up and relaunch. The fake "launcher" is a copy of xcopy.exe: a
+    // quick-exit console exe (the script's final `start` flashes its console
+    // for a moment - a test artefact, the real target is the GUI launcher).
+    {
+        const std::wstring root = logPath + L".apply";
+        std::error_code ec;
+        std::filesystem::remove_all( root, ec );
+        const std::wstring install = Launcher::JoinPath( root, L"install" );
+        const std::wstring staged = Launcher::JoinPath( root, L"staged" );
+        Launcher::MakeDirs( install );
+        Launcher::MakeDirs( staged );
+        wchar_t sysDir[MAX_PATH * 2] = L"";
+        const UINT sysLength = GetSystemDirectoryW( sysDir, MAX_PATH * 2 );
+        const std::wstring fakeExe = Launcher::JoinPath( install, L"otdu2_launcher.exe" );
+        if ( sysLength == 0 ||
+             !CopyFileW( Launcher::JoinPath( std::wstring( sysDir, sysLength ), L"xcopy.exe" )
+                             .c_str(),
+                         fakeExe.c_str(), FALSE ) ||
+             !CopyFileW( Launcher::JoinPath( std::wstring( sysDir, sysLength ), L"xcopy.exe" )
+                             .c_str(),
+                         Launcher::JoinPath( staged, L"otdu2_launcher.exe" ).c_str(), FALSE ) ) {
+            check( "apply script: fixture", false );
+        } else {
+            Launcher::WriteTextFile( Launcher::JoinPath( install, L"old_file.txt" ), "old\r\n" );
+            Launcher::WriteTextFile( Launcher::JoinPath( staged, L"new_file.txt" ), "new\r\n" );
+            const std::wstring applyLog =
+                Launcher::JoinPath( root, L"apply.log" );
+            const std::string script = Launcher::BuildApplyScript(
+                "999999" /* no such pid: the wait loop exits at once */, fakeExe, staged,
+                install, applyLog );
+            const std::string stagedUtf8 = Launcher::WideToUtf8( staged );
+            const std::string installUtf8 = Launcher::WideToUtf8( install );
+            const bool bQuoting =
+                script.find( "\\\"\r\n" ) == std::string::npos &&
+                script.find( "xcopy /E /I /Y \"" + stagedUtf8 + "\\*\" \"" + installUtf8 +
+                             "\"" ) != std::string::npos;
+            check( "apply script: quoting", bQuoting );
+            const std::wstring scriptPath = Launcher::JoinPath( root, L"apply-update.cmd" );
+            Launcher::WriteTextFile( scriptPath, script );
+            const Launcher::ProcessResult run = Launcher::RunProcess(
+                L"cmd.exe /c \"" + scriptPath + L"\"", root, 60000 );
+            check( "apply script: run", run.bStarted && run.ExitCode == 0 );
+            check( "apply script: staged file copied",
+                   Launcher::FileExists( Launcher::JoinPath( install, L"new_file.txt" ) ) );
+            check( "apply script: launcher replaced",
+                   Launcher::FileSizeOf( fakeExe ) ==
+                       Launcher::FileSizeOf(
+                           Launcher::JoinPath( staged, L"otdu2_launcher.exe" ) ) );
+            check( "apply script: backup made", Launcher::FileExists( fakeExe + L".bak" ) );
+            std::string applyLogText;
+            check( "apply script: log written",
+                   Launcher::ReadTextFile( applyLog, applyLogText ) &&
+                       applyLogText.find( "staged tree copied" ) != std::string::npos );
+            check( "apply script: script removed", !Launcher::FileExists( scriptPath ) );
+        }
+        std::filesystem::remove_all( root, ec );
     }
 
     report += failures == 0 ? "\nRESULT: PASS\n" : "\nRESULT: FAIL\n";
@@ -520,7 +596,7 @@ int WINAPI WinMain( _In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
         }
     }
     const std::wstring title =
-        std::wstring( L"OpenTDU2 Launcher  -  " ) + Launcher::Utf8ToWide( OTDU_BUILD_STRING );
+        std::wstring( L"OpenTDU2 Launcher  -  " ) + Launcher::Utf8ToWide( OTDU_RELEASE_STRING );
     HWND window = CreateWindowW( windowClass.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW,
                                  CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left,
                                  rect.bottom - rect.top, nullptr, nullptr, instance, nullptr );
