@@ -150,9 +150,10 @@ void StickerShopUi::bind( FlashPlayer *pPlayer, StickerCanvas *pCanvasIn, int32_
         }
     }
     pUi->setVariableBool( "/:IsVehicleStickable", bStickable );
-    // The colour picker pages are not wired yet: the paint entry stays locked
-    // (docs/re/stickers_ui_spec.md 7).
-    pUi->setVariableBool( "/:IsVehiclePaintable", bPaintable && CmdLine::HasArg( "-stickerpaint" ) );
+    // The Paint page (the base / highlight / stroke colours, bicolour) is not
+    // answered yet: the entry shows its lock (docs/re/stickers_ui_spec.md 7).
+    (void)bPaintable;
+    pUi->setVariableBool( "/:IsVehiclePaintable", false );
     pUi->setVariableBool( "/:IsBike", false );
     pUi->setVariableBool( "/:UseSymmetry", true );
     pUi->setVariableBool( "/:IsUniformScale", true );
@@ -413,7 +414,7 @@ void StickerShopUi::applyEdit() {
         StickerPlacement mirror = stamped;
         mirror.U = 1.0f - stamped.U;
         mirror.bFlip = !stamped.bFlip;
-        mirror.AngleDeg = WrapAngle( -stamped.AngleDeg );
+        mirror.AngleDeg = WrapAngle( 0.0f - stamped.AngleDeg );
         if ( std::fabs( mirror.U - stamped.U ) > 0.02f ) {
             snapshot.push_back( mirror );
         }
@@ -512,9 +513,7 @@ void StickerShopUi::placeCursor() {
     // down-right of it) and its scale against the gradient is 1.19: fitted
     // against screenshots at both corners [INF].
     float x = 57.0f + cursorU * 212.0f, y = 59.0f + cursorV * 212.0f;
-    if ( const char *pRaw = CmdLine::GetArgValue( "-stickercursorpos" ) ) {
-        sscanf( pRaw, "%f,%f", &x, &y ); // calibration: raw stage px
-    }
+
     pUi->setClipTransform( "/stickers/colors/color_box/color_picker/cursor", x, y, 0.0f, 100.0f, 100.0f );
 }
 

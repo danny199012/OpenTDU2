@@ -10,6 +10,10 @@ car paint's own shader lerps over the body UVs, and the port reproduces that
 with its own editor (`paint_menu.cpp`'s sticker page) writing the same canvas
 (`sticker_bank.h` `StickerCanvas`) into the same shader slot.
 
+> **2026-11-13 update:** the shop's UI is now the retail SHOPSCAR.vmf "stickers" page,
+> `docs/re/stickers_ui_spec.md`. The native `paint_menu.cpp` sticker page described in
+> section 3 stays as the `-nostickerui` fallback (and the `-stickershop` hook).
+
 ## 1. Where the stickers render [SHADER + DATA]
 
 The TD_CarPaint2 pixel shader (the car body paint, full-feature permutation)

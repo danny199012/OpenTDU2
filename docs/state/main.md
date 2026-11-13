@@ -2,7 +2,33 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-13 (grass under the car, `main`): the grass flattens around the player car
+`## Session 2026-11-13 (sticker shop UI, `main`): the ESTICK room runs the retail SHOPSCAR stickers page
+
+The owner: *"Can you try implement the real ui for the stickers/vinyl editor in the shop it's only partially implemented with non real ui"* - the port's own `PaintMenu` panel stood in for the movie; `shopscar.vmf` holds the real thing (menu, pack grid, tool strip, colour picker, history, itemized invoice) and nothing answered its `stsh:` FSCommands.
+
+### What changed
+- `source/game/spots/interior_walk.{h,cpp}` - an `ESTICK*` room loads `UiMovie = "shopscar"` (`bStickUi`; `-nostickerui` = the old native menu), goes to `st_open`; A on the seller is `ItemType('valid')` (not key 13); `camn` / `wmof` / `wmon` gate the walk; the pad is routed to the movie (L1 / R1 = SWF 49 / 51, X / Y = 120 / 121, history = 6); `dbxo` / `dbxc` / `gofr` handled; every other FSCommand goes to a sink.
+- `source/game/freeride/sticker_shop_ui.{h,cpp}` (new) - `StickerShopUi`: the working layout + undo / redo snapshots, the pack list (sold DBStickersBanks), 24 thumbnails through `setBitmapOverride(".../stN/lure")`, the tool values from the left stick, stamp / symmetry / flip, the colour picker (generated gradient on `lure_grad`, dropper cursor, live tint) and My Colors, the invoice (Labour $1000 + unpaid packs), pay / clear / cancel. Spec: `docs/re/stickers_ui_spec.md`.
+- `source/flash/flash_player.{h,cpp}` - **opt-in `onEnterFrame` handlers** (`setEnterFrameHandlers`), run in the defining timeline (`Value::pClip` on defined functions): the pack grid's loading spinner waited on one forever.
+- `gm_freeride.cpp/.h` - the sink, `bindStickerShop`, the editor's orbit camera (right stick / D-pad / right-mouse drag, wheel zoom) - the interior branch used to return before `view.setCamera`, so the old "cut to the car" never showed it; the movie over the car (`IntroCinematic::drawUi`); the EMOTES debug panel no longer outlives the room.
+- `sticker_bank.*`, `player_profile.*` - `StickerPlacement` gained `Alpha`, `bFlip`, `YStretch` (profile line stays backward compatible), the canvas clears when the last sticker goes; `OwnedStickerBanks` (`sticker_banks`) and `StickerMyColors` (`sticker_colors`).
+
+### Verified (headless, builds 27-30, 0 stalls)
+- Walk-in from the world (`-tp 18873,26646`, A on the enter tile) and the test hook (`-interior ESTICK_B -walkaim StickersShop_area -nointeriorintro`); shots `docs/images/sticker_ui_*.webp`.
+- Pay round trip with a seeded profile (`USERDATA` with `name = Tester`; test runs without a name never save): `paid 6000 (4 sticker(s) on car 387), money now 94000` -> `car_stickers` / `sticker_banks` / `money` in `profile.sav` -> next FREERIDE `'California' wears 4 sticker(s)`; the pack shows its checkbox on re-entry.
+- B in the walk -> "Exit the shop?" -> OK -> `gofr` -> back in the car; Cancel -> `stsh:canc` -> same; history Undo removes the stamp; L1 / R1 switch the pack (3 / 15 "Vector/Graphic (monochrome)").
+
+### Ruled out
+- `sendKey(13)` on the seller does nothing - the `st_stop` buttons only carry the selection keys; `ItemType('valid')` is the A.
+- A solid `setClipColor` alone does not tint the colour cubes: their `color` shape is a fully transparent solid placeholder, it needs the bound white texture too.
+- The first dialog press is lost: the GENERAL dialog ignores keys for ~1 s while it animates in (not a bug).
+
+### Not done / next
+- **Paint** (`stsh:pain:*`, the base / highlight / stroke colours, bicolour): the Paint entry shows its lock. It reuses the same picker (`/paint/color_box`, `/paint/my_colors_box`); the custom colour needs the TD_CarPaint2 colour params (`paint_spec.md`). Start at `StickerShopUi::onCommand`.
+- The retail `C_NEW_CAR_DESIGN_I` car presentation; `EdCarSticked` / `NbStickersBought` diary stats; casino / chase packs; the DLC popup.
+- **Unverified by feel:** the pad mapping (left stick edits the tool, right stick / D-pad orbit, L1 / R1 switch tool and pack, Select = history) - a DualSense pass is the next check. The picker cursor offset (`57 + 212 u`) was fitted against screenshots.
+
+## Session 2026-11-13 (grass under the car, `main`): the grass flattens around the player car
 
 The owner: "Yes, fix it" (grass through the car body).
 
