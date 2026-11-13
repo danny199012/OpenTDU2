@@ -6,7 +6,7 @@ appends its entry at the top of this file**, newest first, in the
 
 The owner: "fix the worlds vegetation it doesn't look accurate and grass has odd white parts at the bottom".
 
-**Reproduced**: `build-mainin\opentdu2-main.exe -game C:/TDU2-Gamedata/TestDrive2 -userdata C:/temp/otdu2-win-userdata -gm FREERIDE -skipcine -nopad -fixedtimestep -tpin 19584,24960 -clock 12 -autoplay "300:shot=..." -exitframe 330` - blade bases bright white/silver.
+**Reproduced**: `build-main/bin/opentdu2-main.exe -game C:/TDU2-Gamedata/TestDrive2 -userdata C:/temp/otdu2-win-userdata -gm FREERIDE -skipcine -nopad -fixedtimestep -tpin 19584,24960 -clock 12 -autoplay "300:shot=..." -exitframe 330` - blade bases bright white/silver.
 
 ### What changed
 - `source/render/texture_cache.cpp` - `loadBankTextures` bakes a root-darkening gradient into the DXT5 colour endpoints of the `tallgrass.bnk` atlases (cause: the atlas bases are authored pale; the retail TD_TallGrass PS shades roots via its light gradient, the port's Gouraud path has none). Flags `-grassrootdark <s>` (default 0.5, 1.0 = off), `-nograssroots`.
