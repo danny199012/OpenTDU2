@@ -439,10 +439,14 @@ private:
     // fills every frame from the weather's impostor_ambient (0xd769fb..0xd76a2e
     // [CODE]); the impostor batches draw with it. Set by EdenSceneView.
     Vector3f impostorAmbient = Vector3f( 0.5f, 0.5f, 0.5f );
+    Vector3f impostorAmbient2 = Vector3f( 0.0f, 0.0f, 0.0f );
     EdenDrawParams impostorParams;
 
 public:
     void setImpostorAmbient( const Vector3f &color ) { impostorAmbient = color; }
+    // The second ambient slot of the impostor light (VS: colour = Ambient_0 +
+    // Ambient_1, the PS multiplies it into the atlas) - see drawImpostors.
+    void setImpostorAmbient2( const Vector3f &color ) { impostorAmbient2 = color; }
     // The road-graph suppression (GRASSASTARMAC, grass_spec.md 3: grass
     // interacts with the path network): the ROAD_MAP / ROAD_DETAIL graph the
     // map screen parses, as an XZ segment hash. The village streets / plazas

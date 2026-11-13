@@ -298,3 +298,16 @@ For each loaded sector, for each of the V/O/S/A files:
    - Optional LOD: switch to LOD1 (the TD_HardwareInstance or TD_Impostor material) beyond √lodDistance[0], and hide beyond √lodDistance[1] (both scaled by an unknown factor) [INF].
    - S records (type 3) need the per-instance bone palette from the payload.
 3. For A records: entity by `__Hc` → `__Name` → 3DD/3DG/2DM of `worldactors.bnk` (via `hashcodes.xmb` rsc, or root node = `GetIdentifier64bit(__Name)`). Draw the actor's node hierarchy under the PMI matrix. Type 4 carries sign text — ignored for geometry, and composed onto the blank plates by the port since session 59 (Ibiza only; `docs/re/sign_text_spec.md`).
+
+## 10. Far-tree impostor light (2026-11-13, owner: "the world's vegetation doesn't look accurate")
+
+* `[SHADER]` `TD_Impostor` vs_0 writes `colour = __AmbLight_Ambient_1 + __AmbLight_Ambient_0` and the PS
+  multiplies it into the atlas (`tex * colour`, alpha-tested): the card light is the sum of the two slots.
+* `[DATA]` The weather's `impostor_ambient` alone is dim: 0.200 grey at 08:00 / 17:00, (0.255, 0.173, 0.141) at
+  12:00 - the port fed it into slot 0 and **0 into slot 1**, so the far forest drew as near-black brown
+  silhouettes next to the full-detail pines (`docs/images/far_trees_impostor_light_before_after.webp`, top).
+* Fix `[INF]`: slot 1 = the scene's `sun_ambient` (the weather's ambient, 0.58 / 0.67 / 0.82 at noon), so the
+  card light is the impostor ambient plus the scene ambient. Swept 0 / 0.5 / 0.8 / 1.1: 1.0-1.1 matches the
+  LOD0 trees' brightness at the hand-over. `-impostoramb2 <scale>` (default 1.0, 0 = the old look). The retail
+  value of slot 1 is read by FUN_00d769e0 / FUN_00981600 (not traced) - the true source may differ.
+* 17:00 and 23:00 checked: the forest follows the sun and goes dark at night; dawn (07:00) stays dim.

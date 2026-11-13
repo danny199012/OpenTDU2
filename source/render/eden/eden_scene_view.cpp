@@ -679,12 +679,15 @@ void EdenSceneView::setupScene( EdenSceneParams &params ) {
         const Vector3f impostorAmbient =
             pWeather != nullptr ? pWeather->getVector3( "impostor_ambient", params.Ambient ) : params.Ambient;
         world.setImpostorAmbient( impostorAmbient );
+        static const char *pAmb2Arg = CmdLine::GetArgValue( "-impostoramb2" );
+        world.setImpostorAmbient2( params.Ambient * ( pAmb2Arg != nullptr ? static_cast<float>( atof( pAmb2Arg ) ) : 1.0f ) );
         static const bool bLogImpostors = CmdLine::HasArg( "-logimpostors" );
         static Vector3f lastLogged( -1.0f, -1.0f, -1.0f );
         if ( bLogImpostors && ( impostorAmbient - lastLogged ).length() > 0.01f ) {
             lastLogged = impostorAmbient;
             OTDU_LOG_INFO( "EdenSceneView: impostor_ambient (%.3f, %.3f, %.3f)%s\n", impostorAmbient.x, impostorAmbient.y,
                            impostorAmbient.z, pWeather != nullptr ? "" : " (no weather: scene ambient)" );
+            OTDU_LOG_INFO( "EdenSceneView: sun_ambient (%.3f, %.3f, %.3f) sun_diffuse (%.3f, %.3f, %.3f)\n", params.Ambient.x, params.Ambient.y, params.Ambient.z, params.SunDiffuse.x, params.SunDiffuse.y, params.SunDiffuse.z );
         }
     }
     // -lognight: the night-light feed once a second (headless A/B checks).

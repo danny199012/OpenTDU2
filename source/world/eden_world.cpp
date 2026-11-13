@@ -3359,9 +3359,32 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 // report). A card well below a road surface (under a bridge
                 // deck) stays. -noroadskip restores the poke-through for the
                 // A/B; -roadskiptol widens the below-sheet window.
-                float roadY;
-                if ( GrassRoadSkip() && SampleRoadSurface( *pSector, px, pz, y + cardHeight + 0.25f, roadY ) &&
-                     roadY > y - RoadSkipTolerance() ) {
+                // The tests run at the card's centre AND at the four ends of
+                // its two crossed quads (half a card width out): a centre-only
+                // test let a card rooted beside a road edge reach over the
+                // tarmac / cobbles by up to w/2 (grass_spec.md 7, the owner's
+                // "grass still sometimes is on pathways"). -grasscentreonly
+                // restores the old test for the A/B.
+                const float yaw = f1 * 3.14159265f;
+                const float dx = cosf( yaw ), dz = sinf( yaw );
+                static const bool bCentreOnly = CmdLine::HasArg( "-grasscentreonly" );
+                const float reach = bCentreOnly ? 0.0f : w * 0.5f;
+                const float probeX[5] = { px, px + dx * reach, px - dx * reach, px - dz * reach, px + dz * reach };
+                const float probeZ[5] = { pz, pz + dz * reach, pz - dz * reach, pz + dx * reach, pz - dx * reach };
+                const int32_t numProbes = bCentreOnly ? 1 : 5;
+                bool bOnRoad = false, bOnGraph = false;
+                for ( int32_t probe = 0; probe < numProbes && !bOnRoad && !bOnGraph; probe++ ) {
+                    float roadY;
+                    if ( GrassRoadSkip() &&
+                         SampleRoadSurface( *pSector, probeX[probe], probeZ[probe], y + cardHeight + 0.25f, roadY ) &&
+                         roadY > y - RoadSkipTolerance() ) {
+                        bOnRoad = true;
+                    } else if ( GrassRoadSkip() && grassRoads.bBuilt &&
+                                grassRoads.nearRoad( probeX[probe], probeZ[probe], GrassRoadWidth() ) ) {
+                        bOnGraph = true;
+                    }
+                }
+                if ( bOnRoad ) {
                     roadSkipped++;
                     continue;
                 }
@@ -3369,7 +3392,7 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 // terrain paint inside the ROAD_MAP network's half width -
                 // the geometric index above has nothing to find there (the
                 // GRASSASTARMAC path law, grass_spec.md 3).
-                if ( GrassRoadSkip() && grassRoads.bBuilt && grassRoads.nearRoad( px, pz, GrassRoadWidth() ) ) {
+                if ( bOnGraph ) {
                     roadGraphSkipped++;
                     continue;
                 }
@@ -3381,8 +3404,6 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 bmp = Min( bmp, 8u );
                 const float u0 = bmp * atlasCellU;
                 const float u1 = u0 + atlasCellU;
-                const float yaw = f1 * 3.14159265f;
-                const float dx = cosf( yaw ), dz = sinf( yaw );
                 // Two crossed vertical quads (the PLANE template stood up,
                 // grass_spec.md 5): bl, br, tl, tr per quad, triangle list,
                 // the roots at v = 1 (the atlas fades them at the image
@@ -3585,7 +3606,8 @@ void EdenWorld::drawImpostors( EdenRenderer &renderer ) {
         // one colour; the second ambient slot of the AmbLight set is unused].
         impostorParams.VertexVectors["__AmbLight_Ambient_0"] =
             Vector4f( impostorAmbient.x, impostorAmbient.y, impostorAmbient.z, 1.0f );
-        impostorParams.VertexVectors["__AmbLight_Ambient_1"] = Vector4f( 0.0f, 0.0f, 0.0f, 0.0f );
+        impostorParams.VertexVectors["__AmbLight_Ambient_1"] =
+            Vector4f( impostorAmbient2.x, impostorAmbient2.y, impostorAmbient2.z, 0.0f );
         renderer.draw( mesh, *batch.pMaterial, Matrix4x4f::Identity(), &impostorParams );
     }
     numImpostorBatches = 0;

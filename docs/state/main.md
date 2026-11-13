@@ -2,7 +2,27 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-13 (grass white bases, `main`): the grass root fringes are shaded now (baked root gradient)
+`## Session 2026-11-13 (grass on paths + far-tree light, `main`): grass cards no longer overhang roads; far trees are no longer black
+
+The owner: "I know grass still sometimes is on pathways and stuff you can do both of these" (both = grass placement and the world vegetation accuracy).
+
+### What changed
+- `source/world/eden_world.cpp` - the road-surface / road-graph suppressions probe the card centre + the four quad ends (`-grasscentreonly` = old). `-loggrassroads` logs sample road points (`gm_freeride.cpp`) for `-tpin` probes.
+- `eden_scene_view.cpp` / `eden_world.*` - the far-tree impostors' `Ambient_1` = scene `sun_ambient` x `-impostoramb2` (default 1.0); the TD_Impostor VS adds both slots and the port had 0 in the second, so the far forest was near-black. `-logimpostors` also prints sun_ambient / sun_diffuse.
+
+### Verified
+- `-loggrass` counts: village 374 -> 418 road skips, road spot 902 -> 998; `docs/images/grass_card_extent_village_before_after.webp`.
+- Far trees at `-tpin 5150,26192`: `-noimpostors` removes the dark forest (so it was the impostors), k sweep 0 / 0.5 / 0.8 / 1.1, 17:00 / 23:00 / 07:00 checked, `docs/images/far_trees_impostor_light_before_after.webp`. 0 VUIDs.
+
+### Ruled out
+- The dark forest is not the grass (`-nograss` unchanged), not the instances (`-noinstances` removes the forest entirely); `-noimpostors` removes it.
+
+### Not done / next
+- Grass on off-graph dirt tracks / forest paths (terrain paint): the colour-map layers are GPU-only; a CPU readback of the sector terrain material mask is the lead (`EdenWorld::drawGrass`, near line 3340).
+- Slot 1's retail source (FUN_00d769e0 / FUN_00981600) is untraced; 1.0 x sun_ambient is a visual match, `[INF]`.
+- Dawn (07:00) impostors are still dim; mid-distance LOD0 vs impostor brightness at the hand-over was matched by eye only.
+
+## Session 2026-11-13 (grass white bases, `main`): the grass root fringes are shaded now (baked root gradient)
 
 The owner: "fix the worlds vegetation it doesn't look accurate and grass has odd white parts at the bottom".
 

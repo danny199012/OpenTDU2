@@ -430,3 +430,17 @@ correctly placed, sized and blended under the plain Gouraud shader
   `docs/images/grass_roots_before_after.webp` (top `-grassrootdark 1.0`, bottom the
   new default); the default spawn village is unchanged.
 
+## 9. Card extent vs paths (2026-11-13, owner: "grass still sometimes is on pathways")
+
+* The road-surface and road-graph suppressions tested only the card CENTRE, so a
+  card rooted beside a road edge / plaza reached over the tarmac or cobbles by up
+  to w/2 (cards are 1.5-2.3 m wide). They now test the centre AND the four ends of
+  the two crossed quads (half a card width out). `-grasscentreonly` = the old test.
+* Evidence (`-loggrass`, same spots, build 23): village spawn road-skips 374 -> 418
+  (4838 -> 4738 cards); the road spot at `-tpin 21353,20172` 902 -> 998. The tufts
+  that overhung the plaza edge beside the flowerbed are gone
+  (`docs/images/grass_card_extent_village_before_after.webp`, left old, right new).
+* Still open `[INF]`: off-graph dirt tracks / forest paths that are terrain paint
+  are not detected (the grid orientation / decode is unsettled, section 7; the
+  terrain colour-map layers are GPU-only and not read back). `-loggrassroads` logs
+  sample road points for `-tpin` probes.

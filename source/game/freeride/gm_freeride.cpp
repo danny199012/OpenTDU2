@@ -788,6 +788,17 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     // sees - docs/re/grass_spec.md 3 / 7).
     if ( !mapScreen.getRoadShapes().empty() ) {
         view.getWorld().buildGrassRoadIndex( mapScreen.getRoadShapes() );
+        if ( CmdLine::HasArg( "-loggrassroads" ) ) {
+            // Sample spots for -tpin probes: the middle point of every Nth shape.
+            const auto &shapes = mapScreen.getRoadShapes();
+            for ( size_t i = 0; i < shapes.size(); i += Max<size_t>( shapes.size() / 40, 1 ) ) {
+                if ( !shapes[ i ].empty() ) {
+                    const Vector3f &p = shapes[ i ][ shapes[ i ].size() / 2 ];
+                    OTDU_LOG_INFO( "grassroad sample %zu/%zu: %.0f,%.0f (%zu pts)\n", i, shapes.size(), p.x, p.z,
+                                   shapes[ i ].size() );
+                }
+            }
+        }
     }
     // Instant challenges (race markers on the road graph) and the police
     // chase (the cop car of the island's chaseconfig.cpr).
