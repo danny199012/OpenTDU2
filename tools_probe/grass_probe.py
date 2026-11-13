@@ -18,7 +18,7 @@ def decode(path, render_path=None, row_limit=0, relative=False):
     table = 0x28
     rows = []
     hist = Counter()
-    base = 0 if relative else 0  # try file-absolute first
+    base = 0x20  # offsets are relative to the payload start (file 0x20) - grass_spec.md 2
     n = min(gh, row_limit) if row_limit else gh
     incomplete = 0
     for r in range(n):
@@ -28,9 +28,7 @@ def decode(path, render_path=None, row_limit=0, relative=False):
         while len(cells) < gw and o + 2 <= len(d):
             c, v = d[o], d[o + 1]
             o += 2
-            if c == 0:
-                continue  # (00,00) no-op pairs the encoder emits
-            cells.extend([v] * c)
+            cells.extend([v] * (c + 1))  # a run is count + 1 cells (every row sums to gridW)
         if len(cells) < gw:
             incomplete += 1
             rows.append(None)

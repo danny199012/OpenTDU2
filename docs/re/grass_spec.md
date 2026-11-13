@@ -444,3 +444,28 @@ correctly placed, sized and blended under the plain Gouraud shader
   are not detected (the grid orientation / decode is unsettled, section 7; the
   terrain colour-map layers are GPU-only and not read back). `-loggrassroads` logs
   sample road points for `-tpin` probes.
+
+## 10. THE `.pgr` DECODE IS SOLVED (2026-11-13) - sections 2 and 7 above are superseded
+
+* **Row offsets are relative to the payload start (file `0x20`)**, not the file start. `[DATA]` The sorted
+  offsets begin at 4104 = `0x1008`, exactly the table end (`0x1028`) minus `0x20` - the "`0x1008` entry that
+  points back into the table" of the earlier probe was the row-0-of-the-data offset read 32 bytes early.
+* **A run is `count + 1` cells** (a `(0, v)` pair is ONE cell, not a no-op). `[DATA]` Every one of the 1024
+  rows of the farm sector sums to exactly 1024 with this law (before: 949 of 1024 rows were short, by 10-30
+  cells - the "(0,x) escape" puzzle of section 7), and the row-table order is NOT shuffled - the earlier
+  "index-shuffled" reading was the same 32-byte misalignment.
+* Proof by image (`_sx/probe2.py`-style decode vs `sector-3-4-1-0-c.2db`): the decoded grid reproduces the
+  sector colour map - the dirt tracks and roads are `0xff` (no grass), the building pads are `0xff` with a
+  class-2 halo, the golden wheat field is class 14 (`Blé - Champs`), the yellow-green field class 13
+  (`Colza - Champs`) - so the document-order class table of section 1.2 is confirmed for those classes.
+  `0xff` = no grass, `0x00` = bare. The grid axes are the world axes with row 0 at the sector origin: the
+  road graph lands on `0xff` cells with the default orientation (road-skipped 1, graph-skipped 0 at the farm
+  teleport) and on grass with `-grassflip` (799 / 719).
+* The "road / path markers" `0x59 / 0x5f / 0x60 / 0x9d` / `0x7b / 0x7c` were decode garbage, not data.
+* Engine: `drawGrass` decodes with the corrected law (`-pgrlegacy` = the old reading, the A/B);
+  `tools_probe/grass_probe.py` too. With the real grid the village streets / plazas / dirt tracks carry no
+  grass by themselves (`docs/images/grass_pgr_decode_village_before_after.webp`: top the legacy decode with
+  the suppressions off, bottom the fixed decode with them off) - the road-surface / road-graph / card-extent
+  tests of section 6/9 are now belt-and-braces, not the primary mechanism.
+* Open: the `_OffRoad_*` height ladder is in the grid (classes 1,3,5,7,16-23) and drawn through the
+  GrassType table as before; grass density / the per-edge law (`MAX_GRASS_BILLBOARD_PER_EDGE`) is still `[ENC]`.

@@ -3292,11 +3292,22 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 break;
             }
             const int32_t row = GrassFlip() ? 1023 - gy : gy;
-            // Decode the row: u32 file offset at 0x28 + row * 4, then
-            // (u8 count, u8 value) runs; (00, 00) pairs are no-ops; a run
-            // may overshoot the row end (clamped at 1024 cells).
+            // Decode the row: u32 offset at 0x28 + row * 4 RELATIVE TO THE
+            // PAYLOAD START (file 0x20 - the sorted offsets begin exactly at
+            // the table end, 0x1028), then (u8 count, u8 value) runs of
+            // count + 1 cells - every row of the farm sector sums to exactly
+            // 1024 that way, and the decoded grid reproduces the sector's
+            // colour map (tracks, roads, building pads = 0xff; crop fields =
+            // classes 13-16; grass_spec.md 2.1). The earlier reading (file
+            // absolute offsets, runs of `count`, (0,x) pairs skipped) landed
+            // 32 bytes early in every row: garbage bands that put grass on
+            // the paths. -pgrlegacy restores it for the A/B.
+            static const bool bPgrLegacy = CmdLine::HasArg( "-pgrlegacy" );
             uint32_t o;
             memcpy( &o, pSector->Pgr.data() + 0x28 + row * 4, 4 );
+            if ( !bPgrLegacy ) {
+                o += 0x20;
+            }
             if ( o + 2 > pSector->Pgr.size() ) {
                 continue;
             }
@@ -3306,10 +3317,11 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 const uint32_t count = pSector->Pgr[o];
                 const uint32_t value = pSector->Pgr[o + 1];
                 o += 2;
-                if ( count == 0 ) {
+                if ( bPgrLegacy && count == 0 ) {
                     continue;
                 }
-                for ( uint32_t i = 0; i < count && filled < 1024; i++ ) {
+                const uint32_t run = bPgrLegacy ? count : count + 1;
+                for ( uint32_t i = 0; i < run && filled < 1024; i++ ) {
                     pgrRowScratch[filled++] = static_cast<uint8_t>( value );
                 }
             }

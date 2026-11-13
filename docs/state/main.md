@@ -2,7 +2,27 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-13 (grass on paths + far-tree light, `main`): grass cards no longer overhang roads; far trees are no longer black
+`## Session 2026-11-13 (the .pgr grass grid decode, `main`): grass follows the terrain - tracks, roads and plazas carry none
+
+The owner: "Yes, dirt paths" (grass still on dirt paths).
+
+### What changed
+- `source/world/eden_world.cpp` - `drawGrass` decodes the `.pgr` correctly: row offsets are relative to the payload start (file 0x20), a run is `count + 1` cells. `-pgrlegacy` = the old reading. `tools_probe/grass_probe.py` fixed the same way.
+- Why it was wrong: the row table's sorted offsets start at 0x1008 = table end - 0x20; the earlier code read every row 32 bytes early (misaligned pairs, "shuffled" tables, "(0,x) escapes", "road markers" were all that one error plus the run length).
+
+### Verified
+- All 1024 rows of `sector-3-4-1-0.pgr` sum to exactly 1024; the decoded grid overlays the sector colour map (tracks / roads / building pads = 0xff, wheat = 14, colza = 13).
+- In-engine farm teleport (`-tpin 19584,24960 -loggrass`): road-skipped 718 -> 1, graph-skipped 822 -> 0 with the fix; `-grassflip` brings 799 / 719 back (the default orientation is right).
+- Village spawn with every suppression OFF (`-noroadskip`): legacy decode = grass on the cobbles, fixed decode = clean cobbles (`docs/images/grass_pgr_decode_village_before_after.webp`).
+
+### Ruled out
+- The grid orientation: world axes, row 0 at the sector origin (the `-grassflip` A/B above).
+
+### Not done / next
+- Grass heights / `_OffRoad_` ladder / density were tuned against the old garbage grid: a retail capture A/B of the placement is the next accuracy step; the per-edge law (`MAX_GRASS_BILLBOARD_PER_EDGE`) is still unread.
+- The other islands' `.pgr` (Hawai / Casino) were not visually checked; the container is the same.
+
+## Session 2026-11-13 (grass on paths + far-tree light, `main`): grass cards no longer overhang roads; far trees are no longer black
 
 The owner: "I know grass still sometimes is on pathways and stuff you can do both of these" (both = grass placement and the world vegetation accuracy).
 
