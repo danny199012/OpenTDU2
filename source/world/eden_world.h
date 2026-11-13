@@ -225,6 +225,9 @@ private:
     static void BuildRoadIndex( Sector &sector );
     // Topmost road surface below fromY at (x, z) (world; sector local inside).
     static bool SampleRoadSurface( const Sector &sector, float x, float z, float fromY, float &outHeight );
+    // getHeight's body for a sector the caller already holds (no sector
+    // search): the grass emitter samples 20k+ cards a frame.
+    static bool SampleSectorHeight( const Sector &sector, float x, float z, float &outHeight );
     // Unmarks the carved cells with no up-facing tunnel / bridge surface over
     // them: those are holes (the sheet is drawn without depth write over
     // nothing and the drive height function has no answer there - the owner's
@@ -280,6 +283,11 @@ private:
         // card rooted on the sheet under a road pokes through the tarmac.
         std::vector<uint32_t> RoadTriangles;
         std::unordered_map<uint64_t, std::vector<uint32_t>> RoadCells;
+        // 96 x 96 flags (8 m buckets of the 768 m sector), set for every bucket
+        // holding road triangles and its 8 neighbours: the emitter's cheap
+        // "can a card here touch a road surface" prefilter (one array read
+        // instead of a hash-map find per probe, grass_spec.md 11).
+        std::vector<uint8_t> RoadMask;
         // .pmi lists (V / O static library models, A actors).
         std::vector<PmiInstance> Instances;
         std::vector<int32_t> InstanceModels;   // library node or actor model index
@@ -458,6 +466,9 @@ public:
         static constexpr float kBucket = 8.0f;
         std::vector<Vector3f> segmentPoints; // pairs (a, b); only x / z used
         std::unordered_map<uint64_t, std::vector<uint32_t>> buckets;
+        // Every bucket within one bucket of a segment bucket: the prefilter
+        // maybeNear() reads before the exact (neighbourhood-scanning) test.
+        std::unordered_set<uint64_t> dilated;
         static uint64_t CellKey( int32_t x, int32_t z ) {
             return ( static_cast<uint64_t>( static_cast<uint32_t>( x ) ) << 32 ) |
                    static_cast<uint32_t>( z );
@@ -494,9 +505,26 @@ public:
                     }
                 }
             }
+            dilated.clear();
+            for ( const auto &entry : buckets ) {
+                const int32_t bx = static_cast<int32_t>( entry.first >> 32 );
+                const int32_t bz = static_cast<int32_t>( entry.first & 0xffffffffu );
+                for ( int32_t dz = -1; dz <= 1; dz++ ) {
+                    for ( int32_t dx = -1; dx <= 1; dx++ ) {
+                        dilated.insert( CellKey( bx + dx, bz + dz ) );
+                    }
+                }
+            }
             if ( !segmentPoints.empty() ) {
                 bBuilt = true;
             }
+        }
+        // False when no road segment can lie within kBucket (8 m) of (x, z):
+        // valid for radii up to 8 m (the 5.5 m width + the card half width
+        // stay inside it).
+        bool maybeNear( float x, float z ) const {
+            return dilated.count( CellKey( static_cast<int32_t>( std::floor( x / kBucket ) ),
+                                           static_cast<int32_t>( std::floor( z / kBucket ) ) ) ) != 0;
         }
         // Point -> segment distance in XZ (the roads follow the terrain; y
         // unused), against the buckets the point's neighbourhood covers.

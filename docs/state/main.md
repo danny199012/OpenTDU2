@@ -2,7 +2,24 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-13 (the .pgr grass grid decode, `main`): grass follows the terrain - tracks, roads and plazas carry none
+`## Session 2026-11-13 (grass density tuning, `main`): continuous fields, cheaper emit
+
+The owner: "Yes, tune it" (grass density / height after the .pgr decode fix).
+
+### What changed
+- `eden_world.cpp` - density law (keep probability by distance and class, stride 1, cap 24000; `-grassdensity`, `-grasslattice`); `SampleSectorHeight` (no per-card sector search); `RoadMask` / `GrassRoadIndex::dilated` prefilters for the card-end road probes; one insert per stream per quad; grass skipped in shadow / mirror / probe passes (`-grassshadows`).
+
+### Verified
+- Wheat / colza fields continuous (`docs/images/grass_density_law_wheat_before_after.webp`), hillside covered; 0 VUIDs.
+- Steady frame at `-tpin 23104,5721`: 14.6 ms new law vs 11.2 ms old lattice (itself ~16 before the emit fixes); scene prepass 14.9 -> 8.9 ms.
+
+### Ruled out
+- Shadow / mirror passes were not the cost (skipping them changed nothing); the per-card emit was (getHeight's sector scan, ~50 hash finds per card in the probes).
+
+### Not done / next
+- Hawaii / Casino not looked at (`-island hawai` spawned in the void with Ibiza coordinates); the car-flatten (cards through the car body); grass size vs distance; retail A/B of density and heights.
+
+## Session 2026-11-13 (the .pgr grass grid decode, `main`): grass follows the terrain - tracks, roads and plazas carry none
 
 The owner: "Yes, dirt paths" (grass still on dirt paths).
 

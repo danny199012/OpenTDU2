@@ -69,7 +69,7 @@ float GrassDistance() {
 uint32_t GrassMaxCards() {
     static const uint32_t v = [] {
         const char *p = CmdLine::GetArgValue( "-grassmax" );
-        return p != nullptr ? static_cast<uint32_t>( Max( 1, atoi( p ) ) ) : 20000u;
+        return p != nullptr ? static_cast<uint32_t>( Max( 1, atoi( p ) ) ) : 24000u;
     }();
     return v;
 }
@@ -77,7 +77,26 @@ uint32_t GrassMaxCards() {
 int32_t GrassStride() {
     static const int32_t v = [] {
         const char *p = CmdLine::GetArgValue( "-grassstride" );
-        return p != nullptr ? Max( 1, atoi( p ) ) : 2;
+        return p != nullptr ? Max( 1, atoi( p ) ) : 1;
+    }();
+    return v;
+}
+
+// The density law (grass_spec.md 11): with the .pgr grid decoded correctly the
+// emitter walks every cell (-grassstride 1, 0.75 m) and keeps a cell with a
+// probability that is dense near the camera and in the crop fields and thins
+// with distance, instead of a fixed 1.5 m lattice - the old lattice left bare
+// soil between the wheat clumps. An explicit -grassstride restores the fixed
+// lattice (the A/B); -grassdensity <k> scales the probabilities.
+bool GrassDensityLaw() {
+    static const bool b = !CmdLine::HasArg( "-grassstride" ) && !CmdLine::HasArg( "-grasslattice" );
+    return b;
+}
+
+float GrassDensityScale() {
+    static const float v = [] {
+        const char *p = CmdLine::GetArgValue( "-grassdensity" );
+        return p != nullptr ? Max( 0.05f, static_cast<float>( atof( p ) ) ) : 1.0f;
     }();
     return v;
 }
@@ -425,6 +444,7 @@ bool EdenWorld::SampleCarveGround( const Sector &sector, float x, float z, float
 void EdenWorld::BuildRoadIndex( Sector &sector ) {
     sector.RoadTriangles.clear();
     sector.RoadCells.clear();
+    sector.RoadMask.clear();
     if ( !sector.Objects.isLoaded() ) {
         return;
     }
@@ -492,6 +512,20 @@ void EdenWorld::BuildRoadIndex( Sector &sector ) {
                 }
             }
             numTriangles++;
+        }
+    }
+    if ( numTriangles != 0 ) {
+        sector.RoadMask.assign( 96 * 96, 0 );
+        for ( const auto &entry : sector.RoadCells ) {
+            const int32_t bx = static_cast<int32_t>( entry.first >> 32 );
+            const int32_t bz = static_cast<int32_t>( entry.first & 0xffffffffu );
+            for ( int32_t dz = -1; dz <= 1; dz++ ) {
+                for ( int32_t dx = -1; dx <= 1; dx++ ) {
+                    if ( bx + dx >= 0 && bx + dx < 96 && bz + dz >= 0 && bz + dz < 96 ) {
+                        sector.RoadMask[ ( bz + dz ) * 96 + bx + dx ] = 1;
+                    }
+                }
+            }
         }
     }
     if ( numTriangles != 0 && LogGrass() ) {
@@ -3164,6 +3198,16 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     if ( !GrassEnabled() || !bGrassLoaded || grassTypes.empty() ) {
         return;
     }
+    // The grass is left out of the shadow-caster, mirror and probe passes:
+    // thousands of small alpha-tested cards cast no shadow worth the cost
+    // (each pass re-draws the whole batch - ~0.5 ms per 1000 cards per
+    // pass-set, the dominant scene cost of a field). -grassshadows puts them
+    // back (the A/B).
+    static const bool bGrassEveryPass = CmdLine::HasArg( "-grassshadows" );
+    if ( !bGrassEveryPass && ( renderer.isShadowCasterMode() || renderer.isReflectionPass() ||
+                               renderer.isProbeRecording() ) ) {
+        return;
+    }
     // One emit per frame: every pass that draws the world (the prepass, the
     // shadow casters, the ocean mirror, the environment cube faces, the main
     // pass) used to re-walk the .pgr grids and re-upload the batch - the emit
@@ -3260,6 +3304,9 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                } );
     std::vector<int32_t> rowOrder, colOrder;
     bool bCapped = false;
+    const bool bDensityLaw = GrassDensityLaw();
+    const float roadWidth = GrassRoadWidth();
+    const float densityScale = GrassDensityScale();
     for ( const auto &ordered : orderedSectors ) {
         if ( bCapped ) {
             break;
@@ -3351,8 +3398,26 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 const float f2 = ( ( hash >> 20 ) & 1023 ) / 1023.0f;
                 const float px = origin.x + ( gx + 0.5f + ( f0 - 0.5f ) * stride ) * cell;
                 const float pz = origin.z + ( gy + 0.5f + ( f1 - 0.5f ) * stride ) * cell;
+                if ( bDensityLaw ) {
+                    const float ddx = px - cameraPosition.x, ddz = pz - cameraPosition.z;
+                    const float distance = sqrtf( ddx * ddx + ddz * ddz );
+                    const float t = Clamp( ( distance - 10.0f ) / 50.0f, 0.0f, 1.0f );
+                    const float smooth = t * t * ( 3.0f - 2.0f * t );
+                    // Crop fields (Thym / Colza / Ble / Lavande - Champs,
+                    // classes 12-15) are continuous; the wild scrub is sparse.
+                    const bool bCrop = v >= 12 && v <= 15;
+                    float keep = bCrop ? 0.95f - 0.55f * smooth : 0.65f - 0.47f * smooth;
+                    keep -= ( bCrop ? 0.15f : 0.06f ) * Clamp( ( distance - 60.0f ) / 80.0f, 0.0f, 1.0f );
+                    keep *= densityScale;
+                    if ( ( GrassHash( static_cast<uint32_t>( gx ) * 7u + 13u, static_cast<uint32_t>( gy ) * 13u + 5u ) &
+                           1023u ) /
+                             1023.0f >=
+                         keep ) {
+                        continue;
+                    }
+                }
                 float y;
-                if ( !getHeight( px, pz, y ) ) {
+                if ( !SampleSectorHeight( *pSector, px, pz, y ) ) {
                     continue;
                 }
                 const uint32_t typeIndex = Min<uint32_t>( v, static_cast<uint32_t>( grassTypes.size() ) - 1 );
@@ -3385,13 +3450,24 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 const float probeZ[5] = { pz, pz + dz * reach, pz - dz * reach, pz + dx * reach, pz - dx * reach };
                 const int32_t numProbes = bCentreOnly ? 1 : 5;
                 bool bOnRoad = false, bOnGraph = false;
-                for ( int32_t probe = 0; probe < numProbes && !bOnRoad && !bOnGraph; probe++ ) {
+                // The prefilters (one array read / one set find per card): the
+                // exact probes only run where a road surface / graph segment
+                // can be within reach (grass_spec.md 11 - the five-probe test
+                // alone cost ~10 ms of emit per frame in a field).
+                const int32_t roadCellX = static_cast<int32_t>( std::floor( ( px - origin.x ) / 8.0f ) );
+                const int32_t roadCellZ = static_cast<int32_t>( std::floor( ( pz - origin.z ) / 8.0f ) );
+                const bool bRoadPossible = !pSector->RoadMask.empty() && roadCellX >= 0 && roadCellX < 96 &&
+                                           roadCellZ >= 0 && roadCellZ < 96 &&
+                                           pSector->RoadMask[ roadCellZ * 96 + roadCellX ] != 0;
+                const bool bGraphPossible = grassRoads.bBuilt && ( roadWidth > 6.5f || grassRoads.maybeNear( px, pz ) );
+                for ( int32_t probe = 0; probe < numProbes && !bOnRoad && !bOnGraph && ( bRoadPossible || bGraphPossible );
+                      probe++ ) {
                     float roadY;
-                    if ( GrassRoadSkip() &&
+                    if ( GrassRoadSkip() && bRoadPossible &&
                          SampleRoadSurface( *pSector, probeX[probe], probeZ[probe], y + cardHeight + 0.25f, roadY ) &&
                          roadY > y - RoadSkipTolerance() ) {
                         bOnRoad = true;
-                    } else if ( GrassRoadSkip() && grassRoads.bBuilt &&
+                    } else if ( GrassRoadSkip() && bGraphPossible &&
                                 grassRoads.nearRoad( probeX[probe], probeZ[probe], GrassRoadWidth() ) ) {
                         bOnGraph = true;
                     }
@@ -3473,14 +3549,18 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                             { px + hx, y + cardHeight, pz + hz, u1, 0.0f },
                         };
                         const uint32_t base = batch.NumVertices;
-                        for ( const auto &corner : corners ) {
-                            batch.Streams[0].insert( batch.Streams[0].end(), reinterpret_cast<const uint8_t *>( corner ),
-                                                     reinterpret_cast<const uint8_t *>( corner ) + 20 );
-                            const uint16_t normal[4] = { GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 1.0f ),
-                                                         GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 0.0f ) };
-                            batch.Streams[1].insert( batch.Streams[1].end(), reinterpret_cast<const uint8_t *>( normal ),
-                                                     reinterpret_cast<const uint8_t *>( normal ) + 8 );
-                        }
+                        // One insert per stream per quad (12 small inserts
+                        // per quad were a visible slice of the emit).
+                        batch.Streams[0].insert( batch.Streams[0].end(), reinterpret_cast<const uint8_t *>( corners ),
+                                                 reinterpret_cast<const uint8_t *>( corners ) + sizeof( corners ) );
+                        static const uint16_t kNormals[4][4] = {
+                            { GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 1.0f ), GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 0.0f ) },
+                            { GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 1.0f ), GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 0.0f ) },
+                            { GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 1.0f ), GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 0.0f ) },
+                            { GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 1.0f ), GrassFloatToHalf( 0.0f ), GrassFloatToHalf( 0.0f ) },
+                        };
+                        batch.Streams[1].insert( batch.Streams[1].end(), reinterpret_cast<const uint8_t *>( kNormals ),
+                                                 reinterpret_cast<const uint8_t *>( kNormals ) + sizeof( kNormals ) );
                         const uint32_t indices[6] = { base, base + 1, base + 2, base + 1, base + 3, base + 2 };
                         batch.Indices.insert( batch.Indices.end(), indices, indices + 6 );
                         batch.NumVertices += 4;
@@ -3751,6 +3831,14 @@ bool EdenWorld::getHeight( float x, float z, float &outHeight ) const {
         if ( !( pSector->Id == id ) || pSector->Terrain.Heights.empty() ) {
             continue;
         }
+        return SampleSectorHeight( *pSector, x, z, outHeight );
+    }
+    return false;
+}
+
+bool EdenWorld::SampleSectorHeight( const Sector &sectorRef, float x, float z, float &outHeight ) {
+    const Sector *pSector = &sectorRef;
+    {
         const float gx = Clamp( ( x - pSector->Origin.x ) / 3.0f, 0.0f, 255.999f );
         const float gz = Clamp( ( z - pSector->Origin.z ) / 3.0f, 0.0f, 255.999f );
         const uint32_t ix = static_cast<uint32_t>( gx );
@@ -3777,7 +3865,6 @@ bool EdenWorld::getHeight( float x, float z, float &outHeight ) const {
         outHeight = ( h00 * ( 1 - fx ) + h10 * fx ) * ( 1 - fz ) + ( h01 * ( 1 - fx ) + h11 * fx ) * fz;
         return true;
     }
-    return false;
 }
 
 void EdenWorld::updateWetGround( EdenRenderer &renderer, const WeatherPreset *pWeather, GPUTexture *pEnvironmentCube,

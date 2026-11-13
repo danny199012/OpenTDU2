@@ -469,3 +469,22 @@ correctly placed, sized and blended under the plain Gouraud shader
   tests of section 6/9 are now belt-and-braces, not the primary mechanism.
 * Open: the `_OffRoad_*` height ladder is in the grid (classes 1,3,5,7,16-23) and drawn through the
   GrassType table as before; grass density / the per-edge law (`MAX_GRASS_BILLBOARD_PER_EDGE`) is still `[ENC]`.
+
+## 11. Density law, emit cost (2026-11-13, owner: "yes, tune it")
+
+* With the decoded grid (section 10) the emitter walks every 0.75 m cell (`-grassstride` defaults to 1) and keeps
+  a cell with a probability instead of a fixed 1.5 m lattice `[INF: the retail per-edge law is [ENC]]`:
+  ordinary classes `0.65 -> 0.18` over 10-60 m, minus 0.06 out to 140 m; the crop-field classes 12-15 (Thym /
+  Colza / Ble / Lavande - Champs) `0.95 -> 0.40`, minus 0.15 - continuous fields, thinning with distance. The
+  card cap is 24000 (was 20000). `-grassdensity <k>` scales it, an explicit `-grassstride` or `-grasslattice`
+  restores the fixed lattice (the A/B: `-grassstride 2 -grassmax 20000` = the old default).
+  Evidence: `docs/images/grass_density_law_wheat_before_after.webp` (the wheat field, left old lattice).
+* The emit was the cost: ~10 ms of CPU per frame in a field. Fixed: (1) `getHeight` searched every loaded sector
+  per card - the emitter now samples its own sector (`SampleSectorHeight`); (2) the card-end road probes (section 9)
+  hit hash maps ~50 times per card - a per-sector 96x96 `RoadMask` and the graph's `dilated` bucket set now gate
+  them (one read per card). Measured (`-tpin 23104,5721`, steady frame): old lattice before the fixes ~16 ms,
+  new law 14.6 ms; the old lattice itself is 11.2 ms now. Field (`19576,24670`): 14.1 ms.
+* The shadow / mirror / probe passes no longer draw the grass (`-grassshadows` puts it back): no measurable change
+  in frame time, kept as it removes the pointless casters.
+* Not done: Hawaii / Casino grids not looked at (the Hawaii run spawned in the void with Ibiza coordinates); the
+  car-flatten (cards through the car body) and sizes per distance.
