@@ -43,7 +43,11 @@ GPUTexture *StickerCanvas::getTexture() {
 }
 
 void StickerCanvas::render( RenderDevice &device, Renderer2D &renderer ) {
-    if ( !bDirty || layout.empty() ) {
+    if ( !bDirty ) {
+        return;
+    }
+    if ( layout.empty() && pTarget == nullptr ) {
+        bDirty = false; // nothing was ever drawn: nothing to clear
         return;
     }
     if ( !ensureTarget( device ) ) {
@@ -61,14 +65,21 @@ void StickerCanvas::render( RenderDevice &device, Renderer2D &renderer ) {
         // Centre + size in canvas pixels; the rotation in the canvas plane.
         const float cx = p.U * kCanvasSize, cy = p.V * kCanvasSize;
         const float width = Max( 8.0f, p.Scale * kCanvasSize );
-        const float height = width * static_cast<float>( pArt->Height ) / static_cast<float>( pArt->Width );
+        const float height = width * static_cast<float>( pArt->Height ) / static_cast<float>( pArt->Width ) * p.YStretch;
         const float angle = p.AngleDeg * kDegToRad;
         const float ca = std::cos( angle ), sa = std::sin( angle );
         const float hx = width * 0.5f, hy = height * 0.5f;
         const Vector2f corners[4] = { Vector2f( -hx, -hy ), Vector2f( hx, -hy ), Vector2f( hx, hy ),
                                       Vector2f( -hx, hy ) };
-        const Vector2f uvs[4] = { Vector2f( 0.0f, 0.0f ), Vector2f( 1.0f, 0.0f ), Vector2f( 1.0f, 1.0f ),
-                                  Vector2f( 0.0f, 1.0f ) };
+        const float u0 = p.bFlip ? 1.0f : 0.0f, u1 = p.bFlip ? 0.0f : 1.0f;
+        const Vector2f uvs[4] = { Vector2f( u0, 0.0f ), Vector2f( u1, 0.0f ), Vector2f( u1, 1.0f ),
+                                  Vector2f( u0, 1.0f ) };
+        // The transparency tool scales the tint's alpha (MakeRGBA order: A in the top byte).
+        uint32_t tint = p.Tint;
+        if ( p.Alpha < 0.999f ) {
+            const uint32_t a = static_cast<uint32_t>( ( tint >> 24 ) * Clamp( p.Alpha, 0.0f, 1.0f ) + 0.5f );
+            tint = ( tint & 0x00ffffffu ) | ( a << 24 );
+        }
         static const int32_t kOrder[6] = { 0, 1, 2, 0, 2, 3 };
         Vertex2D verts[6];
         for ( int32_t v = 0; v < 6; v++ ) {
@@ -77,7 +88,7 @@ void StickerCanvas::render( RenderDevice &device, Renderer2D &renderer ) {
             verts[v].Y = cy + corners[c].x * sa + corners[c].y * ca;
             verts[v].U = uvs[c].x;
             verts[v].V = uvs[c].y;
-            verts[v].Color = p.Tint;
+            verts[v].Color = tint;
         }
         renderer.drawTriangles( pArt, verts, 6 );
     }

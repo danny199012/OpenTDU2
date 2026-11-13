@@ -26,6 +26,7 @@
 #include "game/freeride/dealer_menu.h"
 #include "game/freeride/estate_menu.h"
 #include "game/freeride/paint_menu.h"
+#include "game/freeride/sticker_shop_ui.h"
 #include "game/freeride/tuning_menu.h"
 #include "game/freeride/discovery_points.h"
 #include "game/freeride/race_events.h"
@@ -141,6 +142,7 @@ private:
     int32_t stickerCanvasCarId = -1;
     bool bStickerCanvasBound = false;
     bool bStickerPreviewCamera = false; // the place-mode camera cut to the car
+    float stickerCamYaw = 0.0f, stickerCamPitch = 0.35f, stickerCamDistance = 6.5f; // its orbit
     VehicleSetup setup;
     VehicleDynamics vehicle;
     VehicleWorldCollision collision;
@@ -200,6 +202,13 @@ private:
     EstateMenu estate;
     TuningMenu tuningMenu;
     PaintMenu paintMenu;
+    // The retail sticker shop UI (SHOPSCAR.vmf's stickers page) inside an
+    // ESTICK room; -nostickerui keeps the native paintMenu there.
+    StickerShopUi stickerShop;
+    void bindStickerShop();
+    // The sticker editor's car view: the native place mode or the movie's
+    // stsh:mcin .. stsh:mcou span.
+    bool stickerCarView() const;
     ChaseMode police;
     RaceEvents raceEvents;
     // The buildings of the island (dealerships, shops, houses...): the exterior

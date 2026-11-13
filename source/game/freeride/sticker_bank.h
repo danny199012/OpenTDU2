@@ -50,6 +50,13 @@ struct StickerPlacement {
     float Scale = 0.22f;
     float AngleDeg = 0.0f;
     uint32_t Tint = 0xffffffffu;
+    // The SHOPSCAR editor's transparency tool (0..1) and its mirror (flip);
+    // the native menu leaves them at 1 / false.
+    float Alpha = 1.0f;
+    bool bFlip = false;
+    // The vertical scale as a factor of the horizontal one (the editor's
+    // non-uniform scale: X / Y scale strings, 1 = the art's own aspect).
+    float YStretch = 1.0f;
 };
 
 // The per-car sticker canvas: a 1024x1024 transparent render target the
@@ -68,6 +75,9 @@ public:
     // no-op - the car samples the target, not this call).
     void render( RenderDevice &device, Renderer2D &renderer );
     inline bool hasLayout() const { return !layout.empty(); }
+    // A layout change waits to be composited (an emptied layout clears the
+    // target: removing the last sticker must show on the car).
+    inline bool isDirty() const { return bDirty; }
     GPUTexture *getTexture();
     void destroy();
 

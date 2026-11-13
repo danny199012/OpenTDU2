@@ -213,8 +213,11 @@ void LoadProfile() {
                     StickerPlacement save;
                     {
                         char bank[96] = {};
-                        const int fields = sscanf( p, "%95[^;];%d;%f;%f;%f;%f;%u", bank, &save.Index, &save.U, &save.V,
-                                                   &save.Scale, &save.AngleDeg, &save.Tint );
+                        int flip = 0;
+                        const int fields = sscanf( p, "%95[^;];%d;%f;%f;%f;%f;%u;%f;%d;%f", bank, &save.Index, &save.U,
+                                                   &save.V, &save.Scale, &save.AngleDeg, &save.Tint, &save.Alpha, &flip,
+                                                   &save.YStretch );
+                        save.bFlip = flip != 0;
                         if ( fields >= 2 ) {
                             save.Bank = bank;
                             if ( fields < 3 ) save.U = 0.5f;
@@ -231,6 +234,18 @@ void LoadProfile() {
                     profile.OwnedCarStickers[static_cast<int32_t>( id )] = std::move( entries );
                 }
                 pText = *pGroupEnd == ',' ? pGroupEnd + 1 : pGroupEnd;
+            }
+        } else if ( key == "sticker_banks" ) {
+            size_t at = 0;
+            while ( at < value.size() ) {
+                size_t end = value.find( ',', at );
+                if ( end == std::string::npos ) {
+                    end = value.size();
+                }
+                if ( end > at ) {
+                    profile.OwnedStickerBanks.push_back( value.substr( at, end - at ) );
+                }
+                at = end + 1;
             }
         } else if ( key == "tests_passed" ) {
             // "<test>:<best seconds>,..."
@@ -576,9 +591,15 @@ bool SaveProfile( const char *pReason ) {
             for ( size_t i = 0; i < stickers.second.size(); i++ ) {
                 const StickerPlacement &p = stickers.second[i];
                 file << ( i > 0 ? "|" : "" ) << p.Bank << ";" << p.Index << ";" << p.U << ";" << p.V << ";"
-                     << p.Scale << ";" << p.AngleDeg << ";" << p.Tint;
+                     << p.Scale << ";" << p.AngleDeg << ";" << p.Tint << ";" << p.Alpha << ";" << ( p.bFlip ? 1 : 0 )
+                     << ";" << p.YStretch;
             }
             bFirstSticker = false;
+        }
+        file << "\n";
+        file << "sticker_banks = ";
+        for ( size_t i = 0; i < profile.OwnedStickerBanks.size(); i++ ) {
+            file << ( i > 0 ? "," : "" ) << profile.OwnedStickerBanks[i];
         }
         file << "\n";
         file << "tests_passed = ";

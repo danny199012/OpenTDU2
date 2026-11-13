@@ -223,6 +223,15 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     if ( bHomeUi ) {
         setup.UiMovie = "home";
     }
+    // The sticker shop rooms run SHOPSCAR.vmf's stickers page (st_open ->
+    // st_stop; the seller's A opens its menu) [DATA]; -nostickerui keeps the
+    // native PaintMenu (the A/B).
+    bStickUi = !bHouse && _strnicmp( houseSpotName.c_str(), "ESTICK", 6 ) == 0 && !CmdLine::HasArg( "-nostickerui" );
+    bWalkInput = true;
+    bLeaveRequested = false;
+    if ( bStickUi ) {
+        setup.UiMovie = "shopscar";
+    }
     setup.HouseIsland = island;
     setup.ExteriorBank.clear();
     setup.ExteriorPrefix.clear();
@@ -425,6 +434,12 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     return true;
 }
 
+bool InteriorWalk::takeLeaveRequest() {
+    const bool bRequested = bLeaveRequested;
+    bLeaveRequested = false;
+    return bRequested;
+}
+
 bool InteriorWalk::tookRoomSwap() {
     const bool bSwapped = bRoomSwapped;
     bRoomSwapped = false;
@@ -450,6 +465,10 @@ void InteriorWalk::exit() {
     bActive = false;
     bHouse = false;
     bInGarage = false;
+    bStickUi = false;
+    bWalkInput = true;
+    bLeaveRequested = false;
+    bDialogOpen = false;
     OTDU_LOG_INFO( "InteriorWalk: left '%s'\n", spotBank.c_str() );
     spotBank.clear();
     houseIsland.clear();
@@ -490,7 +509,13 @@ void InteriorWalk::startWalk( const char *pPreferredCamera ) {
     // INTRO walk-mode screen: the reticle and the selection labels
     // (/:SelItemType "exit", "carseller" ...), as in the house walk. The
     // house rooms: HOME.vmf's living_in / garage_in.
-    if ( bHomeUi ) {
+    if ( bStickUi ) {
+        // SHOPSCAR's sticker shop page: WhatPage "stickers", the title bar and
+        // the cursor, then st_stop (the walk waits for the seller's A).
+        bWalkInput = true;
+        scene.getUi().setVariableNumber( "/:IsBike", 0.0 );
+        scene.getUi().gotoLabel( "/", "st_open", true );
+    } else if ( bHomeUi ) {
         homePage.clear();
         scene.getUi().setVariableBool( "/:InGarage", bInGarage );
         scene.getUi().gotoLabel( "/", bInGarage ? "garage_in" : "living_in", true );
@@ -610,11 +635,19 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     if ( bDialogOpen ) {
         // GENERAL dialog_box key catchers: 13 -> A(), 8 -> B() [DATA].
         if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
-            scene.getGeneral().sendKey( 13 );
+            const bool bTaken = scene.getGeneral().sendKey( 13 );
+            OTDU_LOG_INFO( "InteriorWalk: dialog A taken %d (Input '%s')\n", bTaken ? 1 : 0,
+                           scene.getGeneral().getVariable( "/:Input" ).c_str() );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
             scene.getGeneral().sendKey( 8 );
         }
+        return eResult::None;
+    }
+    if ( bStickUi && !bWalkInput ) {
+        // One of the movie's own pages is up (wmof): the pad drives it, the
+        // walk and the exit are the movie's to give back (wmon).
+        routeHomeInput();
         return eResult::None;
     }
     if ( !homePage.empty() ) {
@@ -633,6 +666,11 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     walk.update( scene, deltaTime, true );
     updateEmotes( deltaTime );
     if ( bConsumed ) {
+        return eResult::None;
+    }
+    if ( bStickUi && gpInput->wasPressed( eInputAction::IA_MenuBack ) && !walk.isInSelfView() ) {
+        // The movie's own B (the "Exit the shop?" question, st_quit) [DATA].
+        scene.getUi().invokeMethod( "/:Clip", "B", {} );
         return eResult::None;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
@@ -671,6 +709,13 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         }
         if ( strcmp( pType, "exit" ) == 0 ) {
             return eResult::Leave;
+        }
+        if ( bStickUi && strcmp( pType, "npc_stickers" ) == 0 ) {
+            // The seller: the movie's own A (ItemType valid -> StickersMenu).
+            // ItemType('valid') is the page's A on the selected item (the
+            // st_stop buttons only carry the selection keys) [DATA].
+            scene.getUi().invoke( "/", "ItemType", { "valid" } );
+            return eResult::None;
         }
         if ( bHouse ) {
             // The house rooms: the Garage selectable of the living room loads
@@ -735,6 +780,38 @@ void InteriorWalk::draw() {
 
 void InteriorWalk::onUiCommand( const std::string &command, const std::string &args ) {
     OTDU_LOG_INFO( "InteriorWalk: FSCommand %s %s (page '%s')\n", command.c_str(), args.c_str(), homePage.c_str() );
+    if ( bStickUi ) {
+        FlashPlayer &ui = scene.getUi();
+        if ( command == "wmof" || command == "camn" ) {
+            // wmof FUN_0094fb30: walk off; camn FUN_00952300: the selected
+            // item's camera - the seller's menu is up, the walk waits [INF].
+            bWalkInput = false;
+        } else if ( command == "wmon" ) {
+            bWalkInput = true; // FUN_0094fb90: the selection cleared
+            walk.clearSelection( scene );
+        } else if ( command == "gofr" ) {
+            bLeaveRequested = true;
+        } else if ( command == "dbxo" ) {
+            FlashPlayer &general = scene.getGeneral();
+            for ( const char *pVariable : { "/:Msg1Txt", "/:Msg2Txt", "/:Msg1Type", "/:Msg2Type", "/:YesNo" } ) {
+                general.setVariable( pVariable, ui.getVariable( pVariable ) );
+            }
+            general.setVariable( "/:DialogBoxSource", "SHOPSCAR" );
+            scene.setDialogBoxVisible( true );
+            bDialogOpen = true;
+            general.invoke( "/", "DialogBox", {} );
+        } else if ( command == "dbxc" ) {
+            FlashPlayer &general = scene.getGeneral();
+            bDialogOpen = false;
+            scene.setDialogBoxVisible( false );
+            ui.setVariable( "/:PlayerAnswer", general.getVariable( "/:PlayerAnswer" ) );
+            ui.invoke( "/", "DialogBox", {} );
+        }
+        if ( commandSink ) {
+            commandSink( command, args );
+        }
+        return;
+    }
     if ( !bHomeUi ) {
         return;
     }
@@ -910,6 +987,32 @@ void InteriorWalk::routeHomeInput() {
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
         ui.sendKey( 2 );
+    }
+    if ( bStickUi && gpInput->wasMouseClicked() ) {
+        ui.sendMouseRelease( gpInput->getMouseX(), gpInput->getMouseY() );
+    }
+    if ( bStickUi ) {
+        // The shoulder buttons / X / Y / the history button of the sticker
+        // pages (the movie's buttons: key 49 / 51 the previous / next tool or
+        // pack, 120 / 121 X / Y, 6 the history) [DATA: the strip's key
+        // conditions]; the port's pad map is the pause menu's (L1 / R1 are Q /
+        // E on the keyboard).
+        if ( gpInput->wasPressed( eInputAction::IA_CarBackView ) || gpInput->wasKeyPressed( SDL_SCANCODE_Q ) ) {
+            ui.sendKey( 49 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_CarCamera ) || gpInput->wasKeyPressed( SDL_SCANCODE_E ) ) {
+            ui.sendKey( 51 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuOption1 ) ) {
+            ui.sendKey( 120 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuOption2 ) ) {
+            ui.sendKey( 121 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_Map ) || gpInput->wasKeyPressed( SDL_SCANCODE_H ) ||
+             gpInput->wasKeyPressed( SDL_SCANCODE_DELETE ) ) {
+            ui.sendKey( 6 );
+        }
     }
 }
 

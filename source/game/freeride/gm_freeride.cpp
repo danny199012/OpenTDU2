@@ -532,6 +532,10 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     car.load( carDesc );
     applyOwnedPaint();
     applyOwnedStickers();
+    // The sticker shop rooms' movie: its stsh: FSCommands come to the shop UI.
+    interior.setCommandSink( [this]( const std::string &command, const std::string & ) {
+        stickerShop.onCommand( command );
+    } );
     // -stickershop: the paint / sticker shop menu over the freeride scene at
     // spawn (a test hook: the retail flow walks into an ESTICK interior and
     // the menu opens at the seller; this opens it directly with the car in
@@ -2401,6 +2405,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                 // Walk in; a menu opens at the seller (tick, InteriorWalk::eResult::Shop).
                 interiorKind = pNearKind;
                 interiorSpotId = nearSpotId;
+                bindStickerShop();
                 hud.closeEnterSpot();
                 hud.closeHint();
                 // A dealership shows its stock on the podiums.
@@ -3363,6 +3368,17 @@ void GMFreeRide::updateRaceGates() {
     }
 }
 
+bool GMFreeRide::stickerCarView() const {
+    return paintMenu.isStickerPlacing() || ( interior.isStickUi() && stickerShop.wantsCarView() );
+}
+
+void GMFreeRide::bindStickerShop() {
+    if ( !interior.isStickUi() || !StickerBankCatalog::isEnabled() ) {
+        return;
+    }
+    stickerShop.bind( &interior.getScene().getUi(), &stickerCanvas, car.getIdCar() );
+}
+
 bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotBank, uint64_t spotId ) {
     if ( kind == "cardealer" ) {
         const CarShop *pShop = findSpotCarShop( spotBank, spotId );
@@ -3460,7 +3476,7 @@ void GMFreeRide::teleportTo( const Vector3f &target, float heading, bool bHasHea
 void GMFreeRide::drawUI() {
     // The emote picker over an interior walk (the shops / houses; the garage
     // story walk has its own in gm_first_walk_mode).
-    if ( interior.isWalking() ) {
+    if ( interior.isActive() && interior.isWalking() && ( !interior.isStickUi() || interior.isWalkInputOn() ) ) {
         interior.getWalk().drawEmotePickerUi( interior.getScene() );
     }
     // The cheats panel: F4, or the retail dev-feature pad code (a circle of the
@@ -4267,6 +4283,7 @@ void GMFreeRide::tick( float deltaTime ) {
     static const char *pForcedInterior = CmdLine::GetArgValue( "-interior" );
     if ( pForcedInterior != nullptr ) {
         interior.enter( pForcedInterior, islandName );
+        bindStickerShop();
         pForcedInterior = nullptr;
     }
     // -enterhouse <DBHouse spot>: straight into that house's living room (any
@@ -4287,34 +4304,76 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         pForcedHouse = nullptr;
     }
+    // Out of a sticker shop room: an unpaid layout goes back on the car.
+    if ( stickerShop.isBound() && !interior.isActive() ) {
+        stickerShop.unbind();
+    }
     // Inside a spot interior (InteriorWalk): the island and the car are
     // frozen behind it, the engine is off.
     if ( interior.isActive() ) {
         // The sticker place mode's camera cut: once per entry, a 3/4 view of
         // the car outside (the retail editor's garage-car camera); the pose
         // holds while the room is frozen behind the editor.
-        if ( paintMenu.isStickerPlacing() && !bStickerPreviewCamera && car.isLoaded() ) {
+        if ( stickerCarView() && !bStickerPreviewCamera && car.isLoaded() ) {
             bStickerPreviewCamera = true;
             const Vector3f carPos = carWorld.getTranslation();
             const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
             const float yaw = std::atan2( forward.x, forward.z );
             // Three quarters from the rear left, above the paint line.
-            const float viewYaw = yaw + 2.35f;
-            camera.Position = carPos + Vector3f( std::sin( viewYaw ) * 6.5f, 2.3f, std::cos( viewYaw ) * 6.5f );
-            camera.Rotation = ChaseCamera::LookRotation( camera.Position, carPos + Vector3f( 0.0f, 0.9f, 0.0f ) );
+            stickerCamYaw = yaw + 2.35f;
+            stickerCamPitch = 0.35f;
+            stickerCamDistance = 6.5f;
+            OTDU_LOG_INFO( "FREERIDE: sticker editor camera orbit around (%.1f, %.1f, %.1f)\n", carPos.x, carPos.y,
+                           carPos.z );
+        } else if ( !stickerCarView() ) {
+            bStickerPreviewCamera = false;
+        }
+        if ( stickerCarView() && bStickerPreviewCamera && car.isLoaded() ) {
+            // The editor's "Move camera" (right stick, or the mouse with the
+            // right button held) and "Zoom" (wheel) around the car [DATA: the
+            // movie's help bar names both; the controls are INF].
+            float orbitX = gpInput->getRightStickX(), orbitY = gpInput->getRightStickY();
+            if ( gpInput->isMouseButtonDown( 1 ) ) {
+                orbitX += gpInput->getMouseDeltaX() * 0.25f;
+                orbitY += gpInput->getMouseDeltaY() * 0.25f;
+            }
+            if ( interior.isStickUi() ) {
+                // The movie's "Move camera" icon is the mouse and the D-pad.
+                orbitX += ( gpInput->isDown( eInputAction::IA_MenuRight ) ? 1.0f : 0.0f ) -
+                          ( gpInput->isDown( eInputAction::IA_MenuLeft ) ? 1.0f : 0.0f );
+                orbitY += ( gpInput->isDown( eInputAction::IA_MenuDown ) ? 1.0f : 0.0f ) -
+                          ( gpInput->isDown( eInputAction::IA_MenuUp ) ? 1.0f : 0.0f );
+            }
+            if ( std::fabs( orbitX ) < 0.12f ) orbitX = 0.0f;
+            if ( std::fabs( orbitY ) < 0.12f ) orbitY = 0.0f;
+            stickerCamYaw += orbitX * 1.8f * deltaTime;
+            stickerCamPitch = Clamp( stickerCamPitch - orbitY * 1.2f * deltaTime, 0.02f, 1.3f );
+            stickerCamDistance = Clamp( stickerCamDistance - gpInput->getMouseWheel() * 0.6f, 2.5f, 14.0f );
+            const Vector3f target = carWorld.getTranslation() + Vector3f( 0.0f, 0.9f, 0.0f );
+            camera.Position = target + Vector3f( std::sin( stickerCamYaw ) * std::cos( stickerCamPitch ),
+                                                 std::sin( stickerCamPitch ),
+                                                 std::cos( stickerCamYaw ) * std::cos( stickerCamPitch ) ) *
+                                           stickerCamDistance;
+            camera.Rotation = ChaseCamera::LookRotation( camera.Position, target );
             camera.Fov = 55.0f * kDegToRad;
             camera.FovScale = 1.0f;
-            OTDU_LOG_INFO( "FREERIDE: sticker editor camera at (%.1f, %.1f, %.1f)\n", camera.Position.x,
-                           camera.Position.y, camera.Position.z );
-        } else if ( !paintMenu.isStickerPlacing() ) {
-            bStickerPreviewCamera = false;
+            view.setMapView( false );
+            view.setCamera( camera );
+            view.tick( deltaTime );
         }
         if ( vehicleAudio.isEngineOn() ) {
             VehicleAudio::Params muted;
             muted.bEngineOn = false;
             vehicleAudio.update( muted, deltaTime );
         }
-        switch ( interior.tick( deltaTime ) ) {
+        if ( interior.isStickUi() ) {
+            stickerShop.tick( deltaTime );
+        }
+        InteriorWalk::eResult interiorResult = interior.tick( deltaTime );
+        if ( interior.takeLeaveRequest() ) {
+            interiorResult = InteriorWalk::eResult::Leave; // the movie's gofr
+        }
+        switch ( interiorResult ) {
         case InteriorWalk::eResult::Leave: {
             // A car picked in the house garage: FREERIDE again at the house's
             // road-side entrance in it (the mode loads the profile's car at
@@ -6290,7 +6349,7 @@ void GMFreeRide::drawOffscreen() {
     }
     // The sticker canvas (the profile layout / the shop's live edits):
     // composite when dirty, bind to the paint materials' sticker slot once.
-    if ( StickerBankCatalog::isEnabled() && stickerCanvas.hasLayout() && car.isLoaded() ) {
+    if ( StickerBankCatalog::isEnabled() && ( stickerCanvas.hasLayout() || stickerCanvas.isDirty() ) && car.isLoaded() ) {
         stickerCanvas.render( gpRender->getDevice(), gpRender->get2DRenderer() );
         if ( !bStickerCanvasBound && stickerCanvas.getTexture() != nullptr ) {
             bStickerCanvasBound = car.bindStickerTexture( *pRenderer, stickerCanvas.getTexture() ) > 0;
@@ -6300,7 +6359,7 @@ void GMFreeRide::drawOffscreen() {
         // The sticker place mode cuts outside to the car (the retail editor's
         // garage-car camera): the freeride scene renders instead of the room
         // while the sticker is being placed.
-        if ( paintMenu.isStickerPlacing() ) {
+        if ( stickerCarView() ) {
             view.renderOffscreen();
             return;
         }
@@ -6317,7 +6376,13 @@ void GMFreeRide::draw() {
     static const bool bNo3D = CmdLine::HasArg( "-no3d" );
     Renderer2D &renderer = gpRender->get2DRenderer();
     const bool bFlatMap = mapScreen.isOpen() && mapScreen.isFlat();
-    if ( interior.isActive() && !paintMenu.isStickerPlacing() ) {
+    if ( interior.isActive() && stickerCarView() && interior.isStickUi() ) {
+        // The shop movie's car view: the car outside, the movie's pages over it.
+        if ( !bNo3D ) {
+            view.draw();
+        }
+        interior.getScene().drawUi();
+    } else if ( interior.isActive() && !stickerCarView() ) {
         // The interior replaces the island (its own scene, reticle and
         // labels); the shop menus draw over it below. The sticker place mode
         // is the exception: the car outside is the preview.
@@ -6419,6 +6484,7 @@ void GMFreeRide::exit() {
     photoCamera.close();
     // The sticker layer: the canvas back (the catalog's borrowed bank
     // textures go with the shutdown too).
+    stickerShop.unbind();
     stickerCanvas.destroy();
     stickerCanvasCarId = -1;
     bStickerCanvasBound = false;

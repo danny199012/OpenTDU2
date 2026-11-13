@@ -4,6 +4,7 @@
 #include "game/walkmode/walk_mode.h"
 #include "physics/vehicle_collision.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -87,6 +88,19 @@ public:
     WalkMode &getWalk() { return walk; }
     inline bool isWalking() const { return state == eState::Walk; }
 
+    // The sticker shop rooms (ESTICK_*) run the retail SHOPSCAR movie's own
+    // "stickers" page (docs/re/stickers_ui_spec.md): the walk selects the
+    // seller, the movie owns the menus, and its FSCommands (the stsh: family,
+    // the dialog box, the walk on / off) come to the game through this sink
+    // (GMFreeRide's StickerShopUi). -nostickerui keeps the native PaintMenu.
+    inline bool isStickUi() const { return bActive && bStickUi; }
+    using CommandSink = std::function<void( const std::string &, const std::string & )>;
+    void setCommandSink( CommandSink sink ) { commandSink = std::move( sink ); }
+    // The walk input is off while the movie's own pages are up (wmof / wmon).
+    inline bool isWalkInputOn() const { return bWalkInput; }
+    // The movie asked to leave the shop (its gofr after "Exit shop?" / Save).
+    bool takeLeaveRequest();
+
     eResult tick( float deltaTime );
     // GENERAL "Tip" box over the interior.
     void showMessage( const std::string &text );
@@ -139,6 +153,11 @@ private:
     // The house rooms' retail UI (HOME.vmf): the page open over the walk
     // ("" = walking), its FSCommands, the pad routed to it.
     bool bHomeUi = false;
+    // The sticker shop's retail UI (SHOPSCAR.vmf, the stickers page).
+    bool bStickUi = false;
+    bool bWalkInput = true;
+    bool bLeaveRequested = false;
+    CommandSink commandSink;
     std::string homePage;
     void onUiCommand( const std::string &command, const std::string &args );
     // The walk-in closet: the owned DBClothe ids of the open category.

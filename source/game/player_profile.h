@@ -118,6 +118,10 @@ struct PlayerProfile {
     // menu's sticker page): _id_car -> the placements composited onto the
     // paint's sticker canvas (StickerCanvas -> the TD_CarPaint2 STIKERS slot).
     std::map<int32_t, std::vector<StickerPlacement>> OwnedCarStickers;
+    // The sticker packs paid for (DBStickersBanks._bankfile, lower case): a
+    // pack is bought once, whichever car wears it (the SHOPSCAR invoice's
+    // "Stickers" line charges the packs a layout newly uses).
+    std::vector<std::string> OwnedStickerBanks;
     // Licence tests passed (the .ig2 name, RSA7T01 ...) -> the best time in
     // seconds; a licence is obtained when all its tests are (licenses.h).
     std::map<std::string, float> PassedTests;
