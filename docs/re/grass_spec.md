@@ -488,3 +488,15 @@ correctly placed, sized and blended under the plain Gouraud shader
   in frame time, kept as it removes the pointless casters.
 * Not done: Hawaii / Casino grids not looked at (the Hawaii run spawned in the void with Ibiza coordinates); the
   car-flatten (cards through the car body) and sizes per distance.
+
+## 12. Car flatten (2026-11-13, owner: "yes, fix it" - grass through the car body)
+
+* `[CODE]` The retail TD_TallGrass VS flattens the cards around CarPos / CarFwd / CarRight (section 4.1, point 3);
+  the port's default Gouraud path has no such term, and the TallGrass path's flatten is inert (section 7), so
+  wheat / scrub drew through the car body.
+* Fix `[INF: extents and falloff]`: `GMFreeRide` feeds the car's position and flat heading to the world each frame
+  (`EdenWorld::setGrassCar`, footprint half 2.6 x 1.25 m); the emitter measures each card's box distance to that
+  footprint: cards within 0.2 m + 10 % of the ramp are dropped, the next 1.6 m ring is lowered by a smoothstep.
+  `-nograsscar` = the A/B. Evidence: `docs/images/grass_car_flatten_before_after.webp` (wheat field, left off,
+  right on). Generic extents for every car; per-car footprints (the DB's body size) are not wired. Traffic /
+  rival cars do not flatten grass.

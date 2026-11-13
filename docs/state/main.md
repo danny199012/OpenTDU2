@@ -2,7 +2,20 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-13 (grass density tuning, `main`): continuous fields, cheaper emit
+`## Session 2026-11-13 (grass under the car, `main`): the grass flattens around the player car
+
+The owner: "Yes, fix it" (grass through the car body).
+
+### What changed
+- `eden_world.*` - `setGrassCar` + the emitter's box-distance flatten (drop under the car, lower in a 1.6 m ring), `-nograsscar`; `gm_freeride.cpp` feeds the car pose each frame (footprint 2.6 x 1.25 m half extents, generic).
+
+### Verified
+- Wheat field A/B `docs/images/grass_car_flatten_before_after.webp`; 0 VUIDs; the flatten is in the once-per-frame emit, no extra cost.
+
+### Not done / next
+- Per-car footprints from the DB body size; traffic / rival cars; Hawaii / Casino unlooked; grass size vs distance; retail A/B.
+
+## Session 2026-11-13 (grass density tuning, `main`): continuous fields, cheaper emit
 
 The owner: "Yes, tune it" (grass density / height after the .pgr decode fix).
 

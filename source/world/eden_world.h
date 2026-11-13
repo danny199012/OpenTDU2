@@ -448,6 +448,11 @@ private:
     // [CODE]); the impostor batches draw with it. Set by EdenSceneView.
     Vector3f impostorAmbient = Vector3f( 0.5f, 0.5f, 0.5f );
     Vector3f impostorAmbient2 = Vector3f( 0.0f, 0.0f, 0.0f );
+    bool bGrassCar = false;
+    Vector3f grassCarPosition;
+    Vector3f grassCarForward = Vector3f( 0.0f, 0.0f, 1.0f );
+    float grassCarHalfLength = 2.4f;
+    float grassCarHalfWidth = 1.1f;
     EdenDrawParams impostorParams;
 
 public:
@@ -455,6 +460,19 @@ public:
     // The second ambient slot of the impostor light (VS: colour = Ambient_0 +
     // Ambient_1, the PS multiplies it into the atlas) - see drawImpostors.
     void setImpostorAmbient2( const Vector3f &color ) { impostorAmbient2 = color; }
+    // The player car's footprint for the grass emitter (grass_spec.md 12): the
+    // retail TD_TallGrass VS flattens the cards around CarPos / CarFwd /
+    // CarRight, the port's Gouraud path has no such term, so the emitter
+    // lowers / drops the cards under and beside the car instead. forward is
+    // the car's flat heading; the half extents are the footprint.
+    void setGrassCar( const Vector3f &position, const Vector3f &forward, float halfLength, float halfWidth ) {
+        grassCarPosition = position;
+        grassCarForward = forward;
+        grassCarHalfLength = halfLength;
+        grassCarHalfWidth = halfWidth;
+        bGrassCar = true;
+    }
+    void clearGrassCar() { bGrassCar = false; }
     // The road-graph suppression (GRASSASTARMAC, grass_spec.md 3: grass
     // interacts with the path network): the ROAD_MAP / ROAD_DETAIL graph the
     // map screen parses, as an XZ segment hash. The village streets / plazas

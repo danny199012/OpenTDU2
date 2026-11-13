@@ -3306,6 +3306,8 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
     bool bCapped = false;
     const bool bDensityLaw = GrassDensityLaw();
     const float roadWidth = GrassRoadWidth();
+    static const bool bNoCarFlatten = CmdLine::HasArg( "-nograsscar" );
+    const bool bCarFlatten = bGrassCar && !bNoCarFlatten;
     const float densityScale = GrassDensityScale();
     for ( const auto &ordered : orderedSectors ) {
         if ( bCapped ) {
@@ -3424,7 +3426,23 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 const GrassType &type = grassTypes[typeIndex];
                 const float scale = 1.0f + type.SizeDelta * ( f2 * 2.0f - 1.0f );
                 const float w = type.Width * scale;
-                const float cardHeight = type.Height * scale;
+                float cardHeight = type.Height * scale;
+                // The car flatten (grass_spec.md 12): cards under and right
+                // beside the player's car are dropped, a ring around it is
+                // lowered (the retail VS bends them away from CarPos).
+                if ( bCarFlatten ) {
+                    const float cx = px - grassCarPosition.x, cz = pz - grassCarPosition.z;
+                    const float along = cx * grassCarForward.x + cz * grassCarForward.z;
+                    const float side = cx * grassCarForward.z - cz * grassCarForward.x;
+                    const float excess = Max( fabsf( along ) - grassCarHalfLength, fabsf( side ) - grassCarHalfWidth );
+                    if ( excess < 1.8f ) {
+                        const float t = Clamp( ( excess - 0.2f ) / 1.6f, 0.0f, 1.0f );
+                        if ( t < 0.1f ) {
+                            continue;
+                        }
+                        cardHeight *= t * t * ( 3.0f - 2.0f * t );
+                    }
+                }
                 // A paved surface within the card's reach of the sheet: the
                 // card would root under the tarmac and poke through it (the
                 // roads ride above the heightfield, the BuildRoadIndex

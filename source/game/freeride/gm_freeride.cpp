@@ -5567,6 +5567,9 @@ void GMFreeRide::tick( float deltaTime ) {
     const Vector3f carPosition = carWorld.getTranslation();
     const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
     const Vector3f flat = Vector3f( forward.x, 0.0f, forward.z ).normalized();
+    // The grass flattens around the car (grass_spec.md 12). The half extents
+    // are generic [INF]; the footprint includes the tyres' reach.
+    view.getWorld().setGrassCar( carPosition, flat, 2.6f, 1.25f );
     hudState.CarX = carPosition.x;
     hudState.CarZ = carPosition.z;
     hudState.HeadingX = flat.x;
