@@ -7,6 +7,8 @@
 #include "flash/flash_player.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
+#include "render/gs_render.h"
+#include "render/texture_cache.h"
 #include "system/cmd_line.h"
 
 namespace {
@@ -56,6 +58,28 @@ bool SameLayout( const std::vector<StickerPlacement> &a, const std::vector<Stick
     return true;
 }
 } // namespace
+
+void StickerShopUi::tintCube( const std::string &clipPath, uint32_t colour ) {
+    // The cubes' colour sprites are fully transparent solid placeholders the
+    // exe fills natively (the dealer logo's lure kind): a white texture bound
+    // to the placeholder, tinted through the clip's colour transform.
+    static GPUTexture *pWhite = nullptr;
+    if ( pWhite == nullptr && gpRender != nullptr ) {
+        const uint32_t white[4] = { 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu };
+        pWhite = gpRender->getTextureCache().createFromRGBA( 2, 2, reinterpret_cast<const uint8_t *>( white ),
+                                                             "sticker_colour_white" );
+    }
+    if ( pUi == nullptr || pWhite == nullptr ) {
+        return;
+    }
+    if ( colour == 0u ) {
+        pUi->setBitmapOverride( clipPath, nullptr, 0.0f, 0.0f, 1.0f, 1.0f );
+        return;
+    }
+    pUi->setBitmapOverride( clipPath, pWhite, 0.0f, 0.0f, 1.0f, 1.0f );
+    pUi->setClipColor( clipPath, ( colour & 0xff ) / 255.0f, ( ( colour >> 8 ) & 0xff ) / 255.0f,
+                       ( ( colour >> 16 ) & 0xff ) / 255.0f );
+}
 
 std::string StickerShopUi::formatMoney( int32_t value ) const {
     // The retail money text (gm_shop.cpp formatMoney): groups of three digits
@@ -418,6 +442,121 @@ void StickerShopUi::writeEditStrings() {
     pUi->setVariable( "/:StickerAlphaStr", Format( "%.1f%%", p.Alpha * 100.0f ) );
 }
 
+uint32_t StickerShopUi::pickedColour() const {
+    return GradientColour( cursorU, cursorV );
+}
+
+uint32_t StickerShopUi::GradientColour( float u, float v ) {
+    // Hue across; the top half fades white -> the pure colour, the bottom half
+    // pure colour -> black [INF: the retail gradient texture belongs to the exe].
+    u = Clamp( u, 0.0f, 1.0f );
+    v = Clamp( v, 0.0f, 1.0f );
+    const float pickHue = u * 360.0f;
+    const float pickSaturation = v < 0.5f ? v * 2.0f : 1.0f;
+    const float pickValue = v < 0.5f ? 1.0f : 2.0f - v * 2.0f;
+    // HSV -> RGBA8 (MakeRGBA order: R low byte, A top).
+    const float h = std::fmod( pickHue, 360.0f ) / 60.0f;
+    const float c = pickValue * pickSaturation;
+    const float x = c * ( 1.0f - std::fabs( std::fmod( h, 2.0f ) - 1.0f ) );
+    const float m = pickValue - c;
+    float r = 0.0f, g = 0.0f, b = 0.0f;
+    if ( h < 1.0f ) { r = c; g = x; }
+    else if ( h < 2.0f ) { r = x; g = c; }
+    else if ( h < 3.0f ) { g = c; b = x; }
+    else if ( h < 4.0f ) { g = x; b = c; }
+    else if ( h < 5.0f ) { r = x; b = c; }
+    else { r = c; b = x; }
+    const uint32_t R = static_cast<uint32_t>( Clamp( ( r + m ) * 255.0f + 0.5f, 0.0f, 255.0f ) );
+    const uint32_t G = static_cast<uint32_t>( Clamp( ( g + m ) * 255.0f + 0.5f, 0.0f, 255.0f ) );
+    const uint32_t B = static_cast<uint32_t>( Clamp( ( b + m ) * 255.0f + 0.5f, 0.0f, 255.0f ) );
+    return R | ( G << 8 ) | ( B << 16 ) | ( 0xffu << 24 );
+}
+
+void StickerShopUi::applyPickedToSticker() {
+    if ( editIndex < 0 || editIndex >= static_cast<int32_t>( working.size() ) ) {
+        return;
+    }
+    working[static_cast<size_t>( editIndex )].Tint = pickedColour();
+    pushToCanvas();
+}
+
+void StickerShopUi::bindGradient() {
+    // The picker's lure_grad is a placeholder the exe fills with its colour
+    // gradient: the generated one is bound to it.
+    static GPUTexture *pGradient = nullptr;
+    if ( pGradient == nullptr && gpRender != nullptr ) {
+        constexpr uint32_t kSize = 128;
+        std::vector<uint32_t> pixels( kSize * kSize );
+        for ( uint32_t y = 0; y < kSize; y++ ) {
+            for ( uint32_t x = 0; x < kSize; x++ ) {
+                pixels[y * kSize + x] = GradientColour( ( x + 0.5f ) / kSize, ( y + 0.5f ) / kSize );
+            }
+        }
+        pGradient = gpRender->getTextureCache().createFromRGBA( kSize, kSize, reinterpret_cast<const uint8_t *>( pixels.data() ),
+                                                                "sticker_colour_gradient" );
+    }
+    if ( pUi != nullptr && pGradient != nullptr ) {
+        pUi->setBitmapOverride( "/stickers/colors/color_box/color_picker/lure_grad", pGradient, 0.0f, 0.0f, 1.0f, 1.0f );
+        // The two colour cubes of the picker: the first shows the live colour.
+        tintCube( "/stickers/colors/color_box/color_picker/color1/cube/color", pickedColour() );
+    }
+}
+
+void StickerShopUi::placeCursor() {
+    if ( pUi == nullptr ) {
+        return;
+    }
+    // lure_grad spans 40..5080 twips of the picker (2..254 px) [DATA: the
+    // movie's display list].
+    // The cursor sprite's origin is not its tip (the dropper art hangs ~57 px
+    // down-right of it) and its scale against the gradient is 1.19: fitted
+    // against screenshots at both corners [INF].
+    float x = 57.0f + cursorU * 212.0f, y = 59.0f + cursorV * 212.0f;
+    if ( const char *pRaw = CmdLine::GetArgValue( "-stickercursorpos" ) ) {
+        sscanf( pRaw, "%f,%f", &x, &y ); // calibration: raw stage px
+    }
+    pUi->setClipTransform( "/stickers/colors/color_box/color_picker/cursor", x, y, 0.0f, 100.0f, 100.0f );
+}
+
+int32_t StickerShopUi::selectedSlot() const {
+    if ( pUi == nullptr ) {
+        return -1;
+    }
+    // The box's own cursor (num_c, 0..5) [DATA: the movie's variable].
+    const std::string value = pUi->getVariable( "/stickers/colors/my_colors_box/:num_c" );
+    return value.empty() ? 0 : atoi( value.c_str() );
+}
+
+void StickerShopUi::writeMyColours() {
+    if ( pUi == nullptr ) {
+        return;
+    }
+    PlayerProfile &profile = GetPlayerProfile();
+    profile.StickerMyColors.resize( 6, 0u );
+    const std::string box = "/stickers/colors/my_colors_box";
+    for ( int32_t i = 0; i < 6; i++ ) {
+        const uint32_t colour = profile.StickerMyColors[static_cast<size_t>( i )];
+        pUi->setVariableBool( box + "/c" + std::to_string( i ) + "/:isColor", colour != 0u );
+        tintCube( box + "/c" + std::to_string( i ) + "/cube/color", colour );
+    }
+    const bool bInvoked = pUi->invoke( box, "setColors", {} );
+    OTDU_LOG_INFO( "StickerShopUi: my colours written: c0 isColor '%s', box num_c '%s', setColors %d, clip %s\n",
+                   pUi->getVariable( box + "/c0/:isColor" ).c_str(), pUi->getVariable( box + "/:num_c" ).c_str(),
+                   bInvoked ? 1 : 0, pUi->findClip( box + "/c0/cube/color" ) != nullptr ? "found" : "MISSING" );
+    tintCube( box + "/picked_color/color", pickedColour() );
+    if ( CmdLine::HasArg( "-logstickerui" ) ) {
+        for ( const char *pSub : { "/c0/cube/color", "/c0/cube", "/c0", "/picked_color/color" } ) {
+            FlashPlayer::Clip *pClip = pUi->findClip( box + pSub );
+            if ( pClip != nullptr && pClip->pInstance != nullptr ) {
+                const FlashColorTransform &t = pClip->pInstance->ColorTransform;
+                OTDU_LOG_INFO( "StickerShopUi: %s visible %d mul %.2f %.2f %.2f %.2f add %.0f %.0f %.0f %.0f frame %u\n", pSub,
+                               pClip->pInstance->bVisible ? 1 : 0, t.Mul[0], t.Mul[1], t.Mul[2], t.Mul[3], t.Add[0],
+                               t.Add[1], t.Add[2], t.Add[3], pClip->CurrentFrame );
+            }
+        }
+    }
+}
+
 void StickerShopUi::pay() {
     PlayerProfile &profile = GetPlayerProfile();
     refreshPrices();
@@ -454,8 +593,10 @@ bool StickerShopUi::onCommand( const std::string &fullCommand ) {
         bCarView = true;
     } else if ( command == "mcou" ) {
         bCarView = false;
-        // Backing out of the tools (B) drops the unapplied sticker.
-        if ( editIndex >= 0 ) {
+        // Backing out of the tools (B) drops the unapplied sticker; the colour
+        // box also takes the camera out (the shop shelves are its pipette's
+        // ground) and the sticker stays under the tools [INF].
+        if ( editIndex >= 0 && !bMyColoursOpen ) {
             endEdit( false );
         }
     } else if ( command == "stic:list:open" ) {
@@ -498,6 +639,50 @@ bool StickerShopUi::onCommand( const std::string &fullCommand ) {
         refreshPrices();
     } else if ( command == "stic:hist:open" || command == "stic:hist:canc" ) {
         writeModifiedFlags();
+    } else if ( command == "stic:colo:open" || command == "stic:myco:init" || command == "stic:myco:open" ) {
+        bMyColoursOpen = true;
+        if ( command == "stic:colo:open" && editIndex >= 0 && editIndex < static_cast<int32_t>( working.size() ) ) {
+            // The cursor starts on the sticker's own colour (the gradient's
+            // inverse: saturation on the upper half, value on the lower).
+            const uint32_t tint = working[static_cast<size_t>( editIndex )].Tint;
+            const float r = ( tint & 0xff ) / 255.0f, g = ( ( tint >> 8 ) & 0xff ) / 255.0f, b = ( ( tint >> 16 ) & 0xff ) / 255.0f;
+            const float maxc = Max( r, Max( g, b ) ), minc = Min( r, Min( g, b ) );
+            const float saturation = maxc > 0.0f ? ( maxc - minc ) / maxc : 0.0f;
+            float hue = 0.0f;
+            if ( maxc > minc ) {
+                if ( maxc == r ) hue = std::fmod( ( g - b ) / ( maxc - minc ), 6.0f );
+                else if ( maxc == g ) hue = ( b - r ) / ( maxc - minc ) + 2.0f;
+                else hue = ( r - g ) / ( maxc - minc ) + 4.0f;
+                hue *= 60.0f;
+                if ( hue < 0.0f ) hue += 360.0f;
+            }
+            cursorU = hue / 360.0f;
+            cursorV = maxc >= 0.995f ? saturation * 0.5f : 1.0f - maxc * 0.5f;
+        }
+        bindGradient();
+        writeMyColours();
+    } else if ( command == "stic:colo:clos" ) {
+        bMyColoursOpen = false;
+    } else if ( command == "stic:myco:clos" || command == "stic:myco:clea" ) {
+        // The "My Colors" slots closed: the picker panel stays up.
+    } else if ( command == "stic:myco:vali" || command == "stic:myco:fill" || command == "stic:myco:eras" ) {
+        PlayerProfile &profile = GetPlayerProfile();
+        profile.StickerMyColors.resize( 6, 0u );
+        const int32_t slot = selectedSlot();
+        if ( slot >= 0 && slot < 6 ) {
+            if ( command == "stic:myco:fill" ) {
+                profile.StickerMyColors[static_cast<size_t>( slot )] = pickedColour();
+                SaveProfile( "sticker colour slot" );
+            } else if ( command == "stic:myco:eras" ) {
+                profile.StickerMyColors[static_cast<size_t>( slot )] = 0u;
+                SaveProfile( "sticker colour slot" );
+            } else if ( profile.StickerMyColors[static_cast<size_t>( slot )] != 0u && editIndex >= 0 &&
+                        editIndex < static_cast<int32_t>( working.size() ) ) {
+                working[static_cast<size_t>( editIndex )].Tint = profile.StickerMyColors[static_cast<size_t>( slot )];
+                pushToCanvas();
+            }
+        }
+        writeMyColours();
     } else if ( command == "stic:uscn" || command == "stic:uscf" || command == "stic:symn" || command == "stic:symf" ) {
         // The movie keeps IsUniformScale / UseSymmetry itself.
     } else if ( command == "clea" ) {
@@ -557,6 +742,34 @@ void StickerShopUi::tick( float deltaTime ) {
     }
     if ( std::fabs( ay ) < 0.12f ) {
         ay = 0.0f;
+    }
+    if ( bMyColoursOpen ) {
+        // The movie's own frames re-place the cubes' colour sprites as the box
+        // opens and as a slot lights: the tint is written every frame.
+        const PlayerProfile &colours = GetPlayerProfile();
+        const std::string box = "/stickers/colors/my_colors_box";
+        for ( size_t i = 0; i < 6 && i < colours.StickerMyColors.size(); i++ ) {
+            tintCube( box + "/c" + std::to_string( i ) + "/cube/color", colours.StickerMyColors[i] );
+        }
+        tintCube( box + "/picked_color/color", pickedColour() );
+        // The pipette: the left stick (or a mouse drag) moves the cursor over
+        // the gradient while the picker has the focus; the colour under it is
+        // the sticker's, live. In "My Colors" the movie moves its own slots
+        // and the X press saves the colour under the cursor [INF].
+        bindGradient();
+        const bool bEditingSlots = getFlag( "/stickers/colors/:editingColors" );
+        if ( !bEditingSlots && ( ax != 0.0f || ay != 0.0f ) ) {
+            cursorU = Clamp( cursorU + ax * 0.45f * deltaTime, 0.0f, 1.0f );
+            cursorV = Clamp( cursorV + ay * 0.45f * deltaTime, 0.0f, 1.0f );
+            applyPickedToSticker();
+            static int32_t sLogCounter = 0;
+            if ( CmdLine::HasArg( "-logstickerui" ) && ( sLogCounter++ % 10 ) == 0 ) {
+                OTDU_LOG_INFO( "StickerShopUi: picker cursor (%.3f, %.3f) colour %08x dt %.4f\n", cursorU, cursorV,
+                               pickedColour(), deltaTime );
+            }
+        }
+        placeCursor();
+        return;
     }
     if ( ax == 0.0f && ay == 0.0f && wheel == 0.0f ) {
         return;

@@ -235,6 +235,18 @@ void LoadProfile() {
                 }
                 pText = *pGroupEnd == ',' ? pGroupEnd + 1 : pGroupEnd;
             }
+        } else if ( key == "sticker_colors" ) {
+            profile.StickerMyColors.clear();
+            size_t at = 0;
+            while ( at <= value.size() && profile.StickerMyColors.size() < 6 ) {
+                size_t end = value.find( ',', at );
+                if ( end == std::string::npos ) {
+                    end = value.size();
+                }
+                profile.StickerMyColors.push_back( static_cast<uint32_t>( strtoul( value.substr( at, end - at ).c_str(), nullptr, 10 ) ) );
+                at = end + 1;
+            }
+            profile.StickerMyColors.resize( 6, 0u );
         } else if ( key == "sticker_banks" ) {
             size_t at = 0;
             while ( at < value.size() ) {
@@ -595,6 +607,11 @@ bool SaveProfile( const char *pReason ) {
                      << ";" << p.YStretch;
             }
             bFirstSticker = false;
+        }
+        file << "\n";
+        file << "sticker_colors = ";
+        for ( size_t i = 0; i < profile.StickerMyColors.size(); i++ ) {
+            file << ( i > 0 ? "," : "" ) << profile.StickerMyColors[i];
         }
         file << "\n";
         file << "sticker_banks = ";

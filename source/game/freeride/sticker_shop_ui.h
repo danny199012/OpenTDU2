@@ -63,6 +63,17 @@ private:
     void writeModifiedFlags();
     void pay();
     void revert();
+    // The colour tool's "My Colors" box (the movie's /stickers/colors).
+    void writeMyColours();
+    uint32_t pickedColour() const;
+    void tintCube( const std::string &clipPath, uint32_t colour );
+    // The picker's gradient (hue across, white -> colour -> black down) the
+    // movie's lure_grad shows, and the colour under the cursor.
+    static uint32_t GradientColour( float u, float v );
+    void bindGradient();
+    void placeCursor();
+    void applyPickedToSticker();
+    int32_t selectedSlot() const;
     std::string formatMoney( int32_t value ) const;
     bool getFlag( const char *pVariable ) const;
 
@@ -85,6 +96,11 @@ private:
     bool bCarView = false;
     bool bThumbsBound = false;
     int32_t thumbCategory = -1;
+
+    // The colour tool: the box is open, and the dial that replaces the
+    // pipette (hue / brightness of the colour about to be saved).
+    bool bMyColoursOpen = false; // the colour tool's panel is up (colo:open .. colo:clos)
+    float cursorU = 0.5f, cursorV = 0.0f; // the picker cursor in the gradient (0..1)
 
     // The invoice of this visit.
     int32_t labourCost = 0;
