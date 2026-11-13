@@ -2,7 +2,27 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session <date> (<topic>): <one-line result>` shape of `CLAUDE.md`
+`## Session 2026-11-13 (grass white bases, `main`): the grass root fringes are shaded now (baked root gradient)
+
+The owner: "fix the worlds vegetation it doesn't look accurate and grass has odd white parts at the bottom".
+
+**Reproduced**: `build-mainin\opentdu2-main.exe -game C:/TDU2-Gamedata/TestDrive2 -userdata C:/temp/otdu2-win-userdata -gm FREERIDE -skipcine -nopad -fixedtimestep -tpin 19584,24960 -clock 12 -autoplay "300:shot=..." -exitframe 330` - blade bases bright white/silver.
+
+### What changed
+- `source/render/texture_cache.cpp` - `loadBankTextures` bakes a root-darkening gradient into the DXT5 colour endpoints of the `tallgrass.bnk` atlases (cause: the atlas bases are authored pale; the retail TD_TallGrass PS shades roots via its light gradient, the port's Gouraud path has none). Flags `-grassrootdark <s>` (default 0.5, 1.0 = off), `-nograssroots`.
+- grass_spec.md 8, README flags row, PROGRESS tall-grass row.
+
+### Verified
+- `docs/images/grass_roots_before_after.webp` (top off, bottom new default); default-spawn village unchanged; 0 VUIDs in both runs.
+
+### Ruled out
+- `-grasstallgrass` (the retail shader) also fixes the white but shears/streaks the cards near the camera (car flatten fed with the camera) - not a usable default.
+
+### Not done / next
+- "Vegetation accuracy" beyond the grass base is NOT assessed: the `.pmi` trees/bushes (pmi_spec.md) vs retail colour/density, the unverified grass placement grid (grass_spec 7). Next: take comparison shots of a forest + a meadow and name the specific difference with the owner.
+- The 0.5 bottom scale and the gradient shape are `[INF]`; the owner's eye on the real build decides.
+
+## Session <date> (<topic>): <one-line result>` shape of `CLAUDE.md`
 §"The session-entry template".
 
 * Read order for a fresh agent: your vendor's onboarding (`CLAUDE.md` /

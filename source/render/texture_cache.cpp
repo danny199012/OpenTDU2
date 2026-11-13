@@ -315,6 +315,52 @@ uint32_t TextureCache::loadBankTextures( const Bank &bank, const char *pOwner ) 
             continue;
         }
 
+        // The tall-grass atlases (tallgrass.bnk, grass_spec.md 8): the cards
+        // are authored with pale, silvery dry-stalk bases, and the retail
+        // TD_TallGrass pixel shader darkens them with its height light
+        // gradient (roots in shade, tips lit). The port draws the cards with
+        // plain Gouraud, which has no gradient - the bases rendered as bright
+        // white fringes. The same gradient is baked into the DXT5 colour
+        // endpoints here (alpha untouched) [INF: the gradient shape].
+        std::vector<uint8_t> grassRooted;
+        if ( bankStem == "tallgrass" && !CmdLine::HasArg( "-nograssroots" ) &&
+             ( texture.Format == VF_DXT5 || texture.Format == VF_SRGB_DXT5 ) && !texture.isCube() ) {
+            grassRooted.assign( pData, pData + dataSize );
+            Texture2DB rooted;
+            if ( rooted.parse( grassRooted.data(), dataSize ) ) {
+                const char *pArg = CmdLine::GetArgValue( "-grassrootdark" );
+                const float bottomScale = pArg != nullptr ? static_cast<float>( atof( pArg ) ) : 0.5f;
+                uint8_t *pTexels = const_cast<uint8_t *>( rooted.pTexels );
+                for ( uint32_t mip = 0; mip < rooted.NumMips; mip++ ) {
+                    const uint32_t mipW = Max( rooted.Width >> mip, 1u );
+                    const uint32_t mipH = Max( rooted.Height >> mip, 1u );
+                    const uint32_t blocksX = ( mipW + 3 ) / 4;
+                    const uint32_t blocksY = ( mipH + 3 ) / 4;
+                    uint8_t *pBlock = pTexels + rooted.getMipOffset( mip );
+                    for ( uint32_t by = 0; by < blocksY; by++ ) {
+                        // 0 at the card top, 1 at the card bottom (roots).
+                        const float v = ( by + 0.5f ) / blocksY;
+                        const float t = Clamp( ( v - 0.35f ) / 0.65f, 0.0f, 1.0f );
+                        const float scale = 1.0f - ( 1.0f - bottomScale ) * t * t * ( 3.0f - 2.0f * t );
+                        for ( uint32_t bx = 0; bx < blocksX; bx++, pBlock += 16 ) {
+                            for ( int e = 0; e < 2; e++ ) {
+                                uint16_t c;
+                                memcpy( &c, pBlock + 8 + e * 2, 2 );
+                                const float r = ( ( c >> 11 ) & 31 ) * scale;
+                                const float g = ( ( c >> 5 ) & 63 ) * scale;
+                                const float b = ( c & 31 ) * scale;
+                                c = static_cast<uint16_t>( ( static_cast<uint32_t>( r + 0.5f ) << 11 ) |
+                                                           ( static_cast<uint32_t>( g + 0.5f ) << 5 ) |
+                                                           static_cast<uint32_t>( b + 0.5f ) );
+                                memcpy( pBlock + 8 + e * 2, &c, 2 );
+                            }
+                        }
+                    }
+                }
+                texture = rooted;
+            }
+        }
+
         GPUTexture *pTexture = createFrom2DB( texture, pEntry->Name.c_str() );
         if ( pTexture == nullptr ) {
             continue;

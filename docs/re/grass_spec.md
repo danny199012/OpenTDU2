@@ -409,3 +409,24 @@ correctly placed, sized and blended under the plain Gouraud shader
   count (§6).
 * The whirlwind family (vs_4-7 reads `Whirlwind` c81) is unexplored — the
   spec-byte selector for those permutations, and what feeds it.
+
+## 8. The pale blade bases (2026-11-13, owner: "grass has odd white parts at the bottom")
+
+* `[DATA]` The `setgrass.2db` / `setbush.2db` atlases are authored with pale,
+  silvery dry-stalk bases: the alpha-weighted mean RGB of the card rows climbs
+  from ~(100,95,50) near the tips to ~(136,136,125) at the bottom row.
+* `[CODE]` The retail `TD_TallGrass` PS multiplies the colour by
+  `(Ambient + oT5) * oT2.x`, and `oT2.x` is the VS light gradient: tips land in
+  [1, 2], roots in [-1, 0] (section 4.1/4.2) - the retail roots are in shade, the
+  pale bases never show. The port's default draw is plain Gouraud (no gradient),
+  so the bases rendered as bright white fringes (`-grasstallgrass` darkens them but
+  still shears the cards near the camera, section 7).
+* Fix: `TextureCache::loadBankTextures` bakes the same gradient into the DXT5
+  colour endpoints of the two tallgrass atlases (all mips, alpha untouched; a
+  smoothstep from 35 % of the card height to the bottom, bottom scale 0.5
+  `[INF: the gradient shape and the 0.5]`). `-grassrootdark <s>` sets the bottom
+  scale (1.0 = off, the A/B), `-nograssroots` disables it.
+* Evidence (build 21, headless, `-tpin 19584,24960 -clock 12`, 0 VUIDs):
+  `docs/images/grass_roots_before_after.webp` (top `-grassrootdark 1.0`, bottom the
+  new default); the default spawn village is unchanged.
+
