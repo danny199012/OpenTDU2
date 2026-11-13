@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "game/freeride/sticker_bank.h"
+
 // The tuning levels of a car (bought at a tuning shop, ETUN_*): 0..3 each,
 // the DBRewardCar level range.
 struct TuningLevels {
@@ -112,6 +114,10 @@ struct PlayerProfile {
     // A car without an entry keeps its _default_rims and interior 1.
     std::map<int32_t, uint64_t> OwnedCarRims;
     std::map<int32_t, int32_t> OwnedCarInteriors;
+    // The stickers placed on each car at a sticker shop (ESTICK_*, the paint
+    // menu's sticker page): _id_car -> the placements composited onto the
+    // paint's sticker canvas (StickerCanvas -> the TD_CarPaint2 STIKERS slot).
+    std::map<int32_t, std::vector<StickerPlacement>> OwnedCarStickers;
     // Licence tests passed (the .ig2 name, RSA7T01 ...) -> the best time in
     // seconds; a licence is obtained when all its tests are (licenses.h).
     std::map<std::string, float> PassedTests;

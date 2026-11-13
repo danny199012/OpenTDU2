@@ -127,6 +127,20 @@ private:
     // emptied by the car wash.
     CarDirt carDirt;
     GpsScreen gpsScreen;         // the dashboard sat-nav's map target
+    // -stickertest <bankfile>,<index>: bind one sticker pack art texture to
+    // the paint materials' USER_TEX slot at spawn (the shader-slot probe of
+    // the sticker work, then the static proof).
+    std::string stickerTestBank;
+    int32_t stickerTestIndex = -1;
+    bool bStickerTestBound = false;
+    // The driven car's sticker layer: the profile layout
+    // (PlayerProfile::OwnedCarStickers) composited onto a canvas and bound to
+    // the paint materials' sticker slot; the paint menu's sticker page edits
+    // it live (source/game/freeride/sticker_bank.h).
+    StickerCanvas stickerCanvas;
+    int32_t stickerCanvasCarId = -1;
+    bool bStickerCanvasBound = false;
+    bool bStickerPreviewCamera = false; // the place-mode camera cut to the car
     VehicleSetup setup;
     VehicleDynamics vehicle;
     VehicleWorldCollision collision;
@@ -279,6 +293,9 @@ private:
     bool openSpotShop( const std::string &kind, const std::string &spotBank, uint64_t spotId );
     // The driven car in the paint it was bought in (PlayerProfile::OwnedCarPaints).
     void applyOwnedPaint();
+    // The sticker layout of the car onto the canvas (applyOwnedPaint's twin
+    // for PlayerProfile::OwnedCarStickers; bound in drawOffscreen).
+    void applyOwnedStickers();
     // The tuning levels of the driven car (PlayerProfile::OwnedCarTuning, bought
     // at a tuning shop) into the physics: the base setup + the levels, applied to
     // the live vehicle (setupVehicle() applies them at spawn, this re-applies

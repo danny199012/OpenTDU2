@@ -187,6 +187,51 @@ void LoadProfile() {
                 }
                 pText = *pEnd == ',' ? pEnd + 1 : pEnd;
             }
+        } else if ( key == "car_stickers" ) {
+            // "<id>:<bank>;<index>;<u>;<v>;<scale>;<angle>;<tint>|...,..."
+            // (the bank file name carries none of the separators).
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const long id = strtol( pText, &pEnd, 10 );
+                if ( pEnd == pText || *pEnd != ':' ) {
+                    break;
+                }
+                const char *pGroup = pEnd + 1;
+                const char *pGroupEnd = strchr( pGroup, ',' );
+                if ( pGroupEnd == nullptr ) {
+                    pGroupEnd = pGroup + strlen( pGroup );
+                }
+                // One entry = seven ';'-separated fields, entries '|' apart.
+                std::vector<StickerPlacement> entries;
+                const char *p = pGroup;
+                while ( p < pGroupEnd ) {
+                    const char *pEntryEnd = strchr( p, '|' );
+                    if ( pEntryEnd == nullptr || pEntryEnd > pGroupEnd ) {
+                        pEntryEnd = pGroupEnd;
+                    }
+                    StickerPlacement save;
+                    {
+                        char bank[96] = {};
+                        const int fields = sscanf( p, "%95[^;];%d;%f;%f;%f;%f;%u", bank, &save.Index, &save.U, &save.V,
+                                                   &save.Scale, &save.AngleDeg, &save.Tint );
+                        if ( fields >= 2 ) {
+                            save.Bank = bank;
+                            if ( fields < 3 ) save.U = 0.5f;
+                            if ( fields < 4 ) save.V = 0.5f;
+                            if ( fields < 5 ) save.Scale = 0.22f;
+                            if ( fields < 6 ) save.AngleDeg = 0.0f;
+                            if ( fields < 7 ) save.Tint = 0xffffffffu;
+                            entries.push_back( save );
+                        }
+                    }
+                    p = pEntryEnd < pGroupEnd ? pEntryEnd + 1 : pGroupEnd;
+                }
+                if ( !entries.empty() ) {
+                    profile.OwnedCarStickers[static_cast<int32_t>( id )] = std::move( entries );
+                }
+                pText = *pGroupEnd == ',' ? pGroupEnd + 1 : pGroupEnd;
+            }
         } else if ( key == "tests_passed" ) {
             // "<test>:<best seconds>,..."
             size_t at = 0;
@@ -518,6 +563,22 @@ bool SaveProfile( const char *pReason ) {
         for ( const auto &interior : profile.OwnedCarInteriors ) {
             file << ( bFirstInterior ? "" : "," ) << interior.first << ":" << interior.second;
             bFirstInterior = false;
+        }
+        file << "\n";
+        // "<id>:<bank>;<index>;<u>;<v>;<scale>;<angle>;<tint>|...,..."
+        file << "car_stickers = ";
+        bool bFirstSticker = true;
+        for ( const auto &stickers : profile.OwnedCarStickers ) {
+            if ( stickers.second.empty() ) {
+                continue;
+            }
+            file << ( bFirstSticker ? "" : "," ) << stickers.first << ":";
+            for ( size_t i = 0; i < stickers.second.size(); i++ ) {
+                const StickerPlacement &p = stickers.second[i];
+                file << ( i > 0 ? "|" : "" ) << p.Bank << ";" << p.Index << ";" << p.U << ";" << p.V << ";"
+                     << p.Scale << ";" << p.AngleDeg << ";" << p.Tint;
+            }
+            bFirstSticker = false;
         }
         file << "\n";
         file << "tests_passed = ";

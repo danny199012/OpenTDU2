@@ -2467,3 +2467,75 @@ locations discussion that `docs/re/modding.md` / the map_gen notes feed into.)
   parsers take generated files), then the DEM+OSM generator on this 6x6 km canvas.
 - `-island eden` FREERIDE boot without `-tp` not exercised (no house/outro flow on a third island by
   design); licences treat it as island 0 like any non-hawai name.
+
+## Session 2026-11-13 (`main`): car stickers / vinyls — the retail decal packs, a per-car canvas and the sticker-shop editor
+
+The owner: *"Can we dig into the car customizations with stickers/vinyls?"* (fallback quests were parked:
+both proved feasible, the sticker feature won the owner's own priority). The two Explore probes + the bank
+dumps answered feasibility in the plan phase: the packs are plain data, the render side needed one fact.
+
+### What changed
+- **The slot fact (spec 1)**: the car paint's sticker slot ships as **`STIKERS`** on the California's
+  `Paint` / `Paint_SK` (TD_CarPaint2) — the data's own spelling; one_77's is the `USER_TEX` paint_spec 4
+  recorded. Already counted into `S_NBTEXTURES` (the placeholder `user_tex` texture ships in the slot), so
+  binding into it never re-permutates. Sampled with the body's UV0 — the whole-texture A/B
+  (`docs/images/sticker_bind_ab.webp`) settles it empirically. `Paint_LR` (TD_CarPaint) has no slot: only
+  the high LOD takes stickers.
+- **`source/game/freeride/sticker_bank.{h,cpp}` (new)**: `StickerBankCatalog` (the 26 `DBStickersBanks`
+  rows, localized names through `gpDatabase->getString`; banks load on demand — the art `.2db`s through
+  `TextureCache::loadBankTextures` under `stickers/<bankfile>` owners, released at FREERIDE exit; the MAT_
+  library's COLOR hashcodes resolve directly, verified 24/24 on `st_basic_nb`; `isBankSold` = `_isvalid`
+  and not the casino/chase specials), `StickerPlacement` (bank, index, U/V centre, scale, angle, tint),
+  `StickerCanvas` (1024² transparent target, the dash-GPS screen's `createRenderTarget(VK_FORMAT_UNDEFINED)`
+  + `beginRenderTarget` + Renderer2D pattern; rotated tinted quads through `drawTriangles`, redrawn only
+  when dirty), `StickerArt` / `StickerResolveArt` helpers.
+- **`cinematic_car.{h,cpp}`**: `bindStickerTexture` — the slot-variant hunt (`USER_TEX`/`STIKERS`/
+  `STICKERS`) on the paint materials (the same family filter `applyDatabasePaint` uses), pointer swap +
+  `updateProgram`; `-logstickers` dumps each paint material's slots.
+- **`paint_menu.{h,cpp}`**: two pages. PAINT unchanged; **STICKERS**: pack list (name + price +
+  recolourable mark) → thumbnail grid (the art as its own thumbnail) → **place** (a new placement at the
+  canvas centre, held Menu keys move at 0.35 canvas/s (a fifth with Start), accessories left/right scale,
+  up/down rotate, X cycles the 11-colour tint palette on monochrome packs, A buys (the bank `_price` per
+  sticker [INF]; a wallet that cannot pay drops the sticker), B cancels — a new sticker is dropped, an
+  owned one reverts to its pre-edit values) → the placed list (A edits, Y removes without refund). The
+  layout lives in `PlayerProfile::OwnedCarStickers` and is pushed to the canvas on every change.
+- **`player_profile.{h,cpp}`**: `OwnedCarStickers` map + the `car_stickers` save/load line
+  (`<id>:<bank>;<index>;<u>;<v>;<scale>;<angle>;<tint>|...`, the bank names carry none of the separators).
+- **`gm_freeride.{h,cpp}`**: `applyOwnedStickers` beside `applyOwnedPaint` at both car-load sites (mode
+  enter + the car swap); `drawOffscreen` composites the canvas when dirty and binds it once; the ESTICK
+  flow hands the menu the driven car's canvas (`setStickerContext`); the **place-mode camera cut** — inside
+  the walk-in shop, placing renders the freeride scene instead of the room (both draw paths), a 3/4
+  rear-left pose taken once on entry (the retail editor's garage-car camera [INF]); exit tears the canvas
+  + the catalog owners down. Flags: `-nostickers`, `-logstickers`, `-stickertest <bank>,<index>` (the
+  M0/M1 probe, kept as the A/B hook), `-stickershop` (the menu over the freeride scene at spawn, so
+  autoplay can drive the editor).
+- **Docs**: `docs/re/stickers_spec.md` (new: the slot truth, the bank layout, the editor, the flags, the
+  evidence, the open list), README flags row + the two FREERIDE feature rows, PROGRESS row + board header.
+
+### Verified (build 20 (a4a50ba+dirty), headless, 0 VUIDs, 0 stalls)
+- The bind A/B: with the slot swap the `st_basic_nb` white shapes appear on the body
+  (`sticker_bind_ab.webp`, same pose before/after) — the retail shader does the rest.
+- Second car + colour art: the Q7 in a full `st_fun01` green/white livery (`sticker_q7_livery.webp`),
+  a vector art over the bonnet from the cockpit (`sticker_bonnet_art.webp`). (The R8's freeride model
+  load is incomplete — a pre-existing quirk, not the sticker path; the Q7 stands in.)
+- Persistence: a 16-sticker layout seeded into `profile.sav` comes back on the car at spawn
+  (`sticker_spawn_layout.webp`).
+- The editor driven by autoplay (`-stickershop`): place → move (U 0.5→0.908) → scale (0.22→0.52) →
+  buy — "Sticker bought: $5,000" with the money exactly $5,000 lower
+  (`sticker_editor_placing.webp` / `sticker_editor_menu.webp`), and the game's own save writing the
+  17-entry `car_stickers` line. The tint-cycle press in that script used a wrong autoplay action name
+  (`option1` vs the table's `opt1`) so the palette path ran only by code inspection — the owner's pad X
+  exercises it.
+- The owner's profile was restored from its pre-seed backup after the runs (the $5,000 test purchase
+  rolled back with it).
+
+### Not done / next
+- The owner's in-play pass: the real ESTICK flow (walk in, the seller, place with the pad) and the feel
+  of the keys; the tint cycle from a pad.
+- Garage / house scenes' cars do not wear the saved layout yet (the driven car only — the scope
+  `applyOwnedPaint` had at first).
+- `DBStickersPricing` per-action prices; the retail stamping math is [ENC] (the port composites its own
+  way); `FADEALFA` and the `IC_NB` icon question unexplored.
+- The quests (driving-crazy score challenge, slow A-to-B, no-damage delivery) stay parked, feasibility
+  in hand (FRIM scorer, GPS route + HUD, the damage metric to build; the `-switchcar` wedge shapes the
+  "random car" flavour).

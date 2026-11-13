@@ -249,6 +249,16 @@ public:
     // row does not exist): the test-drive request's ColorId.
     static std::string DatabasePaintColorId( int32_t carId, int32_t paintIndex );
 
+    // The sticker layer (docs/re/paint_spec.md 4/6): the TD_CarPaint2 pixel
+    // shader lerps a sticker texture sampled on s5 over the paint; s5 is the
+    // paint material's USER_TEX slot (one_77.2dm carries it: USER_TEX
+    // (stickers)). The port puts its per-car sticker canvas there. Binds
+    // pTexture onto every body paint material that carries a USER_TEX slot
+    // (updateProgram re-derives the permutation: the slot counts into
+    // S_NBTEXTURES). Returns the number of materials bound (0 = no paint
+    // material has the slot: the car takes no stickers).
+    uint32_t bindStickerTexture( EdenRenderer &renderer, GPUTexture *pTexture );
+
     // Dynamic dirt / mud / water on the body (CarDirt). The paint materials
     // blend toward a mud tint and lose their reflection as the stain grows; a
     // wet car keeps a slight darkening and extra gloss. Call every frame with

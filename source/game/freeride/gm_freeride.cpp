@@ -20,6 +20,7 @@
 #include "game/spots/mod_props.h"
 #include "game/freeride/fuel.h"
 #include "game/freeride/fuel_menu.h"
+#include "game/freeride/sticker_bank.h"
 #include "game/world_clock.h"
 #include "input/gs_input.h"
 #include "physics/havok_collision.h"
@@ -530,6 +531,27 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     }
     car.load( carDesc );
     applyOwnedPaint();
+    applyOwnedStickers();
+    // -stickershop: the paint / sticker shop menu over the freeride scene at
+    // spawn (a test hook: the retail flow walks into an ESTICK interior and
+    // the menu opens at the seller; this opens it directly with the car in
+    // view - autoplay can drive the editor from it).
+    if ( CmdLine::HasArg( "-stickershop" ) ) {
+        paintMenu.setSidePanel( false );
+        paintMenu.setStickerContext( &stickerCanvas, car.getIdCar() );
+        paintMenu.open( car.getIdCar(), FindCarDisplayName( car.getIdCar() ) );
+    }
+    if ( const char *pStickerTest = CmdLine::GetArgValue( "-stickertest" ) ) {
+        char bankFile[128] = {};
+        int32_t index = -1;
+        if ( sscanf( pStickerTest, "%127[^,],%d", bankFile, &index ) == 2 && index >= 0 ) {
+            stickerTestBank = bankFile;
+            stickerTestIndex = index;
+            OTDU_LOG_INFO( "FREERIDE: -stickertest '%s' #%d\n", stickerTestBank.c_str(), stickerTestIndex );
+        } else {
+            OTDU_LOG_WARN( "FREERIDE: -stickertest: '<bankfile>,<index>' expected, got '%s'\n", pStickerTest );
+        }
+    }
     {
         // Back from a scene in the same car: the roof, the windows and the body
         // (mud / dust / crust / wetness) as they were (VehicleSceneState, written
@@ -2435,6 +2457,33 @@ void GMFreeRide::applyOwnedPaint() {
     }
 }
 
+void GMFreeRide::applyOwnedStickers() {
+    // The stickers the car wears from a sticker shop
+    // (PlayerProfile::OwnedCarStickers): the layout onto the canvas, the
+    // canvas bound to the paint materials' sticker slot in drawOffscreen
+    // (the renderer is not up yet at spawn - the same defer as the test bind
+    // and the GPS screen).
+    if ( !StickerBankCatalog::isEnabled() ) {
+        return;
+    }
+    if ( stickerCanvasCarId != car.getIdCar() ) {
+        stickerCanvasCarId = car.getIdCar();
+        bStickerCanvasBound = false;
+    }
+    const PlayerProfile &profile = GetPlayerProfile();
+    const auto it = profile.OwnedCarStickers.find( car.getIdCar() );
+    if ( it == profile.OwnedCarStickers.end() || it->second.empty() ) {
+        if ( stickerCanvas.hasLayout() ) {
+            stickerCanvas.setLayout( {}, {} );
+        }
+        return;
+    }
+    std::vector<GPUTexture *> art;
+    StickerResolveArt( it->second, art );
+    stickerCanvas.setLayout( it->second, art );
+    OTDU_LOG_INFO( "FREERIDE: '%s' wears %zu sticker(s)\n", carDesc.FileName.c_str(), it->second.size() );
+}
+
 void GMFreeRide::applyTuning() {
     // The tuning levels the car was upgraded with at a tuning shop
     // (PlayerProfile::OwnedCarTuning, accel / braking / speed 0..3). setupVehicle()
@@ -3352,8 +3401,10 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
         return true;
     }
     if ( kind == "carpaint" ) {
-        // The sticker / paint shop (ESTICK_*): the car's colour catalogue.
+        // The sticker / paint shop (ESTICK_*): the car's colour catalogue and
+        // the sticker packs (the canvas the sticker page edits live).
         paintMenu.setSidePanel( interior.isActive() );
+        paintMenu.setStickerContext( &stickerCanvas, car.getIdCar() );
         paintMenu.open( car.getIdCar(), FindCarDisplayName( car.getIdCar() ) );
         return true;
     }
@@ -3570,6 +3621,7 @@ bool GMFreeRide::switchCar( const CinematicCar::Desc &desc, const Vector3f &posi
         return false;
     }
     applyOwnedPaint();
+    applyOwnedStickers();
     if ( bAudio && gpAudio != nullptr && gpAudio->isReady() ) {
         std::string soundBank = carDesc.FileName;
         for ( char &c : soundBank ) {
@@ -4227,6 +4279,25 @@ void GMFreeRide::tick( float deltaTime ) {
     // Inside a spot interior (InteriorWalk): the island and the car are
     // frozen behind it, the engine is off.
     if ( interior.isActive() ) {
+        // The sticker place mode's camera cut: once per entry, a 3/4 view of
+        // the car outside (the retail editor's garage-car camera); the pose
+        // holds while the room is frozen behind the editor.
+        if ( paintMenu.isStickerPlacing() && !bStickerPreviewCamera && car.isLoaded() ) {
+            bStickerPreviewCamera = true;
+            const Vector3f carPos = carWorld.getTranslation();
+            const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+            const float yaw = std::atan2( forward.x, forward.z );
+            // Three quarters from the rear left, above the paint line.
+            const float viewYaw = yaw + 2.35f;
+            camera.Position = carPos + Vector3f( std::sin( viewYaw ) * 6.5f, 2.3f, std::cos( viewYaw ) * 6.5f );
+            camera.Rotation = ChaseCamera::LookRotation( camera.Position, carPos + Vector3f( 0.0f, 0.9f, 0.0f ) );
+            camera.Fov = 55.0f * kDegToRad;
+            camera.FovScale = 1.0f;
+            OTDU_LOG_INFO( "FREERIDE: sticker editor camera at (%.1f, %.1f, %.1f)\n", camera.Position.x,
+                           camera.Position.y, camera.Position.z );
+        } else if ( !paintMenu.isStickerPlacing() ) {
+            bStickerPreviewCamera = false;
+        }
         if ( vehicleAudio.isEngineOn() ) {
             VehicleAudio::Params muted;
             muted.bEngineOn = false;
@@ -6142,6 +6213,34 @@ void GMFreeRide::drawOffscreen() {
             traffic.assignRivalEnvironment( *pRenderer, pCube );
         }
     }
+    // -stickertest: the pack art onto the paint materials' USER_TEX slot once
+    // the Eden renderer is ready (the materials exist at spawn, the renderer
+    // only from the first render — the same defer the GPS screen uses).
+    if ( !bStickerTestBound && !stickerTestBank.empty() && car.isLoaded() && StickerBankCatalog::isEnabled() ) {
+        bStickerTestBound = true;
+        StickerBankCatalog &catalog = StickerBankCatalog::get();
+        catalog.load();
+        for ( size_t i = 0; i < catalog.getBankCount(); i++ ) {
+            if ( StringCmpI( catalog.getBank( i ).BankFile.c_str(), stickerTestBank.c_str() ) != 0 ) {
+                continue;
+            }
+            const std::vector<StickerEntry> *pEntries = catalog.openBank( i );
+            GPUTexture *pArt = nullptr;
+            if ( pEntries != nullptr && stickerTestIndex < static_cast<int32_t>( pEntries->size() ) ) {
+                pArt = ( *pEntries )[static_cast<size_t>( stickerTestIndex )].pArt;
+            }
+            if ( pArt == nullptr ) {
+                OTDU_LOG_WARN( "FREERIDE: -stickertest: bank '%s' #%d has no art texture\n", stickerTestBank.c_str(),
+                               stickerTestIndex );
+                break;
+            }
+            OTDU_LOG_INFO( "FREERIDE: -stickertest binding '%s' #%d '%s' (%ux%u) onto the USER_TEX slot\n",
+                           stickerTestBank.c_str(), stickerTestIndex, ( *pEntries )[static_cast<size_t>( stickerTestIndex )].Name.c_str(),
+                           pArt->Width, pArt->Height );
+            car.bindStickerTexture( *pRenderer, pArt );
+            break;
+        }
+    }
     // The dashboard sat-nav (-gps 1 enables): the interior GPS quad samples
     // a small render target redrawn car-centred from the map data (the same
     // road triangles / route / island colour map the HUD minimap and the map
@@ -6175,7 +6274,22 @@ void GMFreeRide::drawOffscreen() {
             }
         }
     }
+    // The sticker canvas (the profile layout / the shop's live edits):
+    // composite when dirty, bind to the paint materials' sticker slot once.
+    if ( StickerBankCatalog::isEnabled() && stickerCanvas.hasLayout() && car.isLoaded() ) {
+        stickerCanvas.render( gpRender->getDevice(), gpRender->get2DRenderer() );
+        if ( !bStickerCanvasBound && stickerCanvas.getTexture() != nullptr ) {
+            bStickerCanvasBound = car.bindStickerTexture( *pRenderer, stickerCanvas.getTexture() ) > 0;
+        }
+    }
     if ( interior.isActive() ) {
+        // The sticker place mode cuts outside to the car (the retail editor's
+        // garage-car camera): the freeride scene renders instead of the room
+        // while the sticker is being placed.
+        if ( paintMenu.isStickerPlacing() ) {
+            view.renderOffscreen();
+            return;
+        }
         interior.renderOffscreen();
         return;
     }
@@ -6189,9 +6303,10 @@ void GMFreeRide::draw() {
     static const bool bNo3D = CmdLine::HasArg( "-no3d" );
     Renderer2D &renderer = gpRender->get2DRenderer();
     const bool bFlatMap = mapScreen.isOpen() && mapScreen.isFlat();
-    if ( interior.isActive() ) {
+    if ( interior.isActive() && !paintMenu.isStickerPlacing() ) {
         // The interior replaces the island (its own scene, reticle and
-        // labels); the shop menus draw over it below.
+        // labels); the shop menus draw over it below. The sticker place mode
+        // is the exception: the car outside is the preview.
         if ( !bNo3D ) {
             interior.draw();
         }
@@ -6288,6 +6403,12 @@ void GMFreeRide::exit() {
     licenseResult.unload();
     schoolScreen.unload();
     photoCamera.close();
+    // The sticker layer: the canvas back (the catalog's borrowed bank
+    // textures go with the shutdown too).
+    stickerCanvas.destroy();
+    stickerCanvasCarId = -1;
+    bStickerCanvasBound = false;
+    StickerBankCatalog::get().shutdown();
     interior.exit();
     spotExteriors.unload();
     modProps.unload();

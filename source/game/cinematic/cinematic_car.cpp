@@ -2223,6 +2223,56 @@ std::string CinematicCar::DatabasePaintColorId( int32_t carId, int32_t paintInde
     return rows[static_cast<size_t>( paintIndex )]["_color_id_1"].asString();
 }
 
+uint32_t CinematicCar::bindStickerTexture( EdenRenderer &renderer, GPUTexture *pTexture ) {
+    if ( !car.isLoaded() || pTexture == nullptr ) {
+        return 0;
+    }
+    static const bool bLog = CmdLine::HasArg( "-logstickers" );
+    // The sticker slot's type string: paint_spec.md 4 reads one_77.2dm's as
+    // "USER_TEX", the California's ships as "STIKERS" [DATA: 2dm slot type,
+    // the data's own spelling] - accept the variants, none of the other paint
+    // slots collide (NORMAL, DETAIL, CUBEMAP, DIRT_SCRATCH, FLAKE, DAMAGE).
+    static const uint64_t kStickerSlots[] = { GetIdentifier64bit( "USER_TEX" ), GetIdentifier64bit( "STIKERS" ),
+                                              GetIdentifier64bit( "STICKERS" ) };
+    uint32_t bound = 0;
+    for ( EdenMaterial &material : car.getMaterials() ) {
+        // The body paint materials only (the family + names applyDatabasePaint
+        // repaints): liveries / trims / glass keep their own textures.
+        if ( material.ShaderSetGUID != kTDCarPaint2 && material.Name.rfind( "Paint", 0 ) != 0 ) {
+            continue;
+        }
+        int32_t slot = -1;
+        for ( uint32_t i = 0; i < material.NumSlots && slot < 0; i++ ) {
+            for ( const uint64_t kHash : kStickerSlots ) {
+                if ( material.SlotTypes[i] == kHash ) {
+                    slot = static_cast<int32_t>( i );
+                    break;
+                }
+            }
+        }
+        if ( bLog ) {
+            std::string slots;
+            for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
+                slots += ( i > 0 ? " " : "" ) + IdentifierToString( material.SlotTypes[i] ) + "='";
+                slots += material.pTextures[i] != nullptr ? material.pTextures[i]->Name : std::string( "-" );
+                slots += "'";
+            }
+            OTDU_LOG_INFO( "Stickers: %s paint material '%s' (shader 0x%llx): slot %s\n", fileName.c_str(),
+                           material.Name.c_str(), static_cast<unsigned long long>( material.ShaderSetGUID ),
+                           slots.c_str() );
+        }
+        if ( slot < 0 ) {
+            continue;
+        }
+        material.pTextures[slot] = pTexture;
+        material.TextureHashes[slot] = GetIdentifier64bit( pTexture->Name.c_str() );
+        renderer.updateProgram( material );
+        bound++;
+    }
+    OTDU_LOG_INFO( "Stickers: %s sticker canvas bound on %u paint material(s)\n", fileName.c_str(), bound );
+    return bound;
+}
+
 namespace {
 bool SwatchOf( const MaterialDesc &material, float outRgb[3] ) {
     Vector4f value;
