@@ -235,6 +235,11 @@ public:
     // code: 1 left, 2 right, 13 enter...) and mouse release on a button
     // (OverDownToOverUp) at a backbuffer position. True when handled.
     bool sendKey( uint8_t swfKey );
+    // The clip event handlers a script assigns (clip.onEnterFrame = function ...)
+    // run once per movie frame for the movies that opt in: the SHOPSCAR sticker
+    // pages poll _root.CategoryLoaded this way. Off by default - the other
+    // movies' handlers have never run and are left alone.
+    void setEnterFrameHandlers( bool bEnable ) { bEnterFrameHandlers = bEnable; }
     // Calls an ActionScript function of a clip ("/" root, "/cursor"...) with
     // string arguments (game -> movie calls such as ItemType('over')).
     bool invoke( const std::string &clipPath, const std::string &function, const std::vector<std::string> &args );
@@ -316,6 +321,7 @@ private:
     bool bStageRect = false;
     float frameTime;
     float accumulator;
+    bool bEnterFrameHandlers = false;
     std::vector<PendingAction> pendingActions;
     std::vector<std::unique_ptr<Instance>> graveyard;
     std::vector<Function> functions;

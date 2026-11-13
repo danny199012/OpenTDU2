@@ -520,6 +520,25 @@ void FlashPlayer::advanceClip( Clip &clip ) {
         }
         gotoFrame( clip, next, true );
     }
+    if ( bEnterFrameHandlers ) {
+        auto handler = clip.Variables.find( "onEnterFrame" );
+        if ( handler != clip.Variables.end() && handler->second.Type == Value::eType::Function ) {
+            Value object;
+            object.Type = Value::eType::Clip;
+            object.pClip = &clip;
+            // The handler runs in the timeline that defined it (SHOPSCAR's
+            // list page assigns it to its loading_anim child and reads its own
+            // container / flags): only an ancestor of the clip is trusted.
+            Clip *pScope = &clip;
+            for ( Clip *pAncestor = clip.pParent; pAncestor != nullptr; pAncestor = pAncestor->pParent ) {
+                if ( pAncestor == handler->second.pClip ) {
+                    pScope = pAncestor;
+                    break;
+                }
+            }
+            callFunction( handler->second.FunctionIndex, pScope, {}, &object );
+        }
+    }
     // Children (copy the list: actions may modify it)
     std::vector<Clip *> children;
     for ( auto &entry : clip.DisplayList ) {
@@ -2500,6 +2519,7 @@ FlashPlayer::Value FlashPlayer::execute( Clip *pClip, uint32_t offset, uint32_t 
             Value v;
             v.Type = Value::eType::Function;
             v.FunctionIndex = static_cast<int32_t>( functions.size() - 1 );
+            v.pClip = pClip; // the defining timeline (the scope of an event handler)
             if ( name.empty() ) {
                 push( v );
             } else {

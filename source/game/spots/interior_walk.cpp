@@ -287,6 +287,10 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     }
     spotBank = houseSpotName.empty() ? path : houseSpotName;
     bActive = true;
+    if ( bStickUi ) {
+        // The sticker pages poll their loading flag from an onEnterFrame.
+        scene.getUi().setEnterFrameHandlers( true );
+    }
     if ( bHouse && !bGarageRoom ) {
         addFurnitureSelectables();
         // The saved walls / floors of this house.
