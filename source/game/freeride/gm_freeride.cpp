@@ -2554,11 +2554,11 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
         const float heading = std::atan2( forward.x, forward.z );
         std::vector<SpotHolograms::Placement> placements;
         const int32_t count = static_cast<int32_t>( spotHolograms.getModels().size() );
-        for ( int32_t i = first; i < count && i < first + 12; i++ ) {
+        for ( int32_t i = first; i < count && i < first + CmdLine::GetArgInt( "-spotholocount", 12 ); i++ ) {
             SpotHolograms::Placement placement;
             placement.ModelIndex = i;
-            const float side = ( static_cast<float>( i - first ) - 5.5f ) * 7.0f;
-            placement.Position = carPosition + forward * 30.0f + right * side + Vector3f( 0.0f, 4.0f, 0.0f );
+            const float side = ( static_cast<float>( i - first ) - 0.5f * ( CmdLine::GetArgInt( "-spotholocount", 12 ) - 1 ) ) * 7.0f;
+            placement.Position = carPosition + forward * 30.0f + right * side + Vector3f( 0.0f, CmdLine::GetArgInt( "-spotholoy", 4 ) * 1.0f, 0.0f );
             placement.Heading = heading + 3.14159265f; // facing the car
             placements.push_back( placement );
         }
