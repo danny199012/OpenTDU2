@@ -1946,12 +1946,78 @@ bool GMFreeRide::projectToCanvas( const Vector3f &world, float &outX, float &out
     return true;
 }
 
+namespace {
+// The retail spot holograms (scenarics/packs/pack_spots.bnk, SpotHolograms):
+// which icon model a spot wears [DATA: the model names; the spot -> model rule
+// is [INF] from the names and the map's icon labels - the entities.xmb Type
+// conditions are not decoded]. Dealers: the bank 'ECD_MERC' -> 'CD_MERC',
+// 'ECDC_WLD' -> 'CDC_WLD'.
+const char *HologramIconFor( const std::string &bank, const char *pIcon, bool bOwnedHouse, std::string &storage ) {
+    if ( strcmp( pIcon, "cardealer" ) == 0 ) {
+        const size_t us = bank.find( '_' );
+        if ( bank.compare( 0, 4, "ECDC" ) == 0 ) {
+            storage = "CDC" + bank.substr( us );
+        } else {
+            storage = "CD" + bank.substr( us );
+        }
+        return storage.c_str();
+    }
+    if ( strcmp( pIcon, "home" ) == 0 ) {
+        return "Playerhouse";
+    }
+    if ( strcmp( pIcon, "estates" ) == 0 ) {
+        return bank.compare( 0, 3, "EPH" ) == 0 ? ( bOwnedHouse ? "Playerhouse" : "House_To_Buy" ) : "Realtor";
+    }
+    static const struct { const char *Icon, *Model; } kMap[] = {
+        { "clothes", "Clothes_Shop" }, { "tuning", "Tuner" },       { "club", "Club" },
+        { "gamblinghall", "GamblinHall" }, { "carwash", "Car_Wash" }, { "carpaint", "Stickers" },
+        { "rschool", "Racing_School" },    { "photograph", "Photograph" }, { "surgery", "Surgery" },
+        { "stolencar", "Used_Car_Dealer" }, { "hair", "Hair_Stylist" }, { "airport", "Airport" },
+    };
+    for ( const auto &entry : kMap ) {
+        if ( strcmp( pIcon, entry.Icon ) == 0 ) {
+            if ( strcmp( pIcon, "gamblinghall" ) == 0 && bank.compare( 0, 5, "ELAND" ) == 0 ) {
+                return "Casino";
+            }
+            return entry.Model;
+        }
+    }
+    return nullptr;
+}
+// The coloured backplate + pointer of each kind [INF: the Square / Circle /
+// Rhombus x colour set is [DATA]; which kind wears which is read off the
+// owner's capture (event = blue square) and the colour sense of the set].
+const char *HologramFrameFor( const char *pIconModel ) {
+    if ( strcmp( pIconModel, "Playerhouse" ) == 0 ) {
+        return "Square_Red_Frame";
+    }
+    if ( strcmp( pIconModel, "House_To_Buy" ) == 0 || strcmp( pIconModel, "Realtor" ) == 0 ) {
+        return "Rhombus_Blue_Frame";
+    }
+    if ( strncmp( pIconModel, "CD", 2 ) == 0 || strcmp( pIconModel, "Used_Car_Dealer" ) == 0 ) {
+        return "Circle_Orange_Frame";
+    }
+    if ( strcmp( pIconModel, "Club" ) == 0 || strcmp( pIconModel, "My_Club" ) == 0 ||
+         strcmp( pIconModel, "GamblinHall" ) == 0 || strcmp( pIconModel, "Casino" ) == 0 ) {
+        return "Circle_Green_Frame";
+    }
+    if ( strncmp( pIconModel, "Championship", 12 ) == 0 || strcmp( pIconModel, "Event" ) == 0 ||
+         strcmp( pIconModel, "Cup" ) == 0 || strcmp( pIconModel, "Racing_School" ) == 0 ) {
+        return "Square_Blue_Frame";
+    }
+    return "Square_DarkBlue_Frame";
+}
+} // namespace
+
 void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, float speedKmh ) {
     // The spot kinds of the HUD element (HUD.vmf /HUD/enter/Spot frame labels
     // [DATA]) for the building categories of spots.bin [INF: same kinds as
     // the map spot icons].
     const float nearRadius = 60.0f;   // the enter element shows (and A works)
     const float markerRadius = 300.0f; // distant markers show
+    // The 3D spot holograms replace the flat HUD tiles (-flatmarkers: the old look).
+    static const bool bFlatMarkers = CmdLine::HasArg( "-flatmarkers" );
+    const bool bHolo = spotHolograms.isLoaded() && !bFlatMarkers;
     std::string nearName;
     Vector3f nearPosition;
     const char *pNearKind = nullptr;
@@ -2125,8 +2191,17 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
     if ( pNearKind != nullptr && !hud.isLevelUpActive() && !bRaceUp ) {
         bOffRoadShown = false;
         float x = 0.0f, y = 0.0f, scale = 100.0f;
-        spotCanvas( nearSpotPosition, x, y, scale );
-        hud.showEnterSpot( pNearKind, bSlow ? pNearAction : "", x, y, scale );
+        if ( bHolo ) {
+            // The retail ENTER state: the satnav closes in with an ENTER
+            // header and carries the spot's tile + button in its bottom strip;
+            // the spot itself wears its 3D hologram (drawn below).
+            hud.setMinimapEnter( true, pNearAction );
+            hud.getMinimapEnterStrip( x, y, scale );
+            hud.showEnterSpot( pNearKind, "", x, y, scale );
+        } else {
+            spotCanvas( nearSpotPosition, x, y, scale );
+            hud.showEnterSpot( pNearKind, bSlow ? pNearAction : "", x, y, scale );
+        }
     } else if ( ( bOffRoadShown || bBackOnTrackHeld ) && !bRaceUp && !hud.isLevelUpActive() &&
                 !CmdLine::HasArg( "-botforce" ) ) {
         // (Not under the level-up / reward popup: its translucent panel let
@@ -2150,6 +2225,9 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
         if ( !CmdLine::HasArg( "-botforce" ) ) {
             hud.showBackOnTrack( -1.0f );
         }
+    }
+    if ( pNearKind == nullptr || hud.isLevelUpActive() || bRaceUp ) {
+        hud.setMinimapEnter( false );
     }
 
     // The near-car spec card: a traffic car within ~9 m while slowed down -
@@ -2211,6 +2289,17 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
         hud.setPrompt( stationPrompt );
     }
 
+    // The 3D holograms (bHolo): every kind of spot around the car, nearest first.
+    struct HoloSpot {
+        std::string Model;
+        Vector3f Position;
+        float Distance;
+    };
+    std::vector<HoloSpot> holoSpots;
+    const auto addHologram = [&]( const char *pModel, const Vector3f &position ) {
+        holoSpots.push_back( { pModel, position,
+                               Vector3f( position.x - carPosition.x, 0.0f, position.z - carPosition.z ).length() } );
+    };
     // The distant markers: race starts and shops around the car, plus the
     // next checkpoint of a running race.
     FreeRideHud::WorldMarker markers[FreeRideHud::kMaxWorldMarkers];
@@ -2254,14 +2343,30 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
         for ( const RaceEvents::RaceStart &start : raceEvents.getStarts() ) {
             const Vector3f d( start.Position.x - carPosition.x, 0.0f, start.Position.z - carPosition.z );
             if ( d.length() < markerRadius ) {
-                pushMarker( "event", start.Position );
+                if ( bHolo ) {
+                    addHologram( "Event", start.Position );
+                } else {
+                    pushMarker( "event", start.Position );
+                }
             }
         }
     }
     if ( !licenseTest.isActive() ) {
         for ( const ChampionshipSpot &spot : championshipSpots ) {
             if ( Vector3f( spot.Position.x - carPosition.x, 0.0f, spot.Position.z - carPosition.z ).length() < markerRadius ) {
-                pushMarker( spot.Family.c_str(), spot.Position );
+                if ( bHolo ) {
+                    // The family -> the pack's championship model [INF: the
+                    // numbered variants (01..07) are per championship, the
+                    // first stands for all].
+                    const std::string &family = spot.Family;
+                    addHologram( family.compare( 0, 4, "dirt" ) == 0      ? "Championship_Dirt_01"
+                                 : family.compare( 0, 7, "classic" ) == 0  ? "Championship_Classic_01"
+                                 : family.compare( 0, 3, "cup" ) == 0      ? "Cup"
+                                                                           : "Championship_Asphalt_01",
+                                 spot.Position );
+                } else {
+                    pushMarker( spot.Family.c_str(), spot.Position );
+                }
             }
         }
     }
@@ -2293,6 +2398,16 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
         mapScreen.forEachSpot( [&]( const std::string &name, const char *pIcon, const Vector3f &position, uint64_t id, int32_t logo ) {
             const float distance =
                 Vector3f( position.x - carPosition.x, 0.0f, position.z - carPosition.z ).length();
+            if ( bHolo ) {
+                if ( distance < markerRadius ) {
+                    std::string storage;
+                    const char *pModel = HologramIconFor( name, pIcon, name.compare( 0, 3, "EPH" ) == 0 && IsHouseOwned( id ), storage );
+                    if ( pModel != nullptr ) {
+                        holoSpots.push_back( { storage.empty() ? std::string( pModel ) : storage, position, distance } );
+                    }
+                }
+                return;
+            }
             if ( distance >= markerRadius ||
                  ( pNearKind != nullptr && ( nearSpotPosition - position ).length() < 1.0f ) ) {
                 return;
@@ -2316,6 +2431,61 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
             OTDU_LOG_INFO( "FREERIDE: %zu shop markers in %.0f m (nearest '%s' at %.0f m)\n", shops.size(), markerRadius,
                            shops[0].pKind, shops[0].Distance );
         }
+    }
+    if ( bHolo ) {
+        std::vector<SpotHolograms::Placement> placements;
+        if ( !bRaceUp && !CmdLine::HasArg( "-noshopmarkers" ) ) {
+            std::sort( holoSpots.begin(), holoSpots.end(),
+                       []( const HoloSpot &a, const HoloSpot &b ) { return a.Distance < b.Distance; } );
+            static bool bLoggedHolo = false;
+            if ( !bLoggedHolo && !holoSpots.empty() ) {
+                bLoggedHolo = true;
+                OTDU_LOG_INFO( "FREERIDE: %zu spot holograms in %.0f m (nearest '%s' at %.0f m)\n", holoSpots.size(),
+                               markerRadius, holoSpots[0].Model.c_str(), holoSpots[0].Distance );
+            }
+            const Vector3f eye = camera.Position;
+            int32_t shown = 0;
+            for ( const HoloSpot &spot : holoSpots ) {
+                if ( shown >= 12 ) {
+                    break;
+                }
+                const int32_t icon = spotHolograms.findModel( spot.Model.c_str() );
+                if ( icon < 0 ) {
+                    continue;
+                }
+                shown++;
+                static const bool bLogHolo = CmdLine::HasArg( "-logmarkers" );
+                static uint32_t holoTick = 0;
+                if ( bLogHolo && ( holoTick++ % 120 ) == 0 ) {
+                    float hx = 0.0f, hy = 0.0f, hd = 0.0f;
+                    const bool bOn = projectToCanvas( spot.Position + Vector3f( 0.0f, 12.0f, 0.0f ), hx, hy, hd );
+                    OTDU_LOG_INFO( "FREERIDE: hologram '%s' at %.0f m, canvas (%.0f, %.0f)%s\n", spot.Model.c_str(), spot.Distance,
+                                   hx, hy, bOn ? "" : " (behind the camera)" );
+                }
+                SpotHolograms::Placement placement;
+                // A spot is the entrance in the facade: the plate floats in
+                // FRONT of the building, nudged toward the viewer so the wall
+                // does not swallow it [INF: the retail offset is not decoded].
+                {
+                    const float tx = eye.x - spot.Position.x, tz = eye.z - spot.Position.z;
+                    const float len = Max( std::sqrt( tx * tx + tz * tz ), 0.01f );
+                    const float nudge = Min( 12.0f, len * 0.4f );
+                    placement.Position = spot.Position + Vector3f( tx / len * nudge, 0.0f, tz / len * nudge );
+                }
+                // The hologram is a flat plate: it turns to face the viewer
+                // about the vertical axis [INF]; its size grows with the
+                // distance so a marker down the road stays readable.
+                placement.Heading = std::atan2( eye.x - spot.Position.x, eye.z - spot.Position.z );
+                placement.Scale = Clamp( spot.Distance / 60.0f, 1.0f, 2.2f );
+                placement.ModelIndex = spotHolograms.findModel( HologramFrameFor( spot.Model.c_str() ) );
+                if ( placement.ModelIndex >= 0 ) {
+                    placements.push_back( placement );
+                }
+                placement.ModelIndex = icon;
+                placements.push_back( placement );
+            }
+        }
+        spotHolograms.setPlacements( placements );
     }
     // -markertest <kind>[,<kind>...]: markers pinned across the upper screen
     // at full size (the art / layout check of each Spot kind).

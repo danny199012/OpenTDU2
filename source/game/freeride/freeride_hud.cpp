@@ -132,6 +132,7 @@ void PushArc( std::vector<Vertex2D> &out, float cx, float cy, float r0, float r1
 // Reference screenshot layout (1280 x 720 canvas) [INF: GAUGES.vmf missing].
 constexpr float kGaugeX = 1107.0f, kGaugeY = 570.0f, kGaugeRadius = 84.0f;
 constexpr float kMapMetersPerPixel = 3.0f; // [INF]
+constexpr float kEnterMapZoom = 0.45f;     // ENTER state: the map closes in [INF: the capture shows ~2x]
 } // namespace
 
 bool FreeRideHud::load( const std::string &hudFileName ) {
@@ -1156,7 +1157,42 @@ void FreeRideHud::showEnterSpot( const char *pSpotKind, const std::string &text,
         FlashCanvasToStage( canvasX, canvasY, hudStageWidth(), hudStageHeight(), anchorX, anchorY );
         hud.setClipTransform( "/HUD/enter", anchorX - 23.6f * s, anchorY - 328.0f * s, 0.0f, scalePercent,
                               scalePercent );
+        if ( bMinimapEnter_ ) {
+            // The satnav strip: the tile, and to its right the prompt bar's
+            // button glyph alone (the retail capture: tile + the A button; the
+            // word ENTER is the header). The bar's backdrop (depth 1) and
+            // text (depth 2) are hidden; its origin is put so the glyph (local
+            // centre ~ (1, 17), 38 px at 100 %) lands beside the tile at a
+            // strip-sized 30 px.
+            hud.setClipVisible( "/HUD/enter/enter_txt", true );
+            hud.setInstanceVisible( "/HUD/enter/enter_txt", 1, false );
+            hud.setInstanceVisible( "/HUD/enter/enter_txt", 2, false );
+            const float glyphCanvasX = canvasX + 0.21f * mapRectW, glyphCanvasY = canvasY - 21.0f; // [measured: the glyph's local centre]
+            float glyphX = 0.0f, glyphY = 0.0f;
+            FlashCanvasToStage( glyphCanvasX, glyphCanvasY, hudStageWidth(), hudStageHeight(), glyphX, glyphY );
+            const float glyphScale = ( 30.0f / 38.0f ) / s;
+            hud.setClipTransform( "/HUD/enter/enter_txt", ( glyphX - ( anchorX - 23.6f * s ) ) / s - 1.0f * glyphScale,
+                                  ( glyphY - ( anchorY - 328.0f * s ) ) / s - 17.0f * glyphScale, 0.0f,
+                                  glyphScale * 100.0f, glyphScale * 100.0f );
+        }
     }
+}
+
+float FreeRideHud::mapMetersPerPixel() const {
+    return kMapMetersPerPixel * minimapZoom_;
+}
+
+void FreeRideHud::getMinimapEnterStrip( float &outX, float &outY, float &outScalePercent ) const {
+    // The satnav's bottom band (the movie's /HUD/minimap/#10 strip) sits under
+    // the map surface; the retail ENTER state puts the tile at its left third.
+    outX = mapRectX + 0.30f * mapRectW;
+    outY = mapRectY + 1.0f * mapRectH + 0.055f * mapRectH;
+    outScalePercent = 50.0f;
+}
+
+void FreeRideHud::setMinimapEnter( bool bEnter, const std::string &label ) {
+    bMinimapEnter_ = bEnter;
+    enterLabel_ = label;
 }
 
 void FreeRideHud::closeEnterSpot() {
@@ -1699,8 +1735,8 @@ void FreeRideHud::setMinimapObjectives( const MinimapObjective *pObjectives, int
             continue;
         }
         const Vector3f d( pObjectives[i].Position.x - state.CarX, 0.0f, pObjectives[i].Position.z - state.CarZ );
-        float x = centreX + d.dot( right ) / kMapMetersPerPixel;
-        float y = centreY - d.dot( forward ) / kMapMetersPerPixel;
+        float x = centreX + d.dot( right ) / mapMetersPerPixel();
+        float y = centreY - d.dot( forward ) / mapMetersPerPixel();
         // Off the map: on the edge, along the line from the car.
         const float dx = x - centreX, dy = y - centreY;
         float t = 1.0f;
@@ -2302,6 +2338,15 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
     // the HUD movie so its bezel / bottom band / status icons overlay the map
     // like the retail satnav. No frame of our own — the movie is the frame.
     const float x0 = mapRectX, y0 = mapRectY, x1 = mapRectX + mapRectW, y1 = mapRectY + mapRectH;
+    // The ENTER state (the retail satnav beside a spot): the map eases in to
+    // kEnterMapZoom of its normal scale and eases back out.
+    {
+        const float target = bMinimapEnter_ ? kEnterMapZoom : 1.0f;
+        minimapZoom_ += ( target - minimapZoom_ ) * 0.18f;
+        if ( std::fabs( target - minimapZoom_ ) < 0.004f ) {
+            minimapZoom_ = target;
+        }
+    }
     // The road triangles are clipped by a GPU scissor instead of
     // Sutherland-Hodgman on the CPU, and the vertex list is rebuilt at ~20 Hz
     // only when something moved (session 73 `cline`; the d92c85e merge kept
@@ -2315,7 +2360,8 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
                           triangleCount != cache.TriangleCount || std::fabs( state.CarX - cache.CarX ) > 0.75f ||
                           std::fabs( state.CarZ - cache.CarZ ) > 0.75f ||
                           std::fabs( state.HeadingX - cache.HeadingX ) > 0.01f ||
-                          std::fabs( state.HeadingZ - cache.HeadingZ ) > 0.01f || x0 != cache.RectX ||
+                          std::fabs( state.HeadingZ - cache.HeadingZ ) > 0.01f || std::fabs( minimapZoom_ - cache.Zoom ) > 0.004f ||
+                          x0 != cache.RectX ||
                           y0 != cache.RectY || mapRectW != cache.RectW || mapRectH != cache.RectH ||
                           pRoute_ != cache.pRoute || routeLength_ != cache.RouteLength ||
                           ( pRoute_ != nullptr && pRoute_->size() != cache.RouteSize );
@@ -2337,6 +2383,7 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
         cache.CarZ = state.CarZ;
         cache.HeadingX = state.HeadingX;
         cache.HeadingZ = state.HeadingZ;
+        cache.Zoom = minimapZoom_;
         cache.RectX = x0;
         cache.RectY = y0;
         cache.RectW = mapRectW;
@@ -2351,14 +2398,14 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
         const Vector3f right( -forward.z, 0.0f, forward.x );
         auto toMap = [&]( const Vector3f &p ) {
             const Vector3f d( p.x - state.CarX, 0.0f, p.z - state.CarZ );
-            return Vector2f( center.x + d.dot( right ) / kMapMetersPerPixel, center.y - d.dot( forward ) / kMapMetersPerPixel );
+            return Vector2f( center.x + d.dot( right ) / mapMetersPerPixel(), center.y - d.dot( forward ) / mapMetersPerPixel() );
         };
         if ( pCollision != nullptr ) {
             // GamePC.cpr [HudMap]: AIRL_ROAD unlocked colour 0 255 255 (the
             // reference shows white roads at this stage [INF]). Unclipped: the
             // scissor above trims them to the map surface.
             const uint32_t roadColor = Rgba( 235, 235, 235, 255 );
-            const float radius = mapRectW * kMapMetersPerPixel;
+            const float radius = mapRectW * mapMetersPerPixel();
             constexpr float kQueryMargin = 150.0f;
             const float dx = state.CarX - cache.QueryX, dz = state.CarZ - cache.QueryZ;
             if ( cache.pQueryCollision != pCollision || cache.QueryTriangleCount != triangleCount ||
@@ -2392,7 +2439,7 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
         }
         // GPS route: a red line along the route within the minimap radius.
         if ( pRoute_ != nullptr && pRoute_->size() > 1 ) {
-            const float radius = mapRectW * kMapMetersPerPixel;
+            const float radius = mapRectW * mapMetersPerPixel();
             auto clipSegment = [&]( Vector2f &a, Vector2f &b ) {
                 // Liang-Barsky against the minimap rectangle.
                 float t0 = 0.0f, t1 = 1.0f;
@@ -2446,6 +2493,19 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
         // the map centre at load — no arrow of our own over the movie art.
         renderer.drawTriangles( nullptr, vertices.data(), static_cast<uint32_t>( vertices.size() ) );
         renderer.clearClipRect();
+    }
+    // The ENTER header (the retail capture: a dark band across the top of the
+    // satnav with the word ENTER [INF: band height / font read off the capture]).
+    if ( bMinimapEnter_ && minimapZoom_ < 0.9f ) {
+        const float bandH = 0.17f * mapRectH;
+        renderer.drawRect( Rect2D( x0, y0, mapRectW, bandH ), Rgba( 8, 10, 16, 235 ) );
+        renderer.drawRect( Rect2D( x0, y0 + bandH - 1.0f, mapRectW, 1.0f ), Rgba( 70, 80, 100, 255 ) );
+        std::string label = enterLabel_.empty() ? "Enter" : enterLabel_;
+        for ( char &c : label ) {
+            c = static_cast<char>( toupper( static_cast<unsigned char>( c ) ) );
+        }
+        renderer.drawText( gpFlash->getTitleFont(), label.c_str(), x0 + 0.5f * mapRectW, y0 + 0.18f * bandH, 0.62f * bandH,
+                           Rgba( 235, 238, 245 ), eTextAlign::TA_Center, 2.0f );
     }
     // Metal detector: a bar that fills as the wreck gets closer (the real device
     // bips faster, 1.35 s far to 0.20 s near) [INF look]; below the movie's own

@@ -34,6 +34,7 @@ public:
         int32_t ModelIndex = -1;
         Vector3f Position;
         float Heading = 0.0f;
+        float Scale = 1.0f;
     };
 
     ~SpotHolograms() { unload(); }

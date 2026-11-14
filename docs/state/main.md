@@ -3,6 +3,26 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 10th): the retail 3D spot holograms and the satnav ENTER state
+
+The owner: "there's a bunch of hologram markers in the game for races, houses, dealerships, shops etc.... Just like in this picture can we implement them please and also the map changes when in a certain radius of these and it shows you can enter can this also be implemented as our current implementation isn't correct."
+
+### What changed
+- Resumed the parked `wip/spot-holograms` work (cherry-picked `cf853c6`, it built and ran): `source/game/freeride/spot_holograms.{h,cpp}` loads `scenarics/packs/pack_spots.bnk` - 64 models [DATA] (`-logspotholo` lists them): 56 icon plates (`Clothes_Shop`, `Tuner`, `Playerhouse`, `House_To_Buy`, `Realtor`, `CD_<bank>` per dealer, `Event`, `Championship_*`, ...) and 8 backplates (`Square_Blue/DarkBlue/Red_Frame`, `Rhombus_Blue_Frame`, `Circle_Orange/Blue/Green/DarkBlue_Frame` - the plate with the pointer cone). `Placement` gained `Scale`.
+- `gm_freeride.cpp` `tickWorldSpots`: every map spot / race start / championship start within 300 m (12 nearest) gets its hologram = a backplate + the icon plate, turned about the vertical axis to face the camera, nudged up to 12 m toward the viewer (the spot is the entrance in the facade - the wall swallowed the plate otherwise) and scaled 1..2.2x with distance. The flat 2D HUD tiles are used only with `-flatmarkers` (or when the pack does not load). `HologramIconFor` / `HologramFrameFor` hold the spot -> model rules.
+- The satnav ENTER state (`freeride_hud.{h,cpp}`, `setMinimapEnter`, `getMinimapEnterStrip`): within the enter radius (60 m, `nearRadius`) the map eases to 0.45x metres-per-pixel (`mapMetersPerPixel()`, cache-keyed on the zoom), a dark header band reads ENTER (loc 1703, upper-cased), and the bottom strip carries the spot's tile (the movie's own `/HUD/enter/Spot`) with the prompt bar's button glyph beside it (the movie's platform logic picks the pad glyph). The old top-right card is gone in this mode.
+
+### Verified
+- `-tp 11530,4,16850 -heading 125 -autoplay "300:shot=..."`: the Clothes_Shop hologram (blue plate, suit icon, pointer cone) floats over the B-Miami building and the satnav shows ENTER + tile + glyph (`docs/images/spot_hologram_enter.webp`). `-tp 7445,17060 -heading 0`: the `House_To_Buy` rhombus 134 m down the beach. `-logmarkers` prints each hologram's canvas position.
+
+### [INF] / not decoded (be honest)
+- Which spot wears which backplate colour/shape, the plate offset toward the viewer, the distance scaling and the 0.45x zoom are read off one retail capture + colour sense; the `entities.xmb` `Type` conditions that select SpotMesh / SpotMeshAddOn in the retail game are not decoded (raw words in `-logspotholo`). The retail header / strip layout was matched by eye.
+- The `Arrow_*` / `Pulse` UVA scroll animation is bound (`bindUVAnimations`) but the plates look static in screenshots; not checked in motion. Not run with the validation layer. Owned-house `My_Club`, `DLC_Event`, `Dual`, `Radar_Multi`, `Speed_Multi`, `Spot_Photo`, `FTL_Coop`, `KYD_Coop`, race checkpoints are unmapped (no spot kind drives them yet).
+- The ENTER strip tile is the old 2D art at 50 % (retail's strip icon not separately identified); the road-name label / route line of the retail minimap in this state are not reproduced.
+
+### Next
+- Run the headless drive with `-vk_enable_validation_layer`, check the plates' motion, and decode the `Type` conditions (`spot_holograms.cpp`, `TypeRaw`) so each spot picks its frame by data.
+
 ## Session 2026-11-14 (`main`, 9th): the Solar Crown arrival - the red carpet and the walk are on the stairs
 
 The owner: "in the scene where you drive tess to the solar crown the walk up the stairs and the carpet aren't aligned correctly".

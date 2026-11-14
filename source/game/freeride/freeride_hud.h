@@ -109,6 +109,12 @@ public:
     void showEnterSpot( const char *pSpotKind, const std::string &text, float canvasX, float canvasY, float scalePercent,
                         bool bLocked = false );
     void closeEnterSpot();
+    // The satnav's ENTER state (the retail capture beside a spot): the map
+    // closes in, a header band reads ENTER; the spot tile + button glyph sit in
+    // the bottom strip (showEnterSpot, placed by the caller at minimapEnterStrip).
+    void setMinimapEnter( bool bEnter, const std::string &label = std::string() );
+    // The strip's tile anchor in canvas px (the tile centre) and its scale.
+    void getMinimapEnterStrip( float &outX, float &outY, float &outScalePercent ) const;
     // Distant markers: clones of the whole element with the prompt hidden
     // (retail shows the same tile above spots down the road). The markers are
     // re-described every frame (kind + projected position); up to 8.
@@ -446,6 +452,10 @@ private:
     // The map surface rect in canvas px: the mmap_lure box mapped through the
     // stage's screen-ratio rect (the same mapping beginStage draws with).
     bool computeMapRect();
+    float mapMetersPerPixel() const;
+    bool bMinimapEnter_ = false;
+    std::string enterLabel_;
+    float minimapZoom_ = 1.0f;
     float mapRectX = 115.0f, mapRectY = 454.0f, mapRectW = 190.0f, mapRectH = 190.0f;
     // Stage dimensions of the HUD movie (the FlashCanvasToStage target).
     float hudStageWidth() const;
@@ -462,6 +472,7 @@ private:
         std::vector<Vertex2D> Vertices;
         uint32_t Frame = 0, BuildFrame = 0;
         float CarX = 0.0f, CarZ = 0.0f, HeadingX = 0.0f, HeadingZ = 0.0f;
+        float Zoom = 1.0f;
         float RectX = 0.0f, RectY = 0.0f, RectW = 0.0f, RectH = 0.0f;
         size_t TriangleCount = static_cast<size_t>( -1 );
         const VehicleWorldCollision *pCollision = nullptr;
