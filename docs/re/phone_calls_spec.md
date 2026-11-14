@@ -72,7 +72,7 @@ saved fields of `SCPhoneCalls` (registration order, `0x14da938..0x14dab88`):
   code that writes them (`HudMap` / `MngRoadNetwork` `0xd07120`) and is anchored by no string.
 
 ## Not done / next [INF]
-1. **The trigger conditions**: not in the `SCPhoneCalls` functions (save serialisation, above). Next anchor: `MngPhone2` (`EFAO_MngPhone`; string at `0xd20e50`) and the
+1. **The trigger conditions**: not in the `SCPhoneCalls` functions (save serialisation, above). Next anchor: `MngPhone2` - `0xd20e50` is only its class-name getter (`mov eax, 0x150e8a8; ret`), so find the vtable that holds `0xd20e50` (`--vtable`) and read its Update slot; `LAUNCH PHONE CALL` (`0x1502350`) has no code xref (debug-menu table); `EFAO_MngPhone` (`0x148b410`) is used at `0x4e2950` and the
    caller of the save-field readers; `python tools/devbuild_disasm.py --dis <va>` (needs `capstone` + `pefile`, not `-I`). Retail twin is `[ENC]`.
 2. HUD side: drive the movie's `/HUD/phone_call` clip (`phone_message` / `lure`) from a queue; play `pc_*.wav` through the voices path; Yes/No uses the in-car menu pad.
 3. Persist the "already called" counters in `SCPhoneCallsSave` (layout in `savegame_spec.md`).
