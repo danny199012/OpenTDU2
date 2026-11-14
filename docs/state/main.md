@@ -8,7 +8,7 @@ appends its entry at the top of this file**, newest first, in the
 The owner: "in the scene where you drive tess to the solar crown the walk up the stairs and the carpet aren't aligned correctly".
 
 **Reproduced** (carpet a stair-width left of the house stairs, Tess and the player walking up the carpet's line, off the steps):
-    build-mainin\opentdu2-main.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata C:	emp\otdu2-win-userdata -storystep 5 -nopad -fixedtimestep -playername Danny -autoplay "100:shot=...;330:shot=..." -exitframe 430
+    build-main\bin\opentdu2-main.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata C:\temp\otdu2-win-userdata -storystep 5 -nopad -fixedtimestep -playername Danny -autoplay "100:shot=...;330:shot=..." -exitframe 430
 
 ### What changed
 - `source/game/avatarchoice/intro_cinematic.{h,cpp}` - `Setup::SceneLocalOffset`: the scene frame (`sceneOrigin`) is moved along the spot's local axes while the exterior bank stays at `spotOrigin`; scene-bank props named `door*` (`Prop::bKeepSpotFrame`) stay on the house (they copy the exterior's gate leaves).
