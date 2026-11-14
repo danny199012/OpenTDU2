@@ -169,6 +169,8 @@ public:
     // satnav uses it as its "redraw the roads" key.
     inline const std::vector<std::array<float, 4>> &getRoadBoxes() const { return edgeBoxes; }
     inline float getExploredLength() const { return exploredLength; }
+    // The road link nearest to a point within maxDistance metres (-1: none).
+    inline int32_t getRoadLinkNear( const Vector3f &point, float maxDistance ) const { return findRoadNear( point, maxDistance ); }
     // True when that link has been driven (it is drawn in its class colour; an
     // undiscovered link stays grey like the retail, and it refuses fast travel).
     inline bool isRoadExplored( int32_t edge ) const {

@@ -6315,6 +6315,23 @@ void GMFreeRide::tick( float deltaTime ) {
             phoneContext.bDecline = gpInput->wasPressed( eInputAction::IA_MenuBack );
         }
         phoneCalls.tick( deltaTime, phoneContext, hud );
+        // -logroadclass: the class byte of the road link under the car, logged when it
+        // changes - drive a known dirt track and read which class it is (the satnav
+        // colours class 3 yellow [INF], docs/re/roads_spec.md).
+        if ( CmdLine::HasArg( "-logroadclass" ) ) {
+            static int32_t lastLink = -2;
+            const Vector3f here = carWorld.getTranslation();
+            const int32_t link = mapScreen.getRoadLinkNear( here, 12.0f );
+            if ( link != lastLink ) {
+                lastLink = link;
+                const auto &classes = mapScreen.getRoadClasses();
+                if ( link >= 0 && static_cast<size_t>( link ) < classes.size() ) {
+                    OTDU_LOG_INFO( "roadclass: link %d class %d at (%.0f, %.0f)\n", link, static_cast<int32_t>( classes[link] ), here.x, here.z );
+                } else {
+                    OTDU_LOG_INFO( "roadclass: off the road graph at (%.0f, %.0f)\n", here.x, here.z );
+                }
+            }
+        }
         // Accepting a call points the GPS at the place it talks about: the
         // nearest spot of that kind [INF].
         const std::string accepted = phoneCalls.takeAccepted();

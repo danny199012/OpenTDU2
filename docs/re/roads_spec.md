@@ -51,6 +51,11 @@ Hawai: nothing separates a class (word 0 high half `3` is the only thing classes
 runtime `RoadNetworkPoly` resource, not by `ROAD_MAP.IA` [CODE-dev, per the owner's relay; not re-checked]. The commonworld bank has road texture families `crossroad_color_{circuit,country,goudron,national,town}` /
 `crossroad_detail_{country,oldtown,town}` - a likely naming of the road types (country = dirt track) [INF]; the type per link may come from the road mesh textures of the sectors.
 
+**GLM's correction (relayed 2026-11-14):** `RoadNetworkPoly` is only the runtime container MngRoadNetwork fills from the island bank's group 12 (`ROAD_MAP.IA` sub 0, `ROAD_DETAIL.IA` sub 1), and the type byte the
+dev renderer reads at piece `+0x11` is probably the `DAOR +12` class, indexed into the `[HudMap]` AIRL colour table (class 3 = offroad 243/196/6) [CODE-dev + INF, not verified in data]. Against it: Hawai's byte reaches
+11 (the AIRL table has 7 rows), class 0 is 54-58 % of the links, and the road collision shows nothing different under class 3. **Ground truth needed:** `-logroadclass` logs the class of the link under the car whenever it
+changes (`roadclass: link N class C at (x, z)`); drive a known dirt track on each island and read the class. `-dirtclass <n>` overrides the yellow one.
+
 ## ROAD_DETAIL.IA `[DATA]`
 `DI41DAEH` header, then **`ATED`** records, one per road (1392, id = the DAOR id): `+4 id, +8 N` (9 on road 1),
 `N` byte offsets from the record start, then N sub-blocks of 5 header words (`0x60007, 18, 257, 1, 0xc90204` ...

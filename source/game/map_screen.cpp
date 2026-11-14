@@ -2069,6 +2069,20 @@ void MapScreen::loadRoads( const std::string &island ) {
         }
     }
     if ( CmdLine::HasArg( "-logroadfields" ) ) {
+        // DAOR +8 bytes (flag, lanes?) against the +12 class.
+        std::map<std::string, int32_t> lanes;
+        for ( const size_t offset : roadOffsets ) {
+            char key[32];
+            snprintf( key, sizeof( key ), "b8=%d b9=%d b10=%d cls%d", pData[offset + 8], pData[offset + 9], pData[offset + 10], pData[offset + 12] );
+            lanes[key]++;
+        }
+        std::string lanesLine;
+        for ( const auto &entry : lanes ) {
+            lanesLine += " [" + entry.first + "]:" + std::to_string( entry.second );
+        }
+        OTDU_LOG_INFO( "MapScreen: DAOR +8 bytes x class:%s\n", lanesLine.c_str() );
+    }
+    if ( CmdLine::HasArg( "-logroadfields" ) ) {
         // The first sub-block header of each ATED record (5 words) against the DAOR +12 class.
         for ( size_t word = 0; word < 5; word++ ) {
             std::map<std::string, int32_t> cross;
