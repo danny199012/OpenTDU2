@@ -47,13 +47,43 @@ void ParseHourMinute( const char *pText, int32_t &outHour, int32_t &outMinute ) 
 }
 } // namespace
 
+namespace {
+// The retail clock [CODE-dev, the dev build's edSys2 SystemTimer, read by GLM]: a game day is
+// 10800 real seconds (SETDAYDURATION's initial value, 3 hours), counted from the wall clock
+// against an anchor of 2007-01-01 00:00 local time: time of day = ((now - anchor) mod 10800) /
+// 10800 x 24 h. The same real moment is the same game time on every machine, 8 game days per
+// real day, and nothing is saved - the clock is a pure function of the wall clock.
+constexpr double kDayDurationSeconds = 10800.0;
+constexpr float kRetailRate = 86400.0f / 10800.0f;
+
+float RetailSecondsOfDay() {
+    static const std::time_t anchor = [] {
+        std::tm base = {};
+        base.tm_year = 2007 - 1900;
+        base.tm_mon = 0;
+        base.tm_mday = 1;
+        base.tm_isdst = -1;
+        return std::mktime( &base );
+    }();
+    const double now = std::chrono::duration<double>( std::chrono::system_clock::now().time_since_epoch() ).count();
+    const double elapsed = now - static_cast<double>( anchor );
+    double phase = std::fmod( elapsed, kDayDurationSeconds ) / kDayDurationSeconds;
+    if ( phase < 0.0 ) {
+        phase += 1.0;
+    }
+    return static_cast<float>( phase * 86400.0 );
+}
+} // namespace
+
 void WeatherCycle::load( const WeatherLibrary &library ) {
     pLibrary = &library;
     pPreset = nullptr;
     presetIndex = -1;
     intempery = 0;
     bPinned = false;
-    rate = 1.0f;
+    rate = kRetailRate;
+    weatherClock = 0.0f;
+    bWallClock = !CmdLine::HasArg( "-clockrate" ) && !CmdLine::HasArg( "-clocktime" ) && !CmdLine::HasArg( "-clock" );
     rng.seed( static_cast<uint32_t>( std::chrono::system_clock::now().time_since_epoch().count() ) );
     if ( const char *pRate = CmdLine::GetArgValue( "-clockrate" ) ) {
         rate = Clamp( static_cast<float>( atof( pRate ) ), 0.0f, 1000.0f );
@@ -80,6 +110,11 @@ void WeatherCycle::load( const WeatherLibrary &library ) {
         ParseHourMinute( CmdLine::GetArgValue( "-clocktime" ), startHour, startMinute );
         ParseHourMinute( CmdLine::GetArgValue( "-clock" ), startHour, startMinute );
         secondsOfDay = static_cast<float>( startHour ) * 3600.0f + static_cast<float>( startMinute ) * 60.0f;
+        if ( bWallClock ) {
+            secondsOfDay = RetailSecondsOfDay();
+            startHour = static_cast<int32_t>( secondsOfDay ) / 3600;
+            startMinute = ( static_cast<int32_t>( secondsOfDay ) / 60 ) % 60;
+        }
         hour = startHour;
         minute = startMinute;
         lastMinuteOfDay = startHour * 60 + startMinute;
@@ -121,7 +156,7 @@ void WeatherCycle::load( const WeatherLibrary &library ) {
     presetIndex = findTimePreset( lastMinuteOfDay );
     intempery = kFirstIntempery;
     pPreset = presetFor( presetIndex, intempery );
-    nextStateChange = secondsOfDay + 60.0f + static_cast<float>( rng() % 120u );
+    nextStateChange = weatherClock + ( 60.0f + static_cast<float>( rng() % 120u ) ) * ( bWallClock ? kRetailRate : 1.0f );
     OTDU_LOG_INFO( "WeatherCycle: clock %02d:%02d, weather '%s' intempery %d, rate %.2f\n", hour, minute,
                    pPreset != nullptr ? pPreset->Name.c_str() : "(none)", intempery, rate );
 }
@@ -146,9 +181,14 @@ WeatherCycle::Tick WeatherCycle::tick( float deltaTime ) {
     }
     // The clock: real time by default (rate 1), so the game's day is the
     // player's. It wraps at midnight.
-    secondsOfDay += Max( deltaTime, 0.0f ) * rate;
-    if ( secondsOfDay >= 86400.0f ) {
-        secondsOfDay = std::fmod( secondsOfDay, 86400.0f );
+    weatherClock += Max( deltaTime, 0.0f ) * rate;
+    if ( bWallClock ) {
+        secondsOfDay = RetailSecondsOfDay(); // the retail clock: the wall clock, a 3 h day
+    } else {
+        secondsOfDay += Max( deltaTime, 0.0f ) * rate;
+        if ( secondsOfDay >= 86400.0f ) {
+            secondsOfDay = std::fmod( secondsOfDay, 86400.0f );
+        }
     }
     const int32_t nowHour = static_cast<int32_t>( secondsOfDay ) / 3600;
     const int32_t nowMinute = ( static_cast<int32_t>( secondsOfDay ) / 60 ) % 60;
@@ -165,7 +205,7 @@ WeatherCycle::Tick WeatherCycle::tick( float deltaTime ) {
         result.bPresetChanged = true;
     }
     // The weather state expires after the duration nextState() gave it.
-    if ( secondsOfDay >= nextStateChange ) {
+    if ( weatherClock >= nextStateChange ) {
         intempery = nextState();
         pPreset = presetFor( presetIndex, intempery );
         result.bPresetChanged = true;
@@ -231,7 +271,7 @@ int32_t WeatherCycle::nextState() {
     } else {
         minutes = kClearMinutesMin + roll * ( kClearMinutesMax - kClearMinutesMin );
     }
-    nextStateChange = secondsOfDay + minutes * 60.0f;
+    nextStateChange = weatherClock + minutes * 60.0f * ( bWallClock ? kRetailRate : 1.0f );
     OTDU_LOG_INFO( "WeatherCycle: weather state %d -> %d for %.0f min (clock %02d:%02d)\n", intempery, next, minutes,
                    hour, minute );
     return next;

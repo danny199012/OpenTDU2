@@ -9,11 +9,12 @@ class WeatherLibrary;
 
 // The in-game clock and the weather it drives.
 //
-// The retail clock is in the encrypted part of the game (the pause screen's
-// 12:36 / 18:14 came from there, docs/SURVEY.md), so the port runs its own:
-// from the machine clock, 1 game second per real second by default, so the
-// game's time of day is the player's (`-clocktime HH:MM` to start elsewhere,
-// `-clockrate x` for a faster day/night cycle in a test run). The world is lit
+// The retail clock [CODE-dev, edSys2 SystemTimer in the dev build]: a game day is 10800 real
+// seconds (3 h, SETDAYDURATION's initial value), the time of day is
+// ((wall clock - 2007-01-01 00:00 local) mod 10800) / 10800 x 24 h - 8 game days per real
+// day, the same real moment is the same game time everywhere, and nothing is saved.
+// (`-clocktime HH:MM` starts elsewhere, `-clockrate x` / `-clock` leave the wall clock for a
+// test run.) The world is lit
 // with the game_weathers.xmb preset nearest *below* that time - the file is a
 // list of times of day ("00", "01.30", ... "23.20", docs/re/freeride_spec.md 5)
 // - and the pause screen clock follows it.
@@ -64,7 +65,11 @@ private:
     float secondsOfDay = 12.0f * 3600.0f;
     int32_t hour = 12, minute = 0;
     int32_t lastMinuteOfDay = 12 * 60;
-    float rate = 1.0f;      // game seconds per real second
+    float rate = 8.0f;      // game seconds per real second: the retail day is 10800 s [CODE-dev]
+    // True when the time of day is read from the wall clock like the retail's edSys2 SystemTimer
+    // (docs/state/main.md): no -clock / -clocktime / -clockrate given.
+    bool bWallClock = false;
+    float weatherClock = 0.0f; // game seconds since the run began (the weather schedule; never wraps)
     bool bPinned = false;
     // The weather state (intempery of the current time preset) and when it ends
     // (seconds of day, so a clock rate changes nothing about the schedule).
