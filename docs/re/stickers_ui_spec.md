@@ -126,11 +126,15 @@ Variables the game writes (all `/:` unless a path is given) [DATA: read by the s
 
 ## 5. The car view
 
-While the movie is between `mcin` and `mcou` the room is not drawn: the freeride scene is
-(the car parked outside), the movie over it (`IntroCinematic::drawUi`). The old cut never
-actually showed the car from inside a room - the interior branch of `GMFreeRide::tick`
-returned before `view.setCamera`; it sets the orbit camera now. The retail `C_NEW_CAR_DESIGN_I`
-cameras are not used [INF].
+While the movie is between `mcin` and `mcou` the editor camera orbits the player's car **inside the
+shop room**: the room's `Entity__PosCam` `D_CAR` is the turntable ("STICKERS" / "CAR PAINT" signs
+behind it) [DATA: `istick_b.bnk`; owner's retail video frames 2026-11-14 show the car on it]. The
+shop keeps its own copy of the car there (`InteriorWalk::placeStickerCar`, a display car in the
+player's dealer + custom paint); the sticker canvas is bound to it and the Paint page recolours
+it. The orbit is scene-local (`IntroCinematic::setLocalCamera`, right stick / D-pad / right mouse /
+wheel). The old cut to the car parked outside is kept only when the room has no car place. The
+retail `C_NEW_CAR_DESIGN_I` cameras (`cam_new_car_01..05`) and the `sti_carready` arrival are not
+used [INF].
 
 ## 6. Colours
 
@@ -241,3 +245,10 @@ Metal / the menu with the $1 000 cart / the second colour's cursor), `_paint_bic
 round trip: `paid 1000 (0 sticker(s) on car 431, custom paint), money now 93000` -> `profile.sav`
 `car_custom_paints = 431:2;1;4282712175;4278218521`; B on colour 1 puts the original blue back
 (`pain:colo:canc`).
+
+Pricing check against the owner's retail video frames (2026-11-14): pack bars read "Typography no.
+2 $10,000" and "Flags no. 1 $13,000"; the invoice read Paint Color $1,000 + Stickers $23,000 (= both
+packs) + Labor costs $1,000 = $25,000, and the cart read $11,000 with the first pack in use and
+the second only browsed (pack + labour). That is the per-pack model here (a pack is paid once, at
+its `DBStickersBanks` `_price`); not per sticker. Retail also shows a vertical brightness slider
+beside the picker gradient and a "Matt" finish name (ours: gloss / matt / metal / carbon).

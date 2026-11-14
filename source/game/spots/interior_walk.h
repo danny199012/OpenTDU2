@@ -69,6 +69,10 @@ public:
     // DBCarShop _slot_<i+1> order) on Entity__ShopData PosCams[i]. Returns
     // the number of cars placed.
     size_t placeDisplayCars( const std::vector<int32_t> &carIds );
+    // The sticker shop: the player's car on the room's first car place (the
+    // retail design studio shows it in the room, not outside). Returns the
+    // room's car (nullptr: the room has no place for one).
+    CinematicCar *placeStickerCar( int32_t carId );
 
     // The dealer menu's preview: the display car carId in paint row
     // paintIndex (-1: keep), seen from its PosCam camera. endPreview puts the

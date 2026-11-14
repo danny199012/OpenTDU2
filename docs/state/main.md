@@ -2,7 +2,11 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (sticker shop Paint page, `main`): the retail Paint screen recolours the car - finish, one or two colours, My Colors, paid and saved
+`## Session 2026-11-14 (sticker shop car in the room, `main`): the editor shows the car on the shop's turntable, not outside
+
+The owner sent retail video frames: the car stands on the turntable inside the shop (STICKERS / CAR PAINT signs), pack bars read $10,000 / $13,000 and the invoice $1,000 paint + $23,000 stickers + $1,000 labour. Change: `InteriorWalk::placeStickerCar` parks a copy of the player's car on the room's `D_CAR` PosCam (own dealer + custom paint), `GMFreeRide` orbits a scene-local camera around it (`setLocalCamera`), binds the sticker canvas to it and hands it to `StickerShopUi` as the car the Paint page recolours; the outside cut stays only when no car place exists. My Colors now start empty (retail). Pricing already matched (per pack + $1000 labour + $1000 paint). Verified headless: `docs/images/sticker_ui_room_car.webp` (stickers on the room car), `sticker_ui_paint_in_room.webp`. Not done: the retail brightness slider beside the picker, `cam_new_car_*` cameras, the `sti_carready` arrival; the room car does not turn, and the walk's room view shows it parked while you stand at the seller.
+
+## Session 2026-11-14 (sticker shop Paint page, `main`): the retail Paint screen recolours the car - finish, one or two colours, My Colors, paid and saved
 
 The owner said yes to the open piece of the last entry: the Paint entry of the retail stickers menu.
 

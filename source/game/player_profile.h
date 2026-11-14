@@ -138,7 +138,7 @@ struct PlayerProfile {
     // MakeRGBA order; 0 = an empty slot). A new profile starts with a basic
     // palette - the retail slots fill from the pipette, which the port
     // replaces with a hue / brightness dial [INF].
-    std::vector<uint32_t> StickerMyColors = { 0xffffffffu, 0xff1e1e1eu, 0xff2828dcu, 0xff28dcf0u, 0xff3cb43cu, 0xffdc5a28u };
+    std::vector<uint32_t> StickerMyColors = { 0u, 0u, 0u, 0u, 0u, 0u };
     // Licence tests passed (the .ig2 name, RSA7T01 ...) -> the best time in
     // seconds; a licence is obtained when all its tests are (licenses.h).
     std::map<std::string, float> PassedTests;

@@ -3383,7 +3383,24 @@ void GMFreeRide::bindStickerShop() {
     if ( !interior.isStickUi() || !StickerBankCatalog::isEnabled() ) {
         return;
     }
-    stickerShop.bind( &interior.getScene().getUi(), &stickerCanvas, car.getIdCar(), car.isLoaded() ? &car : nullptr );
+    // The car stands in the room (the retail design studio): the player's own
+    // paint on a second copy; no car place -> the old outside view.
+    pStickerRoomCar = car.isLoaded() ? interior.placeStickerCar( car.getIdCar() ) : nullptr;
+    bStickerRoomCarBound = false;
+    if ( pStickerRoomCar != nullptr ) {
+        const PlayerProfile &profile = GetPlayerProfile();
+        const auto paint = profile.OwnedCarPaints.find( car.getIdCar() );
+        if ( paint != profile.OwnedCarPaints.end() ) {
+            pStickerRoomCar->applyDatabasePaint( paint->second );
+        }
+        const auto custom = profile.OwnedCarCustomPaints.find( car.getIdCar() );
+        if ( custom != profile.OwnedCarCustomPaints.end() ) {
+            pStickerRoomCar->applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour,
+                                               custom->second.Colour2 );
+        }
+    }
+    stickerShop.bind( &interior.getScene().getUi(), &stickerCanvas, car.getIdCar(),
+                      pStickerRoomCar != nullptr ? pStickerRoomCar : ( car.isLoaded() ? &car : nullptr ) );
 }
 
 bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotBank, uint64_t spotId ) {
@@ -4314,6 +4331,7 @@ void GMFreeRide::tick( float deltaTime ) {
     // Out of a sticker shop room: an unpaid layout goes back on the car.
     if ( stickerShop.isBound() && !interior.isActive() ) {
         stickerShop.unbind();
+        pStickerRoomCar = nullptr;
     }
     // Inside a spot interior (InteriorWalk): the island and the car are
     // frozen behind it, the engine is off.
@@ -4321,7 +4339,12 @@ void GMFreeRide::tick( float deltaTime ) {
         // The sticker place mode's camera cut: once per entry, a 3/4 view of
         // the car outside (the retail editor's garage-car camera); the pose
         // holds while the room is frozen behind the editor.
-        if ( stickerCarView() && !bStickerPreviewCamera && car.isLoaded() ) {
+        if ( stickerCarView() && !bStickerPreviewCamera && pStickerRoomCar != nullptr ) {
+            bStickerPreviewCamera = true;
+            stickerCamYaw = 0.6f;
+            stickerCamPitch = 0.3f;
+            stickerCamDistance = 5.5f;
+        } else if ( stickerCarView() && !bStickerPreviewCamera && car.isLoaded() ) {
             bStickerPreviewCamera = true;
             const Vector3f carPos = carWorld.getTranslation();
             const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
@@ -4335,7 +4358,7 @@ void GMFreeRide::tick( float deltaTime ) {
         } else if ( !stickerCarView() ) {
             bStickerPreviewCamera = false;
         }
-        if ( stickerCarView() && bStickerPreviewCamera && car.isLoaded() ) {
+        if ( stickerCarView() && bStickerPreviewCamera && ( car.isLoaded() || pStickerRoomCar != nullptr ) ) {
             // The editor's "Move camera" (right stick, or the mouse with the
             // right button held) and "Zoom" (wheel) around the car [DATA: the
             // movie's help bar names both; the controls are INF].
@@ -4356,6 +4379,19 @@ void GMFreeRide::tick( float deltaTime ) {
             stickerCamYaw += orbitX * 1.8f * deltaTime;
             stickerCamPitch = Clamp( stickerCamPitch - orbitY * 1.2f * deltaTime, 0.02f, 1.3f );
             stickerCamDistance = Clamp( stickerCamDistance - gpInput->getMouseWheel() * 0.6f, 2.5f, 14.0f );
+            if ( pStickerRoomCar != nullptr ) {
+                // The room's own car: the orbit is scene-local around it.
+                Vector3f local;
+                int32_t roomCarId = -1;
+                if ( interior.getScene().getDisplayCarInfo( 0, local, roomCarId ) ) {
+                    const Vector3f focus = local + Vector3f( 0.0f, 0.8f, 0.0f );
+                    const Vector3f eye = focus + Vector3f( std::sin( stickerCamYaw ) * std::cos( stickerCamPitch ),
+                                                           std::sin( stickerCamPitch ),
+                                                           std::cos( stickerCamYaw ) * std::cos( stickerCamPitch ) ) *
+                                                     stickerCamDistance;
+                    interior.getScene().setLocalCamera( eye, ChaseCamera::LookRotation( eye, focus ), 55.0f * kDegToRad, 0.1f );
+                }
+            } else {
             const Vector3f target = carWorld.getTranslation() + Vector3f( 0.0f, 0.9f, 0.0f );
             camera.Position = target + Vector3f( std::sin( stickerCamYaw ) * std::cos( stickerCamPitch ),
                                                  std::sin( stickerCamPitch ),
@@ -4367,6 +4403,7 @@ void GMFreeRide::tick( float deltaTime ) {
             view.setMapView( false );
             view.setCamera( camera );
             view.tick( deltaTime );
+            }
         }
         if ( vehicleAudio.isEngineOn() ) {
             VehicleAudio::Params muted;
@@ -6362,11 +6399,15 @@ void GMFreeRide::drawOffscreen() {
             bStickerCanvasBound = car.bindStickerTexture( *pRenderer, stickerCanvas.getTexture() ) > 0;
         }
     }
+    if ( pStickerRoomCar != nullptr && interior.isActive() && stickerCanvas.getTexture() != nullptr &&
+         !bStickerRoomCarBound ) {
+        bStickerRoomCarBound = pStickerRoomCar->bindStickerTexture( *pRenderer, stickerCanvas.getTexture() ) > 0;
+    }
     if ( interior.isActive() ) {
         // The sticker place mode cuts outside to the car (the retail editor's
         // garage-car camera): the freeride scene renders instead of the room
-        // while the sticker is being placed.
-        if ( stickerCarView() ) {
+        // while the sticker is being placed (a room car stays in the room).
+        if ( stickerCarView() && pStickerRoomCar == nullptr ) {
             view.renderOffscreen();
             return;
         }
@@ -6383,13 +6424,13 @@ void GMFreeRide::draw() {
     static const bool bNo3D = CmdLine::HasArg( "-no3d" );
     Renderer2D &renderer = gpRender->get2DRenderer();
     const bool bFlatMap = mapScreen.isOpen() && mapScreen.isFlat();
-    if ( interior.isActive() && stickerCarView() && interior.isStickUi() ) {
+    if ( interior.isActive() && stickerCarView() && interior.isStickUi() && pStickerRoomCar == nullptr ) {
         // The shop movie's car view: the car outside, the movie's pages over it.
         if ( !bNo3D ) {
             view.draw();
         }
         interior.getScene().drawUi();
-    } else if ( interior.isActive() && !stickerCarView() ) {
+    } else if ( interior.isActive() && ( !stickerCarView() || pStickerRoomCar != nullptr ) ) {
         // The interior replaces the island (its own scene, reticle and
         // labels); the shop menus draw over it below. The sticker place mode
         // is the exception: the car outside is the preview.

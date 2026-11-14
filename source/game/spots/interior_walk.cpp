@@ -105,6 +105,24 @@ size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds ) {
     return placed;
 }
 
+CinematicCar *InteriorWalk::placeStickerCar( int32_t carId ) {
+    if ( !bActive || scene.getNumDisplayCars() > 0 ) {
+        return scene.getDisplayCar( 0 );
+    }
+    CinematicCar::Desc desc;
+    if ( !CinematicCar::DescFromDatabase( carId, desc ) ) {
+        return nullptr;
+    }
+    for ( const std::string &posCam : scene.getShopPosCams() ) {
+        if ( !posCam.empty() && scene.addDisplayCar( desc, posCam, -1 ) ) {
+            OTDU_LOG_INFO( "InteriorWalk: sticker car %d on %s\n", carId, posCam.c_str() );
+            return scene.getDisplayCar( 0 );
+        }
+    }
+    OTDU_LOG_WARN( "InteriorWalk: the sticker room has no car place (%zu PosCams)\n", scene.getShopPosCams().size() );
+    return nullptr;
+}
+
 bool InteriorWalk::previewCar( int32_t carId, int32_t paintIndex ) {
     return bActive && scene.focusDisplayCar( carId, paintIndex );
 }

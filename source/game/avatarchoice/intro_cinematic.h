@@ -286,6 +286,8 @@ public:
     // A display car's position in the walk frame (scene-local) and its
     // _id_car (the near-car spec card): false past the end.
     bool getDisplayCarInfo( size_t index, Vector3f &outPosition, int32_t &outCarId ) const;
+    // The display car's model (nullptr past the end).
+    inline CinematicCar *getDisplayCar( size_t index ) { return index < displayCars.size() ? displayCars[index].Car.get() : nullptr; }
     // The dealer's presentation of one display car (by _id_car): repaints it
     // with its DBCarsAndColors row paintIndex (-1: keep) and puts the camera
     // on its PosCam's Camera. False when no display car has that id.
