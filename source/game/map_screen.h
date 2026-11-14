@@ -164,6 +164,11 @@ public:
     // The class drawn as a dirt track: kRoadClassDirt, or -dirtclass <n>.
     static uint8_t getDirtClass();
     inline const std::vector<uint8_t> &getRoadClasses() const { return edgeClass; }
+    // The bounding box of each link (min x, min z, max x, max z), for culling,
+    // and the explored length: it changes whenever a link is discovered, so the
+    // satnav uses it as its "redraw the roads" key.
+    inline const std::vector<std::array<float, 4>> &getRoadBoxes() const { return edgeBoxes; }
+    inline float getExploredLength() const { return exploredLength; }
     // True when that link has been driven (it is drawn in its class colour; an
     // undiscovered link stays grey like the retail, and it refuses fast travel).
     inline bool isRoadExplored( int32_t edge ) const {

@@ -13,6 +13,7 @@
 
 class Renderer2D;
 class VehicleWorldCollision;
+class MapScreen;
 
 // FREERIDE overlay (docs: /tmp/claude-0/spec_freeride.md 4).
 //   - HUD.vmf (frontend/hires/hud.bnk, GamePC.cpr AddFlashMovie "HUD" 1):
@@ -266,6 +267,11 @@ public:
         pRoute_ = pRoute;
         routeLength_ = lengthMeters;
     }
+    // The island road graph + discovery state (not owned). The satnav draws the
+    // roads from it the retail way: a driven road in its class colour, an
+    // undiscovered one grey [DATA: GamePC.cpr [HudMap]]. Without it the satnav
+    // falls back to the collision road triangles (all white).
+    inline void setRoadMap( const MapScreen *pMap ) { pRoadMap_ = pMap; }
     void drawSavingLogo( Renderer2D &renderer );
     void setVisible( bool bVisible ) { bShown = bVisible; }
     // The near-car spec card (a traffic car stopped next to / a showroom
@@ -315,6 +321,7 @@ private:
     std::string zoneShort;
     std::string zoneName;
     const std::vector<Vector3f> *pRoute_ = nullptr;
+    const MapScreen *pRoadMap_ = nullptr;
     float routeLength_ = 0.0f;
     std::string prompt_;
     float detectorMeters_ = -1.0f, detectorRange_ = 250.0f;
@@ -479,6 +486,8 @@ private:
         const std::vector<Vector3f> *pRoute = nullptr;
         size_t RouteSize = 0;
         float RouteLength = -1.0f;
+        float ExploredLength = -1.0f;
+        const MapScreen *pRoadMap = nullptr;
         bool bValid = false;
         // The road triangles (world space, 3 points each) of the last
         // VehicleWorldCollision query, made with a margin so the car can

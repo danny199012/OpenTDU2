@@ -3,6 +3,25 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 16th): satnav roads blue/grey by discovery; phone calls found in the retail data
+
+Owner: "our satnav isn't accurate as discovered roads should be blue" + "dig for the phone calls and anything else (cutscenes, progression)" in the dev build.
+
+### What changed
+- `freeride_hud.cpp` `drawMinimap` + `freeride_hud.h` `setRoadMap` + `gm_freeride.cpp`: the in-car satnav drew every road white from the collision triangles and ignored discovery. It now draws the road graph (`MapScreen::getRoadShapes/Classes/Boxes`, `isRoadExplored`, new `getExploredLength` as the redraw key): driven = class colour (tarmac cyan-blue, highway 29/180/215, circuit 102/102/204, dirt 243/196/6), undiscovered = grey 140 [DATA: GamePC.cpr [HudMap]], grey first. The collision-triangle path stays as the fallback when no graph is set.
+- `docs/re/phone_calls_spec.md`: **`DBPhoneCall` (33 rows) + voices (`pc_*.wav`) + call art (`frontend/allres/phonecalls`) are in RETAIL data**, not cut; the port just never drives them. Full table in the spec.
+
+### Verified
+- Build 84 (`build-main`), `-gm FREERIDE -skipcine -nopad -fixedtimestep -autoplay "500:shot=..."`: the satnav shows a blue driven stretch under the car and grey for the rest (`_sat1.png`, not committed). Not checked: after a long drive, at Hawai, and the 20 Hz rebuild cost (`-loghudtimes`).
+
+### Findings about the dev build
+- The dev package's data is byte-identical to retail (dev_build_survey.md 1), so **there is no extra map data in it**: the road graph / classes we already read are the same. What the dev exe adds is *readable code*: `HudMap.cpp` / `HudMapRoads` (`0xc9e584`), `SCPhoneCalls.cpp` (`0x9a3670` ...), `MngPhone2`, `/:UnlockedRoadsPercent`, `/:DelockAllRoads`. The retail discovery radius (we use 18 m `[INF]`) can be read there.
+
+### Not done / next
+1. Read `HudMap` at `0xc9e584` for the real discovery rule (radius, per-link vs per-point) and replace `kExploreRadius` in `map_screen.cpp`.
+2. Read `SCPhoneCalls` for the trigger conditions, then build the phone-call queue (spec above).
+3. The cop-menu / avatar-clothes leads from the owner's GLM notes are unverified here.
+
 ## Session 2026-11-14 (`main`, 15th): launcher update-check rails against the GitHub 403 (owner report)
 
 The owner refreshed the Updates page a few times waiting for a build and got "403": GitHub allows 60 unauthenticated API calls an hour per IP and each check made two (releases + compare). Confirmed live: this connection showed `remaining 0 of 60, resets 16:27:37`.

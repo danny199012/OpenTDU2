@@ -6474,6 +6474,7 @@ void GMFreeRide::tick( float deltaTime ) {
     }
     mapScreen.tickRoute( gpsPosition, deltaTime );
     hud.setRoute( &mapScreen.getRoutePoints(), mapScreen.getRouteLength() );
+    hud.setRoadMap( &mapScreen );
     const bool bArrived = mapScreen.takeArrival();
     if ( bArrived ) {
         hud.showGoal( "You have reached your destination" ); // [INF] the retail text is not in the string tables

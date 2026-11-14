@@ -6,6 +6,7 @@
 #include "flash/flash_localization.h"
 #include "game/freeride/cruising_zones.h"
 #include "game/game_options.h"
+#include "game/map_screen.h"
 #include "game/pause_menu.h"
 #include "game/player_profile.h"
 #include "game/units.h"
@@ -2371,6 +2372,8 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
                           std::fabs( state.HeadingZ - cache.HeadingZ ) > 0.01f || std::fabs( minimapZoom_ - cache.Zoom ) > 0.004f ||
                           x0 != cache.RectX ||
                           y0 != cache.RectY || mapRectW != cache.RectW || mapRectH != cache.RectH ||
+                          pRoadMap_ != cache.pRoadMap ||
+                          ( pRoadMap_ != nullptr && pRoadMap_->getExploredLength() != cache.ExploredLength ) ||
                           pRoute_ != cache.pRoute || routeLength_ != cache.RouteLength ||
                           ( pRoute_ != nullptr && pRoute_->size() != cache.RouteSize );
     const bool bRebuild = bChanged && ( !cache.bValid || bNoCache || cache.Frame - cache.BuildFrame >= 3 ||
@@ -2397,6 +2400,8 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
         cache.RectW = mapRectW;
         cache.RectH = mapRectH;
         cache.pRoute = pRoute_;
+        cache.pRoadMap = pRoadMap_;
+        cache.ExploredLength = pRoadMap_ != nullptr ? pRoadMap_->getExploredLength() : -1.0f;
         cache.RouteLength = routeLength_;
         cache.RouteSize = pRoute_ != nullptr ? pRoute_->size() : 0;
         vertices.clear();
@@ -2408,7 +2413,66 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
             const Vector3f d( p.x - state.CarX, 0.0f, p.z - state.CarZ );
             return Vector2f( center.x + d.dot( right ) / mapMetersPerPixel(), center.y - d.dot( forward ) / mapMetersPerPixel() );
         };
-        if ( pCollision != nullptr ) {
+        if ( pRoadMap_ != nullptr && !pRoadMap_->getRoadShapes().empty() ) {
+            // The road graph, the retail satnav way [DATA: GamePC.cpr [HudMap]]:
+            // a driven road in its class colour (blue for tarmac, yellow for
+            // dirt), an undiscovered one grey 140/140/140. Same class -> colour
+            // table as the world map (MapScreen::drawIsland). The grey goes down
+            // first so a driven road is never hidden by a neighbour's grey.
+            const auto &shapes = pRoadMap_->getRoadShapes();
+            const auto &boxes = pRoadMap_->getRoadBoxes();
+            const auto &classes = pRoadMap_->getRoadClasses();
+            const uint8_t dirtClass = MapScreen::getDirtClass();
+            const float reach = mapRectW * mapMetersPerPixel() + 30.0f;
+            for ( int32_t pass = 0; pass < 2; pass++ ) {
+                for ( size_t e = 0; e < shapes.size(); e++ ) {
+                    const bool bDriven = pRoadMap_->isRoadExplored( static_cast<int32_t>( e ) );
+                    if ( bDriven != ( pass == 1 ) ) {
+                        continue;
+                    }
+                    if ( e < boxes.size() && ( boxes[e][2] < state.CarX - reach || boxes[e][0] > state.CarX + reach ||
+                                               boxes[e][3] < state.CarZ - reach || boxes[e][1] > state.CarZ + reach ) ) {
+                        continue;
+                    }
+                    const uint8_t cls = e < classes.size() ? classes[e] : 0;
+                    uint32_t colour = Rgba( 140, 140, 140, 255 );
+                    float widthPx = 3.0f;
+                    if ( bDriven ) {
+                        if ( cls == dirtClass ) {
+                            colour = Rgba( 243, 196, 6, 255 );
+                        } else if ( cls == 2 ) {
+                            colour = Rgba( 29, 180, 215, 255 );
+                            widthPx = 4.0f;
+                        } else if ( cls == 4 ) {
+                            colour = Rgba( 102, 102, 204, 255 );
+                            widthPx = 4.0f;
+                        } else {
+                            colour = Rgba( 0, 255, 255, 255 );
+                        }
+                    }
+                    const float half = 0.5f * widthPx;
+                    const std::vector<Vector3f> &shape = shapes[e];
+                    for ( size_t k = 0; k + 1 < shape.size(); k++ ) {
+                        if ( std::fabs( shape[k].x - state.CarX ) > reach || std::fabs( shape[k].z - state.CarZ ) > reach ) {
+                            continue;
+                        }
+                        const Vector2f a = toMap( shape[k] ), b = toMap( shape[k + 1] );
+                        const float dx = b.x - a.x, dy = b.y - a.y;
+                        const float length = std::sqrt( dx * dx + dy * dy );
+                        if ( length < 0.01f ) {
+                            continue;
+                        }
+                        const float ux = dx / length, uy = dy / length;
+                        const float nx = -uy * half, ny = ux * half;
+                        // Extended by half a width at each end so the joints
+                        // between two segments leave no notch.
+                        PushQuad( vertices, { a.x - ux * half + nx, a.y - uy * half + ny },
+                                  { b.x + ux * half + nx, b.y + uy * half + ny }, { b.x + ux * half - nx, b.y + uy * half - ny },
+                                  { a.x - ux * half - nx, a.y - uy * half - ny }, colour );
+                    }
+                }
+            }
+        } else if ( pCollision != nullptr ) {
             // GamePC.cpr [HudMap]: AIRL_ROAD unlocked colour 0 255 255 (the
             // reference shows white roads at this stage [INF]). Unclipped: the
             // scissor above trims them to the map surface.
