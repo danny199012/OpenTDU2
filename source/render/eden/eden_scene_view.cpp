@@ -7,7 +7,10 @@
 #include "render/shaders/builtin/blit_frag.h"
 #include "render/shaders/builtin/depthmax_frag.h"
 #include "render/shaders/builtin/rt_ao_combine_frag.h"
+#include <cstring>
 #include "render/shaders/builtin/upscale_frag.h"
+#include "render/shaders/builtin/fsr1_easu_frag.h"
+#include "render/shaders/builtin/fsr1_rcas_frag.h"
 #include "render/shaders/builtin/windscreen_frag.h"
 #include "render/shaders/builtin/viewpos_frag.h"
 #include "system/cmd_line.h"
@@ -753,6 +756,10 @@ void EdenSceneView::destroyTargets() {
     device.destroyRenderTarget( pDropletTarget );
     device.destroyRenderTarget( pAOTarget );
     device.destroyRenderTarget( pOcclusionTarget );
+    device.destroyRenderTarget( pFsrEasuTarget );
+    device.destroyRenderTarget( pFsrTarget );
+    pFsrEasuTarget = pFsrTarget = nullptr;
+    pFsrResult = nullptr;
     pSceneTarget = pViewPosTarget = pEnvironmentTarget = pEnvironmentScratch = pFinalTarget = pDropletTarget = pAOTarget = nullptr;
     pOcclusionTarget = nullptr;
 }
@@ -842,6 +849,94 @@ void EdenSceneView::generateViewPos() {
     fullscreen.draw( device, kSPIRV_viewpos_frag, sizeof( kSPIRV_viewpos_frag ), &pDepth, 1, viewPosParams,
                      sizeof( viewPosParams ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
     device.endRenderTarget();
+}
+
+namespace {
+// float -> IEEE half bits (round to nearest even is not needed for RCAS: the
+// constant is a sharpness in [0.2, 1]).
+uint32_t FloatToHalfBits( float value ) {
+    uint32_t bits;
+    memcpy( &bits, &value, sizeof( bits ) );
+    const uint32_t sign = ( bits >> 16 ) & 0x8000u;
+    const int32_t exponent = static_cast<int32_t>( ( bits >> 23 ) & 0xFF ) - 127 + 15;
+    if ( exponent <= 0 ) {
+        return sign;
+    }
+    if ( exponent >= 31 ) {
+        return sign | 0x7C00u;
+    }
+    return sign | ( static_cast<uint32_t>( exponent ) << 10 ) | ( ( bits >> 13 ) & 0x3FFu );
+}
+uint32_t FloatBits( float value ) {
+    uint32_t bits;
+    memcpy( &bits, &value, sizeof( bits ) );
+    return bits;
+}
+} // namespace
+
+// FidelityFX Super Resolution 1.0 (AMD, MIT; third_party/fidelityfx-fsr1,
+// shader glue resources/shaders/fsr1.hlsl): EASU scales the scene from the
+// render resolution to the window, RCAS sharpens it. The constants are
+// ffxFsrPopulateEasuConstants / FsrRcasCon from ffx_fsr1.h, evaluated here.
+void EdenSceneView::runFsr1() {
+    pFsrResult = nullptr;
+    if ( GetGameOptions().Upscaler != 2 || pSceneTarget == nullptr || !pSceneTarget->bInitialized ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    const uint32_t outWidth = device.getBackbufferWidth();
+    const uint32_t outHeight = device.getBackbufferHeight();
+    if ( pFsrEasuTarget == nullptr || pFsrEasuTarget->Width != outWidth || pFsrEasuTarget->Height != outHeight ) {
+        device.destroyRenderTarget( pFsrEasuTarget );
+        device.destroyRenderTarget( pFsrTarget );
+        pFsrEasuTarget = device.createRenderTarget( outWidth, outHeight, VK_FORMAT_UNDEFINED, false, "FsrEasu" );
+        pFsrTarget = device.createRenderTarget( outWidth, outHeight, VK_FORMAT_UNDEFINED, false, "FsrRcas" );
+        return; // the targets are initialized by their first pass
+    }
+    GPUTexture *pSource =
+        pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    const float inW = static_cast<float>( pSource->Width );
+    const float inH = static_cast<float>( pSource->Height );
+    const float outW = static_cast<float>( outWidth );
+    const float outH = static_cast<float>( outHeight );
+    uint32_t easu[16] = {};
+    // con0: output pixel -> input viewport position
+    easu[0] = FloatBits( inW / outW );
+    easu[1] = FloatBits( inH / outH );
+    easu[2] = FloatBits( 0.5f * inW / outW - 0.5f );
+    easu[3] = FloatBits( 0.5f * inH / outH - 0.5f );
+    // con1: viewport -> normalized image space, gather4 centres
+    easu[4] = FloatBits( 1.0f / inW );
+    easu[5] = FloatBits( 1.0f / inH );
+    easu[6] = FloatBits( 1.0f / inW );
+    easu[7] = FloatBits( -1.0f / inH );
+    // con2 / con3
+    easu[8] = FloatBits( -1.0f / inW );
+    easu[9] = FloatBits( 2.0f / inH );
+    easu[10] = FloatBits( 1.0f / inW );
+    easu[11] = FloatBits( 2.0f / inH );
+    easu[12] = FloatBits( 0.0f );
+    easu[13] = FloatBits( 4.0f / inH );
+    device.beginRenderTarget( pFsrEasuTarget, false );
+    fullscreen.draw( device, kSPIRV_fsr1_easu_frag, sizeof( kSPIRV_fsr1_easu_frag ), &pSource, 1, easu, sizeof( easu ),
+                     eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear );
+    device.endRenderTarget();
+    pFsrResult = &pFsrEasuTarget->Color;
+    // RCAS: Options > Sharpening 1..10 -> 1.8 .. 0.2 stops of attenuation
+    // (FsrRcasCon; 0 = maximum). 0 leaves the plain EASU image.
+    const int32_t sharpness = Clamp( GetGameOptions().Sharpness, 0, 10 );
+    if ( sharpness > 0 && pFsrTarget != nullptr ) {
+        const float stops = 2.0f - 1.8f * static_cast<float>( sharpness ) / 10.0f;
+        const float linear = exp2f( -stops );
+        const uint32_t half = FloatToHalfBits( linear );
+        uint32_t rcas[4] = { FloatBits( linear ), half | ( half << 16 ), 0, 0 };
+        GPUTexture *pEasu = &pFsrEasuTarget->Color;
+        device.beginRenderTarget( pFsrTarget, false );
+        fullscreen.draw( device, kSPIRV_fsr1_rcas_frag, sizeof( kSPIRV_fsr1_rcas_frag ), &pEasu, 1, rcas,
+                         sizeof( rcas ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
+        device.endRenderTarget();
+        pFsrResult = &pFsrTarget->Color;
+    }
 }
 
 void EdenSceneView::renderOffscreen() {
@@ -1341,6 +1436,7 @@ void EdenSceneView::renderOffscreen() {
         windscreen.renderDroplets( gpRender->getDevice() );
         device.endRenderTarget();
     }
+    runFsr1();
     sceneParams = params;
     device.endGpuPass();
     gSceneTimes.mark( SceneTimes::Post );
@@ -1355,6 +1451,13 @@ void EdenSceneView::draw() {
     }
     GPUTexture *pColor =
         pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    // Options > Advanced > Upscaler "FSR 1.0": renderOffscreen already
+    // upscaled (EASU) and sharpened (RCAS) the scene to the window size; the
+    // debug views below still replace it.
+    const bool bFsr = pFsrResult != nullptr;
+    if ( bFsr ) {
+        pColor = pFsrResult;
+    }
     static const bool bShowViewPos = CmdLine::HasArg( "-showviewpos" );
     if ( bShowViewPos ) {
         pColor = &pViewPosTarget->Color;
@@ -1405,7 +1508,13 @@ void EdenSceneView::draw() {
         face.ViewType = VK_IMAGE_VIEW_TYPE_2D;
         pColor = &face;
     }
-    const GameOptions &options = GetGameOptions();
+    // FSR already did the upscale and the sharpening: the final pass must not
+    // do them again (it would double-sharpen).
+    GameOptions options = GetGameOptions();
+    if ( bFsr && pColor == pFsrResult ) {
+        options.Upscaler = 0;
+        options.Sharpness = 0;
+    }
     const bool bPlain = options.Upscaler == 0 && options.Sharpness == 0 && options.EdgeSmoothing == 0 &&
                         pColor->Width == gpRender->getDevice().getBackbufferWidth();
     // Rain on the windscreen: the final blit becomes the droplet composite

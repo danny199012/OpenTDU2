@@ -42,7 +42,7 @@ time, so it will not raise the frame rate until the draw cost is fixed. Measure 
 - **FSR 1.0 (EASU + RCAS), spatial.** Needs only the colour image: a drop-in for the upscaler slot
   (`GameOptions::Upscaler = 2`), run before the UI (the HUD is drawn afterwards at native resolution).
   AMD's `ffx_a.h` / `ffx_fsr1.h` (GPUOpen-Effects/FidelityFX-FSR, MIT) are GLSL-compatible and go through
-  `tools/compile_shaders.py`. **Not vendored yet** (needs a decision to add third-party source).
+  `tools/compile_shaders.py`. **Done 2026-11-14:** vendored from FidelityFX-SDK as `third_party/fidelityfx-fsr1` (HLSL path, dxc), `GameOptions::Upscaler = 2`.
 - **FSR 2 / 3 and DLSS (temporal).** Need per-pixel **motion vectors**, depth (we have it), a **sub-pixel
   camera jitter** in the projection, exposure and a reactive mask. The engine has none of the first two:
   the Eden shaders are the original DXSO translated, with no velocity output. Steps: (1) jitter the

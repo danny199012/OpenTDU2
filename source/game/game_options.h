@@ -78,7 +78,7 @@ struct GameOptions {
     // the rows below; editing any other row makes it Custom (game_options.cpp).
     int32_t QualityProfile = 0;
     int32_t RenderScale = 100;   // % of the window size the 3D scene renders at (50..200)
-    int32_t Upscaler = 0;        // eUpscaler: 0 bilinear, 1 bicubic (Catmull-Rom)
+    int32_t Upscaler = 0;        // eUpscaler: 0 bilinear, 1 bicubic (Catmull-Rom), 2 AMD FSR 1.0
     int32_t Sharpness = 0;       // 0..10 contrast adaptive sharpening
     int32_t EdgeSmoothing = 0;   // 0 / 1, FXAA-like pass at render resolution
     int32_t ColorGrading = 1;    // the 'photoshop' pass (color balance, bloom, gamma)

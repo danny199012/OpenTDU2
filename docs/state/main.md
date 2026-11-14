@@ -2,6 +2,29 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
+
+## Session 2026-11-14 (`main`): AMD FSR 1.0 in the Upscaling filter
+
+The owner: *"add FSR 3, DLSS and XeSS options ... DLSS and FSR help enhance graphics a bit while also helping some with performance."* Agreed scope: FSR 1.0 now, temporal groundwork after.
+
+### What changed
+- `third_party/fidelityfx-fsr1/gpu/` - AMD's `ffx_fsr1.h` + the core headers (MIT; the licence is in each header), copied from FidelityFX-SDK `7539ae8`.
+- `resources/shaders/fsr1.hlsl` - EASU and RCAS pixel shaders (glue only). `tools/compile_shaders.py` gained an HLSL path (dxc, entry renamed `main`); outputs `source/render/shaders/builtin/fsr1_{easu,rcas}_frag.h`.
+- `eden_scene_view.cpp` `runFsr1()` - at the end of `renderOffscreen`: EASU (render res -> window) into `pFsrEasuTarget`, RCAS into `pFsrTarget` when Sharpness > 0; `draw()` presents it and zeroes the final pass's own upscale / sharpen so nothing is applied twice. Constants are `ffxFsrPopulateEasuConstants` / `FsrRcasCon` evaluated on the CPU.
+- `Upscaler = 2` "AMD FSR 1.0" in the F2 Advanced page and the Image settings row (`advanced_graphics.cpp`, `pause_menu.cpp`).
+
+### Verified
+- `options.ini` render_scale=67, upscaler 0 / 2 / 2+sharpness 5, `-gm FREERIDE -skipcine -nopad -nowatermark -fixedtimestep`, shot at frame 300: 0 `[ERROR]`, no VUIDs; `docs/images/fsr1-ab-crops.png` (left bilinear, middle FSR, right FSR + RCAS) and `fsr1-67pct.png` (full frame, HUD sharp at native res).
+
+### Ruled out
+- Compiling `ffx_fsr1.h` as GLSL: this SDK version ships no `ffx_core_glsl.h`; the HLSL route through dxc works.
+- First build logged `vkCreateGraphicsPipelines failed (-13)`: the dxc entry point was named EASU/RCAS, the pipeline expects `main`.
+
+### Not done / next
+- FSR 3 / XeSS / DLSS are temporal: need (1) sub-pixel jitter in `params.Projection` (eden_scene_view.cpp:635), (2) a velocity pass (camera motion from depth + previous view-projection, then per-object previous transforms for cars / skinned meshes), (3) the SDK glue. DLSS = optional runtime load of the user's own NVIDIA DLL.
+- Per `docs/re/advanced_graphics.md`, the frame was CPU bound at 100 % scale (52 ms at 50 / 100 / 150 %): upscaling raises the frame rate only where the GPU is the limit; the owner's quality point (FSR edges vs bilinear) is visible now.
+- Eyeball FSR on motion and in rain (windscreen path) on the owner's machine.
+
 `## Session 2026-11-14 (Driving Tess + the avatar in the car, `main`): step 4 is playable and the driver / Tess are seated
 
 The owner (fresh save at `story_step = 3`, launcher): *"I have no avatar in car ... meant to drive tess to the solar crown but neither of us end up in the car and that mission it self doesn't seem to really happen as there's normally a marker outside and your on a timer to drive there."* Also: odd graffiti on building windows (screenshot, build 43).

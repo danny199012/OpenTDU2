@@ -11,7 +11,7 @@
 // is opened from the Video or Controls page with Y / Triangle
 // (MENU_OPTION_2), or with F2. Left / Right
 // change a row, Up / Down pick one, Back / OK close it and save.
-// Upscaler slots: bilinear and bicubic exist; FSR 1.0 / FSR 2+ / DLSS are the
+// Upscaler slots: bilinear, bicubic and FSR 1.0 exist; FSR 3 / XeSS / DLSS (temporal) are the
 // next entries (docs/re/advanced_graphics.md).
 class AdvancedGraphics {
 public:

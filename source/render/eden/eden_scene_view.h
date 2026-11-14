@@ -251,6 +251,12 @@ private:
     // being built, and a sampled image must not be the render target too.
     RenderTarget *pEnvironmentScratch = nullptr;
     RenderTarget *pFinalTarget = nullptr;
+    // Upscaler "FSR 1.0": EASU output, RCAS output (window size) and the image
+    // draw() presents this frame (null when FSR is off).
+    RenderTarget *pFsrEasuTarget = nullptr;
+    RenderTarget *pFsrTarget = nullptr;
+    GPUTexture *pFsrResult = nullptr;
+    void runFsr1();
     // The windscreen droplets (normal.xy + presence), composited by the final
     // blit while the effect is active (half the scene size).
     RenderTarget *pDropletTarget = nullptr;

@@ -24,7 +24,9 @@ struct Row {
 
 std::string OnOff( int32_t value ) { return value != 0 ? "On" : "Off"; }
 std::string Percent( int32_t value ) { return std::to_string( value ) + " %"; }
-std::string UpscalerName( int32_t value ) { return value == 1 ? "Bicubic (Catmull-Rom)" : "Bilinear"; }
+std::string UpscalerName( int32_t value ) {
+    return value == 2 ? "AMD FSR 1.0" : value == 1 ? "Bicubic (Catmull-Rom)" : "Bilinear";
+}
 std::string SharpnessName( int32_t value ) { return value == 0 ? "Off" : std::to_string( value ); }
 std::string FpsName( int32_t value ) { return value == 0 ? "Unlimited" : std::to_string( value ) + " fps"; }
 std::string WaterClarityName( int32_t value ) {
@@ -103,10 +105,11 @@ const Row kRows[] = {
       "icons, or your pad's own (PlayStation or Xbox)." },
     { "Render scale", &GameOptions::RenderScale, 50, 200, 5, Percent,
       "Resolution the 3D scene renders at, relative to the window. Below 100 is faster, above 100 is supersampling." },
-    { "Upscaling filter", &GameOptions::Upscaler, 0, 1, 1, UpscalerName,
-      "How the scene is brought to the window size when the render scale is not 100 %." },
+    { "Upscaling filter", &GameOptions::Upscaler, 0, 2, 1, UpscalerName,
+      "How the scene is brought to the window size when the render scale is not 100 %. AMD FSR 1.0 is "
+      "edge-adaptive (works on any GPU) and is best at a render scale of 67-77 %." },
     { "Sharpening", &GameOptions::Sharpness, 0, 10, 1, SharpnessName,
-      "Contrast adaptive sharpening applied after the upscale." },
+      "Sharpening applied after the upscale (AMD RCAS when the filter is FSR 1.0)." },
     { "Edge smoothing (FXAA-like)", &GameOptions::EdgeSmoothing, 0, 1, 1, OnOff,
       "Cheap anti-aliasing pass at the render resolution." },
     { "Color grading and bloom", &GameOptions::ColorGrading, 0, 1, 1, OnOff,

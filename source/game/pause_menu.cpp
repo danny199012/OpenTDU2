@@ -2061,7 +2061,7 @@ std::string PauseMenu::extraRowText( const char *pCommand ) {
         return std::to_string( options.RenderScale ) + " %";
     }
     if ( StringCmpI( pCommand, "upsc" ) == 0 ) {
-        return options.Upscaler == 1 ? "Bicubic (Catmull-Rom)" : "Bilinear";
+        return options.Upscaler == 2 ? "AMD FSR 1.0" : options.Upscaler == 1 ? "Bicubic (Catmull-Rom)" : "Bilinear";
     }
     if ( StringCmpI( pCommand, "shrp" ) == 0 ) {
         return options.Sharpness > 0 ? std::to_string( options.Sharpness ) : "Off";
@@ -2133,7 +2133,7 @@ bool PauseMenu::stepExtraRow( const std::string &command, int32_t step ) {
             options.RenderScale = Clamp( options.RenderScale + step * 5, 50, 200 );
             options.QualityProfile = 0;
         } else if ( StringCmpI( row.pCommand, "upsc" ) == 0 ) {
-            options.Upscaler = Clamp( options.Upscaler + step, 0, 1 );
+            options.Upscaler = Clamp( options.Upscaler + step, 0, 2 );
             options.QualityProfile = 0;
         } else if ( StringCmpI( row.pCommand, "shrp" ) == 0 ) {
             options.Sharpness = Clamp( options.Sharpness + step, 0, 10 );
