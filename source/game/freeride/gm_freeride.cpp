@@ -2475,10 +2475,16 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                 // The hologram is a flat plate: it turns to face the viewer
                 // about the vertical axis [INF]; its size grows with the
                 // distance so a marker down the road stays readable.
+                placement.Scale = 1.5f * Clamp( spot.Distance / 60.0f, 1.0f, 2.2f );
+                // Scale about the plate's centre (local y ~12), not the anchor: the
+                // anchor-based scale lifted it out of the frame.
+                placement.Position.y -= ( placement.Scale - 1.0f ) * 12.0f;
                 placement.Heading = std::atan2( eye.x - spot.Position.x, eye.z - spot.Position.z );
-                placement.Scale = Clamp( spot.Distance / 60.0f, 1.0f, 2.2f );
                 placement.ModelIndex = spotHolograms.findModel( HologramFrameFor( spot.Model.c_str() ) );
                 if ( placement.ModelIndex >= 0 ) {
+                    // (bMirror - the retail pointer hangs lower-left - makes the
+                    // plate vanish: the renderer's mirrored-matrix cull does not
+                    // cover this draw path; left off.)
                     placements.push_back( placement );
                 }
                 placement.ModelIndex = icon;

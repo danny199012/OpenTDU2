@@ -125,7 +125,7 @@ void SpotHolograms::draw( EdenRenderer &renderer ) const {
             continue;
         }
         const Matrix4x4f frame =
-            Matrix4x4f::Translation( placement.Position ) * Matrix4x4f::Scale( Vector3f( placement.Scale, placement.Scale, placement.Scale ) ) *
+            Matrix4x4f::Translation( placement.Position ) * Matrix4x4f::Scale( Vector3f( placement.bMirror ? -placement.Scale : placement.Scale, placement.Scale, placement.Scale ) ) *
             Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), placement.Heading ) );
         model.Mesh->draw( renderer, frame * model.Local );
     }

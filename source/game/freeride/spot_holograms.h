@@ -35,6 +35,7 @@ public:
         Vector3f Position;
         float Heading = 0.0f;
         float Scale = 1.0f;
+        bool bMirror = false; // flip across the plate's vertical axis (the backplate's pointer side)
     };
 
     ~SpotHolograms() { unload(); }

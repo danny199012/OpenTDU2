@@ -15,6 +15,9 @@ The owner: "there's a bunch of hologram markers in the game for races, houses, d
 ### Verified
 - `-tp 11530,4,16850 -heading 125 -autoplay "300:shot=..."`: the Clothes_Shop hologram (blue plate, suit icon, pointer cone) floats over the B-Miami building and the satnav shows ENTER + tile + glyph (`docs/images/spot_hologram_enter.webp`). `-tp 7445,17060 -heading 0`: the `House_To_Buy` rhombus 134 m down the beach. `-logmarkers` prints each hologram's canvas position.
 
+### Follow-up (same session, owner asked for three fixes after a retail comparison)
+- Plate size x1.5, scaled about its centre (`Position.y -= (Scale-1)*12`) so it stays at the same height; the movie's bottom strip (#10) and its red area icon / status clips are hidden in ENTER and a plain dark band is drawn (hiding depth 19 / 200 removes the bezel - left alone; the white car icon stays, retail shows a faded one). Not fixed: the pointer cone is on the right, retail has it lower-left - `Placement.bMirror` (negative X scale) makes the plate vanish (mirrored-cull path), left off. Retail screens of each style from the 360 recomp would settle the frame colours too.
+
 ### [INF] / not decoded (be honest)
 - Which spot wears which backplate colour/shape, the plate offset toward the viewer, the distance scaling and the 0.45x zoom are read off one retail capture + colour sense; the `entities.xmb` `Type` conditions that select SpotMesh / SpotMeshAddOn in the retail game are not decoded (raw words in `-logspotholo`). The retail header / strip layout was matched by eye.
 - The `Arrow_*` / `Pulse` UVA scroll animation is bound (`bindUVAnimations`) but the plates look static in screenshots; not checked in motion. Not run with the validation layer. Owned-house `My_Club`, `DLC_Event`, `Dual`, `Radar_Multi`, `Speed_Multi`, `Spot_Photo`, `FTL_Coop`, `KYD_Coop`, race checkpoints are unmapped (no spot kind drives them yet).

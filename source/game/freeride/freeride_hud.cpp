@@ -1191,6 +1191,14 @@ void FreeRideHud::getMinimapEnterStrip( float &outX, float &outY, float &outScal
 }
 
 void FreeRideHud::setMinimapEnter( bool bEnter, const std::string &label ) {
+    if ( bEnter != bMinimapEnter_ && hud.isLoaded() ) {
+        // The movie's bottom strip (#10: the band with the red area icon and
+        // the car icon) steps aside; drawMinimap paints the ENTER strip.
+        hud.setInstanceVisible( "/HUD/minimap", 10, !bEnter );
+        for ( const char *pChild : { "gps_status", "ic_status", "north", "emp", "barrage" } ) {
+            hud.setClipVisible( std::string( "/HUD/minimap/" ) + pChild, !bEnter );
+        }
+    }
     bMinimapEnter_ = bEnter;
     enterLabel_ = label;
 }
@@ -2506,6 +2514,13 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
         }
         renderer.drawText( gpFlash->getTitleFont(), label.c_str(), x0 + 0.5f * mapRectW, y0 + 0.18f * bandH, 0.62f * bandH,
                            Rgba( 235, 238, 245 ), eTextAlign::TA_Center, 2.0f );
+    }
+    // The ENTER strip: a plain dark band where the movie's strip was (the tile
+    // and the button glyph are drawn over it by the movie).
+    if ( bMinimapEnter_ && minimapZoom_ < 0.9f ) {
+        const float stripY = y0 + 0.78f * mapRectH;
+        renderer.drawGradient( Rect2D( x0, stripY, mapRectW, y1 - stripY ), Rgba( 30, 34, 44, 240 ), Rgba( 12, 14, 20, 250 ) );
+        renderer.drawRect( Rect2D( x0, stripY, mapRectW, 1.0f ), Rgba( 70, 80, 100, 255 ) );
     }
     // Metal detector: a bar that fills as the wreck gets closer (the real device
     // bips faster, 1.35 s far to 0.20 s near) [INF look]; below the movie's own
