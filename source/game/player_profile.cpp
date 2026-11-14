@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <set>
 
 namespace {
     // Real time, not frame time: the notice must run while the game is paused.
@@ -544,6 +545,19 @@ void LoadProfile() {
         } else if ( key.compare( 0, 5, "done_" ) == 0 ) {
             // done_<EVENT> = times earned (DBRewardXP events)
             profile.EventsDone[key.substr( 5 )] = number;
+        } else if ( key.compare( 0, 12, "exploredseg_" ) == 0 ) {
+            // exploredseg_<island> = (link << 12 | segment),...
+            std::vector<uint32_t> &list = profile.ExploredSegments[key.substr( 12 )];
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const unsigned long id = strtoul( pText, &pEnd, 10 );
+                if ( pEnd == pText ) {
+                    break;
+                }
+                list.push_back( static_cast<uint32_t>( id ) );
+                pText = *pEnd == ',' ? pEnd + 1 : pEnd;
+            }
         } else if ( key.compare( 0, 9, "explored_" ) == 0 ) {
             // explored_<island> = id,id,id
             std::vector<uint32_t> &list =
@@ -784,6 +798,23 @@ bool SaveProfile( const char *pReason ) {
                 file << ( i > 0 ? "," : "" ) << island.second[i];
             }
             file << "\n";
+        }
+        for ( const auto &island : profile.ExploredSegments ) {
+            // Only the links not fully driven (the full ones are in explored_<island>).
+            std::set<uint32_t> full;
+            const auto fullList = profile.ExploredRoads.find( island.first );
+            if ( fullList != profile.ExploredRoads.end() ) {
+                full.insert( fullList->second.begin(), fullList->second.end() );
+            }
+            std::string line;
+            for ( const uint32_t id : island.second ) {
+                if ( full.count( id >> 12 ) == 0 ) {
+                    line += ( line.empty() ? "" : "," ) + std::to_string( id );
+                }
+            }
+            if ( !line.empty() ) {
+                file << "exploredseg_" << island.first << " = " << line << "\n";
+            }
         }
         for ( const auto &island : profile.KnownSpots ) {
             if ( island.second.empty() ) {

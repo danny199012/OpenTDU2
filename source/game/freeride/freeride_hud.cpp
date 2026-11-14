@@ -2467,9 +2467,8 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
             const float reach = mapRectW * mapMetersPerPixel() + 30.0f;
             for ( int32_t pass = 0; pass < 2; pass++ ) {
                 for ( size_t e = 0; e < shapes.size(); e++ ) {
-                    const bool bDriven = pRoadMap_->isRoadExplored( static_cast<int32_t>( e ) );
-                    if ( bDriven != ( pass == 1 ) ) {
-                        continue;
+                    if ( pass == 1 && !pRoadMap_->isRoadExplored( static_cast<int32_t>( e ) ) ) {
+                        continue; // nothing of this link is driven
                     }
                     if ( e < boxes.size() && ( boxes[e][2] < state.CarX - reach || boxes[e][0] > state.CarX + reach ||
                                                boxes[e][3] < state.CarZ - reach || boxes[e][1] > state.CarZ + reach ) ) {
@@ -2478,7 +2477,7 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
                     const uint8_t cls = e < classes.size() ? classes[e] : 0;
                     uint32_t colour = Rgba( 140, 140, 140, 255 );
                     float widthPx = 3.0f;
-                    if ( bDriven ) {
+                    if ( pass == 1 ) {
                         if ( cls == dirtClass ) {
                             colour = Rgba( 243, 196, 6, 255 );
                         } else if ( cls == 2 ) {
@@ -2494,6 +2493,11 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
                     const float half = 0.5f * widthPx;
                     const std::vector<Vector3f> &shape = shapes[e];
                     for ( size_t k = 0; k + 1 < shape.size(); k++ ) {
+                        // Per section: the grey pass draws the segments not driven yet, the
+                        // colour pass the driven ones.
+                        if ( pRoadMap_->isSegmentExplored( e, k ) != ( pass == 1 ) ) {
+                            continue;
+                        }
                         if ( std::fabs( shape[k].x - state.CarX ) > reach || std::fabs( shape[k].z - state.CarZ ) > reach ) {
                             continue;
                         }

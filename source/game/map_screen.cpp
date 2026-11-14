@@ -1126,10 +1126,8 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
         std::vector<Vertex2D> vertices[3];
         std::vector<float> px, py;
         for ( size_t i = 0; i < roadEdges.size(); i++ ) {
-            const bool bDriven = i < edgeExplored.size() && edgeExplored[i] != 0;
             const uint8_t cls = i < edgeClass.size() ? edgeClass[i] : 0;
-            const uint32_t colour = bDriven ? classColour( cls ) : MakeRGBA( 140, 140, 140 );
-            const size_t bucket = bDriven ? ( cls == dirtClass ? 1u : 2u ) : 0u;
+            std::vector<uint8_t> pointDriven;
             const std::vector<Vector3f> &shape = roadShapes[i];
             // Project the curve, dropping the points that land on the same
             // pixel as the last kept one: at the island level a road point is
@@ -1137,7 +1135,8 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
             // vertices a frame for no visible difference.
             px.clear();
             py.clear();
-            for ( const Vector3f &point : shape ) {
+            for ( size_t pointIndex = 0; pointIndex < shape.size(); pointIndex++ ) {
+                const Vector3f &point = shape[pointIndex];
                 float stageY = 0.0f;
                 float x = 0.0f;
                 if ( !projectToStage( point, x, stageY ) ) {
@@ -1152,8 +1151,12 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
                 }
                 px.push_back( x );
                 py.push_back( y );
+                pointDriven.push_back( isSegmentExplored( i, pointIndex ) ? 1 : 0 ); // the segment that starts here
             }
             for ( size_t k = 0; k + 1 < px.size(); k++ ) {
+                const bool bDriven = pointDriven[k] != 0;
+                const uint32_t colour = bDriven ? classColour( cls ) : MakeRGBA( 140, 140, 140 );
+                const size_t bucket = bDriven ? ( cls == dirtClass ? 1u : 2u ) : 0u;
                 const float ax = px[k], ay = py[k], bx = px[k + 1], by = py[k + 1];
                 if ( ( ax < -100.0f && bx < -100.0f ) || ( ax > 1380.0f && bx > 1380.0f ) || ( ay < -100.0f && by < -100.0f ) ||
                      ( ay > 820.0f && by > 820.0f ) ) {
@@ -1922,6 +1925,9 @@ int32_t MapScreen::findExploredRoadNear( const Vector3f &point, float maxDistanc
         }
         const std::vector<Vector3f> &shape = roadShapes[e];
         for ( size_t k = 0; k + 1 < shape.size(); k++ ) {
+            if ( !isSegmentExplored( e, k ) ) {
+                continue;
+            }
             const Vector3f &a = shape[k];
             const Vector3f &b = shape[k + 1];
             const float abx = b.x - a.x, abz = b.z - a.z;
@@ -1950,6 +1956,9 @@ void MapScreen::loadRoads( const std::string &island ) {
     edgeLengths.clear();
     edgeBoxes.clear();
     edgeExplored.clear();
+    segExplored.clear();
+    segLength.clear();
+    edgeExploredLength.clear();
     edgeClass.clear();
     edgePair.clear();
     exploredLength = totalRoadLength = 0.0f;
@@ -2201,12 +2210,42 @@ void MapScreen::loadRoads( const std::string &island ) {
     }
     // The saved explored links of this island (profile.sav, ids = edge index).
     edgeExplored.assign( roadEdges.size(), 0 );
+    edgeExploredLength.assign( roadEdges.size(), 0.0f );
+    segExplored.assign( roadEdges.size(), {} );
+    segLength.assign( roadEdges.size(), {} );
+    for ( size_t e = 0; e < roadEdges.size(); e++ ) {
+        const std::vector<Vector3f> &shape = roadShapes[e];
+        const size_t segments = shape.size() > 1 ? shape.size() - 1 : 0;
+        segExplored[e].assign( segments, 0 );
+        segLength[e].assign( segments, 0.0f );
+        float sum = 0.0f;
+        for ( size_t k = 0; k < segments; k++ ) {
+            const float dx = shape[k + 1].x - shape[k].x, dz = shape[k + 1].z - shape[k].z;
+            segLength[e][k] = std::sqrt( dx * dx + dz * dz );
+            sum += segLength[e][k];
+        }
+        // Scaled so a fully explored link adds exactly its length to the totals.
+        const float scale = sum > 0.01f ? edgeLengths[e] / sum : 0.0f;
+        for ( float &length : segLength[e] ) {
+            length *= scale;
+        }
+    }
+    // The saved explored links of this island (profile.sav): whole links
+    // (explored_<island>, ids = edge index) and the sections of the others
+    // (exploredseg_<island>, link << 12 | segment).
     const auto saved = GetPlayerProfile().ExploredRoads.find( island );
     if ( saved != GetPlayerProfile().ExploredRoads.end() ) {
         for ( const uint32_t id : saved->second ) {
-            if ( id < edgeExplored.size() && edgeExplored[id] == 0 ) {
-                edgeExplored[id] = 1;
-                exploredLength += edgeLengths[id];
+            if ( id < edgeExplored.size() ) {
+                exploredLength += markSegments( id, -1 );
+            }
+        }
+    }
+    const auto savedSegments = GetPlayerProfile().ExploredSegments.find( island );
+    if ( savedSegments != GetPlayerProfile().ExploredSegments.end() ) {
+        for ( const uint32_t id : savedSegments->second ) {
+            if ( ( id >> 12 ) < edgeExplored.size() ) {
+                exploredLength += markSegments( id >> 12, static_cast<int32_t>( id & 0xfffu ) );
             }
         }
     }
@@ -2262,9 +2301,7 @@ void MapScreen::buildAreas() {
         edgeArea[i] = zones.find( middle.x, middle.z );
         if ( edgeArea[i] >= 0 ) {
             areaTotal[edgeArea[i]] += edgeLengths[i];
-            if ( edgeExplored[i] != 0 ) {
-                areaExplored[edgeArea[i]] += edgeLengths[i];
-            }
+            areaExplored[edgeArea[i]] += edgeExploredLength[i];
         }
     }
     // Progress loaded from the save was awarded before: only new milestones pay.
@@ -2312,12 +2349,15 @@ float MapScreen::trackCar( const Vector3f &position, float deltaTime ) {
         return 0.0f;
     }
     trackTimer = 0.0f;
-    // A link is explored when the car is within kExploreRadius of its segment
-    // [INF: a lane and the road verge, ~one road width].
-    constexpr float kExploreRadius = 18.0f;
+    // A section of a link is explored when the car is within kExploreRadius of its
+    // segment [INF: a lane and the road verge]. The links are long (the mean is 873 m,
+    // the ring road one 11.5 km link), so the discovery is per ~28 m segment: the road
+    // fills in a piece at a time as it is driven, like the retail.
+    constexpr float kExploreRadius = 16.0f;
     float newLength = 0.0f;
     for ( size_t i = 0; i < roadEdges.size(); i++ ) {
-        if ( edgeExplored[i] != 0 ) {
+        const std::vector<Vector3f> &shape = roadShapes[i];
+        if ( segExplored[i].empty() || edgeExploredLength[i] >= edgeLengths[i] - 0.01f ) {
             continue;
         }
         const std::array<float, 4> &box = edgeBoxes[i];
@@ -2325,10 +2365,10 @@ float MapScreen::trackCar( const Vector3f &position, float deltaTime ) {
              position.z > box[3] + kExploreRadius ) {
             continue;
         }
-        // Distance to the curve of the link (its segments).
-        const std::vector<Vector3f> &shape = roadShapes[i];
-        bool bNear = false;
-        for ( size_t k = 0; k + 1 < shape.size() && !bNear; k++ ) {
+        for ( size_t k = 0; k + 1 < shape.size(); k++ ) {
+            if ( segExplored[i][k] != 0 ) {
+                continue;
+            }
             const Vector3f &a = shape[k];
             const Vector3f &b = shape[k + 1];
             const float abx = b.x - a.x, abz = b.z - a.z;
@@ -2336,20 +2376,44 @@ float MapScreen::trackCar( const Vector3f &position, float deltaTime ) {
             float t = lengthSquared > 0.0001f ? ( ( position.x - a.x ) * abx + ( position.z - a.z ) * abz ) / lengthSquared : 0.0f;
             t = Clamp( t, 0.0f, 1.0f );
             const float dx = position.x - ( a.x + abx * t ), dz = position.z - ( a.z + abz * t );
-            bNear = dx * dx + dz * dz < kExploreRadius * kExploreRadius;
-        }
-        if ( bNear ) {
-            edgeExplored[i] = 1;
-            newLength += edgeLengths[i];
-            GetPlayerProfile().ExploredRoads[roadIsland].push_back( static_cast<uint32_t>( i ) );
-            if ( bAreasBuilt && edgeArea[i] >= 0 ) {
-                areaExplored[edgeArea[i]] += edgeLengths[i];
-                checkAreaMilestones( edgeArea[i] );
+            if ( dx * dx + dz * dz < kExploreRadius * kExploreRadius ) {
+                const float added = markSegments( i, static_cast<int32_t>( k ) );
+                newLength += added;
+                GetPlayerProfile().ExploredSegments[roadIsland].push_back( ( static_cast<uint32_t>( i ) << 12 ) | static_cast<uint32_t>( k ) );
+                if ( bAreasBuilt && edgeArea[i] >= 0 ) {
+                    areaExplored[edgeArea[i]] += added;
+                    checkAreaMilestones( edgeArea[i] );
+                }
             }
+        }
+        if ( edgeExploredLength[i] >= edgeLengths[i] - 0.01f ) {
+            // Fully driven: the save keeps the whole link (explored_<island>).
+            GetPlayerProfile().ExploredRoads[roadIsland].push_back( static_cast<uint32_t>( i ) );
         }
     }
     exploredLength += newLength;
     return newLength;
+}
+
+float MapScreen::markSegments( size_t edge, int32_t segment ) {
+    // One segment (segment >= 0) or all of them (-1); returns the metres newly explored.
+    if ( edge >= segExplored.size() ) {
+        return 0.0f;
+    }
+    float added = 0.0f;
+    const size_t first = segment < 0 ? 0 : static_cast<size_t>( segment );
+    const size_t last = segment < 0 ? segExplored[edge].size() : first + 1;
+    for ( size_t k = first; k < last && k < segExplored[edge].size(); k++ ) {
+        if ( segExplored[edge][k] == 0 ) {
+            segExplored[edge][k] = 1;
+            added += segLength[edge][k];
+        }
+    }
+    if ( added > 0.0f || segExplored[edge].empty() ) {
+        edgeExplored[edge] = 1;
+    }
+    edgeExploredLength[edge] += added;
+    return added;
 }
 
 int32_t MapScreen::getExploredPercent() const {
@@ -2378,14 +2442,15 @@ void MapScreen::unlockAllRoads() {
     const int32_t before = getNumExploredRoads();
     float newLength = 0.0f;
     for ( size_t i = 0; i < edgeExplored.size(); i++ ) {
-        if ( edgeExplored[i] != 0 ) {
+        if ( edgeExploredLength[i] >= edgeLengths[i] - 0.01f && edgeExplored[i] != 0 ) {
             continue;
         }
+        const float added = markSegments( i, -1 );
         edgeExplored[i] = 1;
-        newLength += edgeLengths[i];
+        newLength += added;
         GetPlayerProfile().ExploredRoads[roadIsland].push_back( static_cast<uint32_t>( i ) );
         if ( bAreasBuilt && edgeArea[i] >= 0 ) {
-            areaExplored[edgeArea[i]] += edgeLengths[i];
+            areaExplored[edgeArea[i]] += added;
             checkAreaMilestones( edgeArea[i] );
         }
     }

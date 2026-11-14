@@ -179,6 +179,12 @@ public:
     inline bool isRoadExplored( int32_t edge ) const {
         return edge >= 0 && static_cast<size_t>( edge ) < edgeExplored.size() && edgeExplored[edge] != 0;
     }
+    // Discovery is per section: a link's curve is made of ~28 m segments and each is
+    // revealed as the car drives it (the retail reveals a road a piece at a time).
+    // isRoadExplored above is true once any segment of the link is.
+    inline bool isSegmentExplored( size_t edge, size_t segment ) const {
+        return edge < segExplored.size() && segment < segExplored[edge].size() && segExplored[edge][segment] != 0;
+    }
     // Cursor snapping: the shop icon and/or the road the reticle sticks to when
     // it comes close (-1: the cursor is free). The movie's reticle is placed on
     // the snapped point, and OK / fast travel use it.
@@ -402,7 +408,12 @@ private:
     std::vector<std::vector<std::pair<int32_t, float>>> roadLinks;
     // The same links as an edge list (index = save id) and their explored flag.
     std::vector<std::pair<int32_t, int32_t>> roadEdges;
-    std::vector<uint8_t> edgeExplored;
+    std::vector<uint8_t> edgeExplored; // 1 once any segment of the link is explored
+    std::vector<std::vector<uint8_t>> segExplored; // per link, per curve segment
+    std::vector<std::vector<float>> segLength;     // metres, scaled to sum to edgeLengths
+    std::vector<float> edgeExploredLength;         // explored metres of the link
+    // Marks one segment (or, with segment = -1, every segment) explored; returns the new metres.
+    float markSegments( size_t edge, int32_t segment );
     // The class byte of each link ('DAOR' +12); the map colours the road by it.
     std::vector<uint8_t> edgeClass;
     std::vector<uint16_t> edgePair; // DAOR +12 / +13 (class and its twin byte)

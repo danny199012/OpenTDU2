@@ -87,6 +87,8 @@ struct PlayerProfile {
     // Explored road links per island (index into the island road graph, see
     // MapScreen::loadRoads); retail keeps this in PlayerLevels / RoadLock.
     std::map<std::string, std::vector<uint32_t>> ExploredRoads;
+    // The explored sections of the links not fully driven: (link << 12) | segment.
+    std::map<std::string, std::vector<uint32_t>> ExploredSegments;
     // Times each DBRewardXP event was earned (see AwardSkillEvent).
     std::map<std::string, int32_t> EventsDone;
     // Wrecks found per island (index in DiscoveryPoints::getWrecks).
