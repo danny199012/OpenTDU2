@@ -1988,24 +1988,21 @@ const char *HologramIconFor( const std::string &bank, const char *pIcon, bool bO
 // Rhombus x colour set is [DATA]; which kind wears which is read off the
 // owner's capture (event = blue square) and the colour sense of the set].
 const char *HologramFrameFor( const char *pIconModel ) {
-    if ( strcmp( pIconModel, "Playerhouse" ) == 0 ) {
+    // [DATA: the owner's retail captures, 2026-11-14] the owned house is the
+    // red square, the Racing School / Real Estate / shops share the blue
+    // square, an Event is the circle (orange pointer). Clubs red and dealers
+    // blue are the owner's recollection, not yet proven; the rest is [INF].
+    if ( strcmp( pIconModel, "Playerhouse" ) == 0 || strcmp( pIconModel, "Club" ) == 0 ||
+         strcmp( pIconModel, "My_Club" ) == 0 ) {
         return "Square_Red_Frame";
     }
-    if ( strcmp( pIconModel, "House_To_Buy" ) == 0 || strcmp( pIconModel, "Realtor" ) == 0 ) {
-        return "Rhombus_Blue_Frame";
-    }
-    if ( strncmp( pIconModel, "CD", 2 ) == 0 || strcmp( pIconModel, "Used_Car_Dealer" ) == 0 ) {
+    if ( strcmp( pIconModel, "Event" ) == 0 ) {
         return "Circle_Orange_Frame";
     }
-    if ( strcmp( pIconModel, "Club" ) == 0 || strcmp( pIconModel, "My_Club" ) == 0 ||
-         strcmp( pIconModel, "GamblinHall" ) == 0 || strcmp( pIconModel, "Casino" ) == 0 ) {
+    if ( strcmp( pIconModel, "GamblinHall" ) == 0 || strcmp( pIconModel, "Casino" ) == 0 ) {
         return "Circle_Green_Frame";
     }
-    if ( strncmp( pIconModel, "Championship", 12 ) == 0 || strcmp( pIconModel, "Event" ) == 0 ||
-         strcmp( pIconModel, "Cup" ) == 0 || strcmp( pIconModel, "Racing_School" ) == 0 ) {
-        return "Square_Blue_Frame";
-    }
-    return "Square_DarkBlue_Frame";
+    return "Square_Blue_Frame";
 }
 } // namespace
 
@@ -2485,7 +2482,15 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                     // (bMirror - the retail pointer hangs lower-left - makes the
                     // plate vanish: the renderer's mirrored-matrix cull does not
                     // cover this draw path; left off.)
+                    // The backplate is drawn from behind: the retail captures
+                    // (owner, 360 recomp) have the bracket on the right and the
+                    // pointer lower-left for the squares, the crescent on the
+                    // left for the circles - the mesh's front is the mirror.
+                    if ( !CmdLine::HasArg( "-holofront" ) ) {
+                        placement.Heading += 3.14159265f;
+                    }
                     placements.push_back( placement );
+                    placement.Heading = std::atan2( eye.x - spot.Position.x, eye.z - spot.Position.z );
                 }
                 placement.ModelIndex = icon;
                 placements.push_back( placement );
