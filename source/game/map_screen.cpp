@@ -286,6 +286,8 @@ void MapScreen::openContest( const ContestInfo &info ) {
     bContest = true;
     bContestApplied = false;
     contestSelected = 0;
+    contestPins.clear();
+    contestPinLit = -1;
     for ( size_t i = 0; i < contest.Races.size(); i++ ) {
         if ( contest.Races[i].bEnterable ) {
             contestSelected = static_cast<int32_t>( i );
@@ -341,7 +343,33 @@ void MapScreen::applyContest() {
     player.setClipVisible( "/championship", true );
     player.invokeWithNumbers( "/", "displayChampionship", { 1.0 } );
     player.setClipVisible( "/championship/pages/cont/p/picture", false );
+    buildContestPins();
     showContestRace();
+}
+
+void MapScreen::buildContestPins() {
+    contestPins.clear();
+    contestPinLit = -1;
+    for ( size_t i = 0; i < contest.Races.size(); i++ ) {
+        const std::string name = "cpin" + std::to_string( i );
+        if ( !player.duplicate( "/pack/point", name, 700 + static_cast<int32_t>( i ) ) ) {
+            contestPins.push_back( std::string() );
+            continue;
+        }
+        const std::string path = "/pack/" + name;
+        // The art of the race's kind: the movie's pack/point/spot labels
+        // race / timeattack / speedtrap / speed [DATA].
+        std::string icon = contest.Races[i].Kind;
+        for ( char &ch : icon ) {
+            ch = static_cast<char>( tolower( static_cast<unsigned char>( ch ) ) );
+        }
+        player.gotoLabel( path + "/spot", icon, false );
+        player.gotoLabel( path, "zoom_default", false );
+        player.setClipVisible( path + "/fleche", false );
+        player.setClipVisible( path + "/locator", false );
+        contestPins.push_back( name );
+    }
+    OTDU_LOG_INFO( "MapScreen: %zu championship race pins\n", contestPins.size() );
 }
 
 void MapScreen::showContestRace() {
@@ -349,6 +377,8 @@ void MapScreen::showContestRace() {
         return;
     }
     const ContestInfo::Race &race = contest.Races[static_cast<size_t>( contestSelected )];
+    center.x = race.Position.x;
+    center.z = race.Position.z;
     // tool_tip.SetInfos() reads the spot variables of the root (the same
     // ones a map spot's bubble uses): the kind, the name, the reward, the
     // distance, the laps, the rules.
@@ -358,12 +388,13 @@ void MapScreen::showContestRace() {
     player.setVariable( "/:Distance", race.Distance );
     player.setVariable( "/:NbLaps", race.Laps );
     player.setVariable( "/:GameRules", race.Rules );
+    player.setVariable( "/:GMDescription", race.Rules );
     player.invoke( "/tool_tip", "SetInfos", {} );
     player.gotoLabel( "/tool_tip", "open", true );
 }
 
 void MapScreen::contestStep( int32_t direction ) {
-    if ( !bContest || contest.Races.empty() ) {
+    if ( !bContest || contest.Races.empty() || bContestExtended ) {
         return;
     }
     const int32_t count = static_cast<int32_t>( contest.Races.size() );
@@ -384,9 +415,16 @@ bool MapScreen::enterContestRace() {
 }
 
 bool MapScreen::contestAccept() {
-    // The retail's first OK opens the extended pop-up (Extend(1) + SetMenu
-    // build the Enter / Close buttons; their arguments are not decoded yet,
-    // docs/re/championship_screen_spec.md 4): until then OK enters the race.
+    if ( !bContest || contest.Races.empty() ) {
+        return false;
+    }
+    if ( !bContestExtended ) {
+        // The first OK extends the bubble (tool_tip.Extend(1), the menu was
+        // built by SetInfos -> SetMenu('chall_solo')): picture, rules, Enter / Close.
+        bContestExtended = true;
+        player.invokeWithNumbers( "/tool_tip", "Extend", { 1.0 } );
+        return false;
+    }
     return enterContestRace();
 }
 
@@ -395,7 +433,7 @@ bool MapScreen::contestBack() {
         return false;
     }
     bContestExtended = false;
-    player.invoke( "/tool_tip", "CloseExtendedInfos", {} );
+    player.invokeWithNumbers( "/tool_tip", "Extend", { 0.0 } );
     return true;
 }
 
@@ -1680,12 +1718,33 @@ void MapScreen::updateSpots() {
     for ( const Spot &spot : spots ) {
         const std::string path = "/pack/" + spot.Clip;
         float x, y;
-        const bool bShow = !bBackdrop && spot.Tab == currentTab && projectToStage( spot.Position, x, y ) && x > -80.0f &&
+        const bool bShow = !bBackdrop && !bContest && spot.Tab == currentTab && projectToStage( spot.Position, x, y ) && x > -80.0f &&
                            x < 1360.0f && y > 40.0f && y < 920.0f;
         player.setClipVisible( path, bShow );
         if ( bShow ) {
             player.setVariableNumber( path + ":_x", x );
             player.setVariableNumber( path + ":_y", y );
+        }
+    }
+    // The championship's race pins: the selected one wears the target ring.
+    for ( size_t i = 0; i < contestPins.size() && bContest; i++ ) {
+        if ( contestPins[i].empty() ) {
+            continue;
+        }
+        const std::string path = "/pack/" + contestPins[i];
+        float x, y;
+        const bool bShow = !bBackdrop && projectToStage( contest.Races[i].Position, x, y );
+        player.setClipVisible( path, bShow );
+        if ( bShow ) {
+            player.setVariableNumber( path + ":_x", x );
+            player.setVariableNumber( path + ":_y", y );
+        }
+        if ( static_cast<int32_t>( i ) == contestSelected && contestPinLit != contestSelected ) {
+            if ( contestPinLit >= 0 && static_cast<size_t>( contestPinLit ) < contestPins.size() && !contestPins[contestPinLit].empty() ) {
+                player.gotoLabel( "/pack/" + contestPins[contestPinLit] + "/spot/target", "default", false );
+            }
+            player.gotoLabel( path + "/spot/target", "loop", true );
+            contestPinLit = contestSelected;
         }
     }
 }

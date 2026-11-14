@@ -344,6 +344,10 @@ private:
     void showContestRace();
     int32_t contestSelected = 0;
     bool bContestExtended = false;
+    // The race pins (clones of /pack/point named cpin<N>, one per race) and the pin the highlight is on.
+    std::vector<std::string> contestPins;
+    int32_t contestPinLit = -1;
+    void buildContestPins();
     std::string contestEntered;
     float closeTimer = 0.0f;
     bool bLabelsDumped = false;

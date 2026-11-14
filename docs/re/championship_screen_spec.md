@@ -100,7 +100,9 @@ Driving the championship start (or `-championship "<name part>"`) now opens the 
   badge, "Reward $50,000", "Challenges done 0/6", the bubble "Time: Sant Antoni hill" (3.6 km), Down -> "Race: Gracio bay" (8.8 km, 2 laps),
   OK -> `LicenseTest: CHC4A01T 'Time: Sant Antoni hill'` and the race starts; Back, then the map key, shows the normal tab map again.
 
-Left: (a) the **extended pop-up** (picture, rules, Enter / Close): `tool_tip.Extend(1)` + `SetMenu(Type)` build it; their arguments
+Update (same day): the **extended pop-up** works - the first OK calls `tool_tip.Extend(1)` (SetInfos already built the menu with `SetMenu('chall_solo')`), which gives the picture slot, Enter, Close, restriction, reward, distance and the Rules box (the rules text is `/:GMDescription`); the second OK enters, Back calls `Extend(0)`. The **race pins** are clones of `/pack/point` (`cpin<N>`, art = the kind's `pack/point/spot` label, the target ring on the selected one, the regular spots hidden); the view centres on the selected race.
+
+Still left: ~~(a) the **extended pop-up**~~ (picture, rules, Enter / Close): `tool_tip.Extend(1)` + `SetMenu(Type)` build it; their arguments
 (`Type`, the `setBt` button arrays) are not decoded - OK enters directly meanwhile; (b) the race **pins** on the map and the bubble
 at the pin (the bubble sits at its default place; `player_challpos` / `rival_challpos` / `f_race` are the pin clips); (c) the rival
 picture slot (`picture/lure_c`, hidden), the Results tab (`r0..r7`) and LB / RB page switching (`championship.Move`); (d) give up

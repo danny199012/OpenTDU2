@@ -1997,8 +1997,11 @@ const char *HologramFrameFor( const char *pIconModel ) {
     if ( strcmp( pIconModel, "Playerhouse" ) == 0 || strcmp( pIconModel, "My_Club" ) == 0 ) {
         return "Square_Red_Frame";
     }
+    // The owner's capture of "Drop me at the driving school" (an offline
+    // time-attack quest): the bomb icon in the light-blue circle. The orange
+    // circle is the online challenge (Race_Multi).
     if ( strcmp( pIconModel, "Event" ) == 0 ) {
-        return "Circle_Orange_Frame";
+        return "Circle_Blue_Frame";
     }
     // The owner's capture of a championship ("C4"): the blue rhombus.
     if ( strncmp( pIconModel, "Championship", 12 ) == 0 || strcmp( pIconModel, "Cup" ) == 0 ) {
