@@ -619,7 +619,19 @@ void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMat
             ToUpper( IdentifierToString( desc.AllTextures[i].SlotType ) ).find( "NORMAL" ) != std::string::npos;
         // Slot addressing (2DM slot +0x18 / +0x19).
         const uint32_t addressU = AddressIndex( desc.AllTextures[i].AddressU );
-        const uint32_t addressV = AddressIndex( desc.AllTextures[i].AddressV );
+        uint32_t addressV = AddressIndex( desc.AllTextures[i].AddressV );
+        // The hairline cards of the avatars (hair_implant_front_nuque, the
+        // 'implant_front' / 'Implant_front_n' TD_Hair shells) carry V up to
+        // 1.26 with a V = mirror slot byte: the mirrored rows 0.74..1.0 hold
+        // hair, which draws as a dark curved stroke on the forehead above one
+        // eyebrow (character-select male, build 35). Wrap there is the full
+        // black band (skin_zones_spec 1.7 #2); clamp reads the transparent
+        // bottom row and leaves the forehead clean [EXP, -implantmirror is the
+        // A/B]. The retail sampler state for these layers is [ENC].
+        static const bool bImplantMirror = CmdLine::HasArg( "-implantmirror" );
+        if ( !bImplantMirror && addressV == 1 && desc.Name.find( "mplant_front" ) != std::string::npos ) {
+            addressV = 2;
+        }
         static const bool bWrapAll = CmdLine::HasArg( "-edenwrapall" ); // A/B: ignore the 2DM addressing
         if ( ( addressU != 0 || addressV != 0 ) && !bWrapAll ) {
             outMaterial.SamplerIndex[i] = static_cast<uint8_t>( SH_LinearUV + 3 * addressU + addressV );

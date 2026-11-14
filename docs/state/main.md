@@ -2,7 +2,16 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (intro party shadows, `main`): the cinematic weather modifiers never applied - fixed
+`## Session 2026-11-14 (forehead hair stroke, `main`): the dark hair-like stroke on the character-select face - fixed
+
+Owner: "a weird hair like bug that clips through certain people". Found on the AVATAR_CHOICE male (frame 3100 of `-intro`): a dark curved stroke on the forehead above one eyebrow.
+
+- **Traced** by A/B (`-hidematerial`): not FaceFX (`-nofacefx` identical), not `EYEBROW`, not the other hair layers - it is the `implant_front` / `Implant_front_n` TD_Hair hairline card (`hair_implant_front_nuque`, UV v up to 1.26). The slot is V = mirror (2DM byte 2), already applied since skin_zones_spec 1.7 #2 (wrap = the full black band); the mirrored rows 0.74..1.0 still hold hair texels -> the stroke. `-implantv 0/1/2` experiment: wrap = band, mirror = stroke, **clamp = clean** (reads the transparent bottom row).
+- **Fix** (`eden_renderer.cpp` `setupMaterial`): V mirror -> clamp for materials named `*mplant_front*`. `-implantmirror` is the A/B. [EXP: the retail sampler state for the hair layers is [ENC].] Other implant cards (tempes / nuque / pattes / casque) were not changed - none showed a stroke in the frames checked.
+- Evidence: `docs/images/intro_forehead_hair_before_after.webp` (left before, right after; the lighting differs because the left frame predates the weather-modifier fix).
+- **Not done**: only the select-screen male and the party frames were looked at; other avatars with an affected face (the owner's "certain people") were not enumerated - the F6 marker (`_marks.txt`) next to such a face would pin the next one. **The lighting / shadow flicker was not worked on this session**: with a fixed camera in the intro pool walk (`-walkmode 1 -walkat "5,32.7,0,270"`, 12 consecutive frames) static surfaces are stable (per-pixel std only on animated characters and water), so it needs the owner's spot.
+
+## Session 2026-11-14 (intro party shadows, `main`): the cinematic weather modifiers never applied - fixed
 
 Owner: after the sea sweep the camera goes up to the party and nobody draws shadows until the select-character shot.
 
