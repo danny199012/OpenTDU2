@@ -2,7 +2,33 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (TDU1 physics recon, `main`): tall-car rollover measured and reproduced; load-sensitive grip stops every flip (probe flag, off by default)
+`## Session 2026-11-14 (Driving Tess + the avatar in the car, `main`): step 4 is playable and the driver / Tess are seated
+
+The owner (fresh save at `story_step = 3`, launcher): *"I have no avatar in car ... meant to drive tess to the solar crown but neither of us end up in the car and that mission it self doesn't seem to really happen as there's normally a marker outside and your on a timer to drive there."* Also: odd graffiti on building windows (screenshot, build 43).
+
+**Reproduced** - the old flow ended the dream at step 3 with only the goal "On the road to Solar Crown", a guessed GPS target, no timer / gate / passenger, an empty open convertible:
+    build-main\bin\opentdu2-main.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata <ud with the owner's profile.sav> -gm FREERIDE -skipcine -nopad -fixedtimestep -storystep 2 -storytime 3 -clock 3.3 -autoplay "7000:shot=..." -exitframe 7100
+
+### What changed
+- `game/freeride/gm_freeride.{h,cpp}` - **`loadOccupants`**: the profile avatar at the driver seat (`SeatedAvatar`, avatarsdriver.bnk, seat IK; GMTestCar's pattern), updated / lit / drawn each frame, head hidden in the cockpit view (camera mode 23), reloaded on a car swap; `-noseated`. Commit `ed0c61b`.
+- **`startTessMission` / `tickTessMission` / `finishTessMission`** (inside FREERIDE, so the traffic, weather, night lights stay): story step 4 "Driving Tess" (story_spec 4 of CamilleKMI `335759a`, TESSEVEN, DBEvent 21). `ig2/tesseven.ig2` is read with the existing `Ig2Challenge` ([DATA]: finish gate (9957.2, 9.8, 14856.5) = spec 4.2 #1, `timG` 160 s, `CtDw` 210 s). Goal loc 4032, GPS route + minimap target, the finish gate drawn with `RaceGates` (Finish arch), the HUD countdown (`setTestDrive` + `setCountdown`, the test drive's widget) from `CtDw`, Tess (`STO_Tess_Phone`, DBEvent `_pnj1`) as the passenger, crossing the gate plane (or < 12 m) -> story step 5 -> CINE kind 2 (`C_SOLAR_CROWN_E`). A save at step 3 is upgraded to 4. `-notess` = the old free drive, `-tesstime s`.
+- the dream hands over at step 4 (`StoryStepAfter = 4`, the `-nodream` cut too); `-storystep 4` starts FREERIDE (the `GM_Mission` mode is not registered); `game/cine/gm_cine.cpp` step 3 end hands the car to FREERIDE instead of the unregistered `GM_Mission`.
+
+### Verified
+- the owner's path headless (FREERIDE step 2 -> dream -> FREERIDE): log `story step 4 Driving Tess: finish gate (9957.2, 9.8, 14856.5) width 7.0, route 3983 m, time limit 210 s (timG 160000 ms, CtDw 210000 ms), passenger Tess`, screenshot: goal text, minimap route, countdown 02:46 top right.
+- arrival: `-tp 10006.6,10.2,14906.1 -heading 224.9` + `hold=accel` -> `Driving Tess done with 203.7 s left -> story step 5`, profile saved at 5, `CINE: kind 2, C_SOLAR_CROWN_E`.
+- daylight chase shot: the driver's head over the left seat, the cockpit view shows the hands on the wheel; Q7 / H3 / bike load without errors.
+
+### Ruled out
+- upstream's whole `GMMission` (a second driving mode of 675 lines duplicating the freeride's driving, without our traffic / night / weather): not ported, only its data and flow; its `IgeFile` was not needed (`Ig2Challenge` parses the file).
+- upstream says "no countdown for this event" ([INF], /:ShowCountdown only in state 9); our own files carry `CtDw`, the same key the licence tests use as their time limit, so the countdown follows it. Whether the retail fails at zero is ENC: the port stops the clock at 0 and lets the drive go on.
+
+### Not done / next
+- Tess's reactions (`EventReactions` of upstream: toplayer / phone / impact clips and voice lines, 40 s / 25 s timers), the C_TRUCK props at the venue, the results screen, the start gate placement (the car stays where the dream left it), a failure at 0 s (needs the owner's memory of the retail).
+- Tess is seated low (only a smudge above the right headrest at night / day, not verified from the side); the steering input does not turn the driver's arms.
+- **Graffiti on the building windows: not reproduced** (a hotel spot render and the route start show nothing). Needs a location: F2 (coords overlay) + F6 (writes `_marks.txt`) at the spot; then `-uselodtextures` A/B and `-verbose` there (leads in `docs/state/cline.md`: the LOD alias rule, `TextureCache::findForOwner`'s global hash fallback).
+
+## Session 2026-11-14 (TDU1 physics recon, `main`): tall-car rollover measured and reproduced; load-sensitive grip stops every flip (probe flag, off by default)
 
 Owner: "port TDU1 physics from OpenTDU - hybrid, keep TDU2 physics". Written permission from the OpenTDU maintainer on their issue thread (no LICENSE file): credit `opentdu`; do not paste their code (`docs/re/tdu1_physics_recon.md` section 0).
 

@@ -1687,14 +1687,13 @@ void GMFreeRide::startDriving() {
         // starts with the drive-away, the Outro tick): no restart one-shot.
         vehicleAudio.startEngine();
     }
-    if ( bFromDream ) {
-        // Story step 3: drive Tess to the Solar Crown. The destination is set on
-        // the GPS [INF: the retail target is not decoded; kSolarCrownTarget].
-        hud.showGoal( LocStr( 6111, "On the road to \"Solar Crown\"" ) );
-        mapScreen.tickRoute( position, 0.0f );
-        mapScreen.setTarget( kSolarCrownTarget );
-        OTDU_LOG_INFO( "FREERIDE: from the dream: story step %d, GPS to the Solar Crown (%.0f, %.0f), route %.0f m\n",
-                       GetPlayerProfile().StoryStep, kSolarCrownTarget.x, kSolarCrownTarget.z, mapScreen.getRouteLength() );
+    // A save from before the mission existed sits at step 3 (the dream's end): it is
+    // the mission still to drive (step 4 "Driving Tess").
+    if ( GetPlayerProfile().StoryStep == 3 && islandName == "ibiza" ) {
+        GetPlayerProfile().StoryStep = 4;
+    }
+    if ( GetPlayerProfile().StoryStep == 4 && islandName == "ibiza" && !CmdLine::HasArg( "-notess" ) ) {
+        startTessMission();
     } else if ( GetPlayerProfile().StoryStep == 9 ) {
         // Story step 9 "Go Home" (FUN_00b10da0's step table, docs/re/
         // tess_garage_spec.md 1.2): the retail beat is the drive back to the
@@ -1735,7 +1734,7 @@ void GMFreeRide::startDream() {
     request.Bank = "scenarics/cinematics/intro/meeting_tess.bnk";
     request.Cinematic = bWoman ? "C_MEETING_TESS_W" : "C_MEETING_TESS";
     request.Next = eGameMode::GM_FreeRide;
-    request.StoryStepAfter = 3;
+    request.StoryStepAfter = 4; // Driving Tess starts when the drive resumes
     request.bFromStory = true;
     request.bStory = true; // the return keeps the story goal (the Solar Crown GPS)
     OTDU_LOG_INFO( "FREERIDE: white fade done -> %s (avatar '%s')\n", request.Cinematic.c_str(), avatar.c_str() );
@@ -3258,6 +3257,19 @@ void GMFreeRide::buildCourseMarkers() {
 
 void GMFreeRide::updateRaceGates() {
     std::vector<RaceGates::Gate> gates;
+    if ( bTessMission && raceGates.isLoaded() && tessEvent.getGates().size() > 1 ) {
+        // The mission's destination: the finish gate of tesseven.ig2 on the road.
+        const Ig2Gate &finish = tessEvent.getGates().back();
+        RaceGates::Gate gate;
+        gate.Position = finish.Position;
+        gate.Forward = finish.Forward;
+        gate.Width = Max( 14.0f, raceGates.getModelWidth( RaceGates::eModel::Finish ) );
+        gate.Model = RaceGates::eModel::Finish;
+        gate.bNext = true;
+        gates.push_back( gate );
+        raceGates.setGates( gates );
+        return;
+    }
     if ( !bRaceGates || !raceGates.isLoaded() ) {
         raceGates.clear();
         return;
@@ -3717,6 +3729,82 @@ bool GMFreeRide::switchCar( const CinematicCar::Desc &desc, const Vector3f &posi
     return true;
 }
 
+void GMFreeRide::startTessMission() {
+    // Step 4 enter (FUN_00b10da0 case 5): goal pop_goal 4032 "Drive Tess to the
+    // shooting location" (TUTO_DRIVE_TESS), the destination on the GPS and in the
+    // world, the event's time limit on the countdown [CODE + DATA].
+    if ( bTessMission ) {
+        return;
+    }
+    if ( !tessEvent.load( "tesseven" ) || tessEvent.getGates().size() < 2 ) {
+        OTDU_LOG_WARN( "FREERIDE: ig2/tesseven.ig2 has no start / finish gate, no Driving Tess mission\n" );
+        return;
+    }
+    bTessMission = true;
+    GetPlayerProfile().StoryStep = 4;
+    SaveProfile( "story step 4" );
+    const Ig2Gate &finish = tessEvent.getGates().back();
+    hud.showGoal( LocStr( 4032, "Drive Tess to the shooting location" ) );
+    mapScreen.tickRoute( carWorld.getTranslation(), 0.0f );
+    mapScreen.setTarget( finish.Position );
+    // CtDw: the time limit in ms (the files' own key, as the licence tests [DATA]).
+    const float limit = tessEvent.getLimitMs() > 0 ? tessEvent.getLimitMs() / 1000.0f : 210.0f;
+    tessTimeLeft = CmdLine::HasArg( "-tesstime" ) ? static_cast<float>( CmdLine::GetArgInt( "-tesstime", 210 ) ) : limit;
+    bTessTimeShown = true;
+    hud.setTestDrive( true );
+    hud.setCountdown( tessTimeLeft );
+    tessPreviousCar = carWorld.getTranslation();
+    OTDU_LOG_INFO( "FREERIDE: story step 4 Driving Tess: finish gate (%.1f, %.1f, %.1f) width %.1f, route %.0f m, "
+                   "time limit %.0f s (timG %d ms, CtDw %d ms), passenger %s\n",
+                   finish.Position.x, finish.Position.y, finish.Position.z, finish.Width, mapScreen.getRouteLength(),
+                   tessTimeLeft, tessEvent.getTargetMs(), tessEvent.getLimitMs(), bPassengerSeated ? "Tess" : "none" );
+}
+
+void GMFreeRide::tickTessMission( float deltaTime ) {
+    if ( !bTessMission || state != eState::Drive ) {
+        return;
+    }
+    // The countdown: the files' CtDw. What the retail does at zero is not in
+    // readable code [ENC]: the clock stops at 0 and the drive goes on [INF].
+    if ( bTessTimeShown ) {
+        tessTimeLeft = Max( tessTimeLeft - deltaTime, 0.0f );
+        hud.setCountdown( tessTimeLeft );
+    }
+    // Arrival: the car crosses the finish gate's plane inside its pass width, or
+    // stops within the venue's approach [INF: the retail finish test is ENC].
+    const Ig2Gate &finish = tessEvent.getGates().back();
+    const Vector3f car = carWorld.getTranslation();
+    const Vector3f toFinish( finish.Position.x - car.x, 0.0f, finish.Position.z - car.z );
+    const float distance = toFinish.length();
+    const Vector3f previous = tessPreviousCar;
+    tessPreviousCar = car;
+    const Vector3f normal( finish.Forward.x, 0.0f, finish.Forward.z );
+    const float sideBefore = ( previous - finish.Position ).dot( normal );
+    const float sideNow = ( car - finish.Position ).dot( normal );
+    const bool bCrossed = sideBefore * sideNow <= 0.0f && distance < Max( 14.0f, finish.Width * 2.0f );
+    if ( bCrossed || distance < 12.0f ) {
+        finishTessMission();
+    }
+}
+
+void GMFreeRide::finishTessMission() {
+    // State 9 with the success flag (story_spec 4.1): the passenger gets out, step 5
+    // "Solar Crown exterior" = CINE kind 2 (C_SOLAR_CROWN_E).
+    OTDU_LOG_INFO( "FREERIDE: Driving Tess done with %.1f s left -> story step 5 Solar Crown exterior\n", tessTimeLeft );
+    bTessMission = false;
+    hud.setCountdown( 0.0f );
+    hud.setTestDrive( false );
+    hud.closeGoal();
+    raceGates.clear();
+    CineRequest &cine = GetCineRequest();
+    cine = CineRequest();
+    cine.Kind = 2;
+    cine.bStoryCallback = true;
+    GetPlayerProfile().StoryStep = 5;
+    SaveProfile( "story step 5" );
+    pGameInstance->setNextGameMode( eGameMode::GM_Cine );
+}
+
 void GMFreeRide::loadOccupants() {
     // The driver of the car (docs/re/driver_seat_spec.md; GMTestCar does the
     // same): the player's avatar seated at the driver seat with the seat IK.
@@ -3736,6 +3824,15 @@ void GMFreeRide::loadOccupants() {
         return;
     }
     bDriverSeated = driver.load( avatars, config.c_str(), SeatedAvatar::eSeat::Driver, driverBank );
+    // Story step 3 / 4: Tess (DBEvent 21 _pnj1 = DBPNJ 227 STO_Tess_Phone) rides as the
+    // passenger (FUN_00b84590(3000, ...) + FUN_00b9fa00, story_spec 4.3).
+    const int32_t storyStep = GetPlayerProfile().StoryStep;
+    if ( ( storyStep == 3 || storyStep == 4 ) && islandName == "ibiza" && !CmdLine::HasArg( "-notess" ) ) {
+        bPassengerSeated = passenger.load( avatars, "STO_Tess_Phone", SeatedAvatar::eSeat::Passenger, driverBank );
+        if ( !bPassengerSeated ) {
+            OTDU_LOG_WARN( "FREERIDE: passenger STO_Tess_Phone not loaded\n" );
+        }
+    }
     if ( !bDriverSeated ) {
         OTDU_LOG_WARN( "FREERIDE: driver avatar '%s' not loaded\n", config.c_str() );
     } else {
@@ -5490,6 +5587,7 @@ void GMFreeRide::tick( float deltaTime ) {
             }
             tickLicenseTest( deltaTime );
             updateRaceGates();
+            tickTessMission( deltaTime );
             float raceTime = 0.0f;
             int32_t raceReward = 0;
             bool bRaceSuccess = false;
@@ -5629,11 +5727,11 @@ void GMFreeRide::tick( float deltaTime ) {
                     // step-3 goal text. Revisit with C_MEETING_TESS
                     // ("thedream", meeting_tess.bnk — data mapped in
                     // docs/STATE.md, nothing needs re-animation).
-                    GetPlayerProfile().StoryStep = 3;
-                    SaveProfile( "story step 3" );
-                    hud.showGoal( LocStr( 6111, "On the road to \"Solar Crown\"" ) );
+                    GetPlayerProfile().StoryStep = 4;
+                    SaveProfile( "story step 4" );
                     state = eState::Drive;
-                    OTDU_LOG_INFO( "FREERIDE: white fade done -> story step 3, freeride resumes\n" );
+                    startTessMission();
+                    OTDU_LOG_INFO( "FREERIDE: white fade done -> story step 4 Driving Tess, freeride resumes\n" );
                 }
             }
         }

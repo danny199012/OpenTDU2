@@ -338,7 +338,7 @@ bool TestDriveGameInstance::initialize() {
         const int32_t step = CmdLine::GetArgInt( "-storystep", 0 );
         static const eGameMode kStepModes[] = {
             eGameMode::GM_AvatarChoice, eGameMode::GM_FirstWalkMode, eGameMode::GM_FreeRide, eGameMode::GM_Cine,
-            eGameMode::GM_Mission,      eGameMode::GM_Cine,         eGameMode::GM_Cine,     eGameMode::GM_Shop,
+            eGameMode::GM_FreeRide,     eGameMode::GM_Cine,         eGameMode::GM_Cine,     eGameMode::GM_Shop,
             eGameMode::GM_FreeRide,     eGameMode::GM_FreeRide,     eGameMode::GM_FreeRide, eGameMode::GM_FreeRide,
             eGameMode::GM_FreeRide,     eGameMode::GM_Cine };
         // 13 "Igloo First Intro" = CINE kind 0x2b (isl_igloo.bnk at the Hawai

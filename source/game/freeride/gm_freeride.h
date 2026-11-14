@@ -127,6 +127,20 @@ private:
     bool bPassengerSeated = false;
     void loadOccupants();
     void unloadOccupants();
+
+    // Story step 4 "Driving Tess" (event TESSEVEN, DBEvent 21; FUN_00b10da0
+    // case 5, docs/re/story_spec.md 4 of CamilleKMI/OpenTDU2 335759a): drive Tess
+    // from the hotel to the Solar Crown venue. ig2/tesseven.ig2 [DATA] holds the
+    // start gate (#0), the finish gate (#1), timG 160 s (target) and CtDw 210 s
+    // (time limit, as the licence tests' files). Tess rides as the passenger.
+    Ig2Challenge tessEvent;
+    bool bTessMission = false;
+    float tessTimeLeft = 0.0f;
+    bool bTessTimeShown = false;
+    Vector3f tessPreviousCar;
+    void startTessMission();
+    void tickTessMission( float deltaTime );
+    void finishTessMission();
     // One-time wirings of this instance (callbacks that capture this mode).
     bool bPuddlesWired = false;
     bool bBankWired = false;

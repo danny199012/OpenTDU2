@@ -313,7 +313,20 @@ void GMCine::onCinematicEnd() {
             request = CineRequest();
             OTDU_LOG_INFO( "CINE: end of %s -> story step 4 'Driving Tess' (MISSION, TESSEVEN)\n",
                            cinematicName.c_str() );
-            pGameInstance->setNextGameMode( eGameMode::GM_Mission );
+            // The mission runs inside FREERIDE (GMFreeRide::startTessMission, the
+            // port keeps one driving mode): the car stays where the scene left it.
+            StoryHandoff &handoff = GetStoryHandoff();
+            handoff = StoryHandoff();
+            Matrix4x4f carWorld;
+            if ( cine.getCarWorld( carWorld ) ) {
+                const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+                handoff.bSet = true;
+                handoff.bStory = true;
+                handoff.Position = carWorld.getTranslation();
+                handoff.Yaw = std::atan2( forward.x, forward.z );
+                handoff.Island = "ibiza";
+            }
+            pGameInstance->setNextGameMode( eGameMode::GM_FreeRide );
         } else if ( profile.StoryStep == 5 ) {
             // Step 6 enter (case 7): mode 0x1f again (switch requested), CINE
             // request kind 3 (FUN_00b9a1f0 without callback, set by the tick).
