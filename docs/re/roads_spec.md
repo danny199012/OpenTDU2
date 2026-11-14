@@ -45,6 +45,12 @@ Material `1` (dirt) exists only on static meshes (23311 triangles) and under 7 c
 maps carry the sand / mud textures, surface_effects_spec.md 1), not in the road graph or the road collision. Still undecoded: which `DAOR` byte, if any, is the AIRL type. Next lead: the dev exe's
 `HudMapRoads` draw code (`0xc9e584`..) and how it picks the colour per road (it reads the road list from a resource, not `ROAD_MAP.IA` [INF]).
 
+**ROAD_DETAIL sub-block headers vs class (2026-11-14, `-logroadfields`).** The 5 header words of each record's first sub-block (`0x60007, 18, 257, 1, 0xc90204`...) crossed with the `DAOR +12` class on Ibiza and
+Hawai: nothing separates a class (word 0 high half `3` is the only thing classes 3 / 4 share, but classes 0..2 have it too; word 2 = `0x100 / 0x101 / 0x200 / 0x202 / 0x300`; the low half of word 4 =
+`0x203 / 0x204 / 0x302 / 0x4 / 0x5 / 0x104` is spread over every class). GLM's dev-exe read says the satnav colour is a 7-entry table at `0x1687174` indexed by a type byte at road piece `+0x11` filled from a
+runtime `RoadNetworkPoly` resource, not by `ROAD_MAP.IA` [CODE-dev, per the owner's relay; not re-checked]. The commonworld bank has road texture families `crossroad_color_{circuit,country,goudron,national,town}` /
+`crossroad_detail_{country,oldtown,town}` - a likely naming of the road types (country = dirt track) [INF]; the type per link may come from the road mesh textures of the sectors.
+
 ## ROAD_DETAIL.IA `[DATA]`
 `DI41DAEH` header, then **`ATED`** records, one per road (1392, id = the DAOR id): `+4 id, +8 N` (9 on road 1),
 `N` byte offsets from the record start, then N sub-blocks of 5 header words (`0x60007, 18, 257, 1, 0xc90204` ...

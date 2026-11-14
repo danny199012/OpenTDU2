@@ -1975,6 +1975,7 @@ void MapScreen::loadRoads( const std::string &island ) {
         }
     }
     std::map<uint32_t, std::vector<Vector3f>> detail;
+    std::map<uint32_t, std::array<uint32_t, 5>> detailHeaders;
     if ( pDetail != nullptr ) {
         const uint8_t *pD = pDetail->pData;
         const size_t n = pDetail->Size;
@@ -2005,6 +2006,13 @@ void MapScreen::loadRoads( const std::string &island ) {
                 continue;
             }
             std::vector<Vector3f> &points = detail[rid];
+            if ( count > 0 && start + u32( start + 12 ) + 20 <= recordEnd ) {
+                std::array<uint32_t, 5> header;
+                for ( size_t w = 0; w < 5; w++ ) {
+                    header[w] = u32( start + u32( start + 12 ) + 4 * w );
+                }
+                detailHeaders[rid] = header;
+            }
             for ( uint32_t k = 0; k < count; k++ ) {
                 const size_t blockStart = start + u32( start + 12 + 4 * k );
                 const size_t blockEnd = k + 1 < count ? start + u32( start + 12 + 4 * ( k + 1 ) ) : recordEnd;
@@ -2058,6 +2066,30 @@ void MapScreen::loadRoads( const std::string &island ) {
             }
         } else if ( memcmp( pData + i, "DAOR", 4 ) == 0 && i + 48 <= size ) {
             roadOffsets.push_back( i );
+        }
+    }
+    if ( CmdLine::HasArg( "-logroadfields" ) ) {
+        // The first sub-block header of each ATED record (5 words) against the DAOR +12 class.
+        for ( size_t word = 0; word < 5; word++ ) {
+            std::map<std::string, int32_t> cross;
+            for ( const size_t offset : roadOffsets ) {
+                const auto header = detailHeaders.find( readU32( offset + 4 ) );
+                if ( header == detailHeaders.end() ) {
+                    continue;
+                }
+                char key[48];
+                snprintf( key, sizeof( key ), "w%zu=0x%x cls%d", word, word == 4 ? ( header->second[word] & 0xffffu ) : header->second[word], pData[offset + 12] );
+                cross[key]++;
+            }
+            std::string line;
+            int32_t shown = 0;
+            for ( const auto &entry : cross ) {
+                if ( shown++ >= 40 ) {
+                    break;
+                }
+                line += " [" + entry.first + "]:" + std::to_string( entry.second );
+            }
+            OTDU_LOG_INFO( "MapScreen: ATED word %zu x class (%zu combos):%s\n", word, cross.size(), line.c_str() );
         }
     }
     if ( CmdLine::HasArg( "-logroadfields" ) ) {
