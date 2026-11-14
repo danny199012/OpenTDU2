@@ -532,6 +532,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     car.load( carDesc );
     applyOwnedPaint();
     applyOwnedStickers();
+    loadOccupants();
     // The sticker shop rooms' movie: its stsh: FSCommands come to the shop UI.
     interior.setCommandSink( [this]( const std::string &command, const std::string & ) {
         stickerShop.onCommand( command );
@@ -708,6 +709,13 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( ( bScenePass || bCubeActors ) && car.isLoaded() ) {
             if ( bScenePass ) {
                 car.draw( renderer, carWorld, view.getWeather(), bEnvironmentAssigned );
+                // Driver (and passenger): the head is hidden in the cockpit view.
+                if ( bDriverSeated ) {
+                    driver.draw( renderer, chase.getMode() != 23 );
+                }
+                if ( bPassengerSeated ) {
+                    passenger.draw( renderer );
+                }
             }
             // The sweeping blades clear the windscreen layer (once per frame,
             // the main view): the blade's pivot->tip segment, projected to
@@ -3671,6 +3679,7 @@ bool GMFreeRide::switchCar( const CinematicCar::Desc &desc, const Vector3f &posi
             pRenderer->clearRtInstances();
         }
     }
+    unloadOccupants();
     car.unload();
     carDesc = desc;
     ApplyProfileRims( carDesc );
@@ -3680,6 +3689,7 @@ bool GMFreeRide::switchCar( const CinematicCar::Desc &desc, const Vector3f &posi
     }
     applyOwnedPaint();
     applyOwnedStickers();
+    loadOccupants();
     if ( bAudio && gpAudio != nullptr && gpAudio->isReady() ) {
         std::string soundBank = carDesc.FileName;
         for ( char &c : soundBank ) {
@@ -3705,6 +3715,41 @@ bool GMFreeRide::switchCar( const CinematicCar::Desc &desc, const Vector3f &posi
     lastSectorKey = INT32_MIN;
     OTDU_LOG_INFO( "FREERIDE: now driving '%s'\n", carDesc.FileName.c_str() );
     return true;
+}
+
+void GMFreeRide::loadOccupants() {
+    // The driver of the car (docs/re/driver_seat_spec.md; GMTestCar does the
+    // same): the player's avatar seated at the driver seat with the seat IK.
+    // -noseated keeps the empty cockpit.
+    unloadOccupants();
+    if ( CmdLine::HasArg( "-noseated" ) || !car.isLoaded() ) {
+        return;
+    }
+    const std::string &config = GetPlayerProfile().AvatarConfig;
+    if ( config.empty() ) {
+        return;
+    }
+    avatars.load();
+    const std::string driverPath = gpFile->getBankFolder() + "scenarics/avatars/avatarsdriver.bnk";
+    if ( !driverBank.load( driverPath.c_str() ) ) {
+        OTDU_LOG_WARN( "FREERIDE: '%s' not found, no seated avatar\n", driverPath.c_str() );
+        return;
+    }
+    bDriverSeated = driver.load( avatars, config.c_str(), SeatedAvatar::eSeat::Driver, driverBank );
+    if ( !bDriverSeated ) {
+        OTDU_LOG_WARN( "FREERIDE: driver avatar '%s' not loaded\n", config.c_str() );
+    } else {
+        OTDU_LOG_INFO( "FREERIDE: driver '%s' seated in '%s'\n", config.c_str(), carDesc.FileName.c_str() );
+    }
+}
+
+void GMFreeRide::unloadOccupants() {
+    driver.unload();
+    passenger.unload();
+    avatars.unload();
+    driverBank.unload();
+    bDriverSeated = false;
+    bPassengerSeated = false;
 }
 
 void GMFreeRide::setShadowConfig( const std::string &name ) {
@@ -5596,6 +5641,12 @@ void GMFreeRide::tick( float deltaTime ) {
     }
     }
     updateWheels();
+    if ( bDriverSeated ) {
+        driver.update( car, carWorld );
+    }
+    if ( bPassengerSeated ) {
+        passenger.update( car, carWorld );
+    }
     tickSurfaceFx( deltaTime );
     // The world neons (shop signs): strength from the weather, the .pmi
     // blink states advance (neon_spec 2).
@@ -6100,6 +6151,12 @@ void GMFreeRide::tick( float deltaTime ) {
     view.setCamera( camera );
     view.setWeather( pWeather );
     view.setEnvironmentCenter( carPosition, car.isLoaded() );
+    if ( bDriverSeated ) {
+        driver.computeLighting( pWeather, view.getSceneParams() );
+    }
+    if ( bPassengerSeated ) {
+        passenger.computeLighting( pWeather, view.getSceneParams() );
+    }
     if ( gpAudio != nullptr ) {
         const Vector3f cameraForward =
             EdenRotationFromQuaternion( camera.Rotation ).transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
@@ -6564,6 +6621,7 @@ void GMFreeRide::exit() {
         state.Wetness = carDirt.getWetness();
         state.AvatarConfig = GetPlayerProfile().AvatarConfig;
     }
+    unloadOccupants();
     car.unload();
     view.destroy();
     collision.clear();

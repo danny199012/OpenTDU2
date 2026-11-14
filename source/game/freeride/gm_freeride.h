@@ -10,6 +10,8 @@
 #include "input/gamepad_output.h"
 #include "input/wheel_ffb.h"
 #include "game/cheats.h"
+#include "filesystem/bank.h"
+#include "game/avatar/seated_avatar.h"
 #include "game/cinematic/cinematic_car.h"
 #include "game/cinematic/gps_screen.h"
 #include "game/freeride/car_delivery.h"
@@ -115,6 +117,16 @@ private:
     FadeFreeride wakeup;
     CinematicCar car;
     CinematicCar::Desc carDesc;
+    // The driver (and, in the story, Tess as passenger) seated in the car:
+    // avatarsdriver.bnk base clips + the car's seat IK (docs/re/driver_seat_spec.md).
+    EdenAvatarLibrary avatars;
+    Bank driverBank;
+    SeatedAvatar driver;
+    SeatedAvatar passenger;
+    bool bDriverSeated = false;
+    bool bPassengerSeated = false;
+    void loadOccupants();
+    void unloadOccupants();
     // One-time wirings of this instance (callbacks that capture this mode).
     bool bPuddlesWired = false;
     bool bBankWired = false;
