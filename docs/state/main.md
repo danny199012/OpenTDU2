@@ -2,7 +2,15 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (brightness slider + the Image settings overlay, `main`)
+`## Session 2026-11-14 (Advanced graphics page, `main`): a retail-template tab for the extra graphics rows
+
+Owner: "expand these menus for graphics or some method that wasn't out of place" -> yes, build it.
+
+- The Audio & Video column already carries a **Stereo** tab (MAIN.vmf `options/relief3d`, command prefix `ster`, locked: Stereo 3D is not implemented) - a clean retail page of 5 rows (3 choice boxes `mode3d` / `anaglyph3d` / `diagonal3d`, 2 sliders `depth3d` 0..15 / `resolution3d` 0..4; the ranges are hard-coded in the page's setParameters). It is now **Advanced graphics** (`PauseMenu::onAdvancedGraphicsCommand`): Sun shadows, Haze, Sun flare (choice), Shadow distance (slider 0..15 -> 50..150 %), Draw distance (slider 0..4 -> 50..150 %); labels / values are root variables (`m_StereoOp3d_`, `m_ModeOp3d_` ..., `/:mode3d` ...), `/:is3DMode` must be true for the page's own Move() (Up / Down), OK saves / Cancel restores like the other pages; LB / RB cycle audio -> video -> image -> advanced. Those 5 rows left the Image settings list, which keeps Gamma + 8 rows (Render scale ... UI layout, FOV scale scrolls in).
+- Evidence (build 34, `docs/images/options-advanced-graphics.webp`, `options-image-settings-split.webp`): `stmo:scne` toggles shadows, the sliders log `stds:slid:updt` -> `shadows 0 @ 120 %` / `stre` -> `draw 125 %`, OK -> `options.ini` `shadows = 0`, `shadow_distance = 120`, `draw_distance = 125`.
+- Debug: `/options/relief3d` clip dump via `-dumpoptionsall -dumpoptionsclips`. The 5th row's label sits close to the page's bottom mask (retail template). `menu_rows.ini` still drives the video / gamma pages only.
+
+## Session 2026-11-14 (brightness slider + the Image settings overlay, `main`)
 
 Owner: add the brightness slider to the picker; "the Image settings with gamma ... I think there is an overlay issue".
 

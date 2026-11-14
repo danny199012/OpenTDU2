@@ -130,7 +130,7 @@ private:
     // Gamma), clones a root choicebox row per row and lets the page's
     // setParameters initialize them (extendOptionsRows). The clones are
     // removed when the page closes (removeExtraOptionRows).
-    enum class eRowsPage : uint8_t { None, Audio, Video, Gamma };
+    enum class eRowsPage : uint8_t { None, Audio, Video, Gamma, Advanced };
     void extendOptionsRows();
     void removeExtraOptionRows();
     // The panel's game-row slots are p1..p7 (slot 0 is the page's own first
@@ -172,6 +172,7 @@ private:
     std::string extraRowText( const char *pCommand );
     // Left / Right on one of the game's rows ('opts:<page>:<cmd>:scpr/scne').
     bool stepExtraRow( const std::string &command, int32_t step );
+    void onAdvancedGraphicsCommand( const std::string &what );
     eRowsPage pendingRowsPage = eRowsPage::None;
     bool bRowsExtended = false; // the open page's rows were appended
     bool bOnVideoPage =

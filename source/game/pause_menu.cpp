@@ -704,7 +704,9 @@ bool PauseMenu::load() {
     player.setVariableBool( "/:GammaEnabled", true );
     player.setVariableBool( "/:LockGamma", false );
     player.setVariableBool( "/:is3DAllowed", true );
-    player.setVariableBool( "/:LockRelief3d", true );
+    // The Stereo 3D tab is the "Advanced graphics" page (onAdvancedGraphicsCommand).
+    player.setVariable( "/:m_StereoOp3d_", "Advanced graphics" );
+    player.setVariableBool( "/:LockRelief3d", false );
     // Player panel of the pause screen: MAIN.vmf reads these root variables
     // (undefined until the game fills them, which is why the panel of the
     // original screenshot stayed empty). The save game is not implemented:
@@ -1376,13 +1378,13 @@ namespace {
         { "gamma", "gama", "rnsc", "rndscale",   "Render scale"     },
         { "gamma", "gama", "upsc", "upscaler",   "Upscaling filter" },
         { "gamma", "gama", "shrp", "sharpness",  "Sharpening"       },
-        { "gamma", "gama", "shdw", "sunshadows", "Sun shadows"      },
-        { "gamma", "gama", "shds", "shdistance", "Shadow distance"  },
+        { "adv",   "gama", "shdw", "sunshadows", "Sun shadows"      },
+        { "adv",   "gama", "shds", "shdistance", "Shadow distance"  },
         { "gamma", "gama", "fpsl", "fpslimit",   "Frame rate limit" },
-        { "gamma", "gama", "shze", "haze",       "Haze"             },
-        { "gamma", "gama", "snfl", "sunflare",   "Sun flare"        },
+        { "adv",   "gama", "shze", "haze",       "Haze"             },
+        { "adv",   "gama", "snfl", "sunflare",   "Sun flare"        },
         { "gamma", "gama", "ocrf", "oceanrefl",  "Ocean reflections"},
-        { "gamma", "gama", "drds", "drawdist",   "Draw distance"    },
+        { "adv",   "gama", "drds", "drawdist",   "Draw distance"    },
         { "gamma", "gama", "scrr", "screenratio","Screen ratio"     },
         { "gamma", "gama", "uilr", "uilayout",   "UI layout"        },
         { "gamma", "gama", "fovs", "fovscale",   "FOV scale"        },
@@ -1809,6 +1811,10 @@ void PauseMenu::onOptionsCommand( const std::string &command ) {
             // comes back (its lines were hidden for the sub-page).
             player.gotoLabel( kControlsPcPath, "device_out", true );
         }
+        return;
+    }
+    if ( StringNCmpI( rest.c_str(), "ster:", 5 ) == 0 ) {
+        onAdvancedGraphicsCommand( rest.substr( 5 ) );
         return;
     }
     OTDU_LOG_INFO( "PauseMenu: options command '%s' not handled yet\n",
@@ -2257,7 +2263,7 @@ void PauseMenu::extendOptionsRows() {
         player.setClipVisible( pagePath + "/" + pHide, false ); // debug A/B: which clip overlays the rows
     }
     if ( CmdLine::HasArg( "-dumpoptionsclips" ) ) {
-        player.dumpClips( pagePath, 3 );
+        player.dumpClips( CmdLine::HasArg( "-dumpoptionsall" ) ? std::string( "/options" ) : pagePath, 3 );
     }
     OTDU_LOG_INFO(
         "PauseMenu: options %s extended with %d game rows (%d visible, "
@@ -2772,6 +2778,85 @@ void PauseMenu::tickControlsPage() {
     controlsLastLineView = lineView;
 }
 
+// The "Advanced graphics" page: the retail Stereo 3D page (MAIN.vmf
+// options/relief3d, command prefix 'ster') repurposed - Stereo 3D is not
+// implemented and the page is a clean retail template of five rows (three
+// choice boxes + two sliders, the slider ranges are the page's own: 0..15 on
+// the `depth3d` row, 0..4 on `resolution3d`) [DATA: MAIN.vmf]. The tab's and
+// the rows' labels are root variables (m_StereoOp3d_, m_ModeOp3d_ ...), the
+// values `_root.mode3d` ... the movie reads back, so the page needs no cloned
+// rows and no overlay tricks; the rows it takes leave the Image settings
+// page's list [INF: the layout is the port's].
+//   stmo  choice  Sun shadows        stds  slider 0..15  Shadow distance 50..150 %
+//   stco  choice  Haze               stre  slider 0..4    Draw distance 50..150 %
+//   stdg  choice  Sun flare
+void PauseMenu::onAdvancedGraphicsCommand( const std::string &what ) {
+    GameOptions &options = GetGameOptions();
+    const auto pushValues = [&]() {
+        player.setVariable( "/:mode3d", extraRowText( "shdw" ) );
+        player.setVariable( "/:anaglyph3d", extraRowText( "shze" ) );
+        player.setVariable( "/:diagonal3d", extraRowText( "snfl" ) );
+        player.setVariableNumber( "/:depth3d", ( options.ShadowDistance - 50 ) * 15.0 / 100.0 );
+        player.setVariableNumber( "/:resolution3d", ( options.DrawDistance - 50 ) / 25.0 );
+    };
+    if ( what == "open" ) {
+        optionsBackup = options;
+        openPage = eRowsPage::Advanced;
+        // The page's own Move() (Up / Down between the rows) only runs while
+        // _root.is3DMode is set [DATA: MAIN.vmf relief3d Move()].
+        player.setVariableBool( "/:is3DMode", true );
+        player.setVariable( "/:m_ModeOp3d_", "Sun shadows" );
+        player.setVariable( "/:m_AnaglyphOp3d_", "Haze" );
+        player.setVariable( "/:m_DepthStrenghtOp3d_", "Shadow distance" );
+        player.setVariable( "/:m_MonDiagOp3d_", "Sun flare" );
+        player.setVariable( "/:m_ResolutionOp3d_", "Draw distance" );
+        for ( const char *pLock : { "/:LockMode3d", "/:LockAnaglyph3d", "/:LockDepth3d", "/:LockDiagonal3d",
+                                    "/:LockResolution3d" } ) {
+            player.setVariableBool( pLock, false );
+        }
+        pushValues();
+    } else if ( what == "canc" ) {
+        const int32_t units = options.Units;
+        options = optionsBackup;
+        options.Units = units;
+        ApplyVideoOptions();
+        player.setVariableBool( "/:is3DMode", false );
+    } else if ( what == "vali" ) {
+        SaveGameOptions();
+        player.setVariableBool( "/:is3DMode", false );
+    } else {
+        const size_t colon = what.find( ':' );
+        const std::string command = colon == std::string::npos ? what : what.substr( 0, colon );
+        const std::string action = colon == std::string::npos ? std::string() : what.substr( colon + 1 );
+        const int32_t step = action == "scne" ? 1 : action == "scpr" ? -1 : 0;
+        if ( command == "stmo" ) {
+            stepExtraRow( "shdw", step );
+        } else if ( command == "stco" ) {
+            stepExtraRow( "shze", step );
+        } else if ( command == "stdg" ) {
+            stepExtraRow( "snfl", step );
+        } else if ( command == "stds" ) {
+            const std::string value = player.getVariable( "/:depth3d" );
+            if ( !value.empty() && value != "undefined" ) {
+                options.ShadowDistance = Clamp( 50 + static_cast<int32_t>( atof( value.c_str() ) * 100.0 / 15.0 + 0.5 ), 50, 150 );
+                options.QualityProfile = 0;
+            }
+        } else if ( command == "stre" ) {
+            const std::string value = player.getVariable( "/:resolution3d" );
+            if ( !value.empty() && value != "undefined" ) {
+                options.DrawDistance = Clamp( 50 + static_cast<int32_t>( atof( value.c_str() ) + 0.5 ) * 25, 50, 150 );
+                options.QualityProfile = 0;
+            }
+        }
+        // The choice rows re-read their variable (the movie's updateText).
+        player.setVariable( "/:mode3d", extraRowText( "shdw" ) );
+        player.setVariable( "/:anaglyph3d", extraRowText( "shze" ) );
+        player.setVariable( "/:diagonal3d", extraRowText( "snfl" ) );
+    }
+    OTDU_LOG_INFO( "PauseMenu: options advanced '%s': shadows %d @ %d %% haze %d flare %d draw %d %%\n", what.c_str(),
+                   options.Shadows, options.ShadowDistance, options.Haze, options.SunFlare, options.DrawDistance );
+}
+
 // LB / RB on an open options page: the previous / next page of the ring
 // audio -> video -> gamma. The pages share one template (default / open /
 // stop / close), so the switch is a close of the open page and an 'open' of
@@ -2786,6 +2871,7 @@ void PauseMenu::cycleOptionsPage( int32_t direction ) {
         { "audio", eRowsPage::Audio },
         { "video", eRowsPage::Video },
         { "gamma", eRowsPage::Gamma },
+        { "relief3d", eRowsPage::Advanced },
     };
     constexpr int32_t kNumPages = static_cast<int32_t>( std::size( kPages ) );
     int32_t index = 0;
@@ -3152,6 +3238,12 @@ void PauseMenu::tick( float deltaTime ) {
         // retail rows only after the 'open' FSCommand returned (the game's
         // rows would land before them in setParam): append the game's rows
         // one tick later, when the retail table is complete.
+        if ( bInOptions && player.getVariable( "/:m_StereoOp3d_" ) != "Advanced graphics" ) {
+            // The Stereo 3D tab's label (the tooltip and the page title) is
+            // the Advanced graphics page's [INF]; the movie resets the text
+            // when the square menu / page opens.
+            player.setVariable( "/:m_StereoOp3d_", "Advanced graphics" );
+        }
         if ( bInOptions && pendingRowsPage != eRowsPage::None ) {
             extendOptionsRows();
             pendingRowsPage = eRowsPage::None;
