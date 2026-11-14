@@ -161,6 +161,11 @@ private:
     UpdateState mUpdate;
     std::thread mUpdateThread;
     bool mCheckingForUpdates = false; // a check is out; announce its verdict once
+    // Update-check rails (docs: GitHub allows 60 unauthenticated calls an hour): a short cooldown on the
+    // button, and the "blocked until" time of a rate-limit answer (cached, re-read about once a second).
+    double mLastUpdateCheckTime = -1000.0;
+    long long mRateLimitedUntil = 0;
+    double mRateLimitReadTime = -1000.0;
     bool mUpdateWasBusy = false;      // the worker's busy edge, for the finished hooks above
     bool mStagedTagSaved = false;     // last_tag persisted for this session's staged release
     // "Update & rebuild": update-and-rebuild.bat streamed onto the Updates page.

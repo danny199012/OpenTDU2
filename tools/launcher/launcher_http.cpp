@@ -6,6 +6,7 @@
 #include <winhttp.h>
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace Launcher {
 
@@ -108,10 +109,26 @@ bool OpenRequest( const std::string &url, const std::string &userAgent, uint32_t
     return true;
 }
 
+// One response header by name ("" when absent).
+std::string QueryHeader( HINTERNET request, const wchar_t *name ) {
+    DWORD size = 0;
+    WinHttpQueryHeaders( request, WINHTTP_QUERY_CUSTOM, name, WINHTTP_NO_OUTPUT_BUFFER, &size,
+                         WINHTTP_NO_HEADER_INDEX );
+    if ( GetLastError() != ERROR_INSUFFICIENT_BUFFER || size == 0 ) {
+        return std::string();
+    }
+    std::wstring wide( size / sizeof( wchar_t ) + 1, L'\0' );
+    if ( !WinHttpQueryHeaders( request, WINHTTP_QUERY_CUSTOM, name, wide.data(), &size, WINHTTP_NO_HEADER_INDEX ) ) {
+        return std::string();
+    }
+    wide.resize( size / sizeof( wchar_t ) );
+    return WideToUtf8( wide );
+}
+
 } // namespace
 
 HttpResponse HttpGet( const std::string &url, const std::string &userAgent,
-                      uint32_t timeoutMs ) {
+                      uint32_t timeoutMs, const std::string &ifNoneMatch ) {
     HttpResponse response;
     InternetHandle session;
     InternetHandle connection;
@@ -119,6 +136,10 @@ HttpResponse HttpGet( const std::string &url, const std::string &userAgent,
     if ( !OpenRequest( url, userAgent, timeoutMs, session, connection, request,
                        response.Error ) ) {
         return response;
+    }
+    if ( !ifNoneMatch.empty() ) {
+        const std::wstring condition = L"If-None-Match: " + Utf8ToWide( ifNoneMatch ) + L"\r\n";
+        WinHttpAddRequestHeaders( request.Get(), condition.c_str(), static_cast<DWORD>( -1 ), WINHTTP_ADDREQ_FLAG_ADD );
     }
     if ( !WinHttpSendRequest( request.Get(), WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                               WINHTTP_NO_REQUEST_DATA, 0, 0, 0 ) ||
@@ -133,6 +154,21 @@ HttpResponse HttpGet( const std::string &url, const std::string &userAgent,
                          WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize,
                          WINHTTP_NO_HEADER_INDEX );
     response.Status = status;
+    response.ETag = QueryHeader( request.Get(), L"ETag" );
+    {
+        const std::string remaining = QueryHeader( request.Get(), L"X-RateLimit-Remaining" );
+        const std::string reset = QueryHeader( request.Get(), L"X-RateLimit-Reset" );
+        const std::string retry = QueryHeader( request.Get(), L"Retry-After" );
+        if ( !remaining.empty() ) {
+            response.RateLimitRemaining = std::atoi( remaining.c_str() );
+        }
+        if ( !reset.empty() ) {
+            response.RateLimitReset = std::atoll( reset.c_str() );
+        }
+        if ( !retry.empty() ) {
+            response.RetryAfterSeconds = std::atoll( retry.c_str() );
+        }
+    }
 
     for ( ;; ) {
         DWORD available = 0;

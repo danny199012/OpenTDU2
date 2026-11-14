@@ -93,6 +93,14 @@ struct UpdateSnapshot {
 
 UpdateSnapshot Snapshot( UpdateState &state );
 
+// GitHub allows 60 unauthenticated API calls an hour per IP. The updater therefore (1) sends If-None-Match
+// with the ETag of the last answer - a 304 is not counted - and (2) when GitHub answers a rate-limit 403 / 429
+// remembers the reset time (also across launcher restarts) and makes NO call until then.
+// Epoch seconds the calls are blocked until, 0 when they are not.
+long long UpdateRateLimitedUntil();
+// "16:27" in local time.
+std::string FormatClockTime( long long epochSeconds );
+
 // Full check (blocking - call it on a worker thread).
 void CheckForUpdates( const std::string &repoSlug, const std::string &branch,
                       const std::string &lastTag, const std::wstring &launcherDir,

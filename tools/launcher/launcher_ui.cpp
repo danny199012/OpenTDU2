@@ -282,6 +282,9 @@ bool NavItem( const char *label, Page page, Page current, bool bBadge ) {
     return bPressed;
 }
 
+// Seconds a finished / started update check blocks the next manual one (the API allows 60 calls an hour).
+constexpr double kUpdateCheckCooldown = 15.0;
+
 const char *PageTitle( Page page ) {
     switch ( page ) {
     case Page::Play: return "Play";
@@ -1966,11 +1969,34 @@ void LauncherApp::DrawUpdatesPage() {
             ImGui::ProgressBar( fraction, ImVec2( -1.0f, S( 20.0f ) ), overlay );
         }
         ImGui::Spacing();
-        ImGui::BeginDisabled( update.bBusy );
-        if ( GhostButton( update.bBusy ? "Checking..." : "Check for updates" ) ) {
-            StartUpdateCheck();
+        // The check button's rails: not while a check runs, not while GitHub's rate limit blocks the calls
+        // (the label says until when), and a short cooldown after a check so a press-happy refresh cannot
+        // burn the 60-an-hour quota.
+        {
+            const double now = ImGui::GetTime();
+            if ( now - mRateLimitReadTime > 1.0 ) {
+                mRateLimitedUntil = UpdateRateLimitedUntil();
+                mRateLimitReadTime = now;
+            }
+            const double cooldownLeft = kUpdateCheckCooldown - ( now - mLastUpdateCheckTime );
+            const bool bLimited = mRateLimitedUntil > 0;
+            const bool bCoolingDown = cooldownLeft > 0.0;
+            char label[96];
+            if ( update.bBusy ) {
+                std::snprintf( label, sizeof( label ), "Checking..." );
+            } else if ( bLimited ) {
+                std::snprintf( label, sizeof( label ), "GitHub limit - again at %s", FormatClockTime( mRateLimitedUntil ).c_str() );
+            } else if ( bCoolingDown ) {
+                std::snprintf( label, sizeof( label ), "Check again in %d s", static_cast<int>( cooldownLeft ) + 1 );
+            } else {
+                std::snprintf( label, sizeof( label ), "Check for updates" );
+            }
+            ImGui::BeginDisabled( update.bBusy || bLimited || bCoolingDown );
+            if ( GhostButton( label ) ) {
+                StartUpdateCheck();
+            }
+            ImGui::EndDisabled();
         }
-        ImGui::EndDisabled();
         if ( update.bCanApply && !update.bBusy ) {
             ImGui::SameLine();
             if ( AccentButton( update.DownloadUrl.empty() ? "Fast-forward this checkout"
@@ -2556,6 +2582,7 @@ void LauncherApp::StartUpdateCheck() {
     mUpdate.bChecked = false;
     mUpdate.bAvailable = false;
     mCheckingForUpdates = true;
+    mLastUpdateCheckTime = ImGui::GetCurrentContext() != nullptr ? ImGui::GetTime() : mLastUpdateCheckTime;
     const std::string repo = mSettings.UpdateRepo;
     const std::string branch = mSettings.UpdateBranch;
     const std::string lastTag = mSettings.LastUpdateTag;

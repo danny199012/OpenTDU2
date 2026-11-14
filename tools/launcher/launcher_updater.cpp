@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
 
 #include "build_info.h"
@@ -91,6 +92,102 @@ std::wstring UpdateRootDir() {
 
 std::wstring UpdateStagingDir() {
     return JoinPath( UpdateRootDir(), L"staged" );
+}
+
+// --- GitHub API rails: ETag cache + rate-limit memory ----------------------------------------------------
+std::wstring ApiCacheDir() {
+    return JoinPath( UpdateRootDir(), L"cache" );
+}
+
+std::wstring ApiCacheKey( const std::string &url ) {
+    // FNV-1a: stable across runs (std::hash is not guaranteed to be).
+    uint64_t hash = 1469598103934665603ull;
+    for ( const unsigned char c : url ) {
+        hash = ( hash ^ c ) * 1099511628211ull;
+    }
+    char text[32];
+    std::snprintf( text, sizeof( text ), "%016llx", static_cast<unsigned long long>( hash ) );
+    return Utf8ToWide( text );
+}
+
+long long NowEpoch() {
+    return static_cast<long long>( std::time( nullptr ) );
+}
+
+std::wstring RateLimitFile() {
+    return JoinPath( ApiCacheDir(), L"ratelimit.txt" );
+}
+
+void RememberRateLimit( long long resetEpoch ) {
+    MakeDirs( ApiCacheDir() );
+    WriteTextFile( RateLimitFile(), std::to_string( resetEpoch ) );
+}
+
+std::string RateLimitMessage( long long until ) {
+    const long long minutes = ( until - NowEpoch() + 59 ) / 60;
+    return "GitHub is limiting update checks (60 an hour without signing in). Nothing is wrong with the repository. "
+           "The launcher will not ask again until " + FormatClockTime( until ) + " (in about " +
+           std::to_string( minutes < 1 ? 1 : minutes ) + " min).";
+}
+
+// Every GitHub API call goes through here.
+HttpResponse GitHubGet( const std::string &originalUrl ) {
+    // OTDU2_GITHUB_API=<base> replaces https://api.github.com (a GitHub Enterprise host, or a local test server).
+    std::string url = originalUrl;
+    static const std::string kApiBase = "https://api.github.com";
+    if ( const char *pBase = std::getenv( "OTDU2_GITHUB_API" ); pBase != nullptr && pBase[0] != '\0' &&
+                                                               originalUrl.compare( 0, kApiBase.size(), kApiBase ) == 0 ) {
+        url = std::string( pBase ) + originalUrl.substr( kApiBase.size() );
+    }
+    const long long blockedUntil = UpdateRateLimitedUntil();
+    if ( blockedUntil > 0 ) {
+        HttpResponse blocked;
+        blocked.Status = 403;
+        blocked.bRateLimited = true;
+        blocked.RateLimitReset = blockedUntil;
+        blocked.Error = RateLimitMessage( blockedUntil );
+        return blocked; // no network call at all
+    }
+    MakeDirs( ApiCacheDir() );
+    const std::wstring key = ApiCacheKey( url );
+    const std::wstring etagFile = JoinPath( ApiCacheDir(), key + L".etag" );
+    const std::wstring bodyFile = JoinPath( ApiCacheDir(), key + L".body" );
+    std::string etag;
+    std::string cached;
+    ReadTextFile( etagFile, etag );
+    ReadTextFile( bodyFile, cached );
+    etag = Trim( etag );
+    if ( cached.empty() ) {
+        etag.clear(); // an ETag without its body cannot answer a 304
+    }
+    HttpResponse response = HttpGet( url, kUserAgent, 30000, etag );
+    if ( response.Status == 304 && !cached.empty() ) {
+        response.bOk = true;
+        response.Status = 200;
+        response.Body = cached;
+        response.bFromCache = true;
+        response.Error.clear();
+        return response;
+    }
+    if ( response.bOk && !response.ETag.empty() ) {
+        WriteTextFile( etagFile, response.ETag );
+        WriteTextFile( bodyFile, response.Body );
+    }
+    const bool bLimited =
+        response.Status == 429 ||
+        ( response.Status == 403 && ( response.RateLimitRemaining == 0 || response.Body.find( "rate limit" ) != std::string::npos ||
+                                      response.Body.find( "Rate limit" ) != std::string::npos ) );
+    if ( bLimited ) {
+        long long reset = response.RateLimitReset;
+        if ( reset <= NowEpoch() ) {
+            reset = response.RetryAfterSeconds > 0 ? NowEpoch() + response.RetryAfterSeconds : NowEpoch() + 3600;
+        }
+        RememberRateLimit( reset );
+        response.bRateLimited = true;
+        response.RateLimitReset = reset;
+        response.Error = RateLimitMessage( reset );
+    }
+    return response;
 }
 
 bool StagedDirHasFiles( const std::wstring &staged ) {
@@ -231,7 +328,7 @@ void FillFromGitHub( UpdateState &state, const std::string &repoSlug,
     state.SetPhase( "Contacting GitHub..." );
     const std::string releaseUrl =
         "https://api.github.com/repos/" + repoSlug + "/releases?per_page=10";
-    const HttpResponse response = HttpGet( releaseUrl, kUserAgent );
+    const HttpResponse response = GitHubGet( releaseUrl );
 
     std::vector<UpdateEntry> entries;
     std::string latestTag;
@@ -311,7 +408,7 @@ void FillFromGitHub( UpdateState &state, const std::string &repoSlug,
             state.SetPhase( "Reading the changelog since this build..." );
             const std::string compareUrl = "https://api.github.com/repos/" + repoSlug +
                                            "/compare/" + buildHash + "..." + latestCommit;
-            const HttpResponse compare = HttpGet( compareUrl, kUserAgent );
+            const HttpResponse compare = GitHubGet( compareUrl );
             JsonValue compareRoot;
             std::string compareError;
             if ( compare.bOk && JsonValue::Parse( compare.Body, compareRoot, compareError ) &&
@@ -384,13 +481,23 @@ void FillFromGitHub( UpdateState &state, const std::string &repoSlug,
     state.SetPhase( "Reading the branch changelog..." );
     const std::string commitsUrl =
         "https://api.github.com/repos/" + repoSlug + "/commits?sha=" + branch + "&per_page=30";
-    const HttpResponse commits = HttpGet( commitsUrl, kUserAgent );
+    const HttpResponse commits = GitHubGet( commitsUrl );
     if ( !commits.bOk ) {
         std::lock_guard<std::mutex> lock( state.Mutex );
         state.Source = "GitHub (" + repoSlug + ")";
         state.Error = response.bOk ? commits.Error : response.Error;
-        state.Summary = "Could not read the update feed.";
-        state.Hint = "Check the update source on the Updates page (launcher.ini: update.repo).";
+        if ( response.bRateLimited || commits.bRateLimited ) {
+            // Not an error of the repo or the settings: say what it is and when it lifts.
+            const long long until = UpdateRateLimitedUntil();
+            state.Error.clear();
+            state.Summary = "GitHub is limiting update checks until " + FormatClockTime( until ) + ".";
+            state.Hint = "GitHub allows 60 update checks an hour per connection without signing in; this launcher has used them. "
+                         "Nothing is wrong with the repository or your install. The launcher makes no further calls until the "
+                         "limit lifts, and repeat checks afterwards are free while nothing has changed.";
+        } else {
+            state.Summary = "Could not read the update feed.";
+            state.Hint = "Check the update source on the Updates page (launcher.ini: update.repo).";
+        }
         return;
     }
     JsonValue root;
@@ -444,6 +551,26 @@ void FillFromGitHub( UpdateState &state, const std::string &repoSlug,
 }
 
 } // namespace
+
+long long UpdateRateLimitedUntil() {
+    std::string text;
+    if ( !ReadTextFile( RateLimitFile(), text ) ) {
+        return 0;
+    }
+    const long long until = std::atoll( Trim( text ).c_str() );
+    return until > NowEpoch() ? until : 0;
+}
+
+std::string FormatClockTime( long long epochSeconds ) {
+    const std::time_t value = static_cast<std::time_t>( epochSeconds );
+    std::tm local = {};
+    if ( localtime_s( &local, &value ) != 0 ) {
+        return "later";
+    }
+    char text[16];
+    std::strftime( text, sizeof( text ), "%H:%M", &local );
+    return text;
+}
 
 void CheckForUpdates( const std::string &repoSlug, const std::string &branch,
                       const std::string &lastTag, const std::wstring &launcherDir,

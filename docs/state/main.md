@@ -3,6 +3,22 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 15th): launcher update-check rails against the GitHub 403 (owner report)
+
+The owner refreshed the Updates page a few times waiting for a build and got "403": GitHub allows 60 unauthenticated API calls an hour per IP and each check made two (releases + compare). Confirmed live: this connection showed `remaining 0 of 60, resets 16:27:37`.
+
+### What changed (tools/launcher)
+- `launcher_http.{h,cpp}`: `HttpGet( url, ua, timeout, ifNoneMatch )` sends `If-None-Match`; `HttpResponse` carries `ETag`, `RateLimitRemaining`, `RateLimitReset`, `RetryAfterSeconds`, `bRateLimited`, `bFromCache`.
+- `launcher_updater.cpp` `GitHubGet` (every API call goes through it): an on-disk ETag + body cache (`%TEMP%\opentdu2-update\cache`), a **304 is served from the cache** (GitHub does not count it); on a 403 / 429 rate-limit answer it stores the reset time (`ratelimit.txt`, survives restarts) and **makes no call until then**; the message says "GitHub is limiting update checks until HH:MM" plus a hint that nothing is wrong with the repo. `UpdateRateLimitedUntil()`, `FormatClockTime()`. `OTDU2_GITHUB_API=<base>` overrides the API host (Enterprise / tests).
+- `launcher_ui.cpp`: the Check button is disabled while limited ("GitHub limit - again at 16:24") and has a 15 s cooldown ("Check again in N s"); the startup auto-check stays (it is free after the first answer).
+
+### Verified
+- Real 403 on this connection: a packaged-style launcher copy reported "until 16:27" and wrote 16:27:37 (the real `X-RateLimit-Reset`); a second run made no call. Fake-API server: run 1 = two 200s, run 2 = two 304s with `If-None-Match`, same result from the cache. UI capture: disabled button with the time.
+
+### Not done
+- The Atom feed (`releases.atom`) as a free pre-check, a minimum interval for the startup check across launches, and an optional token setting (5000 / hour) - the ETag cache makes them unnecessary for normal use.
+
+
 ## Session 2026-11-14 (`main`, 14th): launcher - sidebar fits, Updates page rebuilt (owner request, build 81)
 
 The owner: the sidebar is cut off (Online hidden), the Updates page has many scroll bars of which one works, show only the current build and the build being jumped to with dates and the changes, drop the per-release changelogs.
