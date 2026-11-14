@@ -545,6 +545,18 @@ void LoadProfile() {
         } else if ( key.compare( 0, 5, "done_" ) == 0 ) {
             // done_<EVENT> = times earned (DBRewardXP events)
             profile.EventsDone[key.substr( 5 )] = number;
+        } else if ( key.compare( 0, 13, "exploreddirt_" ) == 0 ) {
+            std::vector<uint32_t> &list = profile.ExploredDirt[key.substr( 13 )];
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const unsigned long id = strtoul( pText, &pEnd, 10 );
+                if ( pEnd == pText ) {
+                    break;
+                }
+                list.push_back( static_cast<uint32_t>( id ) );
+                pText = *pEnd == ',' ? pEnd + 1 : pEnd;
+            }
         } else if ( key.compare( 0, 12, "exploredseg_" ) == 0 ) {
             // exploredseg_<island> = (link << 12 | segment),...
             std::vector<uint32_t> &list = profile.ExploredSegments[key.substr( 12 )];
@@ -815,6 +827,16 @@ bool SaveProfile( const char *pReason ) {
             if ( !line.empty() ) {
                 file << "exploredseg_" << island.first << " = " << line << "\n";
             }
+        }
+        for ( const auto &island : profile.ExploredDirt ) {
+            if ( island.second.empty() ) {
+                continue;
+            }
+            file << "exploreddirt_" << island.first << " = ";
+            for ( size_t i = 0; i < island.second.size(); i++ ) {
+                file << ( i > 0 ? "," : "" ) << island.second[i];
+            }
+            file << "\n";
         }
         for ( const auto &island : profile.KnownSpots ) {
             if ( island.second.empty() ) {

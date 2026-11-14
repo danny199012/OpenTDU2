@@ -45,6 +45,35 @@ encrypted); the data archives are identical to retail's. Candidates worth checki
 `HST_STICKER_SHOP_*` / `MapShop` strings, `Car_Grass*`. Running the dev exe itself (`TDU2_No_menu.bat` = `TestDrive2DEV.exe -mode offline`, with its debug menu)
 would show the cut features directly; I have not run it (untrusted download), the owner can.
 
+### 3.1 Progression strings in the dev exe (2026-11-14, `strings` sweep)
+
+The dev exe is the only readable copy of the progression glue (in retail this area is SecuROM-encrypted, `tess_garage_spec.md` §1.2):
+
+- **The story-step table** [CODE-dev]: 13 names, laid out in ascending address order from step 12 down to step 0
+  (Igloo First Intro, Hawai First Freeride, Home sweet home : Caravan, Go Home, Tuto FROG, Used Car Dealer,
+  Solar Crown interior, Solar Crown exterior, Driving Tess, Meeting Tess, First Freeride, First Garage,
+  Avatar choice / First WalkMode). **No "Done" step** — the two other "Done" strings in the exe are a duel-state
+  debug printout and a session-status list. So the Apr 2012 build had 13 steps; retail inserted step 11 "Done"
+  and renumbered Hawai/Igloo to 12/13. The port's `-storystep` uses the retail 14-step table, which is the final one.
+- **The race / duel / cruising cinematic name patterns** [CODE-dev], sitting directly above the story table:
+  `C_LOOSE_LOOP`, `C_WIN_LOOP`, `C_LOOSE_E%02d_%s`, `C_WIN_E%02d_%s`, `C_INTRO_E%02d_%s` (per event number and
+  class prefix — the `sta_a1..a7_a2` / `stb_*` / `stc_*` banks of `cutscenes_inventory.md` follow these),
+  `C_DUEL_%sH_INTRO|WIN|LOOSE|WIN_LOOP|LOOSE_LOOP`, `RACING_DUEL_%s`, `DUEL_WIN_%s`,
+  `CRUISING_%s_EVENT_AREA%d`, `CRUISING_DLC_EVENT_%s_AREA%d`; duel banks named `asphalt/sta_duels`,
+  `offroad/stb_duels`, `classic/stc_duels`. This is the event -> cinematic selector the engine builds names with;
+  the exact composition (which %s, which table) is the next thing to lift from the readable code.
+- **Debug menu, "Player Progression" section** [CODE-dev]: `RESET_EVENT`, `RESET_XP`, `RESET ALL FIRST INTROS`,
+  `First Intros`, `CUPS ALL UNLOCKED` / `CUPS ALL GOLD`, `CONTESTS ALL GOLD`, `Launch Duel` / `Delock current Duel` /
+  `Choose Duel to unlock` / `Lock all duels`, `Launch a Call`, `GENERATE NEXT RACE` / `GENERATE RACE FROM CURSOR`
+  (ICE Race Generation), chase rewards, wrecks (`CHEAT WRECKS`, `RESET WRECKS`, `DISPLAY SC WRECKS INFOS`),
+  `TOGGLE AIRPORT LOCK`, `TOGGLE TUTO`, area infos. Available to the owner when running the dev exe.
+- **Dev-only cinematic/scenaric modules** readable only here: `SC_Cinematic.cpp`, `EFAO_MngCinematics`,
+  `DbgScenaric.cpp` / `DbgScenaric2D` / `DbgScenaric3D` / `DbgScenaric_carIK`, `mng_dbg_scenaric`,
+  `scenaric_teleport`, `GM_GMEditor.cpp` (the closest thing to the scenaric authoring/inspection tool),
+  `GSScenarics.cpp` (`Scenaric_CineBank_Size`). The story-step enter/leave cases that are `[ENC]` in retail are
+  readable here — lifting `FUN_00b10da0`'s equivalent from the dev exe replaces the remaining `[INF]`s of
+  `tess_garage_spec.md` with `[CODE-dev]`.
+
 ## 4. Mods: what can and cannot be hosted
 - **Cannot be hosted by this project:** Eden / Atari assets (the dev exe, its menus, outfits, accessories, any retail or dev data). Opt-in does not change that:
   hosting them is redistribution (`README.md`: "No game data is distributed"). A mod must contain only **our own / community-authored** files, or point at files the

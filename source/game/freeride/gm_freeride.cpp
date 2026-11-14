@@ -6352,6 +6352,19 @@ void GMFreeRide::tick( float deltaTime ) {
             const int32_t link = mapScreen.getRoadLinkNear( here, 12.0f );
             if ( link != lastLink ) {
                 lastLink = link;
+                {
+                    VehicleWorldCollision::Hit groundHit;
+                    std::set<std::string> overlap;
+                    collision.materialsAt( here.x, here.z, overlap );
+                    std::string overlapText;
+                    for ( const std::string &m : overlap ) {
+                        overlapText += " " + m;
+                    }
+                    const bool bGround = collision.raycast( here + Vector3f( 0.0f, 3.0f, 0.0f ), Vector3f( 0.0f, -1.0f, 0.0f ), 10.0f, groundHit );
+                    OTDU_LOG_INFO( "roadclass: ground %s material 0x%x friction %.2f; meshes under:%s\n",
+                                   !bGround ? "none" : ( groundHit.Surface == VehicleWorldCollision::Hit::eSurface::Road ? "road" : ( groundHit.Surface == VehicleWorldCollision::Hit::eSurface::Terrain ? "terrain" : "static" ) ),
+                                   bGround ? groundHit.Material : 0u, bGround ? groundHit.Friction : 0.0f, overlapText.c_str() );
+                }
                 const auto &classes = mapScreen.getRoadClasses();
                 if ( link >= 0 && static_cast<size_t>( link ) < classes.size() ) {
                     OTDU_LOG_INFO( "roadclass: link %d class %d at (%.0f, %.0f)\n", link, static_cast<int32_t>( classes[link] ), here.x, here.z );
@@ -6720,7 +6733,21 @@ void GMFreeRide::tick( float deltaTime ) {
                 hud.showEarn( skill, name, points );
             } );
         }
-        mapScreen.trackCar( carPosition, deltaTime );
+        // The discovery reaches ~35 m past the car, along its heading.
+        const Vector3f trackForward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+        mapScreen.trackCar( carPosition, deltaTime, Vector3f( trackForward.x, 0.0f, trackForward.z ).normalized() * 35.0f,
+                            [this]( float x, float z ) {
+                                std::set<std::string> meshes;
+                                collision.materialsAt( x, z, meshes );
+                                if ( !meshes.empty() ) {
+                                    return false;
+                                }
+                                // Bare terrain: the ray down lands on the heightfield (the old town
+                                // has none and reads as nothing, not as dirt).
+                                VehicleWorldCollision::Hit ground;
+                                return collision.raycast( Vector3f( x, 1500.0f, z ), Vector3f( 0.0f, -1.0f, 0.0f ), 3000.0f, ground ) &&
+                                       ground.Surface == VehicleWorldCollision::Hit::eSurface::Terrain; // a dirt track
+                            } );
         // Spot discovery: the buildings the car drives within range of get
         // their map icon (the retail law; discoverNear saves the profile).
         mapScreen.discoverNear( carPosition );

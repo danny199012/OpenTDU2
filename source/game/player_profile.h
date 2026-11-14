@@ -89,6 +89,8 @@ struct PlayerProfile {
     std::map<std::string, std::vector<uint32_t>> ExploredRoads;
     // The explored sections of the links not fully driven: (link << 12) | segment.
     std::map<std::string, std::vector<uint32_t>> ExploredSegments;
+    // The explored segments that are dirt track (same (link << 12) | segment ids).
+    std::map<std::string, std::vector<uint32_t>> ExploredDirt;
     // Times each DBRewardXP event was earned (see AwardSkillEvent).
     std::map<std::string, int32_t> EventsDone;
     // Wrecks found per island (index in DiscoveryPoints::getWrecks).

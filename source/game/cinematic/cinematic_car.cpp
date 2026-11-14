@@ -2991,6 +2991,11 @@ void CinematicCar::applyGlassSwap( bool bInside ) {
         material = bInside ? glassDirt : glassOriginals[k];
     }
     bGlassSwapped = bInside;
+    // The swap wrote whole materials: back outside they are the clean snapshot, and the
+    // cracked glass of a damaged car must be bound again (the owner: the smashed window
+    // was repaired by switching to the chase camera). applyDamageState is idempotent, so
+    // forget what it applied.
+    appliedDamageState = -1;
 }
 
 void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const WeatherPreset *pWeather,

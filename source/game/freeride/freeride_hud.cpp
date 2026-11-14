@@ -2463,7 +2463,7 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
             const auto &shapes = pRoadMap_->getRoadShapes();
             const auto &boxes = pRoadMap_->getRoadBoxes();
             const auto &classes = pRoadMap_->getRoadClasses();
-            const uint8_t dirtClass = MapScreen::getDirtClass();
+            const uint8_t dirtClass = 255; // dirt is per driven segment (MapScreen::isSegmentDirt)
             const float reach = mapRectW * mapMetersPerPixel() + 30.0f;
             for ( int32_t pass = 0; pass < 2; pass++ ) {
                 for ( size_t e = 0; e < shapes.size(); e++ ) {
@@ -2482,9 +2482,6 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
                             colour = Rgba( 243, 196, 6, 255 );
                         } else if ( cls == 2 ) {
                             colour = Rgba( 29, 180, 215, 255 );
-                            widthPx = 4.0f;
-                        } else if ( cls == 4 ) {
-                            colour = Rgba( 102, 102, 204, 255 );
                             widthPx = 4.0f;
                         } else {
                             colour = Rgba( 0, 255, 255, 255 );
@@ -2507,13 +2504,17 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
                         if ( length < 0.01f ) {
                             continue;
                         }
+                        // A dirt track segment (bare terrain under it when it was driven): the retail offroad yellow.
+                        const bool bDirtSegment = pass == 1 && pRoadMap_->isSegmentDirt( e, k );
+                        const uint32_t segColour = bDirtSegment ? Rgba( 243, 196, 6, 255 ) : colour;
+                        const float segHalf = bDirtSegment ? 1.5f : half;
                         const float ux = dx / length, uy = dy / length;
-                        const float nx = -uy * half, ny = ux * half;
+                        const float nx = -uy * segHalf, ny = ux * segHalf;
                         // Extended by half a width at each end so the joints
                         // between two segments leave no notch.
-                        PushQuad( vertices, { a.x - ux * half + nx, a.y - uy * half + ny },
-                                  { b.x + ux * half + nx, b.y + uy * half + ny }, { b.x + ux * half - nx, b.y + uy * half - ny },
-                                  { a.x - ux * half - nx, a.y - uy * half - ny }, colour );
+                        PushQuad( vertices, { a.x - ux * segHalf + nx, a.y - uy * segHalf + ny },
+                                  { b.x + ux * segHalf + nx, b.y + uy * segHalf + ny }, { b.x + ux * segHalf - nx, b.y + uy * segHalf - ny },
+                                  { a.x - ux * segHalf - nx, a.y - uy * segHalf - ny }, segColour );
                     }
                 }
             }

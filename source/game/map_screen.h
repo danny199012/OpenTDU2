@@ -143,7 +143,13 @@ public:
     // blue on the map. Call every frame with the car position while driving;
     // returns the newly explored length in metres [INF: the retail rule - which
     // roads count, the width of a road - is not decoded, see docs/re/savegame_spec.md].
-    float trackCar( const Vector3f &position, float deltaTime );
+    // ahead: an offset from the car to a second probe point (the discovery reaches a little
+    // past the car, like the retail's), zero for none.
+    // isTerrainOnly( x, z ): true when no road / static collision mesh lies under the point -
+    // a dirt track is bare terrain [DATA: the ground under both owner-checked dirt tracks has
+    // no mesh, the tarmac does]; decides the dirt flag of each segment as it is driven.
+    float trackCar( const Vector3f &position, float deltaTime, const Vector3f &ahead = Vector3f( 0.0f, 0.0f, 0.0f ),
+                    const std::function<bool( float, float )> &isTerrainOnly = nullptr );
     // Percent of the island's road length explored (the Discovery "Roads" row).
     int32_t getExploredPercent() const;
     // The island road graph (nodes in world metres, links as node id pairs).
@@ -182,6 +188,9 @@ public:
     // Discovery is per section: a link's curve is made of ~28 m segments and each is
     // revealed as the car drives it (the retail reveals a road a piece at a time).
     // isRoadExplored above is true once any segment of the link is.
+    inline bool isSegmentDirt( size_t edge, size_t segment ) const {
+        return edge < segDirt.size() && segment < segDirt[edge].size() && segDirt[edge][segment] != 0;
+    }
     inline bool isSegmentExplored( size_t edge, size_t segment ) const {
         return edge < segExplored.size() && segment < segExplored[edge].size() && segExplored[edge][segment] != 0;
     }
@@ -410,6 +419,7 @@ private:
     std::vector<std::pair<int32_t, int32_t>> roadEdges;
     std::vector<uint8_t> edgeExplored; // 1 once any segment of the link is explored
     std::vector<std::vector<uint8_t>> segExplored; // per link, per curve segment
+    std::vector<std::vector<uint8_t>> segDirt;     // 1: the segment is a dirt track (decided when driven)
     std::vector<std::vector<float>> segLength;     // metres, scaled to sum to edgeLengths
     std::vector<float> edgeExploredLength;         // explored metres of the link
     // Marks one segment (or, with segment = -1, every segment) explored; returns the new metres.

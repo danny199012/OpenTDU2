@@ -1109,7 +1109,7 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
         // whole network, and only the discovered part can be fast travelled to.
         static const float kRoadWidth[kNumZoomLevels] = { 2.5f, 5.0f, 7.0f, 9.0f };
         const float width = kRoadWidth[Clamp( zoomLevel, 0, kNumZoomLevels - 1 )];
-        const uint8_t dirtClass = getDirtClass();
+        const uint8_t dirtClass = 255; // the dirt is decided per driven segment now (segDirt), not by the class byte
         auto classColour = [&]( uint8_t cls ) {
             if ( cls == dirtClass ) {
                 return MakeRGBA( 243, 196, 6 ); // offroad: the yellow of the retail table
@@ -1117,7 +1117,6 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
             switch ( cls ) {
             case 0: return MakeRGBA( 0, 255, 255 ); // road / secondary: cyan blue
             case 2: return MakeRGBA( 29, 180, 215 ); // highway
-            case 4: return MakeRGBA( 102, 102, 204 ); // circuit
             default: return MakeRGBA( 0, 255, 255 );
             }
         };
@@ -1127,7 +1126,7 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
         std::vector<float> px, py;
         for ( size_t i = 0; i < roadEdges.size(); i++ ) {
             const uint8_t cls = i < edgeClass.size() ? edgeClass[i] : 0;
-            std::vector<uint8_t> pointDriven;
+            std::vector<uint8_t> pointDriven, pointDirt;
             const std::vector<Vector3f> &shape = roadShapes[i];
             // Project the curve, dropping the points that land on the same
             // pixel as the last kept one: at the island level a road point is
@@ -1152,11 +1151,13 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
                 px.push_back( x );
                 py.push_back( y );
                 pointDriven.push_back( isSegmentExplored( i, pointIndex ) ? 1 : 0 ); // the segment that starts here
+                pointDirt.push_back( isSegmentDirt( i, pointIndex ) ? 1 : 0 );
             }
             for ( size_t k = 0; k + 1 < px.size(); k++ ) {
                 const bool bDriven = pointDriven[k] != 0;
-                const uint32_t colour = bDriven ? classColour( cls ) : MakeRGBA( 140, 140, 140 );
-                const size_t bucket = bDriven ? ( cls == dirtClass ? 1u : 2u ) : 0u;
+                const bool bDirt = bDriven && pointDirt[k] != 0;
+                const uint32_t colour = bDirt ? MakeRGBA( 243, 196, 6 ) : ( bDriven ? classColour( cls ) : MakeRGBA( 140, 140, 140 ) );
+                const size_t bucket = bDriven ? ( bDirt ? 1u : 2u ) : 0u;
                 const float ax = px[k], ay = py[k], bx = px[k + 1], by = py[k + 1];
                 if ( ( ax < -100.0f && bx < -100.0f ) || ( ax > 1380.0f && bx > 1380.0f ) || ( ay < -100.0f && by < -100.0f ) ||
                      ( ay > 820.0f && by > 820.0f ) ) {
@@ -1167,7 +1168,7 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
                 if ( length < 0.01f ) {
                     continue;
                 }
-                const float half = 0.5f * width * ( ( cls == 2 || cls == 4 ) ? 1.33f : 1.0f ); // the retail 4 vs 3 px
+                const float half = 0.5f * width * ( cls == 2 ? 1.33f : 1.0f ); // the retail 4 vs 3 px
                 const float ux = dx / length, uy = dy / length;
                 const float nx = -uy * half, ny = ux * half;
                 auto vertex = [&]( float vx, float vy ) {
@@ -1957,6 +1958,7 @@ void MapScreen::loadRoads( const std::string &island ) {
     edgeBoxes.clear();
     edgeExplored.clear();
     segExplored.clear();
+    segDirt.clear();
     segLength.clear();
     edgeExploredLength.clear();
     edgeClass.clear();
@@ -2212,11 +2214,13 @@ void MapScreen::loadRoads( const std::string &island ) {
     edgeExplored.assign( roadEdges.size(), 0 );
     edgeExploredLength.assign( roadEdges.size(), 0.0f );
     segExplored.assign( roadEdges.size(), {} );
+    segDirt.assign( roadEdges.size(), {} );
     segLength.assign( roadEdges.size(), {} );
     for ( size_t e = 0; e < roadEdges.size(); e++ ) {
         const std::vector<Vector3f> &shape = roadShapes[e];
         const size_t segments = shape.size() > 1 ? shape.size() - 1 : 0;
         segExplored[e].assign( segments, 0 );
+        segDirt[e].assign( segments, 0 );
         segLength[e].assign( segments, 0.0f );
         float sum = 0.0f;
         for ( size_t k = 0; k < segments; k++ ) {
@@ -2238,6 +2242,14 @@ void MapScreen::loadRoads( const std::string &island ) {
         for ( const uint32_t id : saved->second ) {
             if ( id < edgeExplored.size() ) {
                 exploredLength += markSegments( id, -1 );
+            }
+        }
+    }
+    const auto savedDirt = GetPlayerProfile().ExploredDirt.find( island );
+    if ( savedDirt != GetPlayerProfile().ExploredDirt.end() ) {
+        for ( const uint32_t id : savedDirt->second ) {
+            if ( ( id >> 12 ) < segDirt.size() && ( id & 0xfffu ) < segDirt[id >> 12].size() ) {
+                segDirt[id >> 12][id & 0xfffu] = 1;
             }
         }
     }
@@ -2337,7 +2349,8 @@ std::vector<std::string> MapScreen::takeEvents() {
     return events;
 }
 
-float MapScreen::trackCar( const Vector3f &position, float deltaTime ) {
+float MapScreen::trackCar( const Vector3f &carPosition, float deltaTime, const Vector3f &ahead,
+                          const std::function<bool( float, float )> &isTerrainOnly ) {
     if ( roadEdges.empty() ) {
         return 0.0f;
     }
@@ -2355,40 +2368,48 @@ float MapScreen::trackCar( const Vector3f &position, float deltaTime ) {
     // fills in a piece at a time as it is driven, like the retail.
     constexpr float kExploreRadius = 16.0f;
     float newLength = 0.0f;
-    for ( size_t i = 0; i < roadEdges.size(); i++ ) {
-        const std::vector<Vector3f> &shape = roadShapes[i];
-        if ( segExplored[i].empty() || edgeExploredLength[i] >= edgeLengths[i] - 0.01f ) {
-            continue;
-        }
-        const std::array<float, 4> &box = edgeBoxes[i];
-        if ( position.x < box[0] - kExploreRadius || position.x > box[2] + kExploreRadius || position.z < box[1] - kExploreRadius ||
-             position.z > box[3] + kExploreRadius ) {
-            continue;
-        }
-        for ( size_t k = 0; k + 1 < shape.size(); k++ ) {
-            if ( segExplored[i][k] != 0 ) {
+    const bool bAhead = ahead.x != 0.0f || ahead.z != 0.0f;
+    for ( int32_t probe = 0; probe < ( bAhead ? 2 : 1 ); probe++ ) {
+        const Vector3f probePosition = probe == 0 ? carPosition : carPosition + ahead;
+        for ( size_t i = 0; i < roadEdges.size(); i++ ) {
+            const std::vector<Vector3f> &shape = roadShapes[i];
+            if ( segExplored[i].empty() || edgeExploredLength[i] >= edgeLengths[i] - 0.01f ) {
                 continue;
             }
-            const Vector3f &a = shape[k];
-            const Vector3f &b = shape[k + 1];
-            const float abx = b.x - a.x, abz = b.z - a.z;
-            const float lengthSquared = abx * abx + abz * abz;
-            float t = lengthSquared > 0.0001f ? ( ( position.x - a.x ) * abx + ( position.z - a.z ) * abz ) / lengthSquared : 0.0f;
-            t = Clamp( t, 0.0f, 1.0f );
-            const float dx = position.x - ( a.x + abx * t ), dz = position.z - ( a.z + abz * t );
-            if ( dx * dx + dz * dz < kExploreRadius * kExploreRadius ) {
-                const float added = markSegments( i, static_cast<int32_t>( k ) );
-                newLength += added;
-                GetPlayerProfile().ExploredSegments[roadIsland].push_back( ( static_cast<uint32_t>( i ) << 12 ) | static_cast<uint32_t>( k ) );
-                if ( bAreasBuilt && edgeArea[i] >= 0 ) {
-                    areaExplored[edgeArea[i]] += added;
-                    checkAreaMilestones( edgeArea[i] );
+            const std::array<float, 4> &box = edgeBoxes[i];
+            if ( probePosition.x < box[0] - kExploreRadius || probePosition.x > box[2] + kExploreRadius || probePosition.z < box[1] - kExploreRadius ||
+                 probePosition.z > box[3] + kExploreRadius ) {
+                continue;
+            }
+            for ( size_t k = 0; k + 1 < shape.size(); k++ ) {
+                if ( segExplored[i][k] != 0 ) {
+                    continue;
+                }
+                const Vector3f &a = shape[k];
+                const Vector3f &b = shape[k + 1];
+                const float abx = b.x - a.x, abz = b.z - a.z;
+                const float lengthSquared = abx * abx + abz * abz;
+                float t = lengthSquared > 0.0001f ? ( ( probePosition.x - a.x ) * abx + ( probePosition.z - a.z ) * abz ) / lengthSquared : 0.0f;
+                t = Clamp( t, 0.0f, 1.0f );
+                const float dx = probePosition.x - ( a.x + abx * t ), dz = probePosition.z - ( a.z + abz * t );
+                if ( dx * dx + dz * dz < kExploreRadius * kExploreRadius ) {
+                    const float added = markSegments( i, static_cast<int32_t>( k ) );
+                    if ( isTerrainOnly && isTerrainOnly( 0.5f * ( a.x + b.x ), 0.5f * ( a.z + b.z ) ) ) {
+                        segDirt[i][k] = 1;
+                        GetPlayerProfile().ExploredDirt[roadIsland].push_back( ( static_cast<uint32_t>( i ) << 12 ) | static_cast<uint32_t>( k ) );
+                    }
+                    newLength += added;
+                    GetPlayerProfile().ExploredSegments[roadIsland].push_back( ( static_cast<uint32_t>( i ) << 12 ) | static_cast<uint32_t>( k ) );
+                    if ( bAreasBuilt && edgeArea[i] >= 0 ) {
+                        areaExplored[edgeArea[i]] += added;
+                        checkAreaMilestones( edgeArea[i] );
+                    }
                 }
             }
-        }
-        if ( edgeExploredLength[i] >= edgeLengths[i] - 0.01f ) {
-            // Fully driven: the save keeps the whole link (explored_<island>).
-            GetPlayerProfile().ExploredRoads[roadIsland].push_back( static_cast<uint32_t>( i ) );
+            if ( edgeExploredLength[i] >= edgeLengths[i] - 0.01f ) {
+                // Fully driven: the save keeps the whole link (explored_<island>).
+                GetPlayerProfile().ExploredRoads[roadIsland].push_back( static_cast<uint32_t>( i ) );
+            }
         }
     }
     exploredLength += newLength;
