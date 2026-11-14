@@ -11,6 +11,7 @@
 namespace {
     // Real time, not frame time: the notice must run while the game is paused.
     uint64_t noticeUntilMs = 0;
+    bool bProfileLoaded = false;
 
     std::filesystem::path ProfilePath() {
         return gpFile != nullptr ? gpFile->getUserDataFolder() / "profile.sav"
@@ -96,11 +97,14 @@ std::string GetStoryAvatarConfig( const std::string &introConfig ) {
     return introConfig.empty() ? std::string( "AVT_Male" ) : introConfig;
 }
 
+bool IsProfileLoaded() { return bProfileLoaded; }
+
 void LoadProfile() {
     std::ifstream file( ProfilePath() );
     if ( !file ) {
         return;
     }
+    bProfileLoaded = true;
     PlayerProfile &profile = GetPlayerProfile();
     std::string line;
     while ( std::getline( file, line ) ) {

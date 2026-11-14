@@ -7,6 +7,7 @@
 #include "audio/gs_audio.h"
 #include "filesystem/gs_file.h"
 #include "flash/gs_flash.h"
+#include "game/player_profile.h"
 #include "input/gs_input.h"
 #include "render/gs_render.h"
 #include "system/cmd_line.h"
@@ -387,7 +388,16 @@ void GMLogin::tick( float deltaTime ) {
         // The save backend (edFileSaveGamePC) is encrypted in the
         // executable: no progression data is ever found here. A new popup
         // waits for the previous one to be closed.
-        if ( !isPopupClosing() ) {
+        if ( IsProfileLoaded() && !CmdLine::HasArg( "-newgame" ) ) {
+            // FUN_009c9180: progression loaded -> no popup, SCENARIOTUTORIAL is
+            // cleared and the mode comes from the save (the port: FREERIDE,
+            // which resumes at the saved story step). The profile is the
+            // port's <userdata>/profile.sav. -newgame forces the popup.
+            OTDU_LOG_INFO( "LOGIN: progression found (%s, story step %d) -> continue\n",
+                           GetPlayerProfile().Name.c_str(), GetPlayerProfile().StoryStep );
+            nextMode = eGameMode::GM_FreeRide;
+            setState( LS_Leave );
+        } else if ( !isPopupClosing() ) {
             showNoDataPopup();
             setState( LS_SaveResult );
         }

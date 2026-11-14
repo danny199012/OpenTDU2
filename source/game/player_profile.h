@@ -252,6 +252,9 @@ std::string GetStoryAvatarConfig( const std::string &introConfig );
 // SaveProfile( reason ) from the same kind of places [INF: the retail trigger
 // list is not decoded]. Returns true when the file was written.
 void LoadProfile();
+// True when <userdata>/profile.sav was found and read by LoadProfile (the login
+// screen's save check: progression data present -> no "no data" popup).
+bool IsProfileLoaded();
 bool SaveProfile( const char *pReason );
 
 // Seconds the "saving" notice stays visible after a save (0 when none).

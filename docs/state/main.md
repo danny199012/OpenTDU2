@@ -28,6 +28,20 @@ The owner (fresh save at `story_step = 3`, launcher): *"I have no avatar in car 
 - Tess is seated low (only a smudge above the right headrest at night / day, not verified from the side); the steering input does not turn the driver's arms.
 - **Graffiti on the building windows: not reproduced** (a hotel spot render and the route start show nothing). Needs a location: F2 (coords overlay) + F6 (writes `_marks.txt`) at the spot; then `-uselodtextures` A/B and `-verbose` there (leads in `docs/state/cline.md`: the LOD alias rule, `TextureCache::findForOwner`'s global hash fallback).
 
+## Session 2026-11-14 (`main`): LOGIN continues an existing save instead of the "no progression data" popup
+
+Owner: the launcher shows my save, but starting the game keeps showing "No TDU2 progression data could be found".
+
+### What changed
+- `source/game/bootmenu/gm_login.cpp` (LS_SaveCheck) - the check always showed the popup, never looking at `profile.sav` (which `LoadProfile()` had already read). Now, when a profile was loaded, it logs `LOGIN: progression found` and goes to FREERIDE (retail FUN_009c9180: loaded progression -> no popup, no AVATAR_CHOICE). `-newgame` forces the old popup. [INF: the port's save is `<userdata>/profile.sav`; the retail backend is [ENC].]
+- `player_profile.{h,cpp}` - `IsProfileLoaded()`.
+
+### Verified
+- Run with a copy of the real save (story step 3): popup skipped, FREERIDE entered.
+
+### Not done / next
+- Pressing OK on the popup (no save) still goes to AVATAR_CHOICE, whose "gain" sets StoryStep=1 and saves over an existing profile.sav - a new game overwrites the old save with no backup.
+
 ## Session 2026-11-14 (TDU1 physics recon, `main`): tall-car rollover measured and reproduced; load-sensitive grip stops every flip (probe flag, off by default)
 
 Owner: "port TDU1 physics from OpenTDU - hybrid, keep TDU2 physics". Written permission from the OpenTDU maintainer on their issue thread (no LICENSE file): credit `opentdu`; do not paste their code (`docs/re/tdu1_physics_recon.md` section 0).
