@@ -16,8 +16,14 @@ The owner: work on damage; what else can the dev build give (grass / vegetation,
 - All 59 comparable `.big` / `.map` / `.cpr` files of the dev package are size-identical to retail: **no new assets in the package**. Only `Physics.cpr` and `GamePC.cpr` differ; the retail install is the TDU World retune, the dev `Physics.cpr` is Eden's original (angular damping, steering lock, ABS / TC / handbrake). Dropped into `<mods>/Physics.cpr` it loads (`Mod overlay: 'Physics.cpr'`); `-vehtest` barely moves (flips 0; lateral g 1.63 / 2.07 / 1.70 vs 1.63 / 2.07 / 1.72).
 - Damage run: `-gm FREERIDE -autoplay "60:hold=accel;300:hold=steerleft;..." -exitframe 1300` -> scratched -> deformed -> broken; headless, no screenshot.
 
+### Follow-up (same session, owner said "all"): Mods page, visible damage, traffic feed
+- **Mods:** `tools/launcher/launcher_mods.*` + Mods page; `gs_file.cpp` overlay layers (`<mods>/enabled.txt` + `<mods>/packages/<id>/`, name validation rejects `..` and separators). Bundled import mod `original-physics`. Verified: 9-check harness (scan / import / enable / enabled.txt) and the game resolving `Physics.cpr` from the package; `-nomods` disables it. **The page was not viewed on screen** (GUI).
+- **Damage visuals:** `CinematicCar::applyDamageState` swaps the glass `DETAIL2` to the retail cracked art from "deformed": log `damage state 2 -> cracked glass (5 slot(s))`, frame `docs/images/damage_cracked_glass_windscreen.png` (starred windscreen).
+- **Traffic feed:** a player-traffic crash adds car-car damage (`ScaleCar`, `[INF]` magnitude); compiled, not exercised (no traffic hit in the test drive).
+- **Police / traffic AI:** not started beyond the survey - the police chase meter already exists (`ChaseMode`); porting `AiCopMng` / `AiNavPolice` / `AiPoolTraffic` is several sessions.
+
 ### Not done / next
-- Damage visuals (damage-map pass + `TD_CarDeform_TS`), traffic / car-car feed, the lateral rule. Police / traffic AI from the readable `Ai*` modules. A launcher Mods page (design in the survey, section 4); the project cannot host Eden assets, only our own or "import from my copy" mods. The dev exe was not run (untrusted download).
+- Damage-map render pass + `TD_CarDeform_TS` body deformation, lateral rule, exercising the traffic feed; police and traffic AI from the readable `Ai*` modules; look at the Mods page on screen. The project cannot host Eden assets, only our own or "import from my copy" mods. The dev exe was not run (untrusted download).
 
 ## Session 2026-11-14 (`main`, 11th): the Apr 2012 dev prototype as a physics source - suspension law read
 
