@@ -3,6 +3,24 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 11th): the Apr 2012 dev prototype as a physics source - suspension law read
+
+The owner found `TestDrive2DEV.exe` (Hidden Palace, Apr 6 2012 prototype) and asked to start with physics.
+
+### What changed
+- `docs/re/dev_build_physics.md` (new spec) and `tools/devbuild_disasm.py` (capstone helper: `--str/--dis/--vtable/--callers/--float`). No game code changed.
+
+### Verified
+- Dev exe `.text` entropy 5.89, no SecuROM: the encrypted retail band is readable. 278 source paths, 709 RTTI classes.
+- Tyre law is the retail one (`D = MaxFriction x Fz`), so load sensitivity is NOT in the Pacejka evaluator.
+- Suspension: spring `k x (1 + b x)` matches the port exactly; `0x1012930` (vtable slot 9) is a rest-length solve, probably the retail `[ENC]` 0x54bc70 / 0x54bac0; damper clamps velocity (`V` at +0x80); stabilizer bar `(K dx - C dv) x w`.
+
+### Ruled out
+- "Lateral grip cheat" (0x552420) is AI opponent tuning, not a player tyre knob.
+
+### Not done / next
+- Decode `0x1012130` (origin of `V` and the per-frame `MaxDamperForce`), then the wheel vfunc +0x40 factor `w`; prototype behind a flag and A/B with `-vehtest`. Full list in `docs/re/dev_build_physics.md` section 6. Nothing was run in the game this session (static reading only).
+
 ## Session 2026-11-14 (`main`, 10th): the retail 3D spot holograms and the satnav ENTER state
 
 The owner: "there's a bunch of hologram markers in the game for races, houses, dealerships, shops etc.... Just like in this picture can we implement them please and also the map changes when in a certain radius of these and it shows you can enter can this also be implemented as our current implementation isn't correct."
