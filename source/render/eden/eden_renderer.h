@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 #include <memory>
 
@@ -240,6 +241,11 @@ public:
     inline void setProjectiveTexture( GPUTexture *pTexture ) { pProjectiveTexture = pTexture; }
     // Depth only pass (Z pre-pass): color writes off, blended draws skipped.
     inline void setDepthOnly( bool bEnable ) { bDepthOnly = bEnable; }
+    // While set, every draw() goes to the hook instead of the material
+    // pipelines (the per-object velocity pass, EdenSceneView::runObjectVelocity).
+    using DrawHook =
+        std::function<void( const EdenMesh &, const EdenMaterial &, const Matrix4x4f &, const EdenDrawParams * )>;
+    inline void setDrawHook( DrawHook hook ) { drawHook = std::move( hook ); }
     // Shadow caster pass: opaque draws use their caster permutation
     // (S_PASS_SHADOWCAST of the vegetation families, TD_ShadowCaster for
     // the others: R32F = clip z * 2 - 1); blended draws are skipped.
@@ -419,6 +425,7 @@ private:
     GPUTexture *pProjectiveTexture = nullptr;
     GPUTexture *pBlack2D = nullptr; // (0, 0, 0, 0)
     bool bDepthOnly = false;
+    DrawHook drawHook;
     bool bShadowCaster = false;
     bool bReflectionPass = false;
     std::unordered_map<const EdenMaterial *, std::pair<uint64_t, std::unique_ptr<EdenMaterial>>> casterMaterials;

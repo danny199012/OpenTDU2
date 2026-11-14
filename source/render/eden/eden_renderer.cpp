@@ -928,6 +928,10 @@ void EdenRenderer::draw( const EdenMesh &mesh, const EdenMaterial &material, con
     if ( !bReady || !bInScene || material.pProgram == nullptr || mesh.IndexCount == 0 ) {
         return;
     }
+    if ( drawHook ) {
+        drawHook( mesh, material, world, pParams );
+        return;
+    }
     if ( bProbeRecording ) {
         ProbeDraw &probe = probeDraws.emplace_back();
         probe.Min = probeMin;

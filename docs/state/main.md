@@ -3,6 +3,22 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 4th): per-object velocity - the car and traffic carry their own motion
+
+### What changed
+- `ePass::Velocity` + `EdenSceneView::runObjectVelocity`: the moving meshes (player car, traffic, police, opponents - `gm_freeride.cpp`'s draw callback returns right after them in this pass) are redrawn through a new `EdenRenderer::setDrawHook` into `pObjectVelocityTarget` (RG16F + its own depth) with `velobject.vert/frag`: position stream only, clip position of this frame and of the previous frame (the mesh's previous world + the previous camera, both unjittered); RG = previous uv - current uv.
+- The previous world of a mesh is the nearest (< 25 m) world that same `EdenMesh*` had last frame (traffic cars share meshes); wheels are separate meshes with spin in their node transform, so spin is in the vector too.
+- `velocity.frag` takes the object vector where the object is the visible surface (linear distance <= scene distance + max(5 cm, 0.4 %)).
+- Skipped on purpose: skinned meshes (avatars, hardtop skin), blended and depth-write-off materials (glass), non float position formats. `-noobjvelocity` turns the pass off (A/B), `-logvelocity` prints the tracked mesh count (173 on the opening drive).
+
+### Verified
+- `-velcheck` A/B, accel + steerleft, frame 900, mean error in the car box (x 450-830, y 345-585): object pass OFF warped 0.0184 vs raw 0.0139 (the car was warped as static world: worse than doing nothing); ON warped **0.0139** = raw (the car is nearly still on screen: no regression). World box unchanged (warped 0.0057 vs raw 0.0138). 0 VUIDs with `-vk_enable_validation_layer`. `docs/images/velocity-objects-reprojection.png`.
+
+### Not done / next
+- The driver / passenger avatars and the hardtop skin are skinned: still camera-only. Glass is skipped (it reads the body's vector behind it once the buffer is dilated by the upscaler).
+- Alpha-tested meshes are drawn solid (grilles). Aircraft, pedestrians and the rain / spray effects are not in the pass.
+- Next: the FSR 3 glue (FidelityFX API: colour, depth, this buffer, jitter offsets and the MV scale; verify the jitter sign), then XeSS, then DLSS.
+
 ## Session 2026-11-14 (`main`, 3rd): the velocity buffer passes its reprojection check
 
 ### What changed

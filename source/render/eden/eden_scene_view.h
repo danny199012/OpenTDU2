@@ -44,6 +44,9 @@ public:
         // haze, so the haze and the post processing cover them. The owner draws
         // nothing else there (it is not a scene pass).
         Effects,
+        // The per-object velocity pass: draw only what moves on its own (cars,
+        // traffic, police, opponents), nothing else.
+        Velocity,
     };
     // Lightmap day / night blend (NIGHTLMAP) driven by the weather.
     enum class eLightmapScope {
@@ -260,7 +263,11 @@ private:
     // Temporal upscaler groundwork (-jitter / -showvelocity): sub-pixel
     // projection jitter and the camera-motion velocity buffer, see
     // resources/shaders/velocity.frag. All matrices are the UNjittered ones.
-    void runVelocity();
+    void runVelocity( const EdenSceneParams &params );
+    void runObjectVelocity( const EdenSceneParams &params );
+    RenderTarget *pObjectVelocityTarget = nullptr; // RG16F + depth: the moving meshes' own motion
+    std::unordered_map<const EdenMesh *, std::vector<Matrix4x4f>> previousWorlds, currentWorlds;
+    std::unordered_map<uint64_t, VkPipeline> objectVelocityPipelines;
     RenderTarget *pVelocityTarget = nullptr; // RG16F, previous uv - current uv
     RenderTarget *pHistoryTarget = nullptr;  // -velcheck: last frame's final image
     RenderTarget *pCheckTarget = nullptr;    // -velcheck: the reprojection error

@@ -682,6 +682,17 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             }
             return;
         }
+        // The velocity pass (temporal upscaler groundwork): only what moves on
+        // its own - the player's car, traffic, police, opponents.
+        if ( pass == EdenSceneView::ePass::Velocity ) {
+            if ( car.isLoaded() ) {
+                car.draw( renderer, carWorld, view.getWeather(), bEnvironmentAssigned );
+            }
+            traffic.draw( renderer, view.getWeather() );
+            police.draw( renderer, view.getWeather() );
+            opponents.draw( renderer, view.getWeather() );
+            return;
+        }
         outro.draw( renderer );
         // The island's buildings: every pass except the reflection actors (like
         // the world viewer), so they are lit, cast shadows and reflect.

@@ -5,9 +5,11 @@
 // frame's clip space (previous projection * previous view * inverse of the
 // current view, all UNjittered) and writes where that point was on screen:
 //   RG = previous uv - current uv   (uv units, 0..1 across the render target)
-// Covers the static world and any camera motion. Moving objects (cars, traffic,
-// skinned meshes) need their own previous transforms and are not in this pass.
+// Covers the static world and any camera motion. Moving meshes (cars, traffic, wheels) come from the
+// velobject pass and override it where they are the visible surface.
 layout( set = 0, binding = 0 ) uniform sampler2D uDepth;
+layout( set = 0, binding = 1 ) uniform sampler2D uObjectVelocity; // velobject pass (moving meshes)
+layout( set = 0, binding = 2 ) uniform sampler2D uObjectDepth;
 layout( push_constant ) uniform PushConstants {
     mat4 CurrentToPrevious; // projPrev * viewPrev * inverse( viewCur )
     vec4 Lens;              // x: 1 / proj[0][0] (tan half fov * aspect), y: 1 / proj[1][1], z: near, w: far
@@ -26,6 +28,16 @@ void main() {
     // Right handed view space, the camera looks down -Z.
     const vec3 viewPosition = vec3( ndc.x * pc.Lens.x * distanceToCamera, ndc.y * pc.Lens.y * distanceToCamera,
                                     -distanceToCamera );
+    // A moving mesh (car, wheels) that is the visible surface here: its own
+    // motion replaces the camera-only one.
+    float objectDepth = texture( uObjectDepth, inTexcoord ).r;
+    if ( objectDepth < 0.9999999 ) {
+        float objectDistance = zNear * zFar / ( zFar - objectDepth * ( zFar - zNear ) );
+        if ( objectDistance <= distanceToCamera + max( 0.05, 0.004 * distanceToCamera ) ) {
+            outColor = vec4( texture( uObjectVelocity, inTexcoord ).rg, 0.0, 0.0 );
+            return;
+        }
+    }
     const vec4 previousClip = pc.CurrentToPrevious * vec4( viewPosition, 1.0 );
     const vec2 previousNdc = previousClip.xy / previousClip.w;
     const vec2 previousUv = vec2( previousNdc.x * 0.5 + 0.5, 0.5 - previousNdc.y * 0.5 );

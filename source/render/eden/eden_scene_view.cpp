@@ -10,6 +10,8 @@
 #include <cstring>
 #include "render/shaders/builtin/upscale_frag.h"
 #include "render/shaders/builtin/velocity_frag.h"
+#include "render/shaders/builtin/velobject_vert.h"
+#include "render/shaders/builtin/velobject_frag.h"
 #include "render/shaders/builtin/velocityview_frag.h"
 #include "render/shaders/builtin/velcheck_frag.h"
 #include "render/shaders/builtin/fsr1_easu_frag.h"
@@ -788,6 +790,13 @@ void EdenSceneView::destroyTargets() {
     device.destroyRenderTarget( pFsrEasuTarget );
     device.destroyRenderTarget( pFsrTarget );
     device.destroyRenderTarget( pVelocityTarget );
+    device.destroyRenderTarget( pObjectVelocityTarget );
+    pObjectVelocityTarget = nullptr;
+    for ( auto &entry : objectVelocityPipelines ) {
+        device.destroyPipeline( entry.second );
+    }
+    objectVelocityPipelines.clear();
+    previousWorlds.clear();
     device.destroyRenderTarget( pHistoryTarget );
     device.destroyRenderTarget( pCheckTarget );
     pVelocityTarget = pHistoryTarget = pCheckTarget = nullptr;
@@ -975,7 +984,117 @@ void EdenSceneView::runFsr1() {
 
 // Camera-motion velocity buffer (resources/shaders/velocity.frag). Runs after
 // the opaque passes, when the depth is final; -jitter / -showvelocity only.
-void EdenSceneView::runVelocity() {
+// Per-object velocity: the moving meshes (cars, wheels, traffic) are redrawn
+// with their position stream into pObjectVelocityTarget (colour = previous uv -
+// current uv, own depth); velocity.frag lets them override the camera-only
+// motion where they are the visible surface. The previous world of a mesh is
+// the nearest world it had last frame (several traffic cars share meshes).
+// Skinned meshes, blended and depth-write-off materials are skipped.
+void EdenSceneView::runObjectVelocity( const EdenSceneParams &params ) {
+    static const bool bNoObjects = CmdLine::HasArg( "-noobjvelocity" );
+    RenderDevice &device = gpRender->getDevice();
+    device.beginRenderTarget( pObjectVelocityTarget, true, ColorRGBA( 0.0f, 0.0f, 0.0f, 0.0f ) );
+    if ( !bNoObjects ) {
+        EdenRenderer *pRenderer = gpRender->getEdenRenderer();
+        currentWorlds.clear();
+        pRenderer->beginScene( params );
+        pRenderer->setDrawHook( [&]( const EdenMesh &mesh, const EdenMaterial &material, const Matrix4x4f &world,
+                                     const EdenDrawParams *pParams ) {
+            if ( ( pParams != nullptr && pParams->pSkinMatrices != nullptr ) || material.isBlended() ||
+                 !material.bDepthWrite || mesh.pIndexBuffer == nullptr ) {
+                return;
+            }
+            const RawVertexAttribute *pPosition = nullptr;
+            for ( const RawVertexAttribute &attribute : mesh.Attributes ) {
+                if ( attribute.Usage == 0 && attribute.UsageIndex == 0 ) {
+                    pPosition = &attribute;
+                    break;
+                }
+            }
+            if ( pPosition == nullptr || pPosition->Stream >= mesh.NumStreams ||
+                 mesh.pStreamBuffers[pPosition->Stream] == nullptr ) {
+                return;
+            }
+            VkFormat format = VK_FORMAT_UNDEFINED;
+            switch ( pPosition->Format ) {
+            case VAF_POSITION_R32G32B32_SFLOAT:
+                format = VK_FORMAT_R32G32B32_SFLOAT;
+                break;
+            case VAF_POSITION_R32G32B32A32_SFLOAT:
+                format = VK_FORMAT_R32G32B32A32_SFLOAT;
+                break;
+            case VAF_POSITION_R16G16B16A16_SFLOAT:
+                format = VK_FORMAT_R16G16B16A16_SFLOAT;
+                break;
+            default:
+                return;
+            }
+            RenderDevice &dev = gpRender->getDevice();
+            const uint32_t stride = mesh.Strides[pPosition->Stream];
+            const uint64_t key = static_cast<uint64_t>( format ) | static_cast<uint64_t>( stride ) << 32 |
+                                 static_cast<uint64_t>( pPosition->Offset ) << 48;
+            VkPipeline &pipeline = objectVelocityPipelines[key];
+            if ( pipeline == VK_NULL_HANDLE ) {
+                PipelineDesc desc;
+                desc.pVertexSPIRV = kSPIRV_velobject_vert;
+                desc.VertexSPIRVSize = sizeof( kSPIRV_velobject_vert );
+                desc.pFragmentSPIRV = kSPIRV_velobject_frag;
+                desc.FragmentSPIRVSize = sizeof( kSPIRV_velobject_frag );
+                desc.Attributes = { { 0, 0, format, pPosition->Offset } };
+                desc.BindingStrides = { stride };
+                desc.Cull = eCullMode::CM_None;
+                desc.bDepthTest = true;
+                desc.bDepthWrite = true;
+                desc.RenderPass = dev.getCurrentRenderPass();
+                pipeline = dev.createPipeline( desc );
+            }
+            if ( pipeline == VK_NULL_HANDLE ) {
+                return;
+            }
+            // The previous world: the nearest one of this mesh last frame.
+            Matrix4x4f previousWorld = world;
+            auto found = previousWorlds.find( &mesh );
+            if ( found != previousWorlds.end() ) {
+                float best = 25.0f * 25.0f;
+                const Vector3f position = world.getTranslation();
+                for ( const Matrix4x4f &candidate : found->second ) {
+                    const Vector3f delta = candidate.getTranslation() - position;
+                    const float distance = delta.dot( delta );
+                    if ( distance < best ) {
+                        best = distance;
+                        previousWorld = candidate;
+                    }
+                }
+            }
+            currentWorlds[&mesh].push_back( world );
+            struct Push {
+                Matrix4x4f Current, Previous;
+            } push;
+            push.Current = currentProjection * currentView.mulPrecise( world );
+            push.Previous = previousProjection * previousView.mulPrecise( previousWorld );
+            VkCommandBuffer commandBuffer = dev.getCommandBuffer();
+            vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+            vkCmdPushConstants( commandBuffer, dev.getDefaultPipelineLayout(),
+                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof( push ), &push );
+            const VkBuffer vertexBuffer = mesh.pStreamBuffers[pPosition->Stream]->Buffer;
+            const VkDeviceSize vertexOffset = mesh.StreamOffsets[pPosition->Stream];
+            vkCmdBindVertexBuffers( commandBuffer, 0, 1, &vertexBuffer, &vertexOffset );
+            vkCmdBindIndexBuffer( commandBuffer, mesh.pIndexBuffer->Buffer, 0, VK_INDEX_TYPE_UINT32 );
+            vkCmdDrawIndexed( commandBuffer, mesh.IndexCount, 1, mesh.FirstIndex, mesh.VertexOffset, 0 );
+        } );
+        drawObjects( *pRenderer, ePass::Velocity );
+        pRenderer->setDrawHook( nullptr );
+        pRenderer->endScene();
+        previousWorlds.swap( currentWorlds );
+        static const bool bLogObjects = CmdLine::HasArg( "-logvelocity" );
+        if ( bLogObjects && ( jitterIndex % 60 ) == 0 ) {
+            OTDU_LOG_INFO( "[velocity] object meshes tracked: %zu\n", previousWorlds.size() );
+        }
+    }
+    device.endRenderTarget();
+}
+
+void EdenSceneView::runVelocity( const EdenSceneParams &params ) {
     static const bool bVelCheck = CmdLine::HasArg( "-velcheck" );
     static const bool bWanted = CmdLine::HasArg( "-jitter" ) || CmdLine::HasArg( "-showvelocity" ) || bVelCheck;
     if ( !bWanted || pSceneTarget == nullptr || !pSceneTarget->bInitialized ) {
@@ -987,6 +1106,9 @@ void EdenSceneView::runVelocity() {
         device.destroyRenderTarget( pVelocityTarget );
         pVelocityTarget = device.createRenderTarget( pSceneTarget->Width, pSceneTarget->Height,
                                                      VK_FORMAT_R16G16_SFLOAT, false, "Velocity" );
+        device.destroyRenderTarget( pObjectVelocityTarget );
+        pObjectVelocityTarget = device.createRenderTarget( pSceneTarget->Width, pSceneTarget->Height,
+                                                           VK_FORMAT_R16G16_SFLOAT, true, "ObjectVelocity" );
         bHavePreviousCamera = false;
     }
     // The first frame after a (re)creation has no previous camera: zero motion.
@@ -995,6 +1117,8 @@ void EdenSceneView::runVelocity() {
         previousProjection = currentProjection;
         bHavePreviousCamera = true;
     }
+    // Moving meshes first (they use the previous camera, still unchanged).
+    runObjectVelocity( params );
     struct Push {
         Matrix4x4f CurrentToPrevious;
         float Lens[4];
@@ -1004,10 +1128,11 @@ void EdenSceneView::runVelocity() {
     push.Lens[1] = 1.0f / currentProjection.m[1][1];
     push.Lens[2] = camera.Near;
     push.Lens[3] = camera.Far;
-    GPUTexture *pDepth = &pSceneTarget->Depth;
+    GPUTexture *ppVelocityInputs[3] = { &pSceneTarget->Depth, &pObjectVelocityTarget->Color,
+                                        &pObjectVelocityTarget->Depth };
     device.beginRenderTarget( pVelocityTarget, true );
-    fullscreen.draw( device, kSPIRV_velocity_frag, sizeof( kSPIRV_velocity_frag ), &pDepth, 1, &push, sizeof( push ),
-                     eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
+    fullscreen.draw( device, kSPIRV_velocity_frag, sizeof( kSPIRV_velocity_frag ), ppVelocityInputs, 3, &push,
+                     sizeof( push ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
     device.endRenderTarget();
     previousView = currentView;
     previousProjection = currentProjection;
@@ -1560,7 +1685,7 @@ void EdenSceneView::renderOffscreen() {
         device.endRenderTarget();
     }
     runFsr1();
-    runVelocity();
+    runVelocity( params );
     sceneParams = params;
     device.endGpuPass();
     gSceneTimes.mark( SceneTimes::Post );
