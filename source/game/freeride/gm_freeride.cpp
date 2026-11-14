@@ -273,6 +273,11 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     if ( islandName == "hawaii" || islandName == "oahu" ) {
         islandName = "hawai";
     }
+    // A loaded save drives on where it was saved (-newdrive: the old start).
+    const PlayerProfile::LastDriveState &lastDrive = GetPlayerProfile().LastDrive;
+    if ( pIslandArg == nullptr && lastDrive.bValid && !CmdLine::HasArg( "-newdrive" ) ) {
+        islandName = lastDrive.Island;
+    }
     // Back from a cinematic that handed the car over: the car where the scene
     // left it. The dream (bStory) is the story flow - Ibiza only, the Solar
     // Crown goal continues; a mode's own scene (the car wash, docs/re/
@@ -305,8 +310,31 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         }
         handoff = StoryHandoff();
     }
+    // The save's own position wins over the house exit: the car comes back exactly where it
+    // was saved - island, spot, heading, damage, dirt, roof and windows.
+    bool bRestoreDrive = false;
+    if ( !bFromHandoff && lastDrive.bValid && lastDrive.Island == islandName && !CmdLine::HasArg( "-tp" ) &&
+         !CmdLine::HasArg( "-home" ) && !CmdLine::HasArg( "-atwash" ) && !CmdLine::HasArg( "-newdrive" ) ) {
+        bRestoreDrive = true;
+        bTp = true;
+        tpPosition = Vector3f( lastDrive.X, lastDrive.Y, lastDrive.Z );
+        tpYaw = lastDrive.Yaw;
+        VehicleSceneState &sceneState = GetVehicleSceneState();
+        sceneState.bSet = true;
+        sceneState.CarFile = lastDrive.CarFile;
+        sceneState.bHardtopOpen = lastDrive.bHardtopOpen;
+        sceneState.bWindowsOpen = lastDrive.bWindowsOpen;
+        sceneState.Mud = lastDrive.Mud;
+        sceneState.Dirt = lastDrive.Dirt;
+        sceneState.Hardness = lastDrive.Hardness;
+        sceneState.Wetness = lastDrive.Wetness;
+        sceneState.Damage = lastDrive.Damage;
+        OTDU_LOG_INFO( "FREERIDE: the save's drive: %s at (%.1f, %.1f, %.1f), heading %.0f deg, car '%s', damage %.0f\n",
+                       islandName.c_str(), lastDrive.X, lastDrive.Y, lastDrive.Z, lastDrive.Yaw * 57.29578f,
+                       lastDrive.CarFile.c_str(), lastDrive.Damage );
+    }
     const bool bHouseFlow = islandName == "ibiza" && !CmdLine::HasArg( "-tp" ) && !CmdLine::HasArg( "-home" ) &&
-                            !bFromDream && !bFromHandoff;
+                            !bFromDream && !bFromHandoff && !bRestoreDrive;
     if ( const char *pTp = CmdLine::HasArg( "-tp" ) ? CmdLine::GetArgValue( "-tp" ) : nullptr ) {
         float x = 0.0f, y = 0.0f, z = 0.0f;
         if ( sscanf( pTp, "%f,%f,%f", &x, &y, &z ) == 3 ) {
@@ -1746,6 +1774,13 @@ void GMFreeRide::startDriving() {
                                   Vector3f( 0.0f, 0.05f - vehicle.getModelLift(), 0.0f ) ),
                    orientation, velocity );
     carWorld = vehicle.getWorldMatrix();
+    {
+        // The damage the car left with (a scene, or the save): the same car only.
+        const VehicleSceneState &damaged = GetVehicleSceneState();
+        if ( damaged.bSet && damaged.CarFile == carDesc.FileName && !CmdLine::HasArg( "-noscenestate" ) ) {
+            vehicle.setDamage( damaged.Damage );
+        }
+    }
     chase.reset( position, Matrix4x4f::FromQuaternion( orientation ).transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) ) );
     // Step 2 tick at FREERIDE without spot cinematic: /:IsWalkmode false,
     // pop_goal 0x13ae (5038 "Enjoy!"), TUTO_ENJOY, roof open, timer 90 s.
@@ -6315,6 +6350,27 @@ void GMFreeRide::tick( float deltaTime ) {
             phoneContext.bDecline = gpInput->wasPressed( eInputAction::IA_MenuBack );
         }
         phoneCalls.tick( deltaTime, phoneContext, hud );
+        // The save's drive (docs/state/main.md): where and how the car is, kept in the profile
+        // every free-roam frame so any save - the pause menu's, a shop's - carries it.
+        if ( phoneContext.bFreeDriving && car.isLoaded() ) {
+            PlayerProfile::LastDriveState &drive = GetPlayerProfile().LastDrive;
+            const Vector3f at = carWorld.getTranslation();
+            const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+            drive.bValid = true;
+            drive.Island = islandName;
+            drive.X = at.x;
+            drive.Y = at.y;
+            drive.Z = at.z;
+            drive.Yaw = std::atan2( forward.x, forward.z );
+            drive.CarFile = carDesc.FileName;
+            drive.bHardtopOpen = car.hasHardtop() && car.isHardtopOpen();
+            drive.bWindowsOpen = car.areWindowsOpen();
+            drive.Damage = vehicle.getDamage();
+            drive.Mud = carDirt.getMud();
+            drive.Dirt = carDirt.getDirt();
+            drive.Hardness = carDirt.getMudHardness();
+            drive.Wetness = carDirt.getWetness();
+        }
         // The off-road trace on the satnav: the path of every excursion off the
         // road graph, from the last point on a road [owner: "you draw a grey line
         // of where you have left the road"].
@@ -7282,7 +7338,12 @@ void GMFreeRide::exit() {
         state.Dirt = carDirt.getDirt();
         state.Hardness = carDirt.getMudHardness();
         state.Wetness = carDirt.getWetness();
+        state.Damage = vehicle.getDamage();
         state.AvatarConfig = GetPlayerProfile().AvatarConfig;
+    }
+    // The drive goes into the save whenever the mode is left (a shop, a scene, quitting).
+    if ( GetPlayerProfile().LastDrive.bValid ) {
+        SaveProfile( "freeride exit" );
     }
     unloadOccupants();
     car.unload();

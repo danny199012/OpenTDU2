@@ -131,6 +131,7 @@ public:
     inline float getMass() const { return mass; }
     int32_t getDamageState() const;
     inline void resetDamage() { damage = 0.0f; }
+    void setDamage( float value );
     float addImpactDamage( float magnitude, int32_t kind );
     // Hub offset along the car up axis from its modelled place (drawing):
     // the suspension offset (compression > 0, full droop = LowerStop).

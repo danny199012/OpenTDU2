@@ -1713,6 +1713,10 @@ std::string VehicleDynamics::getDebugState() const {
     return buffer;
 }
 
+void VehicleDynamics::setDamage( float value ) {
+    damage = Max( 0.0f, Min( value, 65535.0f ) );
+}
+
 int32_t VehicleDynamics::getDamageState() const {
     const DamageParams &p = GetDamageParams();
     if ( damage >= p.IntervalBreak ) return 3;

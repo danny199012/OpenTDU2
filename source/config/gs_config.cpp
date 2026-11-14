@@ -33,6 +33,25 @@ bool GSConfig::initialize( TestDriveGameInstance *pInstance ) {
     if ( !gameConfig.loadCPR( "GamePC.cpr" ) ) {
         OTDU_LOG_WARN( "GamePC.cpr not found\n" );
     }
+    if ( CmdLine::HasArg( "-dumpgamepc" ) ) {
+        // Research: every entry of GamePC.cpr whose key or section mentions DAY / TIME / CLOCK.
+        for ( const auto &section : gameConfig.getSections() ) {
+            for ( const IniFile::Entry &entry : section.second ) {
+                std::string lower = section.first + " " + entry.Key + " " + entry.Qualifier;
+                for ( char &c : lower ) {
+                    c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+                }
+                if ( lower.find( "day" ) != std::string::npos || lower.find( "time" ) != std::string::npos ||
+                     lower.find( "clock" ) != std::string::npos ) {
+                    std::string values;
+                    for ( const std::string &v : entry.Values ) {
+                        values += " " + v;
+                    }
+                    OTDU_LOG_INFO( "GamePC [%s] %s %s =%s\n", section.first.c_str(), entry.Key.c_str(), entry.Qualifier.c_str(), values.c_str() );
+                }
+            }
+        }
+    }
     if ( !physicsConfig.loadCPR( "Physics.cpr" ) ) {
         OTDU_LOG_WARN( "Physics.cpr not found\n" );
     }

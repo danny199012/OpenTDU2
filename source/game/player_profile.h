@@ -91,6 +91,17 @@ struct PlayerProfile {
     std::map<std::string, std::vector<uint32_t>> ExploredSegments;
     // The explored segments that are dirt track (same (link << 12) | segment ids).
     std::map<std::string, std::vector<uint32_t>> ExploredDirt;
+    // Where and how the player last drove (updated every free-roam frame, written with
+    // every save): a loaded save puts the car back exactly there - same island, spot,
+    // heading, car, damage, dirt, roof and windows - instead of the garage exit.
+    struct LastDriveState {
+        bool bValid = false;
+        std::string Island;
+        float X = 0.0f, Y = 0.0f, Z = 0.0f, Yaw = 0.0f;
+        std::string CarFile;
+        bool bHardtopOpen = false, bWindowsOpen = false;
+        float Damage = 0.0f, Mud = 0.0f, Dirt = 0.0f, Hardness = 0.0f, Wetness = 0.0f;
+    } LastDrive;
     // Times each DBRewardXP event was earned (see AwardSkillEvent).
     std::map<std::string, int32_t> EventsDone;
     // Wrecks found per island (index in DiscoveryPoints::getWrecks).

@@ -545,6 +545,33 @@ void LoadProfile() {
         } else if ( key.compare( 0, 5, "done_" ) == 0 ) {
             // done_<EVENT> = times earned (DBRewardXP events)
             profile.EventsDone[key.substr( 5 )] = number;
+        } else if ( key == "last_drive" ) {
+            // island|x|y|z|yaw|carfile|hardtop|windows|damage|mud|dirt|hardness|wetness
+            std::vector<std::string> parts;
+            size_t from = 0;
+            for ( size_t at = 0; at <= value.size(); at++ ) {
+                if ( at == value.size() || value[at] == '|' ) {
+                    parts.push_back( value.substr( from, at - from ) );
+                    from = at + 1;
+                }
+            }
+            if ( parts.size() >= 13 && !parts[0].empty() ) {
+                PlayerProfile::LastDriveState &drive = profile.LastDrive;
+                drive.bValid = true;
+                drive.Island = parts[0];
+                drive.X = static_cast<float>( atof( parts[1].c_str() ) );
+                drive.Y = static_cast<float>( atof( parts[2].c_str() ) );
+                drive.Z = static_cast<float>( atof( parts[3].c_str() ) );
+                drive.Yaw = static_cast<float>( atof( parts[4].c_str() ) );
+                drive.CarFile = parts[5];
+                drive.bHardtopOpen = parts[6] == "1";
+                drive.bWindowsOpen = parts[7] == "1";
+                drive.Damage = static_cast<float>( atof( parts[8].c_str() ) );
+                drive.Mud = static_cast<float>( atof( parts[9].c_str() ) );
+                drive.Dirt = static_cast<float>( atof( parts[10].c_str() ) );
+                drive.Hardness = static_cast<float>( atof( parts[11].c_str() ) );
+                drive.Wetness = static_cast<float>( atof( parts[12].c_str() ) );
+            }
         } else if ( key.compare( 0, 13, "exploreddirt_" ) == 0 ) {
             std::vector<uint32_t> &list = profile.ExploredDirt[key.substr( 13 )];
             const char *pText = value.c_str();
@@ -827,6 +854,16 @@ bool SaveProfile( const char *pReason ) {
             if ( !line.empty() ) {
                 file << "exploredseg_" << island.first << " = " << line << "\n";
             }
+        }
+        if ( profile.LastDrive.bValid ) {
+            const PlayerProfile::LastDriveState &drive = profile.LastDrive;
+            char numbers[160];
+            snprintf( numbers, sizeof( numbers ), "%.2f|%.2f|%.2f|%.4f", drive.X, drive.Y, drive.Z, drive.Yaw );
+            char state[160];
+            snprintf( state, sizeof( state ), "%.1f|%.4f|%.4f|%.4f|%.4f", drive.Damage, drive.Mud, drive.Dirt, drive.Hardness,
+                      drive.Wetness );
+            file << "last_drive = " << drive.Island << "|" << numbers << "|" << drive.CarFile << "|"
+                 << ( drive.bHardtopOpen ? 1 : 0 ) << "|" << ( drive.bWindowsOpen ? 1 : 0 ) << "|" << state << "\n";
         }
         for ( const auto &island : profile.ExploredDirt ) {
             if ( island.second.empty() ) {
