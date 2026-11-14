@@ -168,8 +168,9 @@ matters for the rollover and it can be changed without touching the straight-lin
 Retail cross-check: the owner saw a Q7 SUV slide, not tip, on the 360 build (`docs/re/tdu1_physics_recon.md` 5.2).
 
 ## 9. Next
-1. Decide whether `-devhublat` becomes the default (it removes all 27 baseline flips; sports-car cornering grip rises 3-17 %, still under
-   the DB friction). The `kRollCentreFactor` fudge becomes dead code when it does.
+1. **DONE 2026-11-14 (owner approved): `-devhublat` is now the default** (re-verified: no flags = 0 flips for H3 / Q7_V12 / ML63_AMG / Enzo,
+   roster 0-100 unchanged at 70 / 137; `-nohublat` restores the old contact-patch lever and the 5-of-6 flips). `kRollCentreFactor` is only
+   used by that `-nohublat` path now. Sports-car cornering grip rose 3-17 %, still under the DB friction.
 2. The longitudinal force at the hub is architecturally right but needs the drive model re-calibrated (0-100 +0.11 s mean) - separate task.
 3. Cornering *feel* check by the owner (DualSense) and an oracle number from the 360 build for peak lateral g.
 4. Open: `[car+0x5dc] == 3`; the rest-length solve normalisation; the wheel joint constraint that carries the hub force (`WheelJoint +0x580`, `0x1004f90`).

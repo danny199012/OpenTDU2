@@ -1443,9 +1443,12 @@ void VehicleDynamics::tick( float h, const Input &input, const VehicleWorldColli
         // contact patch is shortened by kRollCentreFactor of the height of the
         // centre of mass [INF: the original suspension geometry is ENC; a full
         // height lever tipped the car over in every slide].
-        // -devhublat: only the lateral force at hub height (the longitudinal path stays at the
-        // contact patch: it is calibrated against the DB 0-100 / braking).
-        static const bool bDevHubLat = CmdLine::HasArg( "-devhublat" );
+        // DEFAULT since 2026-11-14: the lateral force acts at hub height (the dev build's wheel
+        // is a rigid body, the chassis feels the tyre force through the joint at the hub; spec
+        // 8b). The longitudinal path stays at the contact patch: it is calibrated against the DB
+        // 0-100 / braking. -nohublat restores the old contact-patch lever with the
+        // kRollCentreFactor fudge (A/B); the tall cars then roll over again.
+        static const bool bDevHubLat = !CmdLine::HasArg( "-nohublat" );
         const Vector3f hubArm = frame.Point + up * radius - com;
         const Vector3f rollArm = bDevHubForce ? tyreArm
                                               : ( bDevHubLat ? hubArm : tyreArm - up * ( up.dot( tyreArm ) * kRollCentreFactor ) );

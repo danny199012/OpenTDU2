@@ -31,7 +31,7 @@ The owner found `TestDrive2DEV.exe` (Hidden Palace, Apr 6 2012 prototype) and as
 ### Follow-up 4 (same session): THE ROLLOVER LEVER FOUND - lateral tyre force acts at hub height
 - Dev wheel = its own rigid body; tyre impulses go to the wheel at `-n x LoadedRadius` from the hub and reach the chassis through the joint (spec 8b). The solver friction constraint is a low-speed aid only (bit 19, speed <= `TangentialConstraintSolverThreshold`).
 - `vehicle_dynamics.cpp`: new opt-in flags `-devhublat` (lateral force at hub height = contact + wheel radius) and `-devhubforce` (lateral + longitudinal). **A/B `-vehtest`: `-devhublat` takes H3 / Q7_V12 / ML63_AMG from 5 of 6 flips to 0 (roll 90 -> 1.3-1.5 deg), lateral g 1.25 -> 1.63 / 1.74 / 1.82 (below DB mu 1.80 / 1.90 / 2.00); whole-roster `-vehcheck` 0-100 identical to baseline (70 / 137 within 0.3 s).** `-devhubforce` also fixes the flips but worsens the roster 0-100 (+0.33 -> +0.44 s mean error), so only the lateral part is proposed.
-- Not made the default (it changes cornering feel): owner decision. `kRollCentreFactor` becomes dead code if it is.
+- **Made the default on the owner's approval** (same session): the lateral force acts at hub height unless `-nohublat` (A/B, old behaviour). Re-verified with no flags: 0 flips on H3 / Q7_V12 / ML63_AMG / Enzo; `-nohublat` gives 5 / 5 / 5 / 0 flips again; roster `-vehcheck` unchanged; an in-game smoke run (throttle / steer / brake, FREERIDE) is clean. **Not yet judged by feel on the DualSense** - that is the owner's check. `-devhubforce` (longitudinal too) stays opt-in because it worsens 0-100.
 
 ### Ruled out
 - `-devtyreload`, `-devnocap`, `-devdamper`: identical flips -> not the tyre load source, not the load cap, not the damper.
