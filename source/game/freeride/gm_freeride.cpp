@@ -2000,6 +2000,10 @@ const char *HologramFrameFor( const char *pIconModel ) {
     if ( strcmp( pIconModel, "Event" ) == 0 ) {
         return "Circle_Orange_Frame";
     }
+    // The owner's capture of a championship ("C4"): the blue rhombus.
+    if ( strncmp( pIconModel, "Championship", 12 ) == 0 || strcmp( pIconModel, "Cup" ) == 0 ) {
+        return "Rhombus_Blue_Frame";
+    }
     return "Square_Blue_Frame";
 }
 } // namespace
@@ -2354,11 +2358,34 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                     // numbered variants (01..07) are per championship, the
                     // first stands for all].
                     const std::string &family = spot.Family;
-                    addHologram( family.compare( 0, 4, "dirt" ) == 0      ? "Championship_Dirt_01"
-                                 : family.compare( 0, 7, "classic" ) == 0  ? "Championship_Classic_01"
-                                 : family.compare( 0, 3, "cup" ) == 0      ? "Cup"
-                                                                           : "Championship_Asphalt_01",
-                                 spot.Position );
+                    // The pack has Championship_Asphalt_01..07, _Dirt_01..04,
+                    // _Classic_01..04 (the plate shows the class letter + the
+                    // number) and Cup.
+                    int32_t rank = 0, maxRank = 4;
+                    const char *pPrefix = "Championship_Classic_";
+                    if ( family.compare( 0, 3, "cup" ) == 0 ) {
+                        addHologram( "Cup", spot.Position );
+                        continue;
+                    }
+                    if ( family.compare( 0, 4, "dirt" ) == 0 ) {
+                        pPrefix = "Championship_Dirt_";
+                    } else if ( family.compare( 0, 7, "classic" ) != 0 ) {
+                        pPrefix = "Championship_Asphalt_";
+                        maxRank = 7;
+                    }
+                    // The plate carries the championship's vehicle class: A7 /
+                    // B4 / C4 [DATA: the log's "class C4" for the classic series
+                    // = the owner's "C4" capture]; the number is the model's.
+                    if ( spot.pChampionship != nullptr ) {
+                        const char *pClass = VehicleClassName( spot.pChampionship->VehicleCategory[0] );
+                        const size_t length = pClass != nullptr ? strlen( pClass ) : 0;
+                        if ( length > 0 && pClass[length - 1] >= '1' && pClass[length - 1] <= '9' ) {
+                            rank = pClass[length - 1] - '1';
+                        }
+                    }
+                    char name[48];
+                    snprintf( name, sizeof( name ), "%s%02d", pPrefix, Min( rank, maxRank - 1 ) + 1 );
+                    addHologram( name, spot.Position );
                 } else {
                     pushMarker( spot.Family.c_str(), spot.Position );
                 }
