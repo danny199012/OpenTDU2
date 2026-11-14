@@ -35,6 +35,13 @@ public:
     inline const std::filesystem::path &getModsRoot() const {
         return modsRoot;
     }
+    // Mod packages (docs/re/dev_build_survey.md 4): '<mods>/packages/<name>/'
+    // folders listed, in priority order, in '<mods>/enabled.txt' (one name per
+    // line, '#' comments). They shadow the game exactly like the loose mods
+    // folder, which keeps the highest priority.
+    inline const std::vector<std::filesystem::path> &getModPackages() const {
+        return modPackages;
+    }
 
     // Root of the bank folder ("Euro/Bnk/"), as used by the format strings of
     // the original executable (e.g. "%sVehicules/High/%s.bnk").
@@ -103,6 +110,7 @@ private:
     std::filesystem::path gameRoot;
     std::filesystem::path userDataFolder;
     std::filesystem::path modsRoot;
+    std::vector<std::filesystem::path> modPackages; // enabled packages, priority order
     std::unordered_map<std::string, std::filesystem::path> resolvedPathCache;
     std::mutex cacheMutex;
 

@@ -15,6 +15,7 @@
 #include "game_installer.h"
 #include "launcher_artwork.h"
 #include "launcher_profiles.h"
+#include "launcher_mods.h"
 #include "launcher_settings.h"
 #include "launcher_updater.h"
 
@@ -23,7 +24,7 @@ struct ImVec2;
 
 namespace Launcher {
 
-enum class Page { Play, Profiles, GameData, Updates, Online };
+enum class Page { Play, Profiles, Mods, GameData, Updates, Online };
 
 class LauncherApp {
 public:
@@ -68,6 +69,8 @@ private:
     void DrawGameDataPage();
     void DrawUpdatesPage();
     void DrawOnlinePage();
+    void DrawModsPage();
+    void RefreshMods();
 
     void LaunchGame();
     void BrowseIso();
@@ -137,6 +140,9 @@ private:
     std::string mModalProfile;        // id the open modal acts on
     int mModalRequest = 0;            // 1 rename, 2 delete, 3 restore backup (set -> OpenPopup)
     int mBackupToRestore = -1;
+    // mods (launcher_mods.h)
+    std::vector<ModInfo> mMods;
+    bool mModsLoaded = false;
     double mPageChangeTime = 0.0;     // ImGui time of the last page switch (fade-in)
 
     // launch

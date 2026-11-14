@@ -143,6 +143,29 @@ bool GSFile::initialize( TestDriveGameInstance *pInstance ) {
         } else {
             OTDU_LOG_INFO( "Mod overlay folder: '%s'\n",
                            modsRoot.string().c_str() );
+            // Enabled mod packages ('<mods>/enabled.txt', written by the launcher's Mods page).
+            std::ifstream enabledList( modsRoot / "enabled.txt" );
+            std::string line;
+            while ( std::getline( enabledList, line ) ) {
+                const size_t first = line.find_first_not_of( " \t\r\n" );
+                const size_t last = line.find_last_not_of( " \t\r\n" );
+                if ( first == std::string::npos || line[first] == '#' ) {
+                    continue;
+                }
+                const std::string name = line.substr( first, last - first + 1 );
+                // A package name is one folder name: no separators, no '..'.
+                if ( name.find_first_of( "/\\:" ) != std::string::npos || name == ".." || name == "." ) {
+                    OTDU_LOG_WARN( "Mod package '%s' ignored: not a plain folder name\n", name.c_str() );
+                    continue;
+                }
+                const std::filesystem::path folder = modsRoot / "packages" / name;
+                if ( std::filesystem::is_directory( folder, ec ) ) {
+                    modPackages.push_back( folder );
+                    OTDU_LOG_INFO( "Mod package enabled: '%s'\n", name.c_str() );
+                } else {
+                    OTDU_LOG_WARN( "Mod package '%s' is enabled but its folder is missing\n", name.c_str() );
+                }
+            }
         }
     }
     return true;
@@ -220,15 +243,21 @@ std::optional<std::filesystem::path> GSFile::resolvePath( const char *pPath ) {
     // resolution, so files added to the mods folder after a path was already
     // resolved (or looked up and missed) are only seen after a restart.
     if ( !modsRoot.empty() ) {
-        auto modded = resolveCaseInsensitive( modsRoot, normalized );
-        if ( modded.has_value() ) {
-            {
-                std::lock_guard<std::mutex> lock( cacheMutex );
-                resolvedPathCache[key] = *modded;
+        // Layers: the loose mods folder, then the enabled packages in order.
+        std::vector<std::filesystem::path> layers;
+        layers.push_back( modsRoot );
+        layers.insert( layers.end(), modPackages.begin(), modPackages.end() );
+        for ( const std::filesystem::path &layer : layers ) {
+            auto modded = resolveCaseInsensitive( layer, normalized );
+            if ( modded.has_value() ) {
+                {
+                    std::lock_guard<std::mutex> lock( cacheMutex );
+                    resolvedPathCache[key] = *modded;
+                }
+                OTDU_LOG_INFO( "Mod overlay: '%s' -> '%s'\n", normalized.c_str(),
+                               modded->string().c_str() );
+                return modded;
             }
-            OTDU_LOG_INFO( "Mod overlay: '%s' -> '%s'\n", normalized.c_str(),
-                           modded->string().c_str() );
-            return modded;
         }
     }
 
@@ -473,8 +502,14 @@ std::vector<std::filesystem::path> GSFile::listFolder( const char *pPath,
     // Overlay entries with the same name replace (not duplicate) the game ones,
     // so the overlay is listed first and the game folder adds the rest.
     if ( !modsRoot.empty() ) {
-        auto moddedFolder = resolveCaseInsensitive( modsRoot, normalized );
-        if ( moddedFolder.has_value() ) {
+        std::vector<std::filesystem::path> layers;
+        layers.push_back( modsRoot );
+        layers.insert( layers.end(), modPackages.begin(), modPackages.end() );
+        for ( const std::filesystem::path &layer : layers ) {
+            auto moddedFolder = resolveCaseInsensitive( layer, normalized );
+            if ( !moddedFolder.has_value() ) {
+                continue;
+            }
             for ( const auto &entry : std::filesystem::directory_iterator( *moddedFolder, ec ) ) {
                 if ( !entry.is_regular_file() ) {
                     continue;
@@ -483,7 +518,10 @@ std::vector<std::filesystem::path> GSFile::listFolder( const char *pPath,
                      ToLower( entry.path().extension().string() ) != lowerExtension ) {
                     continue;
                 }
-                seen.insert( ToLower( entry.path().filename().string() ) );
+                // A higher layer's file of the same name wins.
+                if ( !seen.insert( ToLower( entry.path().filename().string() ) ).second ) {
+                    continue;
+                }
                 files.push_back( entry.path() );
             }
         }

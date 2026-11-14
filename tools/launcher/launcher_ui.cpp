@@ -245,6 +245,11 @@ bool NavItem( const char *label, Page page, Page current, bool bBadge ) {
         drawList->PathArcTo( ImVec2( c.x, c.y + 9 * u ), 8 * u, 3.14159f, 6.28318f, 16 );
         drawList->PathStroke( iconColor, 0, 1.8f );
         break;
+    case Page::Mods:
+        drawList->AddRect( ImVec2( c.x - 8 * u, c.y - 8 * u ), ImVec2( c.x - 1 * u, c.y - 1 * u ), iconColor, 2 * u, 0, 1.8f );
+        drawList->AddRect( ImVec2( c.x + 1 * u, c.y + 1 * u ), ImVec2( c.x + 8 * u, c.y + 8 * u ), iconColor, 2 * u, 0, 1.8f );
+        drawList->AddRect( ImVec2( c.x + 1 * u, c.y - 8 * u ), ImVec2( c.x + 8 * u, c.y - 1 * u ), iconColor, 2 * u, 0, 1.8f );
+        break;
     case Page::GameData:
         drawList->AddRect( ImVec2( c.x - 8 * u, c.y - 7 * u ), ImVec2( c.x + 8 * u, c.y + 7 * u ), iconColor,
                            3 * u, 0, 1.8f );
@@ -283,6 +288,7 @@ const char *PageTitle( Page page ) {
     case Page::GameData: return "Game data";
     case Page::Updates: return "Updates";
     case Page::Profiles: return "Profiles";
+    case Page::Mods: return "Mods";
     default: return "Online";
     }
 }
@@ -293,6 +299,7 @@ const char *PageSubtitle( Page page ) {
     case Page::GameData: return "Install from a disc image or point at the unpacked game";
     case Page::Updates: return "Build stamp, changelog and updates";
     case Page::Profiles: return "Your players, each with their own save and backups";
+    case Page::Mods: return "Opt-in add-ons: enable, order and import from your own files";
     default: return "The account for the multiplayer that comes next";
     }
 }
@@ -776,6 +783,10 @@ void LauncherApp::DrawSidebar() {
         SwitchPage( Page::Profiles );
         RefreshProfiles();
     }
+    if ( NavItem( "Mods", Page::Mods, mPage, false ) ) {
+        SwitchPage( Page::Mods );
+        RefreshMods();
+    }
     if ( NavItem( "Game data", Page::GameData, mPage, !mGameFolderValid ) ) {
         SwitchPage( Page::GameData );
     }
@@ -874,6 +885,7 @@ void LauncherApp::DrawMainArea() {
     case Page::Profiles: DrawProfilesPage(); break;
     case Page::GameData: DrawGameDataPage(); break;
     case Page::Updates: DrawUpdatesPage(); break;
+    case Page::Mods: DrawModsPage(); break;
     case Page::Online: DrawOnlinePage(); break;
     }
     ImGui::EndChild();
@@ -2064,6 +2076,163 @@ void LauncherApp::DrawUpdatesPage() {
             "A git checkout updates from origin/<branch> and lists the commits in between. "
             "A packaged build updates from the GitHub releases of <owner/repo>: the release "
             "notes are the changelog and the first .zip asset is the package." );
+        ImGui::PopFont();
+        ImGui::PopStyleColor();
+    }
+    CardEnd();
+}
+
+void LauncherApp::RefreshMods() {
+    EnsureBundledMods( mEffectiveUserData );
+    mMods = ScanMods( mEffectiveUserData );
+    mModsLoaded = true;
+}
+
+void LauncherApp::DrawModsPage() {
+    if ( !mModsLoaded ) {
+        RefreshMods();
+    }
+    const float width = ImGui::GetContentRegionAvail().x;
+    ImDrawList *drawList = ImGui::GetWindowDrawList();
+
+    const ImVec2 bannerPos = ImGui::GetCursorScreenPos();
+    const ImVec2 bannerSize( width, S( 104.0f ) );
+    DrawCoverImage( drawList, mArtwork.Player, bannerPos, bannerSize, 12.0f, 0.95f );
+    DrawGradientOverlay( drawList, bannerPos, bannerSize );
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 22.0f ) ) );
+    ImGui::PushFont( mFontTitle );
+    ImGui::TextUnformatted( "Mods" );
+    ImGui::PopFont();
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 62.0f ) ) );
+    ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.86f, 0.88f, 0.91f, 1.0f ) );
+    ImGui::TextUnformatted( "Opt-in add-ons. Changes apply the next time you press PLAY." );
+    ImGui::PopStyleColor();
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + S( 16.0f ) ) );
+
+    bool bChanged = false;
+    int moveFrom = -1;
+    int moveTo = -1;
+    bool bReload = false;
+    if ( mMods.empty() ) {
+        if ( CardBegin( "##mods_empty", ImVec2( width, 0.0f ) ) ) {
+            SectionTitle( "NO MODS YET" );
+            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+            ImGui::TextWrapped( "Put a mod folder (with a mod.json) in the packages folder and press Refresh." );
+            ImGui::PopStyleColor();
+        }
+        CardEnd();
+    }
+    for ( size_t i = 0; i < mMods.size(); i++ ) {
+        ModInfo &mod = mMods[i];
+        ImGui::PushID( static_cast<int>( i ) );
+        char cardId[64];
+        std::snprintf( cardId, sizeof( cardId ), "##mod_%zu", i );
+        if ( CardBegin( cardId, ImVec2( width, 0.0f ) ) ) {
+            const bool bNeedsImport = mod.NeedsImport();
+            ImGui::BeginDisabled( bNeedsImport );
+            bool bEnabled = mod.bEnabled && !bNeedsImport;
+            if ( ImGui::Checkbox( "##enabled", &bEnabled ) ) {
+                mod.bEnabled = bEnabled;
+                bChanged = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::PushFont( mFontTitle );
+            ImGui::TextUnformatted( mod.Name.c_str() );
+            ImGui::PopFont();
+            if ( !mod.Version.empty() ) {
+                ImGui::SameLine();
+                ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+                ImGui::Text( "v%s", mod.Version.c_str() );
+                ImGui::PopStyleColor();
+            }
+            if ( !mod.Author.empty() ) {
+                ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+                ImGui::Text( "by %s", mod.Author.c_str() );
+                ImGui::PopStyleColor();
+            }
+            if ( !mod.Description.empty() ) {
+                ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.80f, 0.83f, 0.88f, 1.0f ) );
+                ImGui::PushFont( mFontSmall );
+                ImGui::TextWrapped( "%s", mod.Description.c_str() );
+                ImGui::PopFont();
+                ImGui::PopStyleColor();
+            }
+            if ( bNeedsImport ) {
+                Chip( "NEEDS YOUR FILES - IMPORT BELOW", kAmber );
+            } else if ( mod.bEnabled ) {
+                Chip( "ENABLED", kAccent );
+            }
+            if ( !mod.ImportFiles.empty() ) {
+                if ( GhostButton( mod.FileCount > 0 ? "Re-import from my copy..." : "Import from my copy..." ) ) {
+                    std::wstring picked;
+                    if ( BrowseFolder( mWindow, Utf8ToWide( mod.ImportPrompt ).c_str(), picked ) ) {
+                        std::string error;
+                        if ( ImportModFiles( mod, picked, error ) ) {
+                            SetStatus( "Imported the files for " + mod.Name + " - tick it to enable." );
+                            bReload = true;
+                        } else {
+                            SetStatus( error );
+                        }
+                    }
+                }
+                ImGui::SameLine();
+            }
+            if ( mod.bEnabled ) {
+                if ( GhostButton( "Up" ) && i > 0 && mMods[i - 1].bEnabled ) {
+                    moveFrom = static_cast<int>( i );
+                    moveTo = static_cast<int>( i ) - 1;
+                }
+                ImGui::SameLine();
+                if ( GhostButton( "Down" ) && i + 1 < mMods.size() && mMods[i + 1].bEnabled ) {
+                    moveFrom = static_cast<int>( i );
+                    moveTo = static_cast<int>( i ) + 1;
+                }
+                ImGui::SameLine();
+                ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+                ImGui::TextUnformatted( "priority: higher in the list wins" );
+                ImGui::PopStyleColor();
+            }
+        }
+        CardEnd();
+        ImGui::PopID();
+        ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
+    }
+    if ( bReload ) {
+        RefreshMods();
+        return;
+    }
+    if ( moveFrom >= 0 && moveTo >= 0 ) {
+        std::swap( mMods[moveFrom], mMods[moveTo] );
+        bChanged = true;
+    }
+    if ( bChanged ) {
+        // Enabled mods first (in list order), then the rest.
+        std::stable_partition( mMods.begin(), mMods.end(), []( const ModInfo &m ) { return m.bEnabled; } );
+        if ( SaveEnabledMods( mEffectiveUserData, mMods ) ) {
+            SetStatus( "Mods saved - they apply the next time the game starts." );
+        } else {
+            SetStatus( "Could not write enabled.txt in the user data mods folder." );
+        }
+    }
+
+    if ( CardBegin( "##mods_tools", ImVec2( width, 0.0f ) ) ) {
+        SectionTitle( "FOLDER" );
+        if ( GhostButton( "Open mods folder" ) ) {
+            const std::wstring packages = JoinPath( JoinPath( mEffectiveUserData, L"mods" ), L"packages" );
+            MakeDirs( packages );
+            OpenInExplorer( packages );
+        }
+        ImGui::SameLine();
+        if ( GhostButton( "Refresh" ) ) {
+            RefreshMods();
+        }
+        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+        ImGui::PushFont( mFontSmall );
+        ImGui::TextWrapped(
+            "A mod is a folder inside mods/packages with a mod.json; its files mirror the game layout and "
+            "shadow the game's own. OpenTDU2 never ships Eden / Atari data: a mod either holds only its "
+            "authors' own files, or asks you to import the files you already own." );
         ImGui::PopFont();
         ImGui::PopStyleColor();
     }
