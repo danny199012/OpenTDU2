@@ -73,12 +73,30 @@ Field names from the serializer `0x1011be0`: `+0xa0 GlobalNormal` (the axis, 4-v
 | rest compression | linear `F0/k` (line 311) | solves the bias (4 above) | small: bias x 0.01 per metre |
 | `MaxDamperForce` | not modelled | per-frame momentum limit, **not read by the force function** | none found |
 
-## 6. Next (in order)
-1. Identify `w` (wheel vfunc `+0x40` of the object at `this+0x10`): the factor that scales the stabilizer bar **and the total
-   suspension force** (`0x10124e6`); the port has no equivalent and it directly shapes weight transfer.
-2. Establish which joint class the cars use (callers `0x10001c0`, `0x1002050`) to settle the normalised vs unnormalised rest solve.
-3. The rollover is weight transfer vs grip: read the wheel contact / constraint solver (`0x10012f0`, `0x100c2e0`, `0x100d370`
-   are large force-application candidates) instead of more damper work.
+## 6. `w` resolved, and the Tire's SetNormalForce [CODE-dev]
+- **`w` = dt, not a hidden factor.** `1011460` / `1011470` forward to `bodies[0]` vfuncs `+0x40` / `+0x44`; the car classes (4 vtables,
+  e.g. `0x15580c0`) implement them as `fld [car+0x5a4]` / `fld [car+0x5a8]`. `0xff4480` sets `+0x5a8 = (int)[+0x5a0] x [+0x18]`
+  (Frequency) and `+0x5a4 = 1 / +0x5a8` (**dt**). So the summed suspension force x `w` is just the impulse `F dt` handed to the solver
+  (vfunc `+0x6c`, apply at `GlobalAnchor`), and the stabilizer bar's `+0xb0 StabilizerBarImpulse = arb x dt` is a record (the force
+  that is summed is the un-scaled `arb`). The port's `force x h` is the same thing. Nothing to add.
+- **Flagged damper path** (`flags +0x90` bit 1 and `[car+0x5dc] != 3`, only when the clamped `v < 0`): `F = 0.25 x Frequency x
+  (-m x axis . v_body)` (`0x1012800` -> `0x10126b0`), a "cancel 25 % of the chassis axial motion per step" mode. The car class ctor
+  `0x1011fe0` writes `+0x90 = 0`; only the constructors `0x1001a37` / `0x1001f71` OR bit 1 in. `[INF]` the cars use the normal
+  `c clamp(v, +-V)` damper.
+- **Tire SetNormalForce `0x1002a80`:** `Fz = (arg > T) ? 1e5 : arg` (`0x1499164` = 1e5 N), stores `NormalForce (+0x18)`, runs the
+  Pacejka update `0x100cbc0`, then writes **effective friction coefficients**
+  `LateralFriction (+0x44) = min(|LateralForce (+0x68) / Fz|, MaxLatFriction[surf] (+0x84 + 4 surf) x 0.001 x FrictionScale (+8))`,
+  likewise `LongitudinalFriction (+0x48)` from `+0x6c` / `+0x90 + 4 surf` and `NormalFriction (+0x4c)` from `+0x74` / `+0xa8`.
+  These are what the constraint solver would use as friction limits `[INF]`: the limit is `mu_eff x N_solver`, not
+  `Pacejka(Fz_spring)` alone.
+- Still open: the rest-length solve of the car class is normalised by `UpperStop` while the runtime spring is not (the Offset
+  coordinate may be normalised; unresolved).
+
+## 6b. Next (in order)
+1. Find who reads Tire `+0x44 / +0x48 / +0x4c` (the solver) and with which normal force `N`: if the friction limit is `mu_eff x N`
+   with `N` from the **constraint** (not the spring force), the port's tyre load path differs in exactly the place weight transfer
+   is decided (the port's `kMaxTyreLoadFactor = 2` stand-in lives there). Candidates: `0x10012f0`, `0x100c2e0`, `0x100d370`.
+2. Then prototype behind a flag and A/B with `-vehtest` (baseline: H3 / Q7_V12 / ML63_AMG 5 of 6 flip).
 
 ## 7. A/B: `-devdamper` (2026-11-14, `-vehtest`, flat plane)
 H3 / Q7_V12 / ML63_AMG, 6 corner runs each, baseline vs `-devdamper`: **5 flips of 6 in every case, both ways**; H3 steer 0.25

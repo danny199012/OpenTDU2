@@ -19,6 +19,10 @@ The owner found `TestDrive2DEV.exe` (Hidden Palace, Apr 6 2012 prototype) and as
 - `V = 2|axis . v_anchor|` (damper velocity limit), `v = -dOffset/dt`, `MaxDamperForce` is diagnostic only; port signs confirmed. New flag `-devdamper` (`vehicle_dynamics.cpp`, off by default) uses it instead of `kMaxCompressionRate`.
 - A/B `-vehtest` H3 / Q7_V12 / ML63_AMG: 5 of 6 flip with and without it; lateral 12.29 -> 12.30 m/s2. **The damper is not the rollover lever.** Next: the factor `w` (wheel vfunc +0x40) that scales the total suspension force, then the contact solver.
 
+### Follow-up 2 (same session): `w` chased
+- `w` (wheel vfunc +0x40) = **dt** (`0xff4480`: `+0x5a8` Frequency, `+0x5a4 = 1/Frequency`): it only converts the summed suspension force to an impulse, the port's `force x h`. No hidden factor. Flagged "25 % momentum" damper exists but the car ctor clears its flag.
+- Found Tire `SetNormalForce` (`0x1002a80`): clamps Fz to 1e5 N and derives effective friction coefficients `min(|F/Fz|, mu_max x FS)` at +0x44/+0x48/+0x4c (solver limits `[INF]`). Next: find who reads them (`0x10012f0`, `0x100c2e0`, `0x100d370`) and with which normal force; spec section 6/6b.
+
 ### Ruled out
 - `-devdamper` identical flips -> not the damper.
 - "Lateral grip cheat" (0x552420) is AI opponent tuning, not a player tyre knob.
