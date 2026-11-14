@@ -3,6 +3,22 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 12th): dev-build survey, car damage decoded + accumulator, original Physics.cpr as a mod
+
+The owner: work on damage; what else can the dev build give (grass / vegetation, traffic, road signs, DLC2 / bikes, cut content, menus, outfits); could it be an opt-in mod in a launcher Mods page.
+
+### What changed
+- `docs/re/damage_spec.md` (new): `DBCarDamageData` + the dev `DisplayVehicleDamage` logic (loader `0x751810`, `AddImpact 0x751ba0`, state `0x751a50`, minimum 50, lateral rule, `DamageMap%i` / `DAMAGESCN` render path, `TD_CarDeform_TS`).
+- `source/physics/vehicle_data.{h,cpp}` `DamageParams` / `GetDamageParams()`; `vehicle_dynamics.{h,cpp}` `damage` (0..65535), `getDamageState()`, `addImpactDamage()`, fed by `resolveChassisCollision` with magnitude = impulse / dt `[INF]`. Log line `Vehicle damage: +N -> M (scratched|deformed|broken)`. **No visuals yet.**
+- `docs/re/dev_build_survey.md` (new) and `docs/re/dev_build_modules.md` (new, 279 source modules grouped).
+
+### Verified
+- All 59 comparable `.big` / `.map` / `.cpr` files of the dev package are size-identical to retail: **no new assets in the package**. Only `Physics.cpr` and `GamePC.cpr` differ; the retail install is the TDU World retune, the dev `Physics.cpr` is Eden's original (angular damping, steering lock, ABS / TC / handbrake). Dropped into `<mods>/Physics.cpr` it loads (`Mod overlay: 'Physics.cpr'`); `-vehtest` barely moves (flips 0; lateral g 1.63 / 2.07 / 1.70 vs 1.63 / 2.07 / 1.72).
+- Damage run: `-gm FREERIDE -autoplay "60:hold=accel;300:hold=steerleft;..." -exitframe 1300` -> scratched -> deformed -> broken; headless, no screenshot.
+
+### Not done / next
+- Damage visuals (damage-map pass + `TD_CarDeform_TS`), traffic / car-car feed, the lateral rule. Police / traffic AI from the readable `Ai*` modules. A launcher Mods page (design in the survey, section 4); the project cannot host Eden assets, only our own or "import from my copy" mods. The dev exe was not run (untrusted download).
+
 ## Session 2026-11-14 (`main`, 11th): the Apr 2012 dev prototype as a physics source - suspension law read
 
 The owner found `TestDrive2DEV.exe` (Hidden Palace, Apr 6 2012 prototype) and asked to start with physics.

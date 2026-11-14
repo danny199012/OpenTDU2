@@ -765,3 +765,33 @@ void ApplyTuningToSetup( VehicleSetup &setup, int32_t accelLevel, int32_t brakin
                    setup.Db.FileName.c_str(), accel, torqueScale, braking, brakeGrip, speed, topTorqueScale,
                    speedScale, setup.EngineMaxVelocity * 9.549297f );
 }
+
+const DamageParams &GetDamageParams() {
+    static DamageParams params;
+    static bool bLoaded = false;
+    if ( !bLoaded && gpDatabase != nullptr ) {
+        bLoaded = true;
+        XmbValue root = gpDatabase->getDocument().getRoot();
+        for ( uint32_t i = 0; i < root.getArraySize( "DBCarDamageData" ); i++ ) {
+            XmbValue row = root.getArrayElement( "DBCarDamageData", i );
+            const std::string name = row["_param"].asString();
+            const float value = static_cast<float>( row["_value"].asDouble( 0.0 ) );
+            if ( name == "ShiftCar" ) params.Shift[0] = value;
+            else if ( name == "ShiftFixedObject" ) params.Shift[1] = value;
+            else if ( name == "ShiftMovingObject" ) params.Shift[2] = value;
+            else if ( name == "IntervalScratch" ) params.IntervalScratch = value;
+            else if ( name == "IntervalDeform" ) params.IntervalDeform = value;
+            else if ( name == "IntervalBreak" ) params.IntervalBreak = value;
+            else if ( name == "ScaleCar" ) params.Scale[0] = value;
+            else if ( name == "ScaleFixedObject" ) params.Scale[1] = value;
+            else if ( name == "ScaleMovingObject" ) params.Scale[2] = value;
+            else if ( name == "LateralDamageFactor" ) params.LateralDamageFactor = value;
+            else if ( name == "LateralIntervalBreak" ) params.LateralIntervalBreak = value;
+        }
+        OTDU_LOG_INFO( "Damage: DBCarDamageData scratch %.0f deform %.0f break %.0f, scale car / fixed / moving %g / %g / %g\n",
+                       params.IntervalScratch, params.IntervalDeform, params.IntervalBreak, params.Scale[0], params.Scale[1],
+                       params.Scale[2] );
+    }
+    return params;
+}
+

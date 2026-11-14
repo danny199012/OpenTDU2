@@ -257,3 +257,20 @@ void GetRimSizeRange( int32_t carId, int32_t &outMinInch, int32_t &outMaxInch );
 // values untouched. Call it on a *copy* of the base setup (never twice on the
 // same setup - the scaling would compound).
 void ApplyTuningToSetup( VehicleSetup &setup, int32_t accelLevel, int32_t brakingLevel, int32_t speedLevel );
+
+// DBCarDamageData [DATA] as consumed by the Apr 2012 dev build's DisplayVehicleDamage
+// (loader 0x751810 reads the 11 rows by _param into this+0xfc; docs/re/damage_spec.md).
+// Kinds: 0 car, 1 fixed object, 2 moving object (dev kind 1 / 2 / 3). The damage of a part is a
+// 16-bit value: dmg = Scale[kind] x magnitude + Shift[kind]; states at the intervals.
+struct DamageParams {
+    float Shift[3] = { 0.0f, 0.0f, 0.0f };
+    float IntervalScratch = 25000.0f;
+    float IntervalDeform = 40000.0f;
+    float IntervalBreak = 65535.0f;
+    float Scale[3] = { 0.01f, 0.025f, 0.0025f };
+    float LateralDamageFactor = 1500.0f;
+    float LateralIntervalBreak = 65535.0f;
+    float MinimumMagnitude = 50.0f; // dev 0x148e450: smaller impacts / damages are ignored
+};
+const DamageParams &GetDamageParams();
+

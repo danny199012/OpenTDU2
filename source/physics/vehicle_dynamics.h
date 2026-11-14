@@ -123,6 +123,14 @@ public:
     void setLogContacts( bool bLog ) { bLogContacts = bLog; }
     // One line of drive train state (debug logs).
     std::string getDebugState() const;
+
+    // Car damage (DBCarDamageData, dev build DisplayVehicleDamage; docs/re/damage_spec.md).
+    // 0..65535; state 0 clean, 1 scratched (>= IntervalScratch), 2 deformed (>= IntervalDeform),
+    // 3 broken (>= IntervalBreak). kind: 0 car, 1 fixed object, 2 moving object.
+    inline float getDamage() const { return damage; }
+    int32_t getDamageState() const;
+    inline void resetDamage() { damage = 0.0f; }
+    float addImpactDamage( float magnitude, int32_t kind );
     // Hub offset along the car up axis from its modelled place (drawing):
     // the suspension offset (compression > 0, full droop = LowerStop).
     float getWheelOffset( size_t i ) const { return i < wheelStates.size() ? wheelStates[i].Compression : 0.0f; }
@@ -225,6 +233,7 @@ private:
     bool bSportLines = false;   // game car object +0x4c (FUN_00bacd50)
     float blueLine = 0.0f, redLine = 0.0f;
     bool bOnGround = false;
+    float damage = 0.0f; // 0..65535 (spec: damage_spec.md)
     bool bLogContacts = false;
 
     void tick( float h, const Input &input, const VehicleWorldCollision &collision );

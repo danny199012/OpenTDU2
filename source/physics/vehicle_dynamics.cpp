@@ -1675,6 +1675,11 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
             const float effective = 1.0f / mass + contact.Normal.dot( worldInverseInertia( armCrossNormal ).cross( arm ) );
             const float j = -( 1.0f + 0.05f ) * approach / Max( effective, 1e-6f );
             applyImpulse( contact.Normal * j, contact.Point );
+            // Damage: the impact record magnitude is the contact force, impulse / dt [INF: the dev
+            // build's record +0x14 is a Havok contact value; this scale puts a 30 km/h wall hit
+            // in "scratched", 50 in "deformed" and 100 in "broken"]. Every world contact is a
+            // fixed object here (traffic / other cars do not reach this path).
+            addImpactDamage( j / Max( dt, 1e-4f ), 1 );
             Vector3f tangent = pointVelocity - contact.Normal * approach;
             const float tangentSpeed = tangent.length();
             if ( tangentSpeed > 1e-3f ) {
@@ -1690,7 +1695,6 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
     for ( size_t s = 0; s < collisionSpheres.size() && s < previousSphereCenters.size(); s++ ) {
         previousSphereCenters[s] = position + Rotate( orientation, collisionSpheres[s] );
     }
-    (void)dt;
 }
 
 std::string VehicleDynamics::getDebugState() const {
@@ -1708,3 +1712,35 @@ std::string VehicleDynamics::getDebugState() const {
               gearbox.Shifted, gearbox.State, gearbox.Flags, gearbox.CtrlFlags, bSportLines ? "sport" : "normal", wheelText.c_str() );
     return buffer;
 }
+
+int32_t VehicleDynamics::getDamageState() const {
+    const DamageParams &p = GetDamageParams();
+    if ( damage >= p.IntervalBreak ) return 3;
+    if ( damage >= p.IntervalDeform ) return 2;
+    if ( damage >= p.IntervalScratch ) return 1;
+    return 0;
+}
+
+// AddImpact of the dev build (0x751ba0): dmg = Scale[kind] x magnitude + Shift[kind]; magnitudes and
+// damages below 50 are ignored (0x754eb0 loop, constant 0x148e450); the value saturates at 65535.
+// The lateral rule (small side hits, zones 0xf / 0x10, LateralDamageFactor 1500) is not modelled.
+float VehicleDynamics::addImpactDamage( float magnitude, int32_t kind ) {
+    const DamageParams &p = GetDamageParams();
+    if ( magnitude < p.MinimumMagnitude || kind < 0 || kind > 2 ) {
+        return 0.0f;
+    }
+    const float gain = p.Scale[kind] * magnitude + p.Shift[kind];
+    if ( gain < p.MinimumMagnitude ) {
+        return 0.0f;
+    }
+    const int32_t before = getDamageState();
+    damage = Min( damage + gain, 65535.0f );
+    if ( getDamageState() != before ) {
+        static const char *kNames[] = { "clean", "scratched", "deformed", "broken" };
+        // (the speed shown is the one *after* the impact impulse, i.e. already reduced)
+        OTDU_LOG_INFO( "Vehicle damage: +%.0f -> %.0f (%s), speed after impact %.0f km/h\n", gain, damage,
+                       kNames[getDamageState()], velocity.length() * 3.6f );
+    }
+    return gain;
+}
+
