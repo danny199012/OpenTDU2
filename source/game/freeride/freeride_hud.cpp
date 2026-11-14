@@ -2550,6 +2550,30 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
                 PushTriangle( vertices, pa.x, pa.y, pb.x, pb.y, pc.x, pc.y, roadColor );
             }
         }
+        // The off-road trace: where the car left the road graph, drawn over the roads.
+        {
+            const float reach = mapRectW * mapMetersPerPixel() + 30.0f;
+            const float half = 1.0f;
+            for ( const std::vector<Vector2f> &segment : traceSegments_ ) {
+                for ( size_t k = 0; k + 1 < segment.size(); k++ ) {
+                    if ( std::fabs( segment[k].x - state.CarX ) > reach || std::fabs( segment[k].y - state.CarZ ) > reach ) {
+                        continue;
+                    }
+                    const Vector2f a = toMap( Vector3f( segment[k].x, 0.0f, segment[k].y ) );
+                    const Vector2f b = toMap( Vector3f( segment[k + 1].x, 0.0f, segment[k + 1].y ) );
+                    const float dx = b.x - a.x, dy = b.y - a.y;
+                    const float length = std::sqrt( dx * dx + dy * dy );
+                    if ( length < 0.01f ) {
+                        continue;
+                    }
+                    const float ux = dx / length, uy = dy / length;
+                    const float nx = -uy * half, ny = ux * half;
+                    PushQuad( vertices, { a.x - ux * half + nx, a.y - uy * half + ny },
+                              { b.x + ux * half + nx, b.y + uy * half + ny }, { b.x + ux * half - nx, b.y + uy * half - ny },
+                              { a.x - ux * half - nx, a.y - uy * half - ny }, Rgba( 254, 216, 197, 200 ) );
+                }
+            }
+        }
         // GPS route: a red line along the route within the minimap radius.
         if ( pRoute_ != nullptr && pRoute_->size() > 1 ) {
             const float radius = mapRectW * mapMetersPerPixel();
@@ -3335,4 +3359,22 @@ void FreeRideHud::drawGaugeTextures( Renderer2D &renderer, bool bDial ) {
         renderer.drawTriangles( pNeedleTexture, vertices.data(), static_cast<uint32_t>( vertices.size() ) );
     }
     renderer.end();
+}
+void FreeRideHud::addTracePoint( float x, float z ) {
+    constexpr size_t kMaxTracePoints = 8000;
+    if ( !bTraceOpen_ || traceSegments_.empty() ) {
+        traceSegments_.emplace_back();
+        bTraceOpen_ = true;
+    }
+    std::vector<Vector2f> &segment = traceSegments_.back();
+    segment.emplace_back( x, z );
+    if ( ++tracePoints_ > kMaxTracePoints && !traceSegments_.empty() ) {
+        // Drop the oldest excursion.
+        tracePoints_ -= traceSegments_.front().size();
+        traceSegments_.erase( traceSegments_.begin() );
+    }
+}
+
+void FreeRideHud::endTrace() {
+    bTraceOpen_ = false;
 }

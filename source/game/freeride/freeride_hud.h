@@ -280,6 +280,11 @@ public:
     // undiscovered one grey [DATA: GamePC.cpr [HudMap]]. Without it the satnav
     // falls back to the collision road triangles (all white).
     inline void setRoadMap( const MapScreen *pMap ) { pRoadMap_ = pMap; }
+    // The off-road trace the satnav draws where the car left the road graph
+    // ([HudMap] 'driven trace' 254/216/197/200, width 2 [DATA]): a polyline per
+    // excursion. addTracePoint extends the open one, endTrace closes it.
+    void addTracePoint( float x, float z );
+    void endTrace();
     void drawSavingLogo( Renderer2D &renderer );
     void setVisible( bool bVisible ) { bShown = bVisible; }
     // The near-car spec card (a traffic car stopped next to / a showroom
@@ -330,6 +335,9 @@ private:
     std::string zoneName;
     const std::vector<Vector3f> *pRoute_ = nullptr;
     const MapScreen *pRoadMap_ = nullptr;
+    std::vector<std::vector<Vector2f>> traceSegments_; // world (x, z) polylines
+    bool bTraceOpen_ = false;
+    size_t tracePoints_ = 0;
     float routeLength_ = 0.0f;
     std::string prompt_;
     float detectorMeters_ = -1.0f, detectorRange_ = 250.0f;

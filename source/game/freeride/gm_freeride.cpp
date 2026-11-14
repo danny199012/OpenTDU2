@@ -2255,7 +2255,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
             spotCanvas( nearSpotPosition, x, y, scale );
             hud.showEnterSpot( pNearKind, bSlow ? pNearAction : "", x, y, scale );
         }
-    } else if ( ( bOffRoadShown || bBackOnTrackHeld ) && !bRaceUp && !hud.isLevelUpActive() &&
+    } else if ( ( bBackOnTrackHeld || ( bForceOffRoad && bOffRoadShown ) ) && !bRaceUp && !hud.isLevelUpActive() &&
                 !CmdLine::HasArg( "-botforce" ) ) {
         // (Not under the level-up / reward popup: its translucent panel let
         // the ring and "Return to the road" show through the middle of it -
@@ -6315,6 +6315,34 @@ void GMFreeRide::tick( float deltaTime ) {
             phoneContext.bDecline = gpInput->wasPressed( eInputAction::IA_MenuBack );
         }
         phoneCalls.tick( deltaTime, phoneContext, hud );
+        // The off-road trace on the satnav: the path of every excursion off the
+        // road graph, from the last point on a road [owner: "you draw a grey line
+        // of where you have left the road"].
+        {
+            static Vector3f lastOnRoad, lastTrace;
+            static bool bHaveOnRoad = false, bOff = false;
+            const Vector3f here = carWorld.getTranslation();
+            if ( mapScreen.getRoadLinkNear( here, 14.0f ) >= 0 ) {
+                if ( bOff ) {
+                    hud.addTracePoint( here.x, here.z );
+                    hud.endTrace();
+                    bOff = false;
+                }
+                lastOnRoad = here;
+                bHaveOnRoad = true;
+            } else if ( bHaveOnRoad ) {
+                if ( !bOff ) {
+                    bOff = true;
+                    hud.addTracePoint( lastOnRoad.x, lastOnRoad.z );
+                    lastTrace = lastOnRoad;
+                }
+                const float dx = here.x - lastTrace.x, dz = here.z - lastTrace.z;
+                if ( dx * dx + dz * dz > 4.0f * 4.0f ) {
+                    hud.addTracePoint( here.x, here.z );
+                    lastTrace = here;
+                }
+            }
+        }
         // -logroadclass: the class byte of the road link under the car, logged when it
         // changes - drive a known dirt track and read which class it is (the satnav
         // colours class 3 yellow [INF], docs/re/roads_spec.md).
