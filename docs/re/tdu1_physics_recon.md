@@ -163,6 +163,17 @@ through a vtable call, so no function contains the offset set *and* the arithmet
 2. **The behavioural oracle**: the 360 build is runnable; measure the retail H3 / Q7 steady-state cornering (lateral g at the point the
    inner wheels lift) and fit our `[INF]` parameters (CG height, the 2x static load clamp, bump stop) to it, instead of reading the law.
 
+### 6.3 The 360 oracle: state of play (2026-11-14) - not usable for numbers yet
+
+Checked in `E:\...\Test-Drive-Unlimited-2-Recomp` (rexglue static recomp, native Windows, `out/build/win-amd64-perf/tdu2.exe`, built 2026-10-28):
+
+- It **runs** and plays (F1 menu, money / DLC cheats, `[scene]` log, in-world ~14-16 fps), but it has **no car spawn / teleport / car picker and no input scripting**: a measurement run is a human driving.
+- It has a **physics sampler** (`src/hooks/tdu2_physics_sampler.cpp`, `--tdu2_phys_csv <file>`, `HANDOFF.md` section 8): one CSV row per physics step - chassis position, rotation, velocity, angular velocity, per-wheel suspension length / spin / contact / slip, from Havok `hkpVehicleInstance` fields whose offsets come from the 360 binary's own reflection tables.
+- **That sampler has never produced a row.** HANDOFF section 8: "Built and linked ... Not run"; the hook point `sub_8898D268` (inferred to be `hkpVehicleInstance::applyAction`) is unconfirmed; the only related line in 212 run logs is `[scene] ... no physics vehicle seen in the last 5 s`. Our own spec 1.1 says TDU2 cars are driven by Eden's `edVehicle`, not the Havok vehicle SDK, so the Havok vehicle may simply not exist at runtime; the chassis `hkpRigidBody` does.
+- **Policy**: the PC `TestDrive2.exe` must not be hooked or read in a running process (CLAUDE.md, SecuROM policy), so the 360 recomp is the only sanctioned runnable oracle.
+
+What a numeric oracle needs, in order (each is a session, not a step): (1) validate or replace the sampler hook (log the chassis `hkpRigidBody` instead, which exists for sure: position `+0x110`, rotation `+0xE0..`, velocities `+0x1A0/+0x1B0` on the entity); (2) get an SUV into the 360 game (money cheat + dealership: H3 / Q7 / Range Rover); (3) a steady circle by hand at ~60 / 100 km/h, then compare peak lateral g, roll angle and wheel lift with `-vehtest -logcorner`. The cheapest oracle is a **yes/no from a person who plays retail**: does a tall SUV roll over on a flat road at a normal steering input?
+
 ## 7. Not done
 
 - Their `havok/` (Havok->Jolt converter, 900 lines) not read: relevant only to the
