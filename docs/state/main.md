@@ -28,6 +28,22 @@ The owner (fresh save at `story_step = 3`, launcher): *"I have no avatar in car 
 - Tess is seated low (only a smudge above the right headrest at night / day, not verified from the side); the steering input does not turn the driver's arms.
 - **Graffiti on the building windows: not reproduced** (a hotel spot render and the route start show nothing). Needs a location: F2 (coords overlay) + F6 (writes `_marks.txt`) at the spot; then `-uselodtextures` A/B and `-verbose` there (leads in `docs/state/cline.md`: the LOD alias rule, `TextureCache::findForOwner`'s global hash fallback).
 
+## Session 2026-11-14 (`main`): launcher revamp + profile manager (several saves / avatars)
+
+Owner: "a profile loader for multiple saves ... different avatars and saves ... the update buttons look cut off ... fully revamp the launcher".
+
+### What changed
+- Game: `-savefile <path>` (`source/game/player_profile.cpp`) - one profile.sav per profile. LOGIN's save check now requires `StoryStep >= 1` (the New profile dialog writes a step-0 save first).
+- Launcher: new `launcher_profiles.{h,cpp}` (scan / create / rename / duplicate / delete-to-trash / backups + restore); Play page = animated hero, glowing PLAY "as <profile>", profile tiles, collapsible launch options; Profiles page replaces Player; sidebar with drawn icons, update badge, active-profile card, page fade-in. Cards auto-size (the cut-off Updates buttons).
+- PLAY backs the save up first, then passes `-savefile` / `-playername`.
+
+### Verified
+- `otdu2_launcher.exe --selftest` PASS; screenshots of Play / Profiles / Updates (scratch `_ltest`, DPI 225 %); game run with `-savefile` on a populated profile -> `progression found`, on an empty one -> new-game path, twice (no skip after the dialog's step-0 save).
+
+### Not done / next
+- Not clicked through live: rename / delete / restore modals, a real PLAY from the launcher, the Online / Game data pages after the card change.
+- Pressing OK on the no-data popup still starts AVATAR_CHOICE over the *main* save (backups now cover it).
+
 ## Session 2026-11-14 (`main`): LOGIN continues an existing save instead of the "no progression data" popup
 
 Owner: the launcher shows my save, but starting the game keeps showing "No TDU2 progression data could be found".

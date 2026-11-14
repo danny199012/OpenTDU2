@@ -2,6 +2,7 @@
 #include "player_profile.h"
 
 #include "filesystem/gs_file.h"
+#include "system/cmd_line.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -14,6 +15,16 @@ namespace {
     bool bProfileLoaded = false;
 
     std::filesystem::path ProfilePath() {
+        // -savefile <path>: the launcher's profile manager keeps one save per
+        // profile (<userdata>/profiles/<name>/profile.sav); options, shader
+        // caches and mods stay shared in the user data folder.
+        static const char *pSaveFile = CmdLine::GetArgValue( "-savefile" );
+        if ( pSaveFile != nullptr && pSaveFile[0] != '\0' ) {
+            std::filesystem::path path = std::filesystem::u8path( pSaveFile );
+            std::error_code error;
+            std::filesystem::create_directories( path.parent_path(), error );
+            return path;
+        }
         return gpFile != nullptr ? gpFile->getUserDataFolder() / "profile.sav"
                                  : std::filesystem::path( "profile.sav" );
     }

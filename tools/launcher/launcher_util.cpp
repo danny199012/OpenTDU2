@@ -312,6 +312,7 @@ std::wstring BuildGameArguments( const GameLaunchOptions &options ) {
         append( L"-tester", options.PlayerName );
     }
     append( L"-userdata", options.UserDataFolder );
+    append( L"-savefile", options.SaveFile );
     if ( options.bSkipIntro ) {
         arguments += L" -skipintro";
     }

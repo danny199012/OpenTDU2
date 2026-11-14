@@ -47,6 +47,7 @@ if( WIN32 )
         launcher/launcher_artwork.cpp
         launcher/launcher_http.cpp
         launcher/launcher_json.cpp
+        launcher/launcher_profiles.cpp
         launcher/launcher_settings.cpp
         launcher/launcher_ui.cpp
         launcher/launcher_updater.cpp

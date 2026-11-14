@@ -167,3 +167,19 @@ The GUI itself has `--page play|gamedata|updates|player|online` for screenshots 
 - `launcher.ini` is fully rewritten on every save; do not keep hand-added keys there.
 - The launcher's own log/report files are the `--log` output; the game's `opentdu2.log` is opened from the Play page.
 
+## Profiles (multiple saves / avatars)
+
+[INF] The Profiles page replaces the old Player page. A profile is a folder `<userdata>\profiles\<name>\` holding its own
+`profile.sav`; the launcher starts the game with `-savefile <that file>` (`player_profile.cpp ProfilePath`) and
+`-playername <name>`. Options, shader caches and mods stay shared. The old `<userdata>\profile.sav` shows up as the
+**MAIN** profile (id empty, no `-savefile`) - nothing is migrated or moved. `launcher.ini` `[launcher] active_profile`
+holds the selection. Actions: new, rename (folder rename), duplicate, delete (moved to `profiles\.trash`, never erased),
+backups. Before every PLAY the active save is copied to `<userdata>ackups\<id|main>\profile-<stamp>.sav` (identical to
+the newest -> skipped, newest 12 kept); *Restore* backs the current save up first. A save with `story_step` 0 (the New
+profile dialog writes one before the story starts) counts as a new game, in the launcher and in the game's login check.
+Code: `launcher_profiles.{h,cpp}`.
+
+## Layout notes
+
+Cards with height 0 auto-resize (`ImGuiChildFlags_AutoResizeY`): fixed heights cut the Updates buttons off once a
+download added its progress bar and summary. Only scrolling cards (changelog, what's new) keep a fixed height.

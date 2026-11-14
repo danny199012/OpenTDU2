@@ -7,6 +7,7 @@
 #include "build_info.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -79,7 +80,13 @@ bool CardBegin( const char *id, const ImVec2 &size, bool bScroll = false ) {
     } else {
         flags |= ImGuiWindowFlags_NoScrollbar;
     }
-    return ImGui::BeginChild( id, size, ImGuiChildFlags_Borders, flags );
+    // height 0: the card grows with its content - a fixed height cut the update
+    // buttons off as soon as a download added a progress bar and a summary
+    ImGuiChildFlags childFlags = ImGuiChildFlags_Borders;
+    if ( size.y <= 0.0f && !bScroll ) {
+        childFlags |= ImGuiChildFlags_AutoResizeY;
+    }
+    return ImGui::BeginChild( id, size, childFlags, flags );
 }
 
 void CardEnd() {
@@ -133,36 +140,149 @@ bool GhostButton( const char *label, const ImVec2 &size = ImVec2( 0, 0 ) ) {
     return bPressed;
 }
 
-bool NavItem( const char *label, Page page, Page current ) {
-    const bool bSelected = page == current;
-    ImGui::PushStyleColor( ImGuiCol_Header, bSelected ? ImVec4( 0.16f, 0.17f, 0.21f, 1.0f )
-                                                      : ImVec4( 0.10f, 0.11f, 0.14f, 0.0f ) );
-    ImGui::PushStyleColor( ImGuiCol_HeaderHovered, ImVec4( 0.17f, 0.19f, 0.24f, 1.0f ) );
-    ImGui::PushStyleColor( ImGuiCol_HeaderActive, ImVec4( 0.20f, 0.22f, 0.28f, 1.0f ) );
-    ImGui::PushStyleColor( ImGuiCol_Text,
-                           bSelected ? kText : ImVec4( 0.72f, 0.75f, 0.80f, 1.0f ) );
-    ImGui::PushStyleVar( ImGuiStyleVar_SelectableTextAlign, ImVec2( 0.06f, 0.5f ) );
-    const bool bPressed = ImGui::Selectable( label, bSelected, 0, ImVec2( 0.0f, S( 42.0f ) ) );
-    ImGui::PopStyleVar();
-    const ImVec2 itemMin = ImGui::GetItemRectMin();
-    const ImVec2 itemMax = ImGui::GetItemRectMax();
-    if ( bSelected ) {
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            ImVec2( itemMin.x, itemMin.y + 8.0f ),
-            ImVec2( itemMin.x + 3.0f, itemMax.y - 8.0f ), ToU32( kAccent ), 2.0f );
+float Smooth( ImGuiID id, bool bTarget, float speed ) {
+    ImGuiStorage *storage = ImGui::GetStateStorage();
+    float value = storage->GetFloat( id, 0.0f );
+    const float target = bTarget ? 1.0f : 0.0f;
+    const float step = std::min( 1.0f, ImGui::GetIO().DeltaTime * speed );
+    value += ( target - value ) * step;
+    if ( std::fabs( target - value ) < 0.002f ) {
+        value = target;
     }
+    storage->SetFloat( id, value );
+    return value;
+}
+
+// Text clipped to maxWidth (a long nickname must not run out of its card).
+void Txt( ImDrawList *drawList, ImFont *font, const ImVec2 &pos, ImU32 color, const char *text,
+          float maxWidth ) {
+    ImGui::PushFont( font );
+    const float height = ImGui::GetFontSize() + 6.0f;
+    drawList->PushClipRect( pos, ImVec2( pos.x + maxWidth, pos.y + height ), true );
+    drawList->AddText( pos, color, text );
+    drawList->PopClipRect();
+    ImGui::PopFont();
+}
+
+std::string FormatMoney( int64_t value ) {
+    const std::string digits = std::to_string( value < 0 ? -value : value );
+    std::string out;
+    int count = 0;
+    for ( int index = static_cast<int>( digits.size() ) - 1; index >= 0; index-- ) {
+        out.insert( out.begin(), digits[index] );
+        if ( ++count % 3 == 0 && index > 0 ) {
+            out.insert( out.begin(), ',' );
+        }
+    }
+    return std::string( value < 0 ? "-$" : "$" ) + out;
+}
+
+// A round avatar badge: a colour from the name, the initial on top.
+void DrawMonogram( ImDrawList *drawList, const ImVec2 &center, float radius, const std::string &name ) {
+    uint32_t hash = 2166136261u;
+    for ( const char c : name ) {
+        hash = ( hash ^ static_cast<uint8_t>( c ) ) * 16777619u;
+    }
+    const float hue = static_cast<float>( hash % 360u ) / 360.0f;
+    float r, g, b, r2, g2, b2;
+    ImGui::ColorConvertHSVtoRGB( hue, 0.62f, 0.95f, r, g, b );
+    ImGui::ColorConvertHSVtoRGB( std::fmod( hue + 0.08f, 1.0f ), 0.78f, 0.62f, r2, g2, b2 );
+    drawList->AddCircleFilled( ImVec2( center.x, center.y + 1.5f ), radius + 1.0f, IM_COL32( 0, 0, 0, 90 ), 40 );
+    drawList->AddCircleFilled( center, radius, ImGui::ColorConvertFloat4ToU32( ImVec4( r2, g2, b2, 1.0f ) ), 40 );
+    // lit upper half
+    drawList->PathArcTo( center, radius, 3.14159f, 6.28318f, 24 );
+    drawList->PathFillConvex( ImGui::ColorConvertFloat4ToU32( ImVec4( r, g, b, 0.55f ) ) );
+    drawList->AddCircle( center, radius, IM_COL32( 255, 255, 255, 60 ), 40, 1.5f );
+    std::string initial = name.empty() ? "?" : name.substr( 0, 1 );
+    if ( !initial.empty() && initial[0] >= 'a' && initial[0] <= 'z' ) {
+        initial[0] = static_cast<char>( initial[0] - 32 );
+    }
+    const ImVec2 size = ImGui::CalcTextSize( initial.c_str() );
+    drawList->AddText( ImVec2( center.x - size.x * 0.5f, center.y - size.y * 0.5f ),
+                       IM_COL32( 255, 255, 255, 245 ), initial.c_str() );
+}
+
+bool NavItem( const char *label, Page page, Page current, bool bBadge ) {
+    const bool bSelected = page == current;
+    ImDrawList *drawList = ImGui::GetWindowDrawList();
+    ImGui::PushStyleColor( ImGuiCol_Header, ImVec4( 0.16f, 0.17f, 0.21f, 0.0f ) );
+    ImGui::PushStyleColor( ImGuiCol_HeaderHovered, ImVec4( 0.17f, 0.19f, 0.24f, 0.55f ) );
+    ImGui::PushStyleColor( ImGuiCol_HeaderActive, ImVec4( 0.20f, 0.22f, 0.28f, 0.80f ) );
+    ImGui::PushStyleColor( ImGuiCol_Text, bSelected ? kText : ImVec4( 0.72f, 0.75f, 0.80f, 1.0f ) );
+    ImGui::PushStyleVar( ImGuiStyleVar_SelectableTextAlign, ImVec2( 0.0f, 0.5f ) );
+    const ImVec2 itemMin = ImGui::GetCursorScreenPos();
+    const float selectedAmount = Smooth( ImGui::GetID( label ), bSelected, 14.0f );
+    if ( selectedAmount > 0.01f ) {
+        const float width = ImGui::GetContentRegionAvail().x;
+        drawList->AddRectFilledMultiColor(
+            itemMin, ImVec2( itemMin.x + width, itemMin.y + S( 42.0f ) ),
+            ToU32( kAccent, 0.18f * selectedAmount ), ToU32( kAccent, 0.0f ), ToU32( kAccent, 0.0f ),
+            ToU32( kAccent, 0.18f * selectedAmount ) );
+    }
+    const bool bPressed = ImGui::Selectable( ( std::string( "##nav_" ) + label ).c_str(), bSelected, 0,
+                                             ImVec2( 0.0f, S( 42.0f ) ) );
+    const bool bHover = ImGui::IsItemHovered();
+    if ( bHover ) {
+        ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
+    }
+    const ImVec2 itemMax = ImGui::GetItemRectMax();
+    const ImU32 iconColor = ToU32( bSelected ? kAccent : ( bHover ? kText : kDim ) );
+    const ImVec2 c( itemMin.x + S( 26.0f ), ( itemMin.y + itemMax.y ) * 0.5f );
+    {
+        // the label sits right of the icon, vertically centred
+        const ImVec2 textSize = ImGui::CalcTextSize( label );
+        drawList->AddText( ImVec2( itemMin.x + S( 52.0f ), c.y - textSize.y * 0.5f ),
+                           ToU32( bSelected ? kText : ImVec4( 0.72f, 0.75f, 0.80f, 1.0f ) ), label );
+    }
+    const float u = S( 1.0f );
+    switch ( page ) {
+    case Page::Play:
+        drawList->AddTriangleFilled( ImVec2( c.x - 6 * u, c.y - 8 * u ), ImVec2( c.x - 6 * u, c.y + 8 * u ),
+                                     ImVec2( c.x + 8 * u, c.y ), iconColor );
+        break;
+    case Page::Profiles:
+        drawList->AddCircle( ImVec2( c.x, c.y - 4 * u ), 4.5f * u, iconColor, 16, 1.8f );
+        drawList->PathArcTo( ImVec2( c.x, c.y + 9 * u ), 8 * u, 3.14159f, 6.28318f, 16 );
+        drawList->PathStroke( iconColor, 0, 1.8f );
+        break;
+    case Page::GameData:
+        drawList->AddRect( ImVec2( c.x - 8 * u, c.y - 7 * u ), ImVec2( c.x + 8 * u, c.y + 7 * u ), iconColor,
+                           3 * u, 0, 1.8f );
+        drawList->AddLine( ImVec2( c.x - 8 * u, c.y ), ImVec2( c.x + 8 * u, c.y ), iconColor, 1.5f );
+        break;
+    case Page::Updates:
+        drawList->AddLine( ImVec2( c.x, c.y - 8 * u ), ImVec2( c.x, c.y + 5 * u ), iconColor, 2.0f );
+        drawList->AddTriangleFilled( ImVec2( c.x - 6 * u, c.y + 2 * u ), ImVec2( c.x + 6 * u, c.y + 2 * u ),
+                                     ImVec2( c.x, c.y + 9 * u ), iconColor );
+        break;
+    case Page::Online:
+        drawList->AddCircle( c, 8 * u, iconColor, 20, 1.8f );
+        drawList->AddLine( ImVec2( c.x, c.y - 8 * u ), ImVec2( c.x, c.y + 8 * u ), iconColor, 1.4f );
+        drawList->AddLine( ImVec2( c.x - 8 * u, c.y ), ImVec2( c.x + 8 * u, c.y ), iconColor, 1.4f );
+        break;
+    }
+    if ( selectedAmount > 0.01f ) {
+        const float inset = S( 10.0f ) + ( 1.0f - selectedAmount ) * S( 10.0f );
+        drawList->AddRectFilled( ImVec2( itemMin.x, itemMin.y + inset ),
+                                 ImVec2( itemMin.x + S( 3.0f ), itemMax.y - inset ), ToU32( kAccent ), 2.0f );
+    }
+    if ( bBadge ) {
+        const float pulse = 0.5f + 0.5f * std::sin( static_cast<float>( ImGui::GetTime() ) * 3.0f );
+        const ImVec2 dot( itemMax.x - S( 22.0f ), c.y );
+        drawList->AddCircleFilled( dot, S( 7.0f ) + pulse * S( 2.0f ), ToU32( kAccent, 0.22f ), 20 );
+        drawList->AddCircleFilled( dot, S( 4.0f ), ToU32( kAccent ), 16 );
+    }
+    ImGui::PopStyleVar();
     ImGui::PopStyleColor( 4 );
     return bPressed;
 }
-
-
 
 const char *PageTitle( Page page ) {
     switch ( page ) {
     case Page::Play: return "Play";
     case Page::GameData: return "Game data";
     case Page::Updates: return "Updates";
-    case Page::Player: return "Player";
+    case Page::Profiles: return "Profiles";
     default: return "Online";
     }
 }
@@ -172,7 +292,7 @@ const char *PageSubtitle( Page page ) {
     case Page::Play: return "Test Drive Unlimited 2 - OpenTDU2";
     case Page::GameData: return "Install from a disc image or point at the unpacked game";
     case Page::Updates: return "Build stamp, changelog and updates";
-    case Page::Player: return "The name in the profile and in every save";
+    case Page::Profiles: return "Your players, each with their own save and backups";
     default: return "The account for the multiplayer that comes next";
     }
 }
@@ -316,6 +436,7 @@ bool LauncherApp::Initialize( HWND window, ID3D11Device *device, ID3D11DeviceCon
     SyncFieldsFromSettings();
     RefreshGameState();
     RefreshProfileSummary();
+    mPageChangeTime = ImGui::GetTime() - 1.0;
     SetStatus( "Launcher ready - " OTDU_RELEASE_STRING "." );
     return true;
 }
@@ -415,6 +536,7 @@ void LauncherApp::RefreshGameState() {
 }
 
 void LauncherApp::RefreshProfileSummary() {
+    RefreshProfiles();
     mProfileName.clear();
     mProfileSummary.clear();
     mProfileExists = FileExists( mProfilePath );
@@ -492,14 +614,14 @@ void LauncherApp::Frame() {
                 RefreshProfileSummary();
                 SetStatus( "Game data installed to " + mSettings.GameFolder + " (" +
                            std::to_string( mInstall.FilesDone.load() ) + " files)." );
-                mPage = Page::Play;
+                SwitchPage( Page::Play );
             } else {
                 SetStatus( "Extraction finished, but Euro\\Bnk is not in the destination." );
-                mPage = Page::GameData;
+                SwitchPage( Page::GameData );
             }
         } else {
             SetStatus( mInstall.GetError() );
-            mPage = Page::GameData;
+            SwitchPage( Page::GameData );
         }
     }
 
@@ -585,86 +707,134 @@ void LauncherApp::Frame() {
 }
 
 
+void LauncherApp::SwitchPage( Page page ) {
+    if ( page == mPage ) {
+        return;
+    }
+    mPage = page;
+    mPageChangeTime = ImGui::GetCurrentContext() != nullptr ? ImGui::GetTime() : 0.0;
+}
+
 void LauncherApp::DrawSidebar() {
+    const float sidebarWidth = S( 278.0f );
     ImGui::PushStyleColor( ImGuiCol_ChildBg, ImVec4( 0.050f, 0.055f, 0.070f, 1.0f ) );
     ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 0.0f, 0.0f ) );
-    ImGui::BeginChild( "##sidebar", ImVec2( S( 278.0f ), 0.0f ), ImGuiChildFlags_None,
+    ImGui::BeginChild( "##sidebar", ImVec2( sidebarWidth, 0.0f ), ImGuiChildFlags_None,
                        ImGuiWindowFlags_NoScrollbar );
 
     ImDrawList *drawList = ImGui::GetWindowDrawList();
+    const float time = static_cast<float>( ImGui::GetTime() );
     const ImVec2 bannerPos = ImGui::GetCursorScreenPos();
-    const ImVec2 bannerSize( S( 278.0f ), S( 162.0f ) );
+    const ImVec2 bannerSize( sidebarWidth, S( 150.0f ) );
     DrawCoverImage( drawList, mArtwork.Banner, bannerPos, bannerSize, 0.0f, 1.0f );
     DrawGradientOverlay( drawList, bannerPos, bannerSize );
+    // a slow light sweep across the banner
+    {
+        const float sweep = std::fmod( time * 0.12f, 1.6f ) - 0.3f;
+        const float x = bannerPos.x + sweep * bannerSize.x;
+        drawList->PushClipRect( bannerPos, ImVec2( bannerPos.x + bannerSize.x, bannerPos.y + bannerSize.y ), true );
+        drawList->AddRectFilledMultiColor( ImVec2( x - S( 50.0f ), bannerPos.y ),
+                                           ImVec2( x, bannerPos.y + bannerSize.y ),
+                                           IM_COL32( 255, 140, 60, 0 ), IM_COL32( 255, 140, 60, 26 ),
+                                           IM_COL32( 255, 140, 60, 26 ), IM_COL32( 255, 140, 60, 0 ) );
+        drawList->AddRectFilledMultiColor( ImVec2( x, bannerPos.y ),
+                                           ImVec2( x + S( 50.0f ), bannerPos.y + bannerSize.y ),
+                                           IM_COL32( 255, 140, 60, 26 ), IM_COL32( 255, 140, 60, 0 ),
+                                           IM_COL32( 255, 140, 60, 0 ), IM_COL32( 255, 140, 60, 26 ) );
+        drawList->PopClipRect();
+    }
 
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 20.0f ), bannerPos.y + S( 20.0f ) ) );
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 18.0f ) ) );
     ImGui::PushStyleColor( ImGuiCol_Text, kAccent );
     ImGui::TextUnformatted( "OPEN SOURCE PORT" );
     ImGui::PopStyleColor();
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 18.0f ), bannerPos.y + S( 46.0f ) ) );
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 20.0f ), bannerPos.y + S( 40.0f ) ) );
     ImGui::PushFont( mFontHero );
     ImGui::TextUnformatted( "TDU2" );
     ImGui::PopFont();
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 20.0f ), bannerPos.y + S( 112.0f ) ) );
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 104.0f ) ) );
     ImGui::PushStyleColor( ImGuiCol_Text, kDim );
     ImGui::TextUnformatted( "LAUNCHER  -  IBIZA & OAHU" );
     ImGui::PopStyleColor();
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + 14.0f ) );
+    // accent underline under the banner
+    drawList->AddRectFilledMultiColor(
+        ImVec2( bannerPos.x, bannerPos.y + bannerSize.y - 2.0f ),
+        ImVec2( bannerPos.x + bannerSize.x, bannerPos.y + bannerSize.y ), ToU32( kAccent ),
+        ToU32( kAccent, 0.0f ), ToU32( kAccent, 0.0f ), ToU32( kAccent ) );
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + S( 12.0f ) ) );
 
-    ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( S( 16.0f ), S( 6.0f ) ) );
-    ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 0.0f, 4.0f ) );
-    ImGui::BeginChild( "##nav", ImVec2( 0.0f, S( 262.0f ) ), ImGuiChildFlags_None,
+    ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( S( 14.0f ), S( 4.0f ) ) );
+    ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 0.0f, S( 4.0f ) ) );
+    ImGui::BeginChild( "##nav", ImVec2( 0.0f, S( 250.0f ) ), ImGuiChildFlags_None,
                        ImGuiWindowFlags_NoScrollbar );
-    if ( NavItem( "Play", Page::Play, mPage ) ) {
-        mPage = Page::Play;
+    const UpdateSnapshot update = Snapshot( mUpdate );
+    const bool bUpdateBadge = update.bAvailable || update.bStaged;
+    if ( NavItem( "Play", Page::Play, mPage, false ) ) {
+        SwitchPage( Page::Play );
     }
-    if ( NavItem( "Game data", Page::GameData, mPage ) ) {
-        mPage = Page::GameData;
+    if ( NavItem( "Profiles", Page::Profiles, mPage, false ) ) {
+        SwitchPage( Page::Profiles );
+        RefreshProfiles();
     }
-    if ( NavItem( "Updates", Page::Updates, mPage ) ) {
-        mPage = Page::Updates;
+    if ( NavItem( "Game data", Page::GameData, mPage, !mGameFolderValid ) ) {
+        SwitchPage( Page::GameData );
     }
-    if ( NavItem( "Player", Page::Player, mPage ) ) {
-        mPage = Page::Player;
-        RefreshProfileSummary();
+    if ( NavItem( "Updates", Page::Updates, mPage, bUpdateBadge ) ) {
+        SwitchPage( Page::Updates );
     }
-    if ( NavItem( "Online", Page::Online, mPage ) ) {
-        mPage = Page::Online;
+    if ( NavItem( "Online", Page::Online, mPage, false ) ) {
+        SwitchPage( Page::Online );
     }
     ImGui::EndChild();
     ImGui::PopStyleVar( 2 );
 
-    // The bottom block is pinned: watermark switch, build stamp, source.
-    const float bottomY = ImGui::GetWindowHeight() - S( 178.0f );
+    // The bottom block is pinned: the active profile, then the build stamp.
+    const float blockHeight = S( 148.0f );
+    const float bottomY = ImGui::GetWindowHeight() - blockHeight;
     if ( ImGui::GetCursorPosY() < bottomY ) {
         ImGui::SetCursorPosY( bottomY );
     }
-    ImGui::Indent( S( 18.0f ) );
-    ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-    ImGui::TextUnformatted( "WATERMARK" );
-    ImGui::PopStyleColor();
-    ImGui::Checkbox( "Show my name in the watermark", &mSettings.bWatermark );
-    ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-    ImGui::TextWrapped( "The build id is always stamped (screen corner + every screenshot)." );
-    if ( mSettings.bWatermark ) {
-        if ( mSettings.PlayerName.empty() ) {
-            ImGui::TextWrapped( "Set a player name to stamp it too." );
-        } else {
-            ImGui::TextWrapped( "%s + build - in game top right", mSettings.PlayerName.c_str() );
+    {
+        const ImVec2 cardPos = ImGui::GetCursorScreenPos();
+        const ImVec2 cardSize( sidebarWidth - S( 28.0f ), S( 62.0f ) );
+        const ImVec2 p0( cardPos.x + S( 14.0f ), cardPos.y );
+        const ImVec2 p1( p0.x + cardSize.x, p0.y + cardSize.y );
+        ImGui::SetCursorScreenPos( p0 );
+        ImGui::InvisibleButton( "##sidebar_profile", cardSize );
+        const bool bHover = ImGui::IsItemHovered();
+        if ( bHover ) {
+            ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
         }
-    } else {
-        ImGui::TextWrapped( "Name off - build id stays." );
+        const float lift = Smooth( ImGui::GetID( "##sidebar_profile" ), bHover, 10.0f );
+        drawList->AddRectFilled( p0, p1, ToU32( ImVec4( 0.12f + lift * 0.04f, 0.13f + lift * 0.04f,
+                                                         0.17f + lift * 0.05f, 1.0f ) ),
+                                 S( 12.0f ) );
+        drawList->AddRect( p0, p1, ToU32( kAccent, 0.15f + lift * 0.5f ), S( 12.0f ) );
+        const ProfileInfo *active = ActiveProfile();
+        const std::string name = active != nullptr ? active->Name
+                                 : !mSettings.PlayerName.empty() ? mSettings.PlayerName
+                                                                 : std::string( "No profile yet" );
+        DrawMonogram( drawList, ImVec2( p0.x + S( 31.0f ), p0.y + S( 31.0f ) ), S( 19.0f ), name );
+        Txt( drawList, mFontBold, ImVec2( p0.x + S( 62.0f ), p0.y + S( 12.0f ) ), ToU32( kText ), name.c_str(), cardSize.x - S( 74.0f ) );
+        const std::string sub = active != nullptr && active->bHasSave
+                                    ? StoryStepLabel( active->StoryStep )
+                                    : std::string( "Click to choose a profile" );
+        Txt( drawList, mFontSmall, ImVec2( p0.x + S( 62.0f ), p0.y + S( 34.0f ) ), ToU32( kDim ), sub.c_str(), cardSize.x - S( 74.0f ) );
+        if ( ImGui::IsItemClicked() ) {
+            SwitchPage( Page::Profiles );
+            RefreshProfiles();
+        }
+        ImGui::SetCursorScreenPos( ImVec2( p0.x, p1.y + S( 12.0f ) ) );
     }
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
+    ImGui::Indent( S( 20.0f ) );
+    ImGui::PushStyleColor( ImGuiCol_Text, kDim );
     ImGui::PushFont( mFontSmall );
     ImGui::TextUnformatted( OTDU_RELEASE_STRING );
     ImGui::TextUnformatted( OTDU_BUILD_TIMESTAMP );
     ImGui::TextUnformatted( mIsGitCheckout ? "git checkout" : "packaged build" );
     ImGui::PopFont();
     ImGui::PopStyleColor();
-    ImGui::Unindent( S( 18.0f ) );
+    ImGui::Unindent( S( 20.0f ) );
 
     ImGui::EndChild();
     ImGui::PopStyleVar();
@@ -672,11 +842,10 @@ void LauncherApp::DrawSidebar() {
 }
 
 
-
 void LauncherApp::DrawMainArea() {
     ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( S( 30.0f ), S( 24.0f ) ) );
     ImGui::BeginChild( "##main", ImVec2( 0.0f, 0.0f ), ImGuiChildFlags_None,
-                       ImGuiWindowFlags_None );
+                       ImGuiWindowFlags_NoScrollbar );
 
     ImDrawList *drawList = ImGui::GetWindowDrawList();
     const ImVec2 titlePos = ImGui::GetCursorScreenPos();
@@ -695,18 +864,23 @@ void LauncherApp::DrawMainArea() {
     ImGui::PopStyleColor();
     ImGui::Dummy( ImVec2( 0.0f, 10.0f ) );
 
+    // The page fades in on every switch.
+    const float fade = std::min( 1.0f, static_cast<float>( ImGui::GetTime() - mPageChangeTime ) / 0.22f );
+    ImGui::PushStyleVar( ImGuiStyleVar_Alpha, 0.15f + 0.85f * fade * ( 2.0f - fade ) );
     ImGui::BeginChild( "##page", ImVec2( 0.0f, -S( 46.0f ) ), ImGuiChildFlags_None,
                        ImGuiWindowFlags_None );
     switch ( mPage ) {
     case Page::Play: DrawPlayPage(); break;
+    case Page::Profiles: DrawProfilesPage(); break;
     case Page::GameData: DrawGameDataPage(); break;
     case Page::Updates: DrawUpdatesPage(); break;
-    case Page::Player: DrawPlayerPage(); break;
     case Page::Online: DrawOnlinePage(); break;
     }
     ImGui::EndChild();
+    ImGui::PopStyleVar();
 
     DrawFooter();
+    DrawProfileModals();
     ImGui::EndChild();
     ImGui::PopStyleVar();
 }
@@ -728,183 +902,733 @@ void LauncherApp::DrawFooter() {
     ImGui::PopStyleColor();
 }
 
-void LauncherApp::DrawPlayPage() {
+// ---------------------------------------------------------------------------
+// Profiles
+// ---------------------------------------------------------------------------
+
+void LauncherApp::RefreshProfiles() {
+    mProfiles = ScanProfiles( mEffectiveUserData );
+    mBackupsFor = "\x01"; // force the backup list to reload
+    // the active id must still exist; otherwise fall back to the first profile
+    if ( ActiveProfile() == nullptr ) {
+        mSettings.ActiveProfile.clear();
+        if ( !mProfiles.empty() && !mProfiles.front().bMain ) {
+            mSettings.ActiveProfile = mProfiles.front().Id;
+        }
+    }
+}
+
+const ProfileInfo *LauncherApp::ActiveProfile() const {
+    for ( const ProfileInfo &profile : mProfiles ) {
+        if ( profile.bMain ? mSettings.ActiveProfile.empty() : profile.Id == mSettings.ActiveProfile ) {
+            return &profile;
+        }
+    }
+    return nullptr;
+}
+
+void LauncherApp::SelectProfile( const std::string &id ) {
+    mSettings.ActiveProfile = id;
+    SaveSettings();
+    mBackupsFor = "\x01";
+}
+
+bool LauncherApp::DrawProfileTile( const ProfileInfo &profile, bool bSelected, const ImVec2 &size ) {
+    ImDrawList *drawList = ImGui::GetWindowDrawList();
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 p1( p0.x + size.x, p0.y + size.y );
+    ImGui::PushID( profile.bMain ? "##main_save" : profile.Id.c_str() );
+    ImGui::InvisibleButton( "##tile", size );
+    const bool bHover = ImGui::IsItemHovered();
+    const bool bClicked = ImGui::IsItemClicked();
+    if ( bHover ) {
+        ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
+    }
+    const float hover = Smooth( ImGui::GetID( "##tile" ), bHover, 12.0f );
+    const float select = Smooth( ImGui::GetID( "##sel" ), bSelected, 9.0f );
+    ImGui::PopID();
+
+    const float rounding = S( 14.0f );
+    if ( select > 0.01f ) { // glow behind the selected tile
+        for ( int ring = 3; ring >= 1; ring-- ) {
+            drawList->AddRect( ImVec2( p0.x - ring * 2.0f, p0.y - ring * 2.0f ),
+                               ImVec2( p1.x + ring * 2.0f, p1.y + ring * 2.0f ),
+                               ToU32( kAccent, select * 0.07f * ( 4 - ring ) ), rounding + ring * 2.0f,
+                               0, 2.0f );
+        }
+    }
+    drawList->AddRectFilledMultiColor(
+        p0, p1, ToU32( ImVec4( 0.13f + hover * 0.03f, 0.14f + hover * 0.03f, 0.19f + hover * 0.04f, 1.0f ) ),
+        ToU32( ImVec4( 0.10f, 0.11f, 0.15f, 1.0f ) ), ToU32( ImVec4( 0.08f, 0.09f, 0.12f, 1.0f ) ),
+        ToU32( ImVec4( 0.11f, 0.12f, 0.16f, 1.0f ) ) );
+    // rounded clip: draw the border and a rounded mask over the gradient's corners
+    drawList->AddRect( p0, p1, ToU32( select > 0.5f ? kAccent : kPanelBorder, select > 0.5f ? 1.0f : 0.9f ),
+                       rounding, 0, select > 0.5f ? 2.0f : 1.0f );
+    if ( bSelected ) {
+        drawList->AddRectFilled( ImVec2( p0.x + S( 14.0f ), p0.y ), ImVec2( p1.x - S( 14.0f ), p0.y + 3.0f ),
+                                 ToU32( kAccent ), 2.0f );
+    }
+
+    DrawMonogram( drawList, ImVec2( p0.x + S( 36.0f ), p0.y + S( 38.0f ) ), S( 22.0f ), profile.Name );
+    const float textX = p0.x + S( 72.0f );
+    const float textWidth = size.x - S( 72.0f ) - S( 12.0f );
+    Txt( drawList, mFontBold, ImVec2( textX, p0.y + S( 14.0f ) ), ToU32( kText ), profile.Name.c_str(), textWidth );
+    std::string sub;
+    if ( profile.bHasSave ) {
+        sub = profile.Avatar.empty() ? std::string() : profile.Avatar + "  -  ";
+        sub += StoryStepLabel( profile.StoryStep );
+    } else {
+        sub = "New - no save yet";
+    }
+    Txt( drawList, mFontSmall, ImVec2( textX, p0.y + S( 38.0f ) ), ToU32( kDim ), sub.c_str(), textWidth );
+    if ( profile.bHasSave ) {
+        char line[96];
+        std::snprintf( line, sizeof( line ), "%s  -  %d car%s", FormatMoney( profile.Money ).c_str(),
+                       profile.Cars, profile.Cars == 1 ? "" : "s" );
+        Txt( drawList, mFontSmall, ImVec2( p0.x + S( 16.0f ), p0.y + S( 74.0f ) ), ToU32( ImVec4( 0.80f, 0.83f, 0.88f, 1.0f ) ), line, size.x - S( 32.0f ) );
+        const std::string played = FormatLastPlayed( profile.LastPlayed );
+        Txt( drawList, mFontSmall, ImVec2( p0.x + S( 16.0f ), p0.y + S( 94.0f ) ), ToU32( kDim ), ( "Played " + played ).c_str(), size.x - S( 32.0f ) );
+    } else {
+        Txt( drawList, mFontSmall, ImVec2( p0.x + S( 16.0f ), p0.y + S( 74.0f ) ), ToU32( kDim ), "Press PLAY to start a new game", size.x - S( 32.0f ) );
+    }
+    if ( profile.bMain ) {
+        DrawChipAt( drawList, ImVec2( p1.x - S( 70.0f ), p0.y + S( 10.0f ) ), "MAIN", kAmber );
+    }
+    if ( bSelected ) {
+        const char *label = "ACTIVE";
+        const ImVec2 labelSize = ImGui::CalcTextSize( label );
+        drawList->AddText( ImVec2( p1.x - labelSize.x - S( 14.0f ), p1.y - labelSize.y - S( 10.0f ) ),
+                           ToU32( kAccent ), label );
+    }
+    ImGui::SetCursorScreenPos( ImVec2( p1.x, p0.y ) );
+    return bClicked;
+}
+
+bool LauncherApp::DrawNewProfileTile( const ImVec2 &size ) {
+    ImDrawList *drawList = ImGui::GetWindowDrawList();
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 p1( p0.x + size.x, p0.y + size.y );
+    ImGui::InvisibleButton( "##new_tile", size );
+    const bool bHover = ImGui::IsItemHovered();
+    if ( bHover ) {
+        ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
+    }
+    const float hover = Smooth( ImGui::GetID( "##new_tile" ), bHover, 12.0f );
+    drawList->AddRectFilled( p0, p1, ToU32( kAccent, 0.03f + hover * 0.09f ), S( 14.0f ) );
+    // dashed border
+    const ImU32 dash = ToU32( kAccent, 0.35f + hover * 0.5f );
+    const float step = S( 9.0f );
+    for ( float x = p0.x + S( 14.0f ); x < p1.x - S( 14.0f ); x += step * 2.0f ) {
+        const float x2 = std::min( x + step, p1.x - S( 14.0f ) );
+        drawList->AddLine( ImVec2( x, p0.y ), ImVec2( x2, p0.y ), dash, 1.5f );
+        drawList->AddLine( ImVec2( x, p1.y ), ImVec2( x2, p1.y ), dash, 1.5f );
+    }
+    for ( float y = p0.y + S( 14.0f ); y < p1.y - S( 14.0f ); y += step * 2.0f ) {
+        const float y2 = std::min( y + step, p1.y - S( 14.0f ) );
+        drawList->AddLine( ImVec2( p0.x, y ), ImVec2( p0.x, y2 ), dash, 1.5f );
+        drawList->AddLine( ImVec2( p1.x, y ), ImVec2( p1.x, y2 ), dash, 1.5f );
+    }
+    const ImVec2 center( ( p0.x + p1.x ) * 0.5f, p0.y + size.y * 0.40f );
+    const float arm = S( 13.0f );
+    drawList->AddLine( ImVec2( center.x - arm, center.y ), ImVec2( center.x + arm, center.y ), ToU32( kAccent ), 3.0f );
+    drawList->AddLine( ImVec2( center.x, center.y - arm ), ImVec2( center.x, center.y + arm ), ToU32( kAccent ), 3.0f );
+    const char *label = "New profile";
+    const ImVec2 labelSize = ImGui::CalcTextSize( label );
+    drawList->AddText( ImVec2( center.x - labelSize.x * 0.5f, p0.y + size.y * 0.66f ), ToU32( kText ), label );
+    const bool bClicked = ImGui::IsItemClicked();
+    ImGui::SetCursorScreenPos( ImVec2( p1.x, p0.y ) );
+    return bClicked;
+}
+
+void LauncherApp::DrawProfileStrip( float width ) {
+    const ImVec2 tile( S( 262.0f ), S( 124.0f ) );
+    const float gap = S( 14.0f );
+    ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( S( 6.0f ), S( 8.0f ) ) );
+    ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( gap, 0.0f ) );
+    ImGui::PushStyleColor( ImGuiCol_ChildBg, ImVec4( 0, 0, 0, 0 ) );
+    ImGui::BeginChild( "##profile_strip", ImVec2( width, tile.y + S( 34.0f ) ), ImGuiChildFlags_None,
+                       ImGuiWindowFlags_HorizontalScrollbar );
+    std::string pick;
+    bool bPicked = false;
+    for ( const ProfileInfo &profile : mProfiles ) {
+        const bool bSelected = ActiveProfile() == &profile;
+        if ( DrawProfileTile( profile, bSelected, tile ) ) {
+            pick = profile.bMain ? std::string() : profile.Id;
+            bPicked = true;
+        }
+        ImGui::SameLine();
+    }
+    if ( DrawNewProfileTile( tile ) ) {
+        SwitchPage( Page::Profiles );
+        mNewProfileName[0] = '\0';
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar( 2 );
+    if ( bPicked ) {
+        SelectProfile( pick );
+    }
+}
+
+void LauncherApp::DrawProfilesPage() {
     const float width = ImGui::GetContentRegionAvail().x;
     ImDrawList *drawList = ImGui::GetWindowDrawList();
+
+    const ImVec2 bannerPos = ImGui::GetCursorScreenPos();
+    const ImVec2 bannerSize( width, S( 104.0f ) );
+    DrawCoverImage( drawList, mArtwork.Player, bannerPos, bannerSize, 12.0f, 0.95f );
+    DrawGradientOverlay( drawList, bannerPos, bannerSize );
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 22.0f ) ) );
+    ImGui::PushFont( mFontTitle );
+    ImGui::TextUnformatted( "Profiles" );
+    ImGui::PopFont();
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 62.0f ) ) );
+    ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.86f, 0.88f, 0.91f, 1.0f ) );
+    ImGui::TextUnformatted( "One save per player: pick who plays, start a fresh avatar, keep backups." );
+    ImGui::PopStyleColor();
+    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + S( 16.0f ) ) );
+
+    // --- the roster -------------------------------------------------------
+    DrawProfileStrip( width );
+    ImGui::Dummy( ImVec2( 0.0f, S( 2.0f ) ) );
+
+    // --- new profile --------------------------------------------------------
+    if ( CardBegin( "##new_profile", ImVec2( width, 0.0f ) ) ) {
+        SectionTitle( "NEW PROFILE" );
+        ImGui::SetNextItemWidth( -S( 150.0f ) );
+        const bool bEnter = ImGui::InputTextWithHint( "##newprofile", "Nickname for the new player",
+                                                      mNewProfileName, sizeof( mNewProfileName ),
+                                                      ImGuiInputTextFlags_EnterReturnsTrue );
+        ImGui::SameLine();
+        const bool bCreate = AccentButton( "Create profile", ImVec2( S( 140.0f ), 0.0f ),
+                                           mNewProfileName[0] != '\0' );
+        if ( bCreate || ( bEnter && mNewProfileName[0] != '\0' ) ) {
+            std::string id;
+            std::string error;
+            if ( CreateProfile( mEffectiveUserData, mNewProfileName, id, error ) ) {
+                mNewProfileName[0] = '\0';
+                RefreshProfiles();
+                SelectProfile( id );
+                SetStatus( "Profile \"" + id + "\" created and selected - press PLAY to start a new game." );
+            } else {
+                SetStatus( error );
+            }
+        }
+        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+        ImGui::PushFont( mFontSmall );
+        ImGui::TextWrapped( "A new profile gets its own empty save: the game opens the intro, the avatar choice "
+                            "and the garage from the start, and writes profile.sav into the profile's own "
+                            "folder. Options, mods and shader caches are shared by every profile." );
+        ImGui::PopFont();
+        ImGui::PopStyleColor();
+    }
+    CardEnd();
+
+    // --- the selected profile --------------------------------------------
+    const ProfileInfo *active = ActiveProfile();
+    if ( active != nullptr ) {
+        ProfileInfo profile = *active; // a copy: the modals / refresh below can invalidate the pointer
+        if ( CardBegin( "##profile_detail", ImVec2( width, 0.0f ) ) ) {
+            SectionTitle( "SELECTED PROFILE" );
+            DrawMonogram( ImGui::GetWindowDrawList(),
+                          ImVec2( ImGui::GetCursorScreenPos().x + S( 26.0f ), ImGui::GetCursorScreenPos().y + S( 26.0f ) ),
+                          S( 24.0f ), profile.Name );
+            ImGui::SetCursorPosX( ImGui::GetCursorPosX() + S( 64.0f ) );
+            ImGui::BeginGroup();
+            ImGui::PushFont( mFontTitle );
+            ImGui::TextUnformatted( profile.Name.c_str() );
+            ImGui::PopFont();
+            if ( profile.bHasSave ) {
+                ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+                char line[256];
+                std::snprintf( line, sizeof( line ), "%s%s%s  -  %s  -  %d car%s  -  %d house%s",
+                               profile.Avatar.c_str(), profile.Avatar.empty() ? "" : "  -  ",
+                               StoryStepLabel( profile.StoryStep ).c_str(),
+                               FormatMoney( profile.Money ).c_str(), profile.Cars,
+                               profile.Cars == 1 ? "" : "s", profile.Houses, profile.Houses == 1 ? "" : "s" );
+                ImGui::TextUnformatted( line );
+                ImGui::TextUnformatted( ( "Last played " + FormatLastPlayed( profile.LastPlayed ) ).c_str() );
+                ImGui::PopStyleColor();
+            } else {
+                ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+                ImGui::TextUnformatted( "No save yet - the first game starts a new story." );
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndGroup();
+            ImGui::Dummy( ImVec2( 0.0f, S( 6.0f ) ) );
+            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+            ImGui::PushFont( mFontSmall );
+            ImGui::TextWrapped( "%s", WideToUtf8( profile.SavePath ).c_str() );
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+
+            const bool bCanPlay = mGameFolderValid && !mResolvedGameExe.empty() && !mLaunching;
+            if ( AccentButton( mLaunching ? "GAME RUNNING..." : "PLAY AS THIS PROFILE",
+                               ImVec2( S( 230.0f ), S( 40.0f ) ), bCanPlay ) ) {
+                LaunchGame();
+            }
+            ImGui::SameLine();
+            if ( GhostButton( "Rename", ImVec2( 0.0f, S( 40.0f ) ) ) && !profile.bMain ) {
+                std::snprintf( mRenameBuffer, sizeof( mRenameBuffer ), "%s", profile.Name.c_str() );
+                mModalProfile = profile.Id;
+                mModalRequest = 1;
+            }
+            ImGui::SameLine();
+            if ( GhostButton( "Duplicate", ImVec2( 0.0f, S( 40.0f ) ) ) ) {
+                std::string id;
+                std::string error;
+                if ( DuplicateProfile( mEffectiveUserData, profile, id, error ) ) {
+                    RefreshProfiles();
+                    SelectProfile( id );
+                    SetStatus( "Duplicated into \"" + id + "\"." );
+                } else {
+                    SetStatus( error );
+                }
+            }
+            ImGui::SameLine();
+            if ( GhostButton( "Open folder", ImVec2( 0.0f, S( 40.0f ) ) ) ) {
+                MakeDirs( profile.Folder );
+                OpenInExplorer( profile.Folder );
+            }
+            ImGui::SameLine();
+            ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.38f, 0.14f, 0.14f, 1.0f ) );
+            ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.55f, 0.18f, 0.18f, 1.0f ) );
+            ImGui::PushStyleColor( ImGuiCol_ButtonActive, ImVec4( 0.30f, 0.10f, 0.10f, 1.0f ) );
+            if ( ImGui::Button( "Delete", ImVec2( 0.0f, S( 40.0f ) ) ) ) {
+                mModalProfile = profile.bMain ? std::string() : profile.Id;
+                mModalRequest = 2;
+            }
+            ImGui::PopStyleColor( 3 );
+        }
+        CardEnd();
+
+        // --- backups ---------------------------------------------------------
+        if ( mBackupsFor != profile.Id + ( profile.bMain ? "#main" : "" ) ) {
+            mBackups = ListBackups( mEffectiveUserData, profile );
+            mBackupsFor = profile.Id + ( profile.bMain ? "#main" : "" );
+        }
+        if ( CardBegin( "##profile_backups", ImVec2( width, 0.0f ) ) ) {
+            SectionTitle( "BACKUPS" );
+            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+            ImGui::PushFont( mFontSmall );
+            ImGui::TextWrapped( "The launcher copies this save into <userdata>\\backups before every game start "
+                                "(newest 12 kept), so a new game or a bad session never costs you the old one." );
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+            if ( mBackups.empty() ) {
+                ImGui::TextUnformatted( "No backups yet - the next PLAY makes the first." );
+            }
+            for ( size_t index = 0; index < mBackups.size() && index < 6; index++ ) {
+                ImGui::PushID( static_cast<int>( index ) );
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted( mBackups[index].Label.c_str() );
+                ImGui::SameLine( S( 330.0f ) );
+                ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+                ImGui::TextUnformatted( FormatBytes( mBackups[index].Size ).c_str() );
+                ImGui::PopStyleColor();
+                ImGui::SameLine( S( 430.0f ) );
+                if ( GhostButton( "Restore" ) ) {
+                    mBackupToRestore = static_cast<int>( index );
+                    mModalProfile = profile.bMain ? std::string() : profile.Id;
+                    mModalRequest = 3;
+                }
+                ImGui::PopID();
+            }
+            ImGui::Spacing();
+            if ( GhostButton( "Back up now" ) ) {
+                SetStatus( BackupProfile( mEffectiveUserData, profile ) ? "Backup made."
+                                                                         : "Nothing new to back up." );
+                mBackupsFor = "\x01";
+            }
+            ImGui::SameLine();
+            if ( GhostButton( "Open backups folder" ) ) {
+                const std::wstring folder = JoinPath( mEffectiveUserData, L"backups" );
+                MakeDirs( folder );
+                OpenInExplorer( folder );
+            }
+        }
+        CardEnd();
+    }
+
+    // --- shared folders ------------------------------------------------------
+    if ( CardBegin( "##profile_folders", ImVec2( width, 0.0f ) ) ) {
+        SectionTitle( "FOLDERS" );
+        if ( GhostButton( "Open user data folder" ) ) {
+            MakeDirs( mEffectiveUserData );
+            OpenInExplorer( mEffectiveUserData );
+        }
+        ImGui::SameLine();
+        if ( GhostButton( "Open mods folder" ) ) {
+            const std::wstring modsFolder = JoinPath( mEffectiveUserData, L"mods" );
+            MakeDirs( modsFolder );
+            OpenInExplorer( modsFolder );
+        }
+        ImGui::SameLine();
+        if ( GhostButton( "Rescan profiles" ) ) {
+            RefreshProfiles();
+            SetStatus( "Profiles rescanned." );
+        }
+        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+        ImGui::PushFont( mFontSmall );
+        ImGui::TextWrapped( "Profiles live in %s", WideToUtf8( ProfilesRoot( mEffectiveUserData ) ).c_str() );
+        ImGui::PopFont();
+        ImGui::PopStyleColor();
+    }
+    CardEnd();
+    ImGui::Dummy( ImVec2( 0.0f, S( 8.0f ) ) );
+}
+
+void LauncherApp::DrawProfileModals() {
+    if ( mModalRequest != 0 ) {
+        ImGui::OpenPopup( mModalRequest == 1 ? "Rename profile"
+                          : mModalRequest == 2 ? "Delete profile" : "Restore backup" );
+        mModalRequest = 0;
+    }
+    const ImGuiViewport *viewport = ImGui::GetMainViewport();
+    const ImVec2 center( viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                         viewport->WorkPos.y + viewport->WorkSize.y * 0.5f );
+    const auto findModalProfile = [&]() -> const ProfileInfo * {
+        for ( const ProfileInfo &profile : mProfiles ) {
+            if ( profile.bMain ? mModalProfile.empty() : profile.Id == mModalProfile ) {
+                return &profile;
+            }
+        }
+        return nullptr;
+    };
+    ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( S( 24.0f ), S( 20.0f ) ) );
+    ImGui::SetNextWindowPos( center, ImGuiCond_Appearing, ImVec2( 0.5f, 0.5f ) );
+    if ( ImGui::BeginPopupModal( "Rename profile", nullptr,
+                                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove ) ) {
+        const ProfileInfo *profile = findModalProfile();
+        ImGui::TextUnformatted( "New nickname" );
+        ImGui::SetNextItemWidth( S( 340.0f ) );
+        if ( ImGui::IsWindowAppearing() ) {
+            ImGui::SetKeyboardFocusHere();
+        }
+        const bool bEnter = ImGui::InputText( "##rename", mRenameBuffer, sizeof( mRenameBuffer ),
+                                              ImGuiInputTextFlags_EnterReturnsTrue );
+        ImGui::Spacing();
+        if ( ( AccentButton( "Rename", ImVec2( S( 120.0f ), 0.0f ), mRenameBuffer[0] != '\0' ) || bEnter ) &&
+             profile != nullptr && mRenameBuffer[0] != '\0' ) {
+            std::string id;
+            std::string error;
+            if ( RenameProfile( mEffectiveUserData, *profile, mRenameBuffer, id, error ) ) {
+                const bool bWasActive = mSettings.ActiveProfile == profile->Id;
+                RefreshProfiles();
+                if ( bWasActive ) {
+                    SelectProfile( id );
+                }
+                SetStatus( "Renamed to \"" + id + "\"." );
+                ImGui::CloseCurrentPopup();
+            } else {
+                SetStatus( error );
+            }
+        }
+        ImGui::SameLine();
+        if ( GhostButton( "Cancel", ImVec2( S( 100.0f ), 0.0f ) ) ) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::SetNextWindowPos( center, ImGuiCond_Appearing, ImVec2( 0.5f, 0.5f ) );
+    if ( ImGui::BeginPopupModal( "Delete profile", nullptr,
+                                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove ) ) {
+        const ProfileInfo *profile = findModalProfile();
+        ImGui::Text( "Delete \"%s\"?", profile != nullptr ? profile->Name.c_str() : "?" );
+        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+        ImGui::PushFont( mFontSmall );
+        ImGui::TextUnformatted( "The save is moved to profiles\\.trash, not erased - you can drag it back "
+                                "out of that folder." );
+        ImGui::PopFont();
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+        ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.62f, 0.18f, 0.18f, 1.0f ) );
+        ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.78f, 0.22f, 0.22f, 1.0f ) );
+        if ( ImGui::Button( "Delete", ImVec2( S( 120.0f ), 0.0f ) ) && profile != nullptr ) {
+            std::string error;
+            const bool bWasActive = ActiveProfile() == profile;
+            const std::string name = profile->Name;
+            if ( DeleteProfile( mEffectiveUserData, *profile, error ) ) {
+                if ( bWasActive ) {
+                    mSettings.ActiveProfile.clear();
+                }
+                RefreshProfiles();
+                SaveSettings();
+                SetStatus( "\"" + name + "\" moved to the trash." );
+                ImGui::CloseCurrentPopup();
+            } else {
+                SetStatus( error );
+            }
+        }
+        ImGui::PopStyleColor( 2 );
+        ImGui::SameLine();
+        if ( GhostButton( "Cancel", ImVec2( S( 100.0f ), 0.0f ) ) ) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::SetNextWindowPos( center, ImGuiCond_Appearing, ImVec2( 0.5f, 0.5f ) );
+    if ( ImGui::BeginPopupModal( "Restore backup", nullptr,
+                                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove ) ) {
+        const ProfileInfo *profile = findModalProfile();
+        const bool bValid = mBackupToRestore >= 0 && mBackupToRestore < static_cast<int>( mBackups.size() );
+        ImGui::Text( "Restore the backup from %s?",
+                     bValid ? mBackups[mBackupToRestore].Label.c_str() : "?" );
+        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+        ImGui::PushFont( mFontSmall );
+        ImGui::TextUnformatted( "The current save is backed up first, so this can be undone." );
+        ImGui::PopFont();
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+        if ( AccentButton( "Restore", ImVec2( S( 120.0f ), 0.0f ) ) && profile != nullptr && bValid ) {
+            std::string error;
+            if ( RestoreBackup( mEffectiveUserData, *profile, mBackups[mBackupToRestore], error ) ) {
+                RefreshProfiles();
+                SetStatus( "Backup restored." );
+                ImGui::CloseCurrentPopup();
+            } else {
+                SetStatus( error );
+            }
+        }
+        ImGui::SameLine();
+        if ( GhostButton( "Cancel", ImVec2( S( 100.0f ), 0.0f ) ) ) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+}
+
+// ---------------------------------------------------------------------------
+// Play
+// ---------------------------------------------------------------------------
+
+void LauncherApp::DrawPlayHero( float width ) {
+    ImDrawList *drawList = ImGui::GetWindowDrawList();
+    const float time = static_cast<float>( ImGui::GetTime() );
     const ImVec2 heroPos = ImGui::GetCursorScreenPos();
-    const ImVec2 heroSize( width, S( 272.0f ) );
-    DrawCoverImage( drawList, mArtwork.Play, heroPos, heroSize, 14.0f, 1.0f );
+    const ImVec2 heroSize( width, S( 286.0f ) );
+    // slow parallax drift of the artwork
+    drawList->PushClipRect( heroPos, ImVec2( heroPos.x + heroSize.x, heroPos.y + heroSize.y ), true );
+    const float drift = std::sin( time * 0.25f ) * S( 6.0f );
+    DrawCoverImage( drawList, mArtwork.Play, ImVec2( heroPos.x - S( 14.0f ) + drift, heroPos.y ),
+                    ImVec2( heroSize.x + S( 28.0f ), heroSize.y ), 0.0f, 1.0f );
+    drawList->PopClipRect();
+    // keep the rounded outline
+    drawList->AddRect( heroPos, ImVec2( heroPos.x + heroSize.x, heroPos.y + heroSize.y ),
+                       ToU32( kPanelBorder ), S( 14.0f ) );
+    // left-weighted darkening: text on the left, artwork on the right
+    drawList->AddRectFilledMultiColor( heroPos, ImVec2( heroPos.x + heroSize.x * 0.65f, heroPos.y + heroSize.y ),
+                                       IM_COL32( 8, 9, 13, 235 ), IM_COL32( 8, 9, 13, 0 ),
+                                       IM_COL32( 8, 9, 13, 0 ), IM_COL32( 8, 9, 13, 235 ) );
     DrawGradientOverlay( drawList, heroPos, heroSize );
 
-    ImGui::SetCursorScreenPos( ImVec2( heroPos.x + S( 26.0f ), heroPos.y + S( 40.0f ) ) );
+    ImGui::SetCursorScreenPos( ImVec2( heroPos.x + S( 30.0f ), heroPos.y + S( 32.0f ) ) );
     ImGui::PushStyleColor( ImGuiCol_Text, kAccent );
     ImGui::TextUnformatted( "TEST DRIVE UNLIMITED 2" );
     ImGui::PopStyleColor();
-    ImGui::SetCursorScreenPos( ImVec2( heroPos.x + S( 24.0f ), heroPos.y + S( 62.0f ) ) );
+    ImGui::SetCursorScreenPos( ImVec2( heroPos.x + S( 28.0f ), heroPos.y + S( 54.0f ) ) );
     ImGui::PushFont( mFontHero );
     ImGui::TextUnformatted( "OpenTDU2" );
     ImGui::PopFont();
-    ImGui::SetCursorScreenPos( ImVec2( heroPos.x + S( 26.0f ), heroPos.y + S( 122.0f ) ) );
+    ImGui::SetCursorScreenPos( ImVec2( heroPos.x + S( 30.0f ), heroPos.y + S( 112.0f ) ) );
     ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.86f, 0.88f, 0.91f, 1.0f ) );
-    ImGui::TextUnformatted(
-        "The Ibiza and Oahu you remember, rebuilt from the retail data on Vulkan." );
+    ImGui::TextUnformatted( "The Ibiza and Oahu you remember, rebuilt from the retail data." );
     ImGui::PopStyleColor();
 
-    ImGui::SetCursorScreenPos(
-        ImVec2( heroPos.x + S( 26.0f ), heroPos.y + heroSize.y - S( 88.0f ) ) );
-    ImGui::PushFont( mFontBold );
+    // PLAY: a pulsing glow, the active player's name under the label
     const bool bCanLaunch = mGameFolderValid && !mResolvedGameExe.empty() && !mLaunching;
-    if ( AccentButton( mLaunching ? "GAME RUNNING..." : "PLAY", ImVec2( S( 230.0f ), S( 54.0f ) ),
-                       bCanLaunch ) ) {
+    const ImVec2 buttonSize( S( 290.0f ), S( 60.0f ) );
+    const ImVec2 buttonPos( heroPos.x + S( 30.0f ), heroPos.y + heroSize.y - S( 96.0f ) );
+    if ( bCanLaunch ) {
+        const float pulse = 0.5f + 0.5f * std::sin( time * 2.2f );
+        for ( int ring = 4; ring >= 1; ring-- ) {
+            const float grow = ring * S( 3.0f ) * ( 0.6f + 0.4f * pulse );
+            drawList->AddRectFilled( ImVec2( buttonPos.x - grow, buttonPos.y - grow ),
+                                     ImVec2( buttonPos.x + buttonSize.x + grow, buttonPos.y + buttonSize.y + grow ),
+                                     ToU32( kAccent, 0.05f + 0.03f * pulse ), S( 12.0f ) + grow );
+        }
+    }
+    ImGui::SetCursorScreenPos( buttonPos );
+    ImGui::PushFont( mFontBold );
+    const ProfileInfo *active = ActiveProfile();
+    std::string label = mLaunching ? "GAME RUNNING..." : "PLAY";
+    if ( !mLaunching && active != nullptr ) {
+        label += "  -  " + active->Name;
+    }
+    if ( AccentButton( label.c_str(), buttonSize, bCanLaunch ) ) {
         LaunchGame();
     }
     ImGui::PopFont();
+    if ( ImGui::IsItemHovered() && bCanLaunch ) {
+        ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
+    }
     ImGui::SameLine();
-    if ( GhostButton( "Open game folder", ImVec2( S( 150.0f ), S( 54.0f ) ) ) ) {
+    if ( GhostButton( "Game folder", ImVec2( S( 130.0f ), buttonSize.y ) ) ) {
         if ( !OpenInExplorer( Utf8ToWide( mSettings.GameFolder ) ) ) {
             SetStatus( "No game folder to open yet." );
         }
     }
+    ImGui::SameLine();
+    if ( GhostButton( "Log", ImVec2( S( 70.0f ), buttonSize.y ) ) ) {
+        const std::wstring logPath = JoinPath( ParentDir( mResolvedGameExe ), L"opentdu2.log" );
+        if ( FileExists( logPath ) ) {
+            RevealInExplorer( logPath );
+        } else {
+            SetStatus( "opentdu2.log does not exist yet - run the game once." );
+        }
+    }
+
+    const float rowY = heroPos.y + heroSize.y - S( 26.0f );
     if ( !mGameFolderValid ) {
-        ImGui::SetCursorScreenPos(
-            ImVec2( heroPos.x + S( 26.0f ), heroPos.y + heroSize.y - 26.0f ) );
+        ImGui::SetCursorScreenPos( ImVec2( heroPos.x + S( 30.0f ), rowY ) );
         ImGui::PushStyleColor( ImGuiCol_Text, kAmber );
-        ImGui::TextUnformatted(
-            "No game data yet - open Game data to install it from a .iso." );
+        ImGui::TextUnformatted( "No game data yet - open Game data to install it from a .iso." );
         ImGui::PopStyleColor();
     } else if ( mResolvedGameExe.empty() ) {
-        ImGui::SetCursorScreenPos(
-            ImVec2( heroPos.x + S( 26.0f ), heroPos.y + heroSize.y - 26.0f ) );
+        ImGui::SetCursorScreenPos( ImVec2( heroPos.x + S( 30.0f ), rowY ) );
         ImGui::PushStyleColor( ImGuiCol_Text, kAmber );
         ImGui::TextUnformatted( mGameExeError.c_str() );
         ImGui::PopStyleColor();
     }
-
-    const char *kUnofficial =
-        "Unofficial fan project - not affiliated with Nacon / Eden Games / Atari.";
+    const char *kUnofficial = "Unofficial fan project - not affiliated with Nacon / Eden Games / Atari.";
     const ImVec2 legalSize = ImGui::CalcTextSize( kUnofficial );
-    // the amber warning owns the bottom row when it shows - the legal line
-    // moves one row up on the right so the two never collide on a narrow window
-    const bool bWarnRow = !mGameFolderValid || mResolvedGameExe.empty();
-    const float legalY = bWarnRow ? heroPos.y + heroSize.y - 26.0f - legalSize.y - 4.0f
-                                  : heroPos.y + heroSize.y - 26.0f;
-    ImGui::SetCursorScreenPos(
-        ImVec2( heroPos.x + heroSize.x - legalSize.x - S( 26.0f ), legalY ) );
-    ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+    ImGui::SetCursorScreenPos( ImVec2( heroPos.x + heroSize.x - legalSize.x - S( 20.0f ),
+                                       heroPos.y + S( 14.0f ) ) );
+    ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( kDim.x, kDim.y, kDim.z, 0.7f ) );
+    ImGui::PushFont( mFontSmall );
     ImGui::TextUnformatted( kUnofficial );
+    ImGui::PopFont();
     ImGui::PopStyleColor();
+    ImGui::SetCursorScreenPos( ImVec2( heroPos.x, heroPos.y + heroSize.y + S( 16.0f ) ) );
+}
 
-    ImGui::SetCursorScreenPos( ImVec2( heroPos.x, heroPos.y + heroSize.y + S( 18.0f ) ) );
+void LauncherApp::DrawPlayPage() {
+    const float width = ImGui::GetContentRegionAvail().x;
+    DrawPlayHero( width );
 
-    const float gap = 14.0f;
+    // who plays
+    ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+    ImGui::TextUnformatted( "WHO IS PLAYING" );
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::SetCursorPosX( ImGui::GetCursorPosX() + S( 10.0f ) );
+    if ( ImGui::SmallButton( "Manage profiles" ) ) {
+        SwitchPage( Page::Profiles );
+        RefreshProfiles();
+    }
+    DrawProfileStrip( width );
+
+    const float gap = S( 14.0f );
     const float cardWidth = ( width - gap * 2.0f ) / 3.0f;
 
-
-    if ( CardBegin( "##status_game", ImVec2( cardWidth, S( 136.0f ) ) ) ) {
+    if ( CardBegin( "##status_game", ImVec2( cardWidth, S( 124.0f ) ) ) ) {
         SectionTitle( "GAME DATA" );
         Chip( mGameFolderValid ? "READY" : "NOT SET", mGameFolderValid ? kGreen : kRed );
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
         ImGui::PushFont( mFontSmall );
-        ImGui::TextWrapped( "%s", mSettings.GameFolder.empty()
-                                     ? "Choose the folder that holds Euro\\Bnk."
-                                     : mSettings.GameFolder.c_str() );
+        ImGui::TextWrapped( "%s", mSettings.GameFolder.empty() ? "Choose the folder that holds Euro\\Bnk."
+                                                                 : mSettings.GameFolder.c_str() );
         ImGui::PopFont();
         ImGui::PopStyleColor();
     }
     CardEnd();
     ImGui::SameLine( 0.0f, gap );
 
-    if ( CardBegin( "##status_player", ImVec2( cardWidth, S( 136.0f ) ) ) ) {
-        SectionTitle( "PLAYER" );
+    if ( CardBegin( "##status_player", ImVec2( cardWidth, S( 124.0f ) ) ) ) {
+        const ProfileInfo *active = ActiveProfile();
+        SectionTitle( "SAVE" );
         ImGui::PushFont( mFontBold );
-        ImGui::TextUnformatted( mSettings.PlayerName.empty() ? "(system user name)"
-                                                            : mSettings.PlayerName.c_str() );
+        ImGui::TextUnformatted( active != nullptr ? active->Name.c_str() : "No profile yet" );
         ImGui::PopFont();
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
         ImGui::PushFont( mFontSmall );
-        ImGui::TextWrapped( mProfileExists
-                                ? "profile.sav found - its name is this value."
-                                : "No save yet - the first game writes profile.sav." );
+        if ( active != nullptr && active->bHasSave ) {
+            ImGui::TextWrapped( "%s - %s", StoryStepLabel( active->StoryStep ).c_str(),
+                                FormatMoney( active->Money ).c_str() );
+        } else {
+            ImGui::TextWrapped( "No save yet - PLAY starts a new game." );
+        }
         ImGui::PopFont();
         ImGui::PopStyleColor();
     }
     CardEnd();
     ImGui::SameLine( 0.0f, gap );
 
-    if ( CardBegin( "##status_build", ImVec2( cardWidth, S( 136.0f ) ) ) ) {
+    if ( CardBegin( "##status_build", ImVec2( cardWidth, S( 124.0f ) ) ) ) {
+        const UpdateSnapshot update = Snapshot( mUpdate );
         SectionTitle( "BUILD" );
         ImGui::PushFont( mFontBold );
         ImGui::TextUnformatted( OTDU_RELEASE_STRING );
         ImGui::PopFont();
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
         ImGui::PushFont( mFontSmall );
-        ImGui::TextWrapped( "%s - %s", OTDU_BUILD_TIMESTAMP,
-                            mIsGitCheckout ? "git checkout" : "packaged build" );
+        ImGui::TextWrapped( "%s - %s", OTDU_BUILD_TIMESTAMP, mIsGitCheckout ? "git checkout" : "packaged build" );
         ImGui::PopFont();
         ImGui::PopStyleColor();
+        if ( update.bAvailable || update.bStaged ) {
+            ImGui::PushStyleColor( ImGuiCol_Text, kAccent );
+            if ( ImGui::SmallButton( update.bStaged ? "Update ready - restart to apply >" : "Update available >" ) ) {
+                SwitchPage( Page::Updates );
+            }
+            ImGui::PopStyleColor();
+        }
     }
     CardEnd();
 
-    ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
+    ImGui::Dummy( ImVec2( 0.0f, S( 6.0f ) ) );
 
-    if ( CardBegin( "##launch_options", ImVec2( width, S( 214.0f ) ) ) ) {
-        SectionTitle( "LAUNCH OPTIONS" );
-        ImGui::Checkbox( "Show my name in the in-game watermark (build id is always shown)",
-                         &mSettings.bWatermark );
-        ImGui::Checkbox( "Skip the intro cinematic", &mSettings.bSkipIntro );
-        ImGui::Checkbox( "Close the launcher when the game starts", &mSettings.bCloseOnLaunch );
-        ImGui::Spacing();
-        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-        ImGui::TextUnformatted( "USER DATA (saves, options, mods)" );
-        ImGui::PopStyleColor();
-        ImGui::SetNextItemWidth( -S( 196.0f ) );
-        ImGui::InputTextWithHint( "##userdata", WideToUtf8( DefaultUserDataDir() ).c_str(),
-                                  mUserData, sizeof( mUserData ) );
-        ImGui::SameLine();
-        if ( GhostButton( "Browse", ImVec2( S( 86.0f ), 0.0f ) ) ) {
-            std::wstring picked;
-            if ( BrowseFolder( mWindow, L"Choose the user data folder", picked ) ) {
-                std::snprintf( mUserData, sizeof( mUserData ), "%s",
-                               WideToUtf8( picked ).c_str() );
+    if ( ImGui::CollapsingHeader( "Launch options" ) ) {
+        if ( CardBegin( "##launch_options", ImVec2( width, 0.0f ) ) ) {
+            ImGui::Checkbox( "Show my name in the in-game watermark (build id is always shown)",
+                             &mSettings.bWatermark );
+            ImGui::Checkbox( "Skip the intro cinematic", &mSettings.bSkipIntro );
+            ImGui::Checkbox( "Close the launcher when the game starts", &mSettings.bCloseOnLaunch );
+            ImGui::Spacing();
+            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+            ImGui::TextUnformatted( "USER DATA (profiles, options, mods)" );
+            ImGui::PopStyleColor();
+            ImGui::SetNextItemWidth( -S( 196.0f ) );
+            ImGui::InputTextWithHint( "##userdata", WideToUtf8( DefaultUserDataDir() ).c_str(), mUserData,
+                                      sizeof( mUserData ) );
+            ImGui::SameLine();
+            if ( GhostButton( "Browse", ImVec2( S( 86.0f ), 0.0f ) ) ) {
+                std::wstring picked;
+                if ( BrowseFolder( mWindow, L"Choose the user data folder", picked ) ) {
+                    std::snprintf( mUserData, sizeof( mUserData ), "%s", WideToUtf8( picked ).c_str() );
+                    SyncSettingsFromFields();
+                    RefreshGameState();
+                    RefreshProfiles();
+                }
+            }
+            ImGui::SameLine();
+            if ( GhostButton( "Default", ImVec2( S( 86.0f ), 0.0f ) ) ) {
+                mUserData[0] = '\0';
                 SyncSettingsFromFields();
                 RefreshGameState();
-                RefreshProfileSummary();
+                RefreshProfiles();
+            }
+            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+            ImGui::PushFont( mFontSmall );
+            ImGui::TextWrapped( "Effective: %s", WideToUtf8( mEffectiveUserData ).c_str() );
+            if ( !mResolvedGameExe.empty() ) {
+                ImGui::TextWrapped( "Game exe: %s", WideToUtf8( mResolvedGameExe ).c_str() );
+            } else if ( !mGameExeError.empty() ) {
+                ImGui::TextWrapped( "%s", mGameExeError.c_str() );
+            }
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+            if ( GhostButton( "Save settings" ) ) {
+                SaveSettings();
+                SetStatus( "launcher.ini saved." );
             }
         }
-        ImGui::SameLine();
-        if ( GhostButton( "Default", ImVec2( S( 86.0f ), 0.0f ) ) ) {
-            mUserData[0] = '\0';
-            SyncSettingsFromFields();
-            RefreshGameState();
-            RefreshProfileSummary();
-        }
-        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-        ImGui::PushFont( mFontSmall );
-        ImGui::TextWrapped( "Effective: %s", WideToUtf8( mEffectiveUserData ).c_str() );
-        if ( !mResolvedGameExe.empty() ) {
-            ImGui::TextWrapped( "Game exe: %s", WideToUtf8( mResolvedGameExe ).c_str() );
-        } else if ( !mGameExeError.empty() ) {
-            ImGui::TextWrapped( "%s", mGameExeError.c_str() );
-        }
-        ImGui::PopFont();
-        ImGui::PopStyleColor();
-        ImGui::Spacing();
-        if ( GhostButton( "Save settings" ) ) {
-            SaveSettings();
-            SetStatus( "launcher.ini saved." );
-        }
-        ImGui::SameLine();
-        if ( GhostButton( "Open log" ) ) {
-            const std::wstring logPath =
-                JoinPath( ParentDir( mResolvedGameExe ), L"opentdu2.log" );
-            if ( FileExists( logPath ) ) {
-                RevealInExplorer( logPath );
-            } else {
-                SetStatus( "opentdu2.log does not exist yet - run the game once." );
-            }
-        }
+        CardEnd();
     }
-    CardEnd();
+    ImGui::Dummy( ImVec2( 0.0f, S( 8.0f ) ) );
 }
 
 
@@ -935,7 +1659,7 @@ void LauncherApp::DrawGameDataPage() {
         isoCardHeight += S( 86.0f );
     }
 
-    if ( CardBegin( "##iso_card", ImVec2( width, isoCardHeight ) ) ) {
+    if ( CardBegin( "##iso_card", ImVec2( width, 0.0f ) ) ) {
         SectionTitle( "DISC IMAGE" );
         ImGui::SetNextItemWidth( -S( 108.0f ) );
         ImGui::InputTextWithHint( "##isopath", "C:\\path\\to\\TestDrive2.iso", mIsoPath,
@@ -1034,7 +1758,7 @@ void LauncherApp::DrawGameDataPage() {
     CardEnd();
 
 
-    if ( CardBegin( "##folder_card", ImVec2( width, S( 176.0f ) ) ) ) {
+    if ( CardBegin( "##folder_card", ImVec2( width, 0.0f ) ) ) {
         SectionTitle( "OR POINT AT AN EXISTING GAME FOLDER" );
         ImGui::SetNextItemWidth( -S( 108.0f ) );
         ImGui::InputTextWithHint( "##gamefolder", "C:\\TDU2\\TestDrive2", mGameFolder,
@@ -1054,7 +1778,7 @@ void LauncherApp::DrawGameDataPage() {
             SaveSettings();
             if ( mGameFolderValid ) {
                 SetStatus( "Game data folder set." );
-                mPage = Page::Play;
+                SwitchPage( Page::Play );
             } else {
                 SetStatus( "That folder has no Euro\\Bnk." );
             }
@@ -1128,7 +1852,7 @@ void LauncherApp::DrawUpdatesPage() {
     ImGui::PopStyleColor();
     ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + 16.0f ) );
 
-    if ( CardBegin( "##update_status", ImVec2( width, S( 212.0f ) ) ) ) {
+    if ( CardBegin( "##update_status", ImVec2( width, 0.0f ) ) ) {
         ImGui::PushFont( mFontBold );
         ImGui::TextUnformatted( OTDU_RELEASE_STRING );
         ImGui::PopFont();
@@ -1222,7 +1946,7 @@ void LauncherApp::DrawUpdatesPage() {
         const bool bHasLog = !rebuild.Log.empty();
         const float cardHeight =
             S( 128.0f ) + ( bHasLog ? ( rebuild.bRunning ? S( 272.0f ) : S( 182.0f ) ) : 0.0f );
-        if ( CardBegin( "##rebuild", ImVec2( width, cardHeight ) ) ) {
+        if ( CardBegin( "##rebuild", ImVec2( width, 0.0f ) ) ) {
             SectionTitle( "UPDATE & REBUILD" );
             ImGui::PushStyleColor( ImGuiCol_Text, kDim );
             ImGui::PushFont( mFontSmall );
@@ -1252,7 +1976,7 @@ void LauncherApp::DrawUpdatesPage() {
             if ( bHasLog ) {
                 ImGui::Spacing();
                 ImGui::PushFont( mFontSmall );
-                if ( ImGui::BeginChild( "##rebuild_log", ImVec2( 0.0f, 0.0f ),
+                if ( ImGui::BeginChild( "##rebuild_log", ImVec2( 0.0f, rebuild.bRunning ? S( 220.0f ) : S( 150.0f ) ),
                                         ImGuiChildFlags_Borders | ImGuiChildFlags_FrameStyle ) ) {
                     const bool follow =
                         ImGui::GetScrollY() + ImGui::GetWindowHeight() >=
@@ -1322,7 +2046,7 @@ void LauncherApp::DrawUpdatesPage() {
 
     ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
 
-    if ( CardBegin( "##update_source", ImVec2( width, S( 148.0f ) ) ) ) {
+    if ( CardBegin( "##update_source", ImVec2( width, 0.0f ) ) ) {
         SectionTitle( "UPDATE SOURCE" );
         ImGui::SetNextItemWidth( -S( 210.0f ) );
         ImGui::InputTextWithHint( "##repo", "owner/repo", mUpdateRepo, sizeof( mUpdateRepo ) );
@@ -1346,117 +2070,6 @@ void LauncherApp::DrawUpdatesPage() {
     CardEnd();
 }
 
-void LauncherApp::DrawPlayerPage() {
-    const float width = ImGui::GetContentRegionAvail().x;
-    ImDrawList *drawList = ImGui::GetWindowDrawList();
-
-    const ImVec2 bannerPos = ImGui::GetCursorScreenPos();
-    const ImVec2 bannerSize( width, S( 104.0f ) );
-    DrawCoverImage( drawList, mArtwork.Player, bannerPos, bannerSize, 12.0f, 0.95f );
-    DrawGradientOverlay( drawList, bannerPos, bannerSize );
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 22.0f ) ) );
-    ImGui::PushFont( mFontTitle );
-    ImGui::TextUnformatted( "Player" );
-    ImGui::PopFont();
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 62.0f ) ) );
-    ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.86f, 0.88f, 0.91f, 1.0f ) );
-    ImGui::TextUnformatted( "One name, everywhere: the in-game profile, the save and the "
-                            "watermark name." );
-    ImGui::PopStyleColor();
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + 16.0f ) );
-
-    if ( CardBegin( "##player_name", ImVec2( width, S( 214.0f ) ) ) ) {
-        // The retail "New profile" dialog, launcher edition: the same
-        // nickname the game's own dialog (MAIN.vmf popup, first launch)
-        // pre-fills.
-        SectionTitle( "NEW PROFILE" );
-        ImGui::SetNextItemWidth( -S( 210.0f ) );
-        ImGui::InputTextWithHint( "##playername", "Nickname", mPlayerName,
-                                  sizeof( mPlayerName ) );
-        ImGui::SameLine();
-        if ( GhostButton( "OK", ImVec2( S( 66.0f ), 0.0f ) ) ) {
-            SyncSettingsFromFields();
-            SaveSettings();
-            RefreshProfileSummary();
-            SetStatus( mSettings.PlayerName.empty() ? "Nickname cleared."
-                                                    : "Nickname saved: " + mSettings.PlayerName );
-        }
-        ImGui::SameLine();
-        if ( GhostButton( "Offline", ImVec2( S( 96.0f ), 0.0f ) ) ) {
-            mPlayerName[0] = '\0';
-            SyncSettingsFromFields();
-            SaveSettings();
-            RefreshProfileSummary();
-            SetStatus( "Nickname cleared - the game falls back to the system user name." );
-        }
-        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-        ImGui::PushFont( mFontSmall );
-        ImGui::TextWrapped(
-            "Passed to the game as -playername. The game shows this same dialog on first launch "
-            "with the nickname pre-filled: OK there writes it to profile.sav and it prints in the "
-            "story's 'Starring' card; the account fields on the Online page stay the online "
-            "identity. With the name watermark on it is also the name beside the build id." );
-        ImGui::PopFont();
-        ImGui::PopStyleColor();
-        ImGui::Spacing();
-        if ( GhostButton( "Open saves folder" ) ) {
-            MakeDirs( mEffectiveUserData );
-            if ( !OpenInExplorer( mEffectiveUserData ) ) {
-                SetStatus( "The saves folder does not exist yet." );
-            }
-        }
-        ImGui::SameLine();
-        if ( GhostButton( "Open mods folder" ) ) {
-            const std::wstring modsFolder = JoinPath( mEffectiveUserData, L"mods" );
-            MakeDirs( modsFolder );
-            OpenInExplorer( modsFolder );
-        }
-    }
-    CardEnd();
-
-    ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
-
-    if ( CardBegin( "##profile_card", ImVec2( width, S( 196.0f ) ) ) ) {
-        SectionTitle( "THIS PROFILE" );
-        if ( mProfileExists ) {
-            ImGui::PushFont( mFontBold );
-            ImGui::TextUnformatted( mProfileName.empty() ? "(unnamed)" : mProfileName.c_str() );
-            ImGui::PopFont();
-            ImGui::TextUnformatted( mProfileSummary.c_str() );
-            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-            ImGui::PushFont( mFontSmall );
-            ImGui::TextWrapped( "%s", WideToUtf8( mProfilePath ).c_str() );
-            ImGui::PopFont();
-            ImGui::PopStyleColor();
-        } else {
-            ImGui::TextUnformatted( "No profile.sav yet." );
-            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-            ImGui::PushFont( mFontSmall );
-            ImGui::TextWrapped(
-                "The first game writes it here: %s. Point the launcher's user data folder "
-                "somewhere else on the Play page to keep two players apart.",
-                WideToUtf8( mProfilePath ).c_str() );
-            ImGui::PopFont();
-            ImGui::PopStyleColor();
-        }
-        ImGui::Spacing();
-        if ( GhostButton( "Refresh" ) ) {
-            RefreshProfileSummary();
-            SetStatus( "Profile re-read." );
-        }
-        ImGui::SameLine();
-        if ( GhostButton( "Open profile.sav" ) && mProfileExists ) {
-            RevealInExplorer( mProfilePath );
-        }
-        ImGui::SameLine();
-        if ( GhostButton( "Change user data folder" ) ) {
-            mPage = Page::Play;
-        }
-    }
-    CardEnd();
-}
-
-
 void LauncherApp::DrawOnlinePage() {
     const float width = ImGui::GetContentRegionAvail().x;
     ImDrawList *drawList = ImGui::GetWindowDrawList();
@@ -1475,7 +2088,7 @@ void LauncherApp::DrawOnlinePage() {
     ImGui::PopStyleColor();
     ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + 16.0f ) );
 
-    if ( CardBegin( "##online_account", ImVec2( width, S( 300.0f ) ) ) ) {
+    if ( CardBegin( "##online_account", ImVec2( width, 0.0f ) ) ) {
         SectionTitle( "ACCOUNT" );
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
         ImGui::TextUnformatted( "USERNAME" );
@@ -1507,7 +2120,7 @@ void LauncherApp::DrawOnlinePage() {
 
     ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
 
-    if ( CardBegin( "##online_note", ImVec2( width, S( 168.0f ) ) ) ) {
+    if ( CardBegin( "##online_note", ImVec2( width, 0.0f ) ) ) {
         SectionTitle( "STATUS" );
         Chip( "NOT CONNECTED - NO NETWORKING YET", kAmber );
         ImGui::PushStyleColor( ImGuiCol_Text, kDim );
@@ -1533,7 +2146,7 @@ void LauncherApp::LaunchGame() {
 
     if ( !mGameFolderValid ) {
         SetStatus( "Choose the game data folder first (Euro\\Bnk must exist)." );
-        mPage = Page::GameData;
+        SwitchPage( Page::GameData );
         return;
     }
     std::wstring exePath;
@@ -1541,7 +2154,7 @@ void LauncherApp::LaunchGame() {
     if ( !FindGameExecutable( mLauncherDir, Utf8ToWide( mSettings.GameExe ), exePath,
                               exeError ) ) {
         SetStatus( exeError );
-        mPage = Page::GameData;
+        SwitchPage( Page::GameData );
         return;
     }
 
@@ -1550,6 +2163,16 @@ void LauncherApp::LaunchGame() {
     launchOptions.GameFolder = mSettings.GameFolder;
     launchOptions.PlayerName = mSettings.PlayerName;
     launchOptions.UserDataFolder = mSettings.UserDataFolder;
+    // The selected profile: its own save (-savefile) and its nickname. A backup
+    // of the save is taken first - a new game or a bad session never costs it.
+    RefreshProfiles();
+    if ( const ProfileInfo *profile = ActiveProfile() ) {
+        BackupProfile( mEffectiveUserData, *profile );
+        if ( !profile->bMain ) {
+            launchOptions.SaveFile = WideToUtf8( profile->SavePath );
+            launchOptions.PlayerName = profile->Name;
+        }
+    }
     launchOptions.OnlineUsername = mSettings.OnlineUsername;
     launchOptions.OnlineServer = mSettings.OnlineServer;
     launchOptions.bWatermark = mSettings.bWatermark;

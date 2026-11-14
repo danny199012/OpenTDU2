@@ -44,6 +44,7 @@ void LauncherSettings::Load( const std::wstring &iniPath ) {
     IsoPath = ReadString( L"launcher", L"iso", L"", iniPath );
     IsoDestination = ReadString( L"launcher", L"iso_destination", L"", iniPath );
     PlayerName = ReadString( L"launcher", L"player_name", L"", iniPath );
+    ActiveProfile = ReadString( L"launcher", L"active_profile", L"", iniPath );
     bWatermark = ReadInt( L"launcher", L"watermark", 1, iniPath ) != 0;
     bSkipIntro = ReadInt( L"launcher", L"skip_intro", 0, iniPath ) != 0;
     bAutoCheckUpdates = ReadInt( L"launcher", L"auto_check_updates", 1, iniPath ) != 0;
@@ -77,6 +78,7 @@ void LauncherSettings::Save( const std::wstring &iniPath ) const {
     WriteString( L"launcher", L"iso", IsoPath, iniPath );
     WriteString( L"launcher", L"iso_destination", IsoDestination, iniPath );
     WriteString( L"launcher", L"player_name", PlayerName, iniPath );
+    WriteString( L"launcher", L"active_profile", ActiveProfile, iniPath );
     WriteInt( L"launcher", L"watermark", bWatermark ? 1 : 0, iniPath );
     WriteInt( L"launcher", L"skip_intro", bSkipIntro ? 1 : 0, iniPath );
     WriteInt( L"launcher", L"auto_check_updates", bAutoCheckUpdates ? 1 : 0, iniPath );

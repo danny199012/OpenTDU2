@@ -17,7 +17,8 @@ struct LauncherSettings {
     std::string IsoPath;
     std::string IsoDestination;
     // Identity
-    std::string PlayerName;      // -playername: the avatar + profile.sav's name
+    std::string PlayerName;      // -playername: the avatar + profile.sav's name (main save)
+    std::string ActiveProfile;   // profiles\<id> to play; empty = the main save
     // Online (networking not implemented yet)
     std::string OnlineUsername;
     std::string OnlinePassword;

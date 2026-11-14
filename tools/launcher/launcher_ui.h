@@ -14,14 +14,16 @@
 
 #include "game_installer.h"
 #include "launcher_artwork.h"
+#include "launcher_profiles.h"
 #include "launcher_settings.h"
 #include "launcher_updater.h"
 
 struct ImFont;
+struct ImVec2;
 
 namespace Launcher {
 
-enum class Page { Play, GameData, Updates, Player, Online };
+enum class Page { Play, Profiles, GameData, Updates, Online };
 
 class LauncherApp {
 public:
@@ -36,7 +38,7 @@ public:
 
     LauncherSettings &Settings() { return mSettings; }
     void SaveSettings();
-    void SetPage( Page page ) { mPage = page; }
+    void SetPage( Page page ) { SwitchPage( page ); }
 
     // Set from main.cpp when the launcher already parsed --check-update.
     void StartAutomaticUpdateCheck();
@@ -48,6 +50,16 @@ private:
     void LoadFonts( float dpiScale );
     void RefreshGameState();
     void RefreshProfileSummary();
+    void RefreshProfiles();
+    void SwitchPage( Page page );
+    const ProfileInfo *ActiveProfile() const;
+    void SelectProfile( const std::string &id );
+    void DrawProfileStrip( float width );
+    bool DrawProfileTile( const ProfileInfo &profile, bool bSelected, const ImVec2 &size );
+    bool DrawNewProfileTile( const ImVec2 &size );
+    void DrawProfileModals();
+    void DrawProfilesPage();
+    void DrawPlayHero( float width );
 
     void DrawSidebar();
     void DrawMainArea();
@@ -55,7 +67,6 @@ private:
     void DrawPlayPage();
     void DrawGameDataPage();
     void DrawUpdatesPage();
-    void DrawPlayerPage();
     void DrawOnlinePage();
 
     void LaunchGame();
@@ -116,6 +127,17 @@ private:
     std::string mProfileName;
     std::string mProfileSummary;
     bool mProfileExists = false;
+
+    // profiles (launcher_profiles.h): one save per player / avatar
+    std::vector<ProfileInfo> mProfiles;
+    std::vector<BackupInfo> mBackups;
+    std::string mBackupsFor;          // profile id the backup list belongs to
+    char mNewProfileName[64] = "";
+    char mRenameBuffer[64] = "";
+    std::string mModalProfile;        // id the open modal acts on
+    int mModalRequest = 0;            // 1 rename, 2 delete, 3 restore backup (set -> OpenPopup)
+    int mBackupToRestore = -1;
+    double mPageChangeTime = 0.0;     // ImGui time of the last page switch (fade-in)
 
     // launch
     HANDLE mGameProcess = nullptr;

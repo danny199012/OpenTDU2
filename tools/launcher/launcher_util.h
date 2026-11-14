@@ -61,6 +61,7 @@ struct GameLaunchOptions {
     std::string GameFolder;
     std::string PlayerName;
     std::string UserDataFolder;
+    std::string SaveFile; // -savefile: one profile's profile.sav (the profile manager)
     std::string OnlineUsername;
     std::string OnlineServer;
     bool bWatermark = true;

@@ -388,7 +388,9 @@ void GMLogin::tick( float deltaTime ) {
         // The save backend (edFileSaveGamePC) is encrypted in the
         // executable: no progression data is ever found here. A new popup
         // waits for the previous one to be closed.
-        if ( IsProfileLoaded() && !CmdLine::HasArg( "-newgame" ) ) {
+        // The New profile dialog above already wrote a step-0 profile.sav (name only):
+        // progression means the story has started (AVATAR_CHOICE sets step 1).
+        if ( IsProfileLoaded() && GetPlayerProfile().StoryStep >= 1 && !CmdLine::HasArg( "-newgame" ) ) {
             // FUN_009c9180: progression loaded -> no popup, SCENARIOTUTORIAL is
             // cleared and the mode comes from the save (the port: FREERIDE,
             // which resumes at the saved story step). The profile is the
