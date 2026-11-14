@@ -103,3 +103,42 @@ H3 / Q7_V12 / ML63_AMG, 6 corner runs each, baseline vs `-devdamper`: **5 flips 
 @ 60 km/h lateral 12.29 -> 12.30 m/s2 (1.25 g both). The damper limit is real but is **not** the rollover lever
 (it only changes the transient). Flag stays off by default. Command:
     build-mainin\opentdu2-main.exe -game C:/TDU2-Gamedata/TestDrive2 -userdata C:/temp/otdu2-win-userdata -gm FREERIDE -skipcine -no3d -nopad -fixedtimestep -car H3 -vehtest [-devdamper] -exitframe 5
+
+## 8. The wheel pipeline and the contact solver (2026-11-14) [CODE-dev]
+Wheel class vtable `0x1559b48`; update = slot 23 = **`0x10001c0`**; serializer `0xffd8a0` names the members:
+`Tire (+0x270 data / +0x450)`, `ContactNormalConstraint (+0x4a0)`, `ContactTangentialConstraint (+0x510)`, `WheelJoint (+0x580)`,
+suspension joint `+0x640` (= the class of section 4), `WheelHub (+0x830)`, contact frame matrix `+0x840..0x87c`
+(lateral +0x840, normal +0x850, longitudinal +0x860), `ContactGlobalPose (+0x880)`, `ContactNormalImpulse (+0x890)`,
+`ContactNormalImplicitImpulse` / `ContactTangentialImplicitImpulse (+0x8a0)`. Wheel vfuncs `+0x40` / `+0x44` forward to the car's
+dt / Frequency (`0xffd880`, `0xffd890` -> `0xffc4c0` = owner car).
+Per step (`0x10001c0`, then `0xffe7f0`):
+1. `0x10122f0` suspension force (section 4).
+2. `arb = K dOffset - C dv` (recomputed from the joint), `F_sd = Force - arb`;
+   **tyre `NormalForce = max(0, n_contact . (axis F_sd dt)) x Frequency` = `F_sd (n . axis)`, clamped only at 1e5 N** (`0x1002a80`).
+   The `+0x890..0x8ac` extras are added only when `[car+0x5dc] == 3` (a car state, meaning not decoded).
+3. Tire Pacejka update (`0xfffa70`) with the contact-point velocity (`0xfd1d30` at `+0x4c0`).
+4. `0xffe7f0`: **normal impulse `N n dt` -> `+0x890`; friction impulse `(lateral Fy + longitudinal Fx) dt` -> `+0x8a0`**
+   (`Fy = tire +0x68`, `Fx = +0x6c`); both summed and applied by wheel vfunc `+0x6c(impulse, 2, point = wheel +0x4c0)`.
+   `+0x4c0` is `ContactNormalConstraint +0x20` = the constraint's local anchor (the contact point) `[INF]`, the same lever as the port.
+5. The Tire also exports effective friction limits `+0x44/+0x48/+0x4c = min(|F/Fz|, mu_max FS)`; their reader is **not** in the wheel
+   code (no reads at wheel `+0x2b4..0x2bc` in `0xfe0000-0x1020000`), so it is the edPhys constraint solver `[INF]`.
+   The tangential part is therefore a *constraint* (limit `mu_eff x N_solver`), with the Pacejka force as its implicit impulse.
+
+**A/B (`-vehtest`, flat plane, 6 corner runs per car):** port flags `-devtyreload` (exclude the stabilizer bar and project on the
+contact normal, per step 2) and `-devnocap` (drop the 2x static cap):
+| | H3 | Q7_V12 | ML63_AMG | Enzo (control) |
+|---|---|---|---|---|
+| baseline | 5 flips, 1.25 g | 5, 1.22 | 5, 1.22 | 0, 1.77 |
+| `-devtyreload` | 5, 1.25 | 5, 1.23 | 5, 1.22 | 0, 1.74 |
+| `-devnocap` | 5, 1.25 | 5, 1.22 | 5, 1.22 | 0, 1.77 |
+| both | 5, 1.25 | 5, 1.23 | 5, 1.22 | 0, 1.74 |
+**None of the suspension law (section 4), the damper limit (7), the tyre load source or the load cap moves the rollover.** The wheel pipeline
+the port already has matches the dev build in structure; the difference left is the **solver**: friction as a constraint limited by
+`mu_eff x N_solver` and the contact normal constraint, versus the port's direct Pacejka force at `Fz = spring force`.
+
+## 9. Next
+1. Read the constraint solver that consumes the two implicit impulses (`ContactTangentialConstraint`, edPhys; start from the vfunc `+0x6c`
+   target and the constructors of `+0x4a0` / `+0x510`): is the tangential impulse clamped by `mu_eff x (solved normal impulse)`, and does the
+   solver run several iterations per step (the car vfuncs `+0x28/+0x2c/+0x30` of retail spec 6.8)?
+2. If yes, prototype "friction cone limit from the solved normal impulse incl. roll" in the port behind a flag; A/B on the same table.
+3. Resolve `[car+0x5dc] == 3`.

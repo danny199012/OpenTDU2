@@ -1309,7 +1309,19 @@ void VehicleDynamics::tick( float h, const Input &input, const VehicleWorldColli
         // Tyre NormalForce clamped to 1e5 N (FUN_008739c0) [CODE], and - for
         // the tyre forces only, the chassis takes the full spring - to a
         // multiple of the static load (load sensitivity, kMaxTyreLoadFactor).
-        state.Load = Min( Min( suspension, kMaxNormalForce ), kMaxTyreLoadFactor * staticShare );
+        // EXPERIMENTS from the Apr 2012 dev build's wheel update (0x10001c0, docs/re/
+        // dev_build_physics.md 6) [CODE-dev]: the tyre NormalForce is
+        // max(0, (Force - stabilizer bar) (n . axis)), clamped to 1e5 N only.
+        //   -devtyreload : exclude the stabilizer bar and project on the contact normal
+        //   -devnocap    : drop the port's 2x static load cap (kMaxTyreLoadFactor)
+        static const bool bDevTyreLoad = CmdLine::HasArg( "-devtyreload" );
+        static const bool bDevNoCap = CmdLine::HasArg( "-devnocap" );
+        float tyreSource = suspension;
+        if ( bDevTyreLoad ) {
+            tyreSource = Max( suspension - antiRoll[i], 0.0f ) * Max( hit.Normal.dot( up ), 0.0f );
+        }
+        const float tyreCap = bDevNoCap ? kMaxNormalForce : kMaxTyreLoadFactor * staticShare;
+        state.Load = Min( Min( tyreSource, kMaxNormalForce ), tyreCap );
         state.ContactPoint = hit.Position;
         state.ContactNormal = hit.Normal;
         state.SurfaceFriction = hit.Friction;

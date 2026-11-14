@@ -23,7 +23,13 @@ The owner found `TestDrive2DEV.exe` (Hidden Palace, Apr 6 2012 prototype) and as
 - `w` (wheel vfunc +0x40) = **dt** (`0xff4480`: `+0x5a8` Frequency, `+0x5a4 = 1/Frequency`): it only converts the summed suspension force to an impulse, the port's `force x h`. No hidden factor. Flagged "25 % momentum" damper exists but the car ctor clears its flag.
 - Found Tire `SetNormalForce` (`0x1002a80`): clamps Fz to 1e5 N and derives effective friction coefficients `min(|F/Fz|, mu_max x FS)` at +0x44/+0x48/+0x4c (solver limits `[INF]`). Next: find who reads them (`0x10012f0`, `0x100c2e0`, `0x100d370`) and with which normal force; spec section 6/6b.
 
+### Follow-up 3 (same session): the wheel pipeline and the solver
+- `docs/re/dev_build_physics.md` section 8: wheel update `0x10001c0` / `0xffe7f0`: tyre `NormalForce = max(0, F_sd (n . axis))` with `F_sd = Force - stabilizer bar`, clamp 1e5 N only; impulses `N n dt` (+0x890) and `(Fy lat + Fx long) dt` (+0x8a0) applied at the contact anchor by vfunc +0x6c. The wheel owns `ContactNormalConstraint` / `ContactTangentialConstraint` members: friction is solved as a constraint (limit `mu_eff x N`, `[INF]`).
+- New opt-in flags in `vehicle_dynamics.cpp`: `-devtyreload` (no stabilizer bar in the tyre load, projected on the contact normal) and `-devnocap` (no 2x static cap). **A/B: no change in flips** (H3 / Q7_V12 / ML63_AMG 5 of 6 each way; Enzo 1.77 -> 1.74 g).
+- Next: the edPhys solver that consumes the two implicit impulses.
+
 ### Ruled out
+- `-devtyreload`, `-devnocap`, `-devdamper`: identical flips -> not the tyre load source, not the load cap, not the damper.
 - `-devdamper` identical flips -> not the damper.
 - "Lateral grip cheat" (0x552420) is AI opponent tuning, not a player tyre knob.
 
