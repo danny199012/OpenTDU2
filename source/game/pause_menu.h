@@ -209,6 +209,6 @@ void DumpFlashSubtree( FlashPlayer &player,
                        const char *pFilter,
                        int32_t maxLevel,
                        uint32_t maxFrames );
-void DumpFlashFunctions( FlashPlayer &player );
+void DumpFlashFunctions( FlashPlayer &player, const char *pClipPath = nullptr );
 // The root timeline itself (its frame scripts), up to maxFrames frames.
 void DumpFlashRootTimeline( FlashPlayer &player, uint32_t maxFrames );

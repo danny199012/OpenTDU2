@@ -81,11 +81,29 @@ gates -> distance), `PassedTests` (done count). Not available: the loading-scree
 `lure_c` rival picture (the cutscene still), the per-race reward (only the flat race
 money), the rules text per mode (only the title prefix).
 
-## 4. Next steps (not done)
-1. Dump the timeline labels of `/championship`, `/championship/pages`, `/tool_tip` and `/tool_tip/infos`
-   (the existing `-dumplabels` lists only the root's): a `-dumplabels <path>` for `MapScreen` is the small
-   change; the capture-2 arrangement is the frame the movie reaches after `displayChampionship`.
-2. Drive it like the map's tab 0 already is: `MapScreen` shows `/championship` (un-hide, `gotoLabel`),
-   set `/:ChampRival`, `/:challDone`, `/:reward`, the restriction badge; place the race pins from the
-   championship's `.ig2` start gates; answer `bmap:ttip:*` and `bmap:ok`.
-3. Replace `ChampionshipMenu::draw` by that path, keep `takeStartedRace` as the hand-off.
+## 4. Implemented 2026-11-14 (`MapScreen::openContest`, `GMFreeRide::openChampionshipScreen`) and what is left
+
+Driving the championship start (or `-championship "<name part>"`) now opens the world map in the contest view
+(`docs/images/championship_screen_map.webp`; `-oldchampmenu` = the native list):
+- The retail entry, **disassembled from the movie's own AVM1** (`-dumpmapfuncs`, `-dumpclipfuncs`, `-dumpclabels <paths>`):
+  `displayChampionship(true)` = `ContestName = SpotName`, `ContestType = WhatSpot`, `SetHelp('map_championship')` (the OK / Give up /
+  Camera / Zoom / Back bar), `IsContest`, `championship.Open(0)`; `Open` reads `nb_chall_done` / `nb_chall` ("0/6"), `GoldReward`
+  (the championship reward), `ContestType` (the diamond's `title.ic` frame) and `ContestGP` (`title.num_contest`, the class number: "4").
+  The port sets those root variables (`MapScreen::applyContest`), hides `/presets` (the tab row) and calls it with `invokeWithNumbers(1)`
+  (AVM1 `Equals2` takes 1 == true). The rival line uses the movie's own `m_ChampRivalM` template. The restriction row takes
+  `RestrictionType = 'vehicle'` + `GroupRestriction = 'C4'`.
+- The race bubble is `tool_tip.SetInfos()` with the root spot variables it reads: `WhatSpot` (`race` / `timeAttack` / `speedtrap` / `speed`),
+  `SpotName` (the race title), `GoldReward`, `Distance`, `NbLaps`, `GameRules` (loc 197 race, 2212 time attack, 2244 speed trap [DATA]).
+  Up / down (D-pad, arrows) steps through the races, OK enters the selected one (locked ones - the previous race not passed - refuse),
+  Back leaves; the world map restores its tab row on the next open.
+- Verified headless (build with the validation layer: 0 VUIDs): the screen with the C4 diamond, "Rival: Miami Harris", the restriction
+  badge, "Reward $50,000", "Challenges done 0/6", the bubble "Time: Sant Antoni hill" (3.6 km), Down -> "Race: Gracio bay" (8.8 km, 2 laps),
+  OK -> `LicenseTest: CHC4A01T 'Time: Sant Antoni hill'` and the race starts; Back, then the map key, shows the normal tab map again.
+
+Left: (a) the **extended pop-up** (picture, rules, Enter / Close): `tool_tip.Extend(1)` + `SetMenu(Type)` build it; their arguments
+(`Type`, the `setBt` button arrays) are not decoded - OK enters directly meanwhile; (b) the race **pins** on the map and the bubble
+at the pin (the bubble sits at its default place; `player_challpos` / `rival_challpos` / `f_race` are the pin clips); (c) the rival
+picture slot (`picture/lure_c`, hidden), the Results tab (`r0..r7`) and LB / RB page switching (`championship.Move`); (d) give up
+(Y, `LockGiveUp`, `FSCommand:giup`) and the per-race loading-screen shots; (e) distance is the gate-to-gate polyline (the retail
+number is the route) in the units option (km / mi); (f) cups use `ContestType 'cup'` with the five restriction badges
+(`CupRestriction0..4`) - not exercised.

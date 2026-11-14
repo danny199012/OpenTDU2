@@ -2652,7 +2652,13 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
             std::string reason;
             if ( IsChampionshipOpen( *pNearChampionship->pChampionship, &reason ) ) {
                 hud.closeEnterSpot();
-                championshipMenu.open( *pNearChampionship->pChampionship );
+                // The retail view is the world map's contest flow
+                // (-oldchampmenu: the native list).
+                if ( CmdLine::HasArg( "-oldchampmenu" ) ) {
+                    championshipMenu.open( *pNearChampionship->pChampionship );
+                } else {
+                    openChampionshipScreen( *pNearChampionship->pChampionship );
+                }
             } else {
                 hud.showHint( pNearChampionship->pChampionship->Name + ": " + reason, 5.0f );
             }
@@ -2820,6 +2826,80 @@ void GMFreeRide::applyTuning() {
     vehicle.setParams( tunedSetup );
     OTDU_LOG_INFO( "FREERIDE: '%s' tuning applied live (accel %d, braking %d, speed %d)\n", carDesc.FileName.c_str(),
                    levels.Accel, levels.Braking, levels.Speed );
+}
+
+void GMFreeRide::openChampionshipScreen( const LicenseInfo &championship ) {
+    MapScreen::ContestInfo info;
+    info.Name = championship.Name;
+    info.Type = ChampionshipFamily( championship );
+    const char *pClass = VehicleClassName( championship.VehicleCategory[0] );
+    info.ClassLabel = pClass != nullptr ? pClass : "";
+    for ( char &c : info.ClassLabel ) {
+        c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+    }
+    if ( const AiDriver *pRival = FindAiDriver( championship.Rival ) ) {
+        info.Rival = pRival->Name;
+    }
+    info.Restriction = championship.VehicleCategory[0] > 0 ? std::string( "Class " ) + ( pClass != nullptr ? pClass : "" ) : "No restriction";
+    const auto money = []( int32_t value ) {
+        std::string digits = std::to_string( value ), out;
+        for ( size_t i = 0; i < digits.size(); i++ ) {
+            if ( i > 0 && ( digits.size() - i ) % 3 == 0 ) {
+                out += ',';
+            }
+            out += digits[i];
+        }
+        return "$" + out;
+    };
+    info.Reward = money( championship.ChampMoney );
+    int32_t done = 0;
+    for ( const std::string &race : championship.Challenges ) {
+        done += IsTestPassed( race ) ? 1 : 0;
+    }
+    info.ChallDone = std::to_string( done ) + "/" + std::to_string( championship.Challenges.size() );
+    bool bPreviousDone = true;
+    for ( const std::string &name : championship.Challenges ) {
+        MapScreen::ContestInfo::Race race;
+        race.Name = name;
+        Ig2Challenge challenge;
+        if ( challenge.load( name ) ) {
+            race.Title = challenge.getTitle();
+            const int32_t laps = challenge.getLaps();
+            race.Laps = laps > 1 ? std::to_string( laps ) : "--";
+            float metres = 0.0f;
+            const std::vector<Ig2Gate> &gates = challenge.getGates();
+            for ( size_t g = 1; g < gates.size(); g++ ) {
+                metres += ( gates[g].Position - gates[g - 1].Position ).length();
+            }
+            char text[32];
+            FormatDistance( text, sizeof( text ), metres * static_cast<float>( Max( laps, 1 ) ) );
+            race.Distance = text;
+            if ( !gates.empty() ) {
+                race.Position = gates[0].Position;
+            }
+            const int32_t mode = challenge.getMode();
+            race.Kind = mode == Ig2Challenge::ModeTimeAttack ? "timeAttack"
+                        : mode == Ig2Challenge::ModeSpeedtrap ? "speedtrap"
+                        : mode == Ig2Challenge::ModeRace      ? "race"
+                                                              : "speed";
+            race.Rules = LocStr( mode == Ig2Challenge::ModeTimeAttack ? 2212 : mode == Ig2Challenge::ModeSpeedtrap ? 2244 : 197,
+                                 "Be the first to cross the finish line." );
+        }
+        race.Reward = money( championship.RaceMoney );
+        race.bEnterable = bPreviousDone && IsRaceRunnable( name );
+        bPreviousDone = IsRaceRunnable( name ) ? IsTestPassed( name ) : bPreviousDone;
+        info.Races.push_back( race );
+    }
+    Vector3f centre = carWorld.getTranslation();
+    for ( const ChampionshipSpot &spot : championshipSpots ) {
+        if ( spot.pChampionship == &championship ) {
+            centre = spot.Position;
+        }
+    }
+    mapScreen.resetCamera( centre );
+    mapScreen.setPlayerInfo( setup.Db.ModelName, 0.0 );
+    mapScreen.setStartCamera( camera );
+    mapScreen.openContest( info );
 }
 
 void GMFreeRide::loadChampionshipSpots() {
@@ -4507,6 +4587,9 @@ void GMFreeRide::tick( float deltaTime ) {
         // IsMapQuit / MapCancel do the same from inside (MapScreen::tick).
         if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_Map ) ||
              gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
+            if ( mapScreen.isContest() && mapScreen.contestBack() ) {
+                return; // the extended pop-up closes first
+            }
             if ( !mapScreen.onBack() ) { // BACK first leaves the credits
                 mapScreen.close();
             }
@@ -4519,8 +4602,24 @@ void GMFreeRide::tick( float deltaTime ) {
             const Vector3f flatFwd = Vector3f( fwd.x, 0.0f, fwd.z ).normalized();
             mapScreen.setPlayer( carWorld.getTranslation(), flatFwd.x, flatFwd.z );
         }
-        // OK sets / clears the GPS destination at the cursor
-        if ( mapScreen.isUiShown() && gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+        if ( mapScreen.isContest() ) {
+            // The championship view: up / down through the races (the pop-up
+            // follows), OK enters the selected one.
+            if ( mapScreen.isUiShown() ) {
+                if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
+                    mapScreen.contestStep( -1 );
+                } else if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
+                    mapScreen.contestStep( 1 );
+                } else if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) && mapScreen.contestAccept() ) {
+                    std::string race;
+                    if ( mapScreen.takeContestRace( race ) ) {
+                        pendingContestRace = race;
+                        mapScreen.close();
+                    }
+                }
+            }
+        } else if ( mapScreen.isUiShown() && gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+            // OK sets / clears the GPS destination at the cursor
             mapScreen.toggleTarget();
         }
         if ( vehicleAudio.isEngineOn() ) {
@@ -4701,6 +4800,12 @@ void GMFreeRide::tick( float deltaTime ) {
         if ( schoolMenu.takeStartedTest( test ) ) {
             startLicenseTest( test );
         }
+        return;
+    }
+    if ( !pendingContestRace.empty() && !mapScreen.isOpen() ) {
+        const std::string race = pendingContestRace;
+        pendingContestRace.clear();
+        startLicenseTest( race );
         return;
     }
     if ( championshipMenu.isOpen() ) {
@@ -6297,7 +6402,11 @@ void GMFreeRide::tick( float deltaTime ) {
             if ( ++championshipFrames == 120 ) {
                 for ( const ChampionshipSpot &spot : championshipSpots ) {
                     if ( spot.pChampionship->Name.find( pChamp ) != std::string::npos ) {
-                        championshipMenu.open( *spot.pChampionship );
+                        if ( CmdLine::HasArg( "-oldchampmenu" ) ) {
+                            championshipMenu.open( *spot.pChampionship );
+                        } else {
+                            openChampionshipScreen( *spot.pChampionship );
+                        }
                         break;
                     }
                 }

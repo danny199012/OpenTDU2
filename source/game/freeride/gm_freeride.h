@@ -318,6 +318,10 @@ private:
     std::vector<ChampionshipSpot> championshipSpots;
     ChampionshipMenu championshipMenu;
     void loadChampionshipSpots();
+    // The retail championship view: the world map's contest flow (MAP.vmf,
+    // docs/re/championship_screen_spec.md).
+    void openChampionshipScreen( const LicenseInfo &championship );
+    std::string pendingContestRace;
     // The championship a race belongs to (nullptr: a licence test).
     const LicenseInfo *findRaceChampionship( const std::string &race ) const;
     // Leaves the shop and puts the car on the test's start gate.

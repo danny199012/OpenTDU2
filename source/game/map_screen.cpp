@@ -2,6 +2,7 @@
 #include <functional>
 #include <set>
 #include "map_screen.h"
+#include "game/pause_menu.h"
 
 #include "database/gs_database.h"
 #include "flash/flash_localization.h"
@@ -229,6 +230,9 @@ bool MapScreen::load() {
         }
         bLabelsDumped = true;
     }
+    if ( CmdLine::HasArg( "-dumpmapfuncs" ) ) {
+        DumpFlashFunctions( player );
+    }
     OTDU_LOG_INFO( "MapScreen: MAP.vmf loaded (%u labels)\n", static_cast<uint32_t>( vmf.getFrameLabels().size() ) );
     return true;
 }
@@ -247,6 +251,12 @@ void MapScreen::open() {
     }
     bOpen = true;
     bClosing = false;
+    bContest = false;
+    bContestApplied = false;
+    contestEntered.clear();
+    bContestExtended = false;
+    player.setClipVisible( "/presets", true );
+    player.setClipVisible( "/championship", false );
     openTicks = 0;
     transition = 0.0f;
     // -maptab <n>: open on that tab (the retail MapTabObjective variable; the
@@ -268,6 +278,134 @@ void MapScreen::open() {
     player.setVariableBool( "/:IsMapQuit", false );
     player.setVariableBool( "/:MapCancel", false );
     PlayFirstLabel( player, kOpenLabels, sizeof( kOpenLabels ) / sizeof( kOpenLabels[0] ), "open" );
+}
+
+void MapScreen::openContest( const ContestInfo &info ) {
+    open();
+    contest = info;
+    bContest = true;
+    bContestApplied = false;
+    contestSelected = 0;
+    for ( size_t i = 0; i < contest.Races.size(); i++ ) {
+        if ( contest.Races[i].bEnterable ) {
+            contestSelected = static_cast<int32_t>( i );
+            break;
+        }
+    }
+}
+
+void MapScreen::applyContest() {
+    bContestApplied = true;
+    OTDU_LOG_INFO( "MapScreen: contest view '%s' (%s, %s)\n", contest.Name.c_str(), contest.Type.c_str(),
+                   contest.ClassLabel.c_str() );
+    // The rival line: the movie's own template ("Rival: <white>§RIVAL§").
+    {
+        std::string line = player.getVariable( "/:m_ChampRivalM" );
+        const size_t at = line.find( "RIVAL" );
+        if ( line.empty() || at == std::string::npos ) {
+            line = "Rival: " + contest.Rival;
+        } else {
+            size_t start = at, end = at + 5;
+            while ( start > 0 && static_cast<uint8_t>( line[start - 1] ) >= 0x80 ) {
+                start--;
+            }
+            while ( end < line.size() && static_cast<uint8_t>( line[end] ) >= 0x80 ) {
+                end++;
+            }
+            line.replace( start, end - start, contest.Rival );
+        }
+        player.setVariable( "/:ChampRival", line );
+    }
+    // The retail entry (displayChampionship(true), disassembled with
+    // -dumpmapfuncs): ContestName = SpotName, ContestType = WhatSpot,
+    // ContestGP = tool_tip.num_contest (the class number on the diamond),
+    // SetHelp('map_championship'), championship.Open(0), which reads
+    // nb_chall_done / nb_chall (the "0/6") and GoldReward (the reward).
+    int32_t done = 0, total = 0;
+    sscanf( contest.ChallDone.c_str(), "%d/%d", &done, &total );
+    player.setVariable( "/:SpotName", contest.Name );
+    player.setVariable( "/:WhatSpot", contest.Type );
+    player.setVariable( "/tool_tip:num_contest", contest.ClassLabel.size() > 1 ? contest.ClassLabel.substr( 1 ) : "" );
+    player.setVariable( "/tool_tip:ContestGP", contest.ClassLabel.size() > 1 ? contest.ClassLabel.substr( 1 ) : "" );
+    player.setVariable( "/:ContestGP", contest.ClassLabel.size() > 1 ? contest.ClassLabel.substr( 1 ) : "" );
+    player.setVariableNumber( "/:nb_chall_done", done );
+    player.setVariableNumber( "/:nb_chall", total );
+    player.setVariable( "/:GoldReward", contest.Reward );
+    player.setVariable( "/:RestrictionType", "vehicle" );
+    std::string group = contest.ClassLabel;
+    for ( char &ch : group ) {
+        ch = static_cast<char>( toupper( static_cast<unsigned char>( ch ) ) );
+    }
+    player.setVariable( "/:GroupRestriction", group );
+    player.setClipVisible( "/presets", false ); // the tab row gives way to the header
+    player.setClipVisible( "/championship", true );
+    player.invokeWithNumbers( "/", "displayChampionship", { 1.0 } );
+    player.setClipVisible( "/championship/pages/cont/p/picture", false );
+    showContestRace();
+}
+
+void MapScreen::showContestRace() {
+    if ( contest.Races.empty() ) {
+        return;
+    }
+    const ContestInfo::Race &race = contest.Races[static_cast<size_t>( contestSelected )];
+    // tool_tip.SetInfos() reads the spot variables of the root (the same
+    // ones a map spot's bubble uses): the kind, the name, the reward, the
+    // distance, the laps, the rules.
+    player.setVariable( "/:WhatSpot", race.Kind );
+    player.setVariable( "/:SpotName", race.Title );
+    player.setVariable( "/:GoldReward", race.Reward );
+    player.setVariable( "/:Distance", race.Distance );
+    player.setVariable( "/:NbLaps", race.Laps );
+    player.setVariable( "/:GameRules", race.Rules );
+    player.invoke( "/tool_tip", "SetInfos", {} );
+    player.gotoLabel( "/tool_tip", "open", true );
+}
+
+void MapScreen::contestStep( int32_t direction ) {
+    if ( !bContest || contest.Races.empty() ) {
+        return;
+    }
+    const int32_t count = static_cast<int32_t>( contest.Races.size() );
+    contestSelected = ( contestSelected + direction + count ) % count;
+    showContestRace();
+}
+
+bool MapScreen::enterContestRace() {
+    if ( !bContest || contest.Races.empty() ) {
+        return false;
+    }
+    const ContestInfo::Race &race = contest.Races[static_cast<size_t>( contestSelected )];
+    if ( !race.bEnterable ) {
+        return false;
+    }
+    contestEntered = race.Name;
+    return true;
+}
+
+bool MapScreen::contestAccept() {
+    // The retail's first OK opens the extended pop-up (Extend(1) + SetMenu
+    // build the Enter / Close buttons; their arguments are not decoded yet,
+    // docs/re/championship_screen_spec.md 4): until then OK enters the race.
+    return enterContestRace();
+}
+
+bool MapScreen::contestBack() {
+    if ( !bContest || !bContestExtended ) {
+        return false;
+    }
+    bContestExtended = false;
+    player.invoke( "/tool_tip", "CloseExtendedInfos", {} );
+    return true;
+}
+
+bool MapScreen::takeContestRace( std::string &outRace ) {
+    if ( contestEntered.empty() ) {
+        return false;
+    }
+    outRace = contestEntered;
+    contestEntered.clear();
+    return true;
 }
 
 void MapScreen::close() {
@@ -307,6 +445,15 @@ void MapScreen::tick( float deltaTime ) {
     // after the open animation lights it [INF: the retail screen is lit on
     // arrival, the call that does it is not identified].
     openTicks++;
+    if ( openTicks == 50 && CmdLine::HasArg( "-dumpclipfuncs" ) ) {
+        for ( const char *pPath : { "/tool_tip", "/tool_tip/infos", "/championship", "/championship/pages", "/help", "/navigator" } ) {
+            OTDU_LOG_INFO( "MapScreen: functions of %s\n", pPath );
+            DumpFlashFunctions( player, pPath );
+        }
+    }
+    if ( bContest && !bContestApplied && openTicks == CmdLine::GetArgInt( "-contestafter", 70 ) ) {
+        applyContest();
+    }
     if ( CmdLine::HasArg( "-mapcredits" ) && openTicks == 80 ) {
         // The real open path (bCreditsOpen has to be set, or Back closes the
         // map instead of the roll).
@@ -429,6 +576,36 @@ void MapScreen::tick( float deltaTime ) {
     if ( bDumpClips && ++dumpTicks == CmdLine::GetArgInt( "-dumpafter", 90 ) ) {
         const char *pDumpPath = CmdLine::GetArgValue( "-dumppath" );
         player.dumpClips( pDumpPath != nullptr ? pDumpPath : "/", CmdLine::GetArgInt( "-dumpclips", 5 ) );
+    }
+    // -dumpclabels <path>[;<path>...]: the frame labels (with their frame
+    // numbers) of those clips' timelines, once, at -dumpafter ticks (the
+    // championship view hunt, docs/re/championship_screen_spec.md).
+    if ( const char *pLabelPaths = CmdLine::GetArgValue( "-dumpclabels" ) ) {
+        static uint32_t labelTicks = 0;
+        if ( ++labelTicks == static_cast<uint32_t>( CmdLine::GetArgInt( "-dumpafter", 90 ) ) ) {
+            std::string list = pLabelPaths;
+            size_t at = 0;
+            while ( at <= list.size() ) {
+                const size_t semicolon = list.find( ';', at );
+                const std::string path = list.substr( at, semicolon == std::string::npos ? std::string::npos : semicolon - at );
+                if ( const FlashPlayer::Clip *pClip = path == "/" ? nullptr : player.findClip( path ) ) {
+                    std::string text;
+                    if ( pClip->pTimeline != nullptr ) {
+                        for ( const auto &label : pClip->pTimeline->Labels ) {
+                            text += " " + label.first + "@" + std::to_string( label.second + 1 );
+                        }
+                    }
+                    OTDU_LOG_INFO( "MapScreen: labels of %s (frame %u/%u):%s\n", path.c_str(), pClip->CurrentFrame,
+                                   pClip->pTimeline != nullptr ? pClip->pTimeline->FrameCount : 0u, text.c_str() );
+                } else {
+                    OTDU_LOG_INFO( "MapScreen: labels of %s: clip not found\n", path.c_str() );
+                }
+                if ( semicolon == std::string::npos ) {
+                    break;
+                }
+                at = semicolon + 1;
+            }
+        }
     }
     if ( bClosing ) {
         closeTimer -= deltaTime;

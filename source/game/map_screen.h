@@ -46,6 +46,45 @@ public:
     void open();
     void close();
 
+    // The championship ("contest") view of this movie (docs/re/championship_screen_spec.md):
+    // the root's contest flow - /:IsContest, /:ContestName, /:ContestType,
+    // /:ContestDirectAccess and the labels co_direct_enter / contest / contest_back.
+    struct ContestInfo {
+        std::string Name;        // "Championship: Sant Antoni"
+        std::string Type;        // the /tool_tip/infos kind: asphalt, asphalt_h, dirt, dirt_h, classic, classic_h, cup
+        std::string ClassLabel;  // the /championship/pages/cont/p/gp badge: "c4", "a7", "b4"
+        std::string Rival;       // "Miami Harris"
+        std::string Restriction; // the vehicle restriction text
+        std::string Reward;      // "$50,000"
+        std::string ChallDone;   // "0/6"
+        struct Race {
+            std::string Name;     // the .ig2 name
+            std::string Title;    // "Race: Sant Antoni downtown"
+            std::string Kind;     // the /tool_tip/infos label: race, timeattack, speedtrap, speed
+            std::string Distance; // "1.6 mi"
+            std::string Laps;     // "--" / "3"
+            std::string Reward;   // "$2,000"
+            std::string Rules;    // the rules text
+            Vector3f Position;    // the start gate
+            bool bEnterable = false;
+        };
+        std::vector<Race> Races;
+    };
+    // Opens the map and, once its screen is up, enters the contest view.
+    void openContest( const ContestInfo &info );
+    inline bool isContest() const { return bContest; }
+    inline int32_t getContestSelected() const { return contestSelected; }
+    inline const ContestInfo &getContest() const { return contest; }
+    // Up / down through the championship's races: the race pop-up follows.
+    void contestStep( int32_t direction );
+    // The race the player entered (one shot, empty when none).
+    bool takeContestRace( std::string &outRace );
+    // Enter on the selected race: false when that race cannot be entered (locked / not run yet).
+    bool enterContestRace();
+    // OK on a race: the first press opens the extended pop-up (Enter / Close), the second enters.
+    bool contestAccept();
+    // Back: closes the extended pop-up first; false when the screen should close.
+    bool contestBack();
     void tick( float deltaTime );
     // Back / cancel while the screen is up: closes the credits when they are
     // showing and returns true (the screen stays); false when the caller should
@@ -298,6 +337,14 @@ private:
     FlashPlayer player;
     bool bOpen = false;
     bool bClosing = false;
+    bool bContest = false;
+    bool bContestApplied = false;
+    ContestInfo contest;
+    void applyContest();
+    void showContestRace();
+    int32_t contestSelected = 0;
+    bool bContestExtended = false;
+    std::string contestEntered;
     float closeTimer = 0.0f;
     bool bLabelsDumped = false;
     int32_t dumpTicks = 0;

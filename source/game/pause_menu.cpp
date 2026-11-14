@@ -647,12 +647,13 @@ void DumpFlashRootTimeline( FlashPlayer &player, uint32_t maxFrames ) {
     }
 }
 
-void DumpFlashFunctions( FlashPlayer &player ) {
-    if ( player.getRoot() == nullptr || player.getMovie() == nullptr ) {
+void DumpFlashFunctions( FlashPlayer &player, const char *pClipPath ) {
+    FlashPlayer::Clip *pScope = pClipPath != nullptr ? player.findClip( pClipPath ) : player.getRoot();
+    if ( pScope == nullptr || player.getMovie() == nullptr ) {
         return;
     }
     const std::vector<uint8_t> &data = player.getMovie()->getVMF().getData();
-    for ( const auto &var : player.getRoot()->Variables ) {
+    for ( const auto &var : pScope->Variables ) {
         if ( var.second.Type != FlashPlayer::Value::eType::Function ) {
             continue;
         }
