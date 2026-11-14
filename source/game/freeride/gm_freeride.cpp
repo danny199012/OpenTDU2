@@ -1992,8 +1992,9 @@ const char *HologramFrameFor( const char *pIconModel ) {
     // red square, the Racing School / Real Estate / shops share the blue
     // square, an Event is the circle (orange pointer). Clubs red and dealers
     // blue are the owner's recollection, not yet proven; the rest is [INF].
-    if ( strcmp( pIconModel, "Playerhouse" ) == 0 || strcmp( pIconModel, "Club" ) == 0 ||
-         strcmp( pIconModel, "My_Club" ) == 0 ) {
+    // Red = yours (the caravan; a club you own - My_Club), blue = for sale /
+    // a shop (an unpurchased club is blue, owner's capture) [INF for My_Club].
+    if ( strcmp( pIconModel, "Playerhouse" ) == 0 || strcmp( pIconModel, "My_Club" ) == 0 ) {
         return "Square_Red_Frame";
     }
     if ( strcmp( pIconModel, "Event" ) == 0 ) {
