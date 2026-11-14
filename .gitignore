@@ -49,3 +49,5 @@ opentdu2-watchdog.log
 
 # AMD FidelityFX signed DLLs: optional runtime plugin, binary-only licence (third_party/fidelityfx-api/LICENSE.md)
 third_party/fidelityfx-api/bin/
+# Intel XeSS SDK: local only (headers and DLLs are not redistributable from this repo, see its LICENSE.txt)
+third_party/xess-sdk/

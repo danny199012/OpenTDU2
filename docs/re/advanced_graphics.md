@@ -72,3 +72,20 @@ shares the jitter + velocity work), motion blur, view distance split from the En
 - Conventions (proved by the reprojection test, see the session entry): velocity = previous uv - current uv, so `motionVectorScale` =
   render size; jitter in pixels with the SDK's sign (NDC x += 2jx/W, y -= 2jy/H); input colour is LDR (tone mapped) so the context
   uses `NON_LINEAR_COLORSPACE` + auto exposure. Sharpening slider 1..10 -> FSR's own sharpening 0.1..1.
+
+
+## Intel XeSS (temporal) - optional plugin (2026-11-14)
+`GameOptions::Upscaler = 4` ("Intel XeSS (temporal)"). Unlike FSR 3 it needs the **device** to be made with XeSS's requirements, so
+choosing it takes effect after a **restart** (the saved `upscaler = 4` is read before the Vulkan instance exists; `-xess` forces it).
+- **Not in git:** Intel's headers and `libxess.dll` are not redistributable from this repo (`third_party/xess-sdk/LICENSE.txt`).
+  Unpack the XeSS SDK (github.com/intel/xess, v3.0.2 tested) so that `third_party/xess-sdk/inc/xess/xess_vk.h` and
+  `third_party/xess-sdk/bin/libxess.dll` exist (the DLL may also sit next to the exe). Without the headers
+  `source/render/upscalers/xess_upscaler.cpp` compiles to a stub; without the DLL the option logs one warning and plain-upscales.
+- What XeSS asked for on this machine (RTX-class driver, Vulkan 1.4 loader): Vulkan >= 1.3, no instance extensions, device extension
+  `VK_EXT_mutable_descriptor_type` and a chain of core 1.1 / 1.2 / 1.3 feature structs. Because those are core structs, the engine's
+  own `VK_EXT_descriptor_indexing` / `shader_demote` / `buffer_device_address` structs are folded into them (a chain may carry only one
+  of the two); validation names that rule. If the device refuses the combination it is created again the plain way.
+- Conventions: low-res jitter-free motion vectors in pixels (`xessSetVelocityScale` = render size; ours are uv units), jitter as applied to
+  the projection (the `-xessjitterflip` A/B is measurably blurrier on a static scene: Laplacian variance 38 vs 61), LDR input + auto
+  exposure, depth as the R32F copy shared with FSR 3. The preset is the one whose own input size is closest to the render size
+  (XeSS 2's Quality is 1.7, Ultra Quality 1.3).

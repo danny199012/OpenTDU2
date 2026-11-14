@@ -3,6 +3,23 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 6th): Intel XeSS in the Upscaling filter (optional plugin, needs a restart)
+
+The owner approved the XeSS SDK download (v3.0.2, 77 MB) and running `libxess.dll`.
+
+### What changed
+- `source/render/upscalers/xess_upscaler.{h,cpp}`: loads `libxess.dll` by `GetProcAddress` (no import lib), context + `xessVKInit` + `xessVKExecute` on colour + the R32F depth copy + velocity + jitter; compiled to a stub when `third_party/xess-sdk/inc/xess/xess_vk.h` is absent (the SDK is local only, gitignored: Intel's licence).
+- `render_device.cpp`: with `upscaler = 4` / `-xess` the instance asks for Vulkan 1.3 (what XeSS needs, if the loader has it), the device adds XeSS's extension + feature chain (`VkPhysicalDeviceFeatures2`, `pEnabledFeatures` null), and the engine's EXT feature structs are folded into XeSS's core 1.2 / 1.3 ones (the validation rule: one struct per promoted feature). A failed `vkCreateDevice` is retried the plain way.
+- `EdenSceneView::runXess` + shared `prepareTemporalInputs` (output target + depth copy, also used by FSR 3); Upscaler 4 in both menus; jitter / velocity run for any upscaler >= 3.
+
+### Verified
+- `upscaler=4`, 67 %: `[xess] needs Vulkan 1.3 ... device created with the XeSS requirements ... context created: render 858x482 -> 1280x720`, preset 104 (input 854x480), 820 frames driving, **0 validation errors** (the first run had 3 device-creation errors from duplicate promoted-feature structs; fixed by the fold). `docs/images/xess-67pct-driving.png`.
+- Jitter sign: static scene, Laplacian variance normal 60.8 vs `-xessjitterflip` 38.1 (FSR 3 71.0), so the unflipped sign is right (same convention as FSR 3).
+
+### Not done / next
+- Still not eyeballed in motion; same open items as FSR 3 (avatar / glass vectors, rain path). Choosing XeSS in the menu needs a restart (no live device re-creation); the plain upscale runs until then, with one log line.
+- DLSS: NVIDIA's SDK (NGX / Streamline) is the same shape (DLL + Vulkan extensions asked before device creation); needs an RTX card and the user's own download.
+
 ## Session 2026-11-14 (`main`, 5th): AMD FSR 3 in the Upscaling filter (optional DLL plugin)
 
 ### What changed

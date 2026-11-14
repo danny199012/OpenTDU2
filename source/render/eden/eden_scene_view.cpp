@@ -650,7 +650,7 @@ void EdenSceneView::setupScene( EdenSceneParams &params ) {
     // so m[2][0] = -offset shifts the image by +offset (NDC).
     jitterPixels = Vector2f( 0.0f, 0.0f );
     static const bool bJitterFlag = CmdLine::HasArg( "-jitter" );
-    const bool bJitter = bJitterFlag || GetGameOptions().Upscaler == 3;
+    const bool bJitter = bJitterFlag || GetGameOptions().Upscaler >= 3;
     if ( bJitter ) {
         const float ratio = static_cast<float>( gpRender->getDevice().getBackbufferWidth() ) /
                             Max( 1.0f, static_cast<float>( pSceneTarget->Width ) );
@@ -793,7 +793,9 @@ void EdenSceneView::destroyTargets() {
     device.destroyRenderTarget( pFsrTarget );
     vkDeviceWaitIdle( device.getDevice() ); // the FSR context owns GPU resources
     fsr3.destroy();
+    xess.destroy();
     bFsr3OutputDefined = false;
+    bXessOutputDefined = false;
     device.destroyRenderTarget( pFsrDepthTarget );
     pFsrDepthTarget = nullptr;
     device.destroyRenderTarget( pVelocityTarget );
@@ -1101,6 +1103,69 @@ void EdenSceneView::runObjectVelocity( const EdenSceneParams &params ) {
     device.endRenderTarget();
 }
 
+bool EdenSceneView::prepareTemporalInputs( uint32_t outWidth, uint32_t outHeight ) {
+    RenderDevice &device = gpRender->getDevice();
+    if ( pFsrTarget == nullptr || pFsrTarget->Width != outWidth || pFsrTarget->Height != outHeight ) {
+        device.destroyRenderTarget( pFsrTarget );
+        pFsrTarget = device.createRenderTarget( outWidth, outHeight, VK_FORMAT_UNDEFINED, false, "UpscalerOutput" );
+        bFsr3OutputDefined = false;
+        bXessOutputDefined = false;
+    }
+    if ( pFsrDepthTarget == nullptr || pFsrDepthTarget->Width != pSceneTarget->Width ||
+         pFsrDepthTarget->Height != pSceneTarget->Height ) {
+        device.destroyRenderTarget( pFsrDepthTarget );
+        pFsrDepthTarget = device.createRenderTarget( pSceneTarget->Width, pSceneTarget->Height, VK_FORMAT_R32_SFLOAT,
+                                                     false, "UpscalerDepth" );
+    }
+    GPUTexture *pSceneDepth = &pSceneTarget->Depth;
+    device.beginRenderTarget( pFsrDepthTarget, true );
+    fullscreen.draw( device, kSPIRV_depthcopy_frag, sizeof( kSPIRV_depthcopy_frag ), &pSceneDepth, 1, nullptr, 0,
+                     eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
+    device.endRenderTarget();
+    return true;
+}
+
+void EdenSceneView::runXess() {
+    if ( GetGameOptions().Upscaler != 4 || pSceneTarget == nullptr || !pSceneTarget->bInitialized ||
+         pVelocityTarget == nullptr || !pVelocityTarget->bInitialized ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    const uint32_t outWidth = device.getBackbufferWidth();
+    const uint32_t outHeight = device.getBackbufferHeight();
+    if ( !device.isXessReady() ) {
+        static bool bLogged = false;
+        if ( !bLogged ) {
+            bLogged = true;
+            OTDU_LOG_WARN( "[xess] the device was not created with XeSS (libxess.dll missing, no SDK in this build, or "
+                           "the device refused it); restart after choosing it. Plain upscale.\n" );
+        }
+        return;
+    }
+    prepareTemporalInputs( outWidth, outHeight );
+    if ( !xess.ensure( device, device.getInstance(), pSceneTarget->Width, pSceneTarget->Height, outWidth, outHeight ) ) {
+        return;
+    }
+    XessUpscaler::Inputs inputs;
+    inputs.pColor = pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    inputs.pDepth = &pFsrDepthTarget->Color;
+    inputs.pMotion = &pVelocityTarget->Color;
+    inputs.pOutput = &pFsrTarget->Color;
+    inputs.bOutputDefined = bXessOutputDefined;
+    inputs.RenderWidth = pSceneTarget->Width;
+    inputs.RenderHeight = pSceneTarget->Height;
+    inputs.OutputWidth = outWidth;
+    inputs.OutputHeight = outHeight;
+    static const bool bFlipJitter = CmdLine::HasArg( "-xessjitterflip" );
+    inputs.JitterX = bFlipJitter ? -jitterPixels.x : jitterPixels.x;
+    inputs.JitterY = bFlipJitter ? -jitterPixels.y : jitterPixels.y;
+    inputs.bReset = !bXessOutputDefined;
+    if ( xess.dispatch( device, inputs ) ) {
+        bXessOutputDefined = true;
+        pFsrResult = &pFsrTarget->Color;
+    }
+}
+
 void EdenSceneView::runFsr3() {
     if ( GetGameOptions().Upscaler != 3 || pSceneTarget == nullptr || !pSceneTarget->bInitialized ||
          pVelocityTarget == nullptr || !pVelocityTarget->bInitialized ) {
@@ -1109,28 +1174,10 @@ void EdenSceneView::runFsr3() {
     RenderDevice &device = gpRender->getDevice();
     const uint32_t outWidth = device.getBackbufferWidth();
     const uint32_t outHeight = device.getBackbufferHeight();
-    const bool bSizeChanged = pFsrTarget == nullptr || pFsrTarget->Width != outWidth || pFsrTarget->Height != outHeight;
-    if ( bSizeChanged ) {
-        device.destroyRenderTarget( pFsrTarget );
-        pFsrTarget = device.createRenderTarget( outWidth, outHeight, VK_FORMAT_UNDEFINED, false, "Fsr3Output" );
-        bFsr3OutputDefined = false;
-    }
     if ( !fsr3.ensure( device, pSceneTarget->Width, pSceneTarget->Height, outWidth, outHeight ) ) {
         return; // no DLLs / no context: the final pass falls back to a plain upscale
     }
-    if ( pFsrDepthTarget == nullptr || pFsrDepthTarget->Width != pSceneTarget->Width ||
-         pFsrDepthTarget->Height != pSceneTarget->Height ) {
-        device.destroyRenderTarget( pFsrDepthTarget );
-        pFsrDepthTarget = device.createRenderTarget( pSceneTarget->Width, pSceneTarget->Height, VK_FORMAT_R32_SFLOAT,
-                                                     false, "Fsr3Depth" );
-    }
-    {
-        GPUTexture *pSceneDepth = &pSceneTarget->Depth;
-        device.beginRenderTarget( pFsrDepthTarget, true );
-        fullscreen.draw( device, kSPIRV_depthcopy_frag, sizeof( kSPIRV_depthcopy_frag ), &pSceneDepth, 1, nullptr, 0,
-                         eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
-        device.endRenderTarget();
-    }
+    prepareTemporalInputs( outWidth, outHeight );
     Fsr3Upscaler::Inputs inputs;
     inputs.pColor = pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
     inputs.pDepth = &pFsrDepthTarget->Color;
@@ -1159,7 +1206,7 @@ void EdenSceneView::runVelocity( const EdenSceneParams &params ) {
     static const bool bVelCheck = CmdLine::HasArg( "-velcheck" );
     static const bool bWantedFlags =
         CmdLine::HasArg( "-jitter" ) || CmdLine::HasArg( "-showvelocity" ) || bVelCheck;
-    const bool bWanted = bWantedFlags || GetGameOptions().Upscaler == 3;
+    const bool bWanted = bWantedFlags || GetGameOptions().Upscaler >= 3;
     if ( !bWanted || pSceneTarget == nullptr || !pSceneTarget->bInitialized ) {
         return;
     }
@@ -1750,6 +1797,7 @@ void EdenSceneView::renderOffscreen() {
     runFsr1();
     runVelocity( params );
     runFsr3();
+    runXess();
     sceneParams = params;
     device.endGpuPass();
     gSceneTimes.mark( SceneTimes::Post );

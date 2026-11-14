@@ -4,6 +4,8 @@
 #include "system/cmd_line.h"
 #include "build_info.h"
 #include "filesystem/gs_file.h"
+#include "game/game_options.h"
+#include "render/upscalers/xess_upscaler.h"
 
 #include <SDL3/SDL_timer.h>
 #include <filesystem>
@@ -171,6 +173,17 @@ bool RenderDevice::createInstance( bool bValidation ) {
     appInfo.pEngineName = "OpenTDU2";
     appInfo.engineVersion = VK_MAKE_VERSION( 0, 1, 0 );
     appInfo.apiVersion = VK_API_VERSION_1_1;
+    // Intel XeSS (options.ini upscaler = 4 or -xess) wants a newer Vulkan API
+    // version than the engine's 1.1: raise it to what XeSS asks for when the
+    // loader has it.
+    if ( CmdLine::HasArg( "-xess" ) || GetGameOptions().Upscaler == 4 ) {
+        if ( XessUpscaler::LoadPlugin() ) {
+            const uint32_t wanted = XessUpscaler::MinVulkanVersion();
+            if ( wanted > appInfo.apiVersion && wanted <= apiVersion ) {
+                appInfo.apiVersion = wanted;
+            }
+        }
+    }
 
     VkInstanceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -469,10 +482,84 @@ bool RenderDevice::createDevice() {
     createInfo.pEnabledFeatures = &enabledFeatures;
     createInfo.pNext = pChainHead;
 
+    // Intel XeSS: its extensions and a VkPhysicalDeviceFeatures2 chain it
+    // patches (pEnabledFeatures must then be null). If the device refuses the
+    // result, it is created again the plain way and XeSS stays unavailable.
+    const std::vector<const char *> baseExtensions = extensions;
+    VkPhysicalDeviceFeatures2 xessFeatures = {};
+    xessFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    xessFeatures.features = enabledFeatures;
+    xessFeatures.pNext = pChainHead;
+    bool bTryXess = false;
+    if ( XessUpscaler::IsLibraryLoaded() ) {
+        XessUpscaler::AppendDeviceExtensions( instance, physicalDevice, extensions );
+        bTryXess = XessUpscaler::PatchDeviceFeatures( instance, physicalDevice, &xessFeatures );
+        if ( bTryXess ) {
+            // XeSS asks through the core 1.2 / 1.3 feature structs; a chain may
+            // not also carry the extension structs of the same (promoted)
+            // features, so ours are folded into the core ones and dropped.
+            VkPhysicalDeviceVulkan12Features *pCore12 = nullptr;
+            VkPhysicalDeviceVulkan13Features *pCore13 = nullptr;
+            for ( VkBaseOutStructure *pNode = reinterpret_cast<VkBaseOutStructure *>( xessFeatures.pNext );
+                  pNode != nullptr; pNode = pNode->pNext ) {
+                if ( pNode->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES ) {
+                    pCore12 = reinterpret_cast<VkPhysicalDeviceVulkan12Features *>( pNode );
+                } else if ( pNode->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES ) {
+                    pCore13 = reinterpret_cast<VkPhysicalDeviceVulkan13Features *>( pNode );
+                }
+            }
+            auto dropNode = [&]( VkStructureType type ) {
+                VkBaseOutStructure *pPrevious = reinterpret_cast<VkBaseOutStructure *>( &xessFeatures );
+                for ( VkBaseOutStructure *pNode = pPrevious->pNext; pNode != nullptr; pNode = pNode->pNext ) {
+                    if ( pNode->sType == type ) {
+                        pPrevious->pNext = pNode->pNext;
+                        return;
+                    }
+                    pPrevious = pNode;
+                }
+            };
+            if ( pCore12 != nullptr ) {
+                pCore12->descriptorIndexing = VK_TRUE; // VK_EXT_descriptor_indexing is enabled
+                if ( enabledIndexing.runtimeDescriptorArray ) {
+                    pCore12->runtimeDescriptorArray = VK_TRUE;
+                }
+                if ( enabledBufferAddress.bufferDeviceAddress ) {
+                    pCore12->bufferDeviceAddress = VK_TRUE;
+                }
+                dropNode( VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES );
+                dropNode( VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES );
+            }
+            if ( pCore13 != nullptr ) {
+                if ( enabledDemote.shaderDemoteToHelperInvocation ) {
+                    pCore13->shaderDemoteToHelperInvocation = VK_TRUE;
+                }
+                dropNode( VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES );
+            }
+            createInfo.enabledExtensionCount = static_cast<uint32_t>( extensions.size() );
+            createInfo.ppEnabledExtensionNames = extensions.data();
+            createInfo.pEnabledFeatures = nullptr;
+            createInfo.pNext = &xessFeatures;
+        }
+    }
     VkResult result = vkCreateDevice( physicalDevice, &createInfo, nullptr, &device );
+    if ( result != VK_SUCCESS && bTryXess ) {
+        OTDU_LOG_WARN( "vkCreateDevice with the XeSS requirements failed (%d): XeSS is unavailable\n",
+                       static_cast<int32_t>( result ) );
+        bTryXess = false;
+        extensions = baseExtensions;
+        createInfo.enabledExtensionCount = static_cast<uint32_t>( extensions.size() );
+        createInfo.ppEnabledExtensionNames = extensions.data();
+        createInfo.pEnabledFeatures = &enabledFeatures;
+        createInfo.pNext = pChainHead;
+        result = vkCreateDevice( physicalDevice, &createInfo, nullptr, &device );
+    }
+    bXessReady = bTryXess && result == VK_SUCCESS;
     if ( result != VK_SUCCESS ) {
         OTDU_LOG_ERROR( "vkCreateDevice failed (%d)\n", static_cast<int32_t>( result ) );
         return false;
+    }
+    if ( bXessReady ) {
+        OTDU_LOG_INFO( "[xess] device created with the XeSS requirements\n" );
     }
     volkLoadDevice( device );
     vkGetDeviceQueue( device, graphicsQueueFamily, 0, &graphicsQueue );

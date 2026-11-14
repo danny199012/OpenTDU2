@@ -182,6 +182,9 @@ public:
     // so acceleration structures can be built and ray queries run. Nothing
     // renders with it yet, see docs/re/ray_tracing.md.
     inline bool supportsRayTracing() const { return bSupportsRayTracing; }
+    // The device was created with the extensions / features Intel XeSS asked for.
+    inline bool isXessReady() const { return bXessReady; }
+    inline VkInstance getInstance() const { return instance; }
     // Options > Advanced: whether the extensions were requested at all. The
     // device is created once, so this must be set before create().
     void setRayTracingEnabled( bool bEnable ) { bWantRayTracing = bEnable; }
@@ -432,6 +435,7 @@ private:
     bool bSupportsBC;
     bool bSupportsDxso = false;
     bool bSupportsRayTracing = false;
+    bool bXessReady = false;
     bool bWantRayTracing = true;
     VkDeviceSize accelScratchAlignment = 256;
     VkDeviceSize uniformBufferAlignment = 256;

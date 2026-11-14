@@ -34,6 +34,8 @@ add_library( otdu_engine STATIC ${OTDU_ENGINE_SRC} )
 target_include_directories( otdu_engine PUBLIC "${OTDU_SRC_FOLDER}" )
 # AMD FidelityFX API headers (FSR 3 plugin, source/render/upscalers)
 target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/fidelityfx-api" )
+# Intel XeSS SDK headers: local only (not in the repository); without them the XeSS plugin compiles to a stub
+target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/xess-sdk/inc" )
 target_link_libraries( otdu_engine PUBLIC
     otdu_dxso otdu_volk otdu_vma otdu_stb otdu_stb_vorbis otdu_drlibs otdu_opusfile otdu_earcut otdu_imgui
     otdu_vulkan_headers SDL3::SDL3-static Jolt )

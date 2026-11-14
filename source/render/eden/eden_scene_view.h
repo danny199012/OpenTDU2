@@ -9,6 +9,7 @@
 #include "render/eden/eden_planar_reflections.h"
 #include "render/eden/eden_postfx.h"
 #include "render/upscalers/fsr3_upscaler.h"
+#include "render/upscalers/xess_upscaler.h"
 #include "render/eden/eden_shadows.h"
 #include "render/eden/eden_sky.h"
 #include "render/eden/eden_sun.h"
@@ -268,6 +269,13 @@ private:
     void runObjectVelocity( const EdenSceneParams &params );
     // Upscaler 3: FSR 3 (temporal, optional DLL plugin) on colour + depth + velocity.
     void runFsr3();
+    // Upscaler 4: Intel XeSS (optional libxess.dll plugin), the same inputs.
+    void runXess();
+    // Shared by the temporal upscalers: the window sized output target and the
+    // R32F depth copy. False until the targets exist (their first frame).
+    bool prepareTemporalInputs( uint32_t outWidth, uint32_t outHeight );
+    XessUpscaler xess;
+    bool bXessOutputDefined = false;
     Fsr3Upscaler fsr3;
     RenderTarget *pFsrDepthTarget = nullptr; // R32F copy of the scene depth for FSR 3
     bool bFsr3OutputDefined = false;
