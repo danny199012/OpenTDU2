@@ -3,6 +3,15 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 17th): phone calls playable (owner: "build calls now")
+
+### What changed
+- New `source/game/freeride/phone_calls.{h,cpp}` + `FreeRideHud::showPhoneCall/closePhoneCall` + wiring in `gm_freeride.{h,cpp}` + `PlayerProfile::PhoneCallCounts` (saved as `phone_call_<NAME>`). Details and limits in `docs/re/phone_calls_spec.md` "Built". Debug: `-phonecall <NAME>` forces a DBPhoneCall by name.
+### Verified
+- Build 88, `-gm FREERIDE -skipcine -nopad -fixedtimestep -phonecall REALTOR_CALL -autoplay "400:shot=..."`: the retail popup shows with the voice; `CAR_WASH` hangs up after its voice. Not verified: save round trip across runs, other languages, the nudge firing on its own after 45 s.
+### Not done / next
+- Caller portrait, Yes/No (accept/decline), the other `BeenIn*` flags set by their shops, the real story conditions (MngPhone2 unread).
+
 ## Session 2026-11-14 (`main`, 16th): satnav roads blue/grey by discovery; phone calls found in the retail data
 
 Owner: "our satnav isn't accurate as discovered roads should be blue" + "dig for the phone calls and anything else (cutscenes, progression)" in the dev build.

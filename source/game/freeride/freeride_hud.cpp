@@ -935,6 +935,31 @@ void FreeRideHud::showGoal( const std::string &text ) {
     goalTimer = 30.0f;
 }
 
+void FreeRideHud::showPhoneCall( const std::string &text ) {
+    // HUD.vmf /HUD/phone_call [DATA: timeline labels default / open 9 /
+    // open_loop 15 / ring 25 / stop 38 / accept_pnj 45 / accept 94 / accepted
+    // 125 / end_dialog 136 / decline 148; text field /:dialog_ph in
+    // phone_message/pnj_text]. The call is shown answered: open, then the
+    // caller's dialog (accept_pnj) [INF: the label order is read from the
+    // timeline, the look is checked against a capture].
+    if ( !hud.isLoaded() || hud.findClip( "/HUD/phone_call" ) == nullptr ) {
+        return;
+    }
+    hud.setVariable( "/:dialog_ph", text );
+    hud.setClipVisible( "/HUD/phone_call", true );
+    hud.gotoLabel( "/HUD/phone_call", "open", true );
+    hud.gotoLabel( "/HUD/phone_call/phone_message", "open", true );
+    OTDU_LOG_INFO( "FreeRideHud: phone call shown\n" );
+}
+
+void FreeRideHud::closePhoneCall() {
+    if ( !hud.isLoaded() || hud.findClip( "/HUD/phone_call" ) == nullptr ) {
+        return;
+    }
+    hud.gotoLabel( "/HUD/phone_call/phone_message", "close", true );
+    hud.gotoLabel( "/HUD/phone_call", "end_dialog", true );
+}
+
 void FreeRideHud::closeGoal() {
     // The 30 s timer path calls this with goalTimer already < 0 (the tick
     // decrements first) — the guard must not depend on the timer's sign or

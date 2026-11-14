@@ -16,6 +16,7 @@
 #include "game/cinematic/gps_screen.h"
 #include "game/freeride/car_delivery.h"
 #include "game/freeride/car_wash.h"
+#include "game/freeride/phone_calls.h"
 #include "game/clothes_shop.h"
 #include "game/freeride/chase_camera.h"
 #include "game/freeride/chase_mode.h"
@@ -269,6 +270,8 @@ private:
     // stopped next to one, validate pays the fee and plays the retail washing
     // cutscene (C_WASHING) through GM_CinViewer. -nowash off.
     CarWash carWash;
+    // The story phone calls (docs/re/phone_calls_spec.md).
+    PhoneCalls phoneCalls;
     // A at a dealership / clothes shop walks into its interior
     // (interior/i<name>.bnk); the shop menu opens at the seller. -nointeriors:
     // the menu opens straight from the car, as before.

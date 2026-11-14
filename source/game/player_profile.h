@@ -205,6 +205,9 @@ struct PlayerProfile {
     // calls read it); CarWashCoating is CarDirtData +8 - the port renders no
     // dirt yet, so it stays 0 until a dirt shader exists.
     bool BeenInCarWash = false;
+    // Phone calls already rung: DBPhoneCall _phonecallname -> times (the
+    // retail SCPhoneCallsSave keeps one state per call; docs/re/phone_calls_spec.md).
+    std::map<std::string, int32_t> PhoneCallCounts;
     // The "Help: Chase Mode" popup has been shown (it opens by itself on the
     // first traffic violation the police see, once per profile) [INF: the
     // retail help-system seen flags are runtime data, ENC].

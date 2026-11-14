@@ -10,6 +10,7 @@
 #include "game/cinematic/gm_cin_viewer.h"
 #include "game/command_resolver.h"
 #include "game/freeride/car_wash.h"
+#include "game/freeride/phone_calls.h"
 #include "game/freeride/cruising_zones.h"
 #include "game/game_options.h"
 #include "game/licenses.h"
@@ -781,6 +782,10 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     // PauseMenu::refreshClock); the weather preset is picked from the same
     // hour below (the retail running clock is [ENC]).
     mapScreen.load();
+    phoneCalls.load();
+    if ( const char *pCall = CmdLine::GetArgValue( "-phonecall" ) ) {
+        phoneCalls.request( pCall, true ); // debug: ring this call (a DBPhoneCall name) as soon as free roam allows
+    }
     // The retail map is the island colour map drawn flat. The world extent of
     // Ibiza's texture is fitted on the road graph (Ibiza_ROAD_MAP.IA node
     // positions over ibiza-c, docs/STATE.md session 23) [INF]; the other
@@ -6236,6 +6241,12 @@ void GMFreeRide::tick( float deltaTime ) {
         }
     }
     hud.tick( deltaTime, hudState );
+    {
+        PhoneCalls::Context phoneContext;
+        phoneContext.bFreeDriving = state == eState::Drive;
+        phoneContext.StoryStep = GetPlayerProfile().StoryStep;
+        phoneCalls.tick( deltaTime, phoneContext, hud );
+    }
     // The 3D cockpit gauge needles: the car's interior model meshes follow the
     // same interior_* tables as the GAUGES movie (docs/re/needles_spec.md).
     // -noneedles keeps the rest pose (the -needletest / -needlepose A/B).

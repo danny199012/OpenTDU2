@@ -74,8 +74,7 @@ public:
     void terminate() override;
     void drawDebug() override;
 
-    const char *getString( int32_t hashcode ) const;
-    bool findCarPhysics( const char *pFileName, CarPhysicsData &outData ) const;
+    const char *getString( int32_t hashcode ) const;    bool findCarPhysics( const char *pFileName, CarPhysicsData &outData ) const;
     std::vector<std::string> getCarFileNames() const;
 
 private:

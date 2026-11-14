@@ -71,6 +71,16 @@ saved fields of `SCPhoneCalls` (registration order, `0x14da938..0x14dab88`):
 - The road-discovery rule is **not** there either: `RoadLock` / `AreaRoadsUnlocked` are the save fields (`0xa05771`, `0xa0b4d8`, `0xa0cf0e`); the radius lives in the
   code that writes them (`HudMap` / `MngRoadNetwork` `0xd07120`) and is anchored by no string.
 
+## Built (2026-11-14, `main`)
+- `source/game/freeride/phone_calls.{h,cpp}`: reads `DBPhoneCall`, queues calls, rings one at a time with a 20 s gap, plays `pc_*.wav` (language, fallback `us`), shows the text
+  in the HUD movie's own popup (`FreeRideHud::showPhoneCall`: `/HUD/phone_call` label `open` + `phone_message` `open`, text var `/:dialog_ph`; hang-up = `end_dialog` / `close`),
+  counts rings in the profile (`phone_call_<NAME> = n` in the save) and honours `_nbrepeats`.
+- Verified: `-phonecall REALTOR_CALL` (debug: force a call by DB name) shows the retail popup (ringing phone in the satnav + text + OK) with the 10.5 s voice;
+  `CAR_WASH` rings then hangs up after its 8.3 s voice (log `PhoneCalls: ring ... / hung up`).
+- Only one **automatic** rule so far: `CAR_WASH` while `!BeenInCarWash` and `StoryStep >= 10`, checked every 45 s of free driving [INF]. Other calls need their `BeenIn*` flags set by their shops, or a
+  story hook calling `phoneCalls.request("NAME")`.
+- Not done: the caller portrait (`calque_pnj`), the Yes/No answer (accept / decline labels), the voice bus (shares the GPS one [INF]), the story-step conditions of the rest.
+
 ## Not done / next [INF]
 1. **The trigger conditions**: not in the `SCPhoneCalls` functions (save serialisation, above). Next anchor: `MngPhone2` - `0xd20e50` is only its class-name getter (`mov eax, 0x150e8a8; ret`), so that is a dead end by itself: `0xd20e50` is reached only through the jump thunk `0x4292c6`, which sits in an 8-slot class-descriptor table at `0x150e880` (slots `0x4292c6 0x423e11 0x446957 0x430215 0x40562d 0x42e88e 0x419aab 0x411838`, the descriptor `0x150e880` itself has no direct code reference), NOT in the object's vtable. Next: read those 7 other slots (`--dis` on each thunk target) and look for the Update / OnEvent function from the manager's constructor; `LAUNCH PHONE CALL` (`0x1502350`) has no code xref (debug-menu table); `EFAO_MngPhone` (`0x148b410`) is used at `0x4e2950` and the
    caller of the save-field readers; `python tools/devbuild_disasm.py --dis <va>` (needs `capstone` + `pefile`, not `-I`). Retail twin is `[ENC]`.

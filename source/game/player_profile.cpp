@@ -415,6 +415,8 @@ void LoadProfile() {
             profile.FuelGrade = number;
         } else if ( key == "been_in_car_wash" ) {
             profile.BeenInCarWash = number != 0;
+        } else if ( key.compare( 0, 11, "phone_call_" ) == 0 && key.size() > 11 ) {
+            profile.PhoneCallCounts[key.substr( 11 )] = number;
         } else if ( key == "chase_help_seen" ) {
             profile.ChaseHelpSeen = number != 0;
         } else if ( key == "driven_car" ) {
@@ -713,6 +715,9 @@ bool SaveProfile( const char *pReason ) {
         file << "fuel_litres = " << profile.FuelLitres << "\n";
         file << "fuel_grade = " << profile.FuelGrade << "\n";
         file << "been_in_car_wash = " << ( profile.BeenInCarWash ? 1 : 0 ) << "\n";
+        for ( const auto &entry : profile.PhoneCallCounts ) {
+            file << "phone_call_" << entry.first << " = " << entry.second << "\n";
+        }
         file << "chase_help_seen = " << ( profile.ChaseHelpSeen ? 1 : 0 ) << "\n";
         file << "driven_car = " << profile.DrivenCarId << "\n";
         file << "worn_clothes = ";

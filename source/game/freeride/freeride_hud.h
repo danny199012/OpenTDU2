@@ -51,6 +51,10 @@ public:
     void unload();
 
     void showGoal( const std::string &text );
+    // The phone call popup (HUD.vmf /HUD/phone_call, text var /:dialog_ph;
+    // labels default / open / ring and phone_message open / close).
+    void showPhoneCall( const std::string &text );
+    void closePhoneCall();
     void closeGoal();
     // BACK_ON_TRACK hold indicator: the HUD movie's own element
     // /HUD/ig_menu/backontrack (sprite 1019: "default" frame 0, the "load" fill
