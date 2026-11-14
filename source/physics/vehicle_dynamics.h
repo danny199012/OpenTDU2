@@ -130,7 +130,16 @@ public:
     inline float getDamage() const { return damage; }
     inline float getMass() const { return mass; }
     int32_t getDamageState() const;
-    inline void resetDamage() { damage = 0.0f; }
+    inline void resetDamage() {
+        damage = 0.0f;
+        for ( float &zone : zoneDamage ) {
+            zone = 0.0f;
+        }
+    }
+    // Where the damage landed: 0 front, 1 rear, 2 left (+X), 3 right (the car frame is +X left, +Z
+    // forward). Fed by the chassis contacts; drives the doors and the bumpers of the model.
+    inline float getZoneDamage( int32_t zone ) const { return zoneDamage[zone & 3]; }
+    inline void setZoneDamage( int32_t zone, float value ) { zoneDamage[zone & 3] = value; }
     void setDamage( float value );
     float addImpactDamage( float magnitude, int32_t kind );
     // Hub offset along the car up axis from its modelled place (drawing):
@@ -236,6 +245,7 @@ private:
     float blueLine = 0.0f, redLine = 0.0f;
     bool bOnGround = false;
     float damage = 0.0f; // 0..65535 (spec: damage_spec.md)
+    float zoneDamage[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // front, rear, left, right
     bool bLogContacts = false;
 
     void tick( float h, const Input &input, const VehicleWorldCollision &collision );

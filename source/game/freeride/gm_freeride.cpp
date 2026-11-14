@@ -329,6 +329,9 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         sceneState.Hardness = lastDrive.Hardness;
         sceneState.Wetness = lastDrive.Wetness;
         sceneState.Damage = lastDrive.Damage;
+        for ( int32_t zone = 0; zone < 4; zone++ ) {
+            sceneState.ZoneDamage[zone] = lastDrive.ZoneDamage[zone];
+        }
         OTDU_LOG_INFO( "FREERIDE: the save's drive: %s at (%.1f, %.1f, %.1f), heading %.0f deg, car '%s', damage %.0f\n",
                        islandName.c_str(), lastDrive.X, lastDrive.Y, lastDrive.Z, lastDrive.Yaw * 57.29578f,
                        lastDrive.CarFile.c_str(), lastDrive.Damage );
@@ -1779,6 +1782,9 @@ void GMFreeRide::startDriving() {
         const VehicleSceneState &damaged = GetVehicleSceneState();
         if ( damaged.bSet && damaged.CarFile == carDesc.FileName && !CmdLine::HasArg( "-noscenestate" ) ) {
             vehicle.setDamage( damaged.Damage );
+            for ( int32_t zone = 0; zone < 4; zone++ ) {
+                vehicle.setZoneDamage( zone, damaged.ZoneDamage[zone] );
+            }
         }
     }
     chase.reset( position, Matrix4x4f::FromQuaternion( orientation ).transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) ) );
@@ -4617,6 +4623,20 @@ void GMFreeRide::tickSurfaceFx( float deltaTime ) {
     applyCarDirt( mudContacts * contactsInv, dirtContacts * contactsInv, carVelocity.length() * 3.6f );
     // Car damage (docs/re/damage_spec.md): the glass cracks from "deformed".
     car.applyDamageState( vehicle.getDamageState() );
+    car.applyPartDamage( vehicle.getZoneDamage( 0 ), vehicle.getZoneDamage( 1 ), vehicle.getZoneDamage( 2 ),
+                         vehicle.getZoneDamage( 3 ) );
+    if ( CmdLine::HasArg( "-lognodes" ) ) {
+        // Research: the node names of the driven car's model (doors, hood, boot, bumpers ...).
+        static bool bNodesLogged = false;
+        if ( !bNodesLogged && car.isLoaded() ) {
+            bNodesLogged = true;
+            const std::vector<SceneNode> &nodes = car.getModel().getScene().getNodes();
+            for ( size_t n = 0; n < nodes.size(); n++ ) {
+                OTDU_LOG_INFO( "carnode %zu parent %d '%s'%s\n", n, nodes[n].Parent, nodes[n].Name.c_str(),
+                               nodes[n].ObjectHashcode != 0 ? " (mesh)" : "" );
+            }
+        }
+    }
     if ( bLog ) {
         fx.logStats();
     }
@@ -6366,6 +6386,9 @@ void GMFreeRide::tick( float deltaTime ) {
             drive.bHardtopOpen = car.hasHardtop() && car.isHardtopOpen();
             drive.bWindowsOpen = car.areWindowsOpen();
             drive.Damage = vehicle.getDamage();
+            for ( int32_t zone = 0; zone < 4; zone++ ) {
+                drive.ZoneDamage[zone] = vehicle.getZoneDamage( zone );
+            }
             drive.Mud = carDirt.getMud();
             drive.Dirt = carDirt.getDirt();
             drive.Hardness = carDirt.getMudHardness();
@@ -7339,6 +7362,9 @@ void GMFreeRide::exit() {
         state.Hardness = carDirt.getMudHardness();
         state.Wetness = carDirt.getWetness();
         state.Damage = vehicle.getDamage();
+        for ( int32_t zone = 0; zone < 4; zone++ ) {
+            state.ZoneDamage[zone] = vehicle.getZoneDamage( zone );
+        }
         state.AvatarConfig = GetPlayerProfile().AvatarConfig;
     }
     // The drive goes into the save whenever the mode is left (a shop, a scene, quitting).

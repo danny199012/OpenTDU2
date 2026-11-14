@@ -3198,6 +3198,75 @@ void CinematicCar::applyDamageState( int32_t state ) {
     OTDU_LOG_INFO( "CinematicCar: damage state %d -> %s glass (%u slot(s))\n", state, bCracked ? "cracked" : "clean", changed );
 }
 
+void CinematicCar::applyPartDamage( float front, float rear, float left, float right ) {
+    if ( !car.isLoaded() ) {
+        return;
+    }
+    if ( !bPartsGathered ) {
+        bPartsGathered = true;
+        const std::vector<SceneNode> &nodes = car.getScene().getNodes();
+        for ( size_t i = 0; i < nodes.size(); i++ ) {
+            // The first glyph of some names is lost in the 3dd (?UMP_F_H): match the tail.
+            const int32_t end = nodes[i].Name.find( "UMP_F_" ) != std::string::npos   ? 0
+                                : nodes[i].Name.find( "UMP_R_" ) != std::string::npos ? 1
+                                                                                        : -1;
+            if ( end < 0 || nodes[i].ObjectHashcode == 0 ) {
+                continue;
+            }
+            bumpers[end].Nodes.emplace_back( static_cast<int32_t>( i ), car.getNodeTransform( static_cast<int32_t>( i ) ) );
+        }
+        for ( int32_t end = 0; end < 2; end++ ) {
+            // The hinge line: the top edge of the bumper on the car side (world box of the first node).
+            if ( bumpers[end].Nodes.empty() ) {
+                continue;
+            }
+            Vector3f mn, mx;
+            if ( !car.getNodeBounds( bumpers[end].Nodes.front().first, mn, mx ) ) {
+                continue;
+            }
+            Vector3f lo( 1e30f, 1e30f, 1e30f ), hi( -1e30f, -1e30f, -1e30f );
+            for ( int32_t corner = 0; corner < 8; corner++ ) {
+                const Vector3f point = bumpers[end].Nodes.front().second.transformPoint(
+                    Vector3f( ( corner & 1 ) ? mx.x : mn.x, ( corner & 2 ) ? mx.y : mn.y, ( corner & 4 ) ? mx.z : mn.z ) );
+                lo = Vector3f( Min( lo.x, point.x ), Min( lo.y, point.y ), Min( lo.z, point.z ) );
+                hi = Vector3f( Max( hi.x, point.x ), Max( hi.y, point.y ), Max( hi.z, point.z ) );
+            }
+            bumpers[end].Pivot = Vector3f( 0.5f * ( lo.x + hi.x ), hi.y, end == 0 ? lo.z : hi.z );
+            OTDU_LOG_INFO( "CinematicCar: %s bumper: %zu node(s), hinge (%.2f %.2f %.2f)\n", end == 0 ? "front" : "rear",
+                           bumpers[end].Nodes.size(), bumpers[end].Pivot.x, bumpers[end].Pivot.y, bumpers[end].Pivot.z );
+        }
+    }
+    // The doors: loose from ~6000 of side damage, up to ~0.2 rad (the retail "not shut properly").
+    const float sides[2] = { left, right };
+    for ( int32_t door = 0; door < 2; door++ ) {
+        const float ajar = 0.2f * Clamp( ( sides[door] - 6000.0f ) / 40000.0f, 0.0f, 1.0f );
+        const float angle = door == 0 ? -ajar : ajar;
+        if ( std::abs( angle - doorAngle[door] ) > 0.002f ) {
+            setDoorAngle( door, angle );
+        }
+    }
+    // The bumpers: sag from ~12000 on their end, hanging at ~48000 (a dangling bumper: pitched
+    // about its top edge and dropped).
+    const float ends[2] = { front, rear };
+    for ( int32_t end = 0; end < 2; end++ ) {
+        const int32_t key = static_cast<int32_t>( 20.0f * Clamp( ( ends[end] - 12000.0f ) / 36000.0f, 0.0f, 1.0f ) );
+        if ( key == appliedPartKey[end] || bumpers[end].Nodes.empty() ) {
+            continue;
+        }
+        appliedPartKey[end] = key;
+        const float hang = static_cast<float>( key ) / 20.0f;
+        const float pitch = ( end == 0 ? 1.0f : -1.0f ) * 0.9f * hang; // the far end goes down
+        const Vector3f pivot = bumpers[end].Pivot;
+        const Matrix4x4f about = Matrix4x4f::Translation( pivot ) *
+                                 Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), pitch ) ) *
+                                 Matrix4x4f::Translation( -pivot );
+        const Matrix4x4f drop = Matrix4x4f::Translation( Vector3f( 0.0f, -0.3f * hang, ( end == 0 ? 0.25f : -0.25f ) * hang ) );
+        for ( const auto &node : bumpers[end].Nodes ) {
+            car.setNodeTransform( node.first, drop * about * node.second );
+        }
+    }
+}
+
 void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, float wetness ) {
     // The crust (hardness) drives the CarDirt wash law; the paint only needs
     // how much stain there is and how wet the body is.

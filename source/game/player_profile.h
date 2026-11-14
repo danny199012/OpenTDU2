@@ -101,6 +101,7 @@ struct PlayerProfile {
         std::string CarFile;
         bool bHardtopOpen = false, bWindowsOpen = false;
         float Damage = 0.0f, Mud = 0.0f, Dirt = 0.0f, Hardness = 0.0f, Wetness = 0.0f;
+        float ZoneDamage[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // front, rear, left, right
     } LastDrive;
     // Times each DBRewardXP event was earned (see AwardSkillEvent).
     std::map<std::string, int32_t> EventsDone;

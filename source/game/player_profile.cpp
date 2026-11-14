@@ -571,6 +571,9 @@ void LoadProfile() {
                 drive.Dirt = static_cast<float>( atof( parts[10].c_str() ) );
                 drive.Hardness = static_cast<float>( atof( parts[11].c_str() ) );
                 drive.Wetness = static_cast<float>( atof( parts[12].c_str() ) );
+                for ( size_t zone = 0; zone < 4 && 13 + zone < parts.size(); zone++ ) {
+                    drive.ZoneDamage[zone] = static_cast<float>( atof( parts[13 + zone].c_str() ) );
+                }
             }
         } else if ( key.compare( 0, 13, "exploreddirt_" ) == 0 ) {
             std::vector<uint32_t> &list = profile.ExploredDirt[key.substr( 13 )];
@@ -862,8 +865,11 @@ bool SaveProfile( const char *pReason ) {
             char state[160];
             snprintf( state, sizeof( state ), "%.1f|%.4f|%.4f|%.4f|%.4f", drive.Damage, drive.Mud, drive.Dirt, drive.Hardness,
                       drive.Wetness );
+            char zones[96];
+            snprintf( zones, sizeof( zones ), "%.0f|%.0f|%.0f|%.0f", drive.ZoneDamage[0], drive.ZoneDamage[1], drive.ZoneDamage[2],
+                      drive.ZoneDamage[3] );
             file << "last_drive = " << drive.Island << "|" << numbers << "|" << drive.CarFile << "|"
-                 << ( drive.bHardtopOpen ? 1 : 0 ) << "|" << ( drive.bWindowsOpen ? 1 : 0 ) << "|" << state << "\n";
+                 << ( drive.bHardtopOpen ? 1 : 0 ) << "|" << ( drive.bWindowsOpen ? 1 : 0 ) << "|" << state << "|" << zones << "\n";
         }
         for ( const auto &island : profile.ExploredDirt ) {
             if ( island.second.empty() ) {

@@ -1679,7 +1679,16 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
             // build's record +0x14 is a Havok contact value; this scale puts a 30 km/h wall hit
             // in "scratched", 50 in "deformed" and 100 in "broken"]. Every world contact is a
             // fixed object here (traffic / other cars do not reach this path).
-            addImpactDamage( j / Max( dt, 1e-4f ), 1 );
+            const float impactGain = addImpactDamage( j / Max( dt, 1e-4f ), 1 );
+            if ( impactGain > 0.0f ) {
+                // The zone of the hit from the sphere's place on the body (+X left, +Z forward):
+                // a corner hit loads both of its sides.
+                const float spread = std::abs( local.x ) + std::abs( local.z ) + 1e-3f;
+                float &endZone = zoneDamage[local.z >= 0.0f ? 0 : 1];
+                float &sideZone = zoneDamage[local.x >= 0.0f ? 2 : 3];
+                endZone = Min( endZone + impactGain * std::abs( local.z ) / spread, 65535.0f );
+                sideZone = Min( sideZone + impactGain * std::abs( local.x ) / spread, 65535.0f );
+            }
             Vector3f tangent = pointVelocity - contact.Normal * approach;
             const float tangentSpeed = tangent.length();
             if ( tangentSpeed > 1e-3f ) {

@@ -281,6 +281,10 @@ public:
     // DETAIL2 slot - the CarPaint glass shader fades the base toward it - and back to the clean glass
     // base (g_i) below. Idempotent: it only touches the materials when the state changes.
     void applyDamageState( int32_t state );
+    // Damage by zone (VehicleDynamics::getZoneDamage, 0..65535 each): the doors come loose (a
+    // door not shut properly) and the bumpers sag and hang off [owner's retail captures, the
+    // model's separate BUMP_F_* / BUMP_R_* / DOOR_L / DOOR_R nodes]. Cheap when nothing changed.
+    void applyPartDamage( float front, float rear, float left, float right );
 
 private:
     // The light driver (docs/re/car_lights_spec.md): collectLights at load
@@ -447,6 +451,14 @@ private:
     bool bGlassSwapped = false;
     bool bGlassGathered = false;
     int32_t appliedDamageState = -1;
+    // applyPartDamage: the bumper nodes with their rest transforms and the hinge line of each end.
+    struct BumperNodes {
+        std::vector<std::pair<int32_t, Matrix4x4f>> Nodes;
+        Vector3f Pivot;
+    };
+    BumperNodes bumpers[2]; // [0] front, [1] rear
+    bool bPartsGathered = false;
+    int32_t appliedPartKey[4] = { -1, -1, -1, -1 };
     void applyGlassSwap( bool bInside );
     // The wiper driver (the comment at setWiperMode).
     struct WiperHalf {
