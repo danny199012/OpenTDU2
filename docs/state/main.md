@@ -2,7 +2,16 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (forehead hair stroke, `main`): the dark hair-like stroke on the character-select face - fixed
+`## Session 2026-11-14 (party shadow flicker, `main`): a world-space shadow bias floor - flips on walls / decks / cloth 24 % -> 3 %
+
+Owner: flickering shadows / lighting, mostly at the intro party (dancing; DJ decks, table cloth, building walls), faint in freeride.
+
+- **Measured** (`-intro -fixedtimestep`, 16 consecutive frames at 2250 / 2000, `|shadows - -noshadows|` lit<->shadow state flips per pixel; `_emo/flip.sh` style, not committed): the shot configs PR / PA / PM (20 m far) give slice 0 a ~4 mm texel, so the config bias (x3 scale) is ~3.6 mm - below the depth error of a grazing wall - and every wall / deck / cloth face flipped between lit and self-shadowed as the dancers' casters changed the map. Pixels with >= 3 flips in 16 frames: **23.9 %**. `-shadowconfig DEFAULT` 5.1 %, `PG` 2.4 %, `-shadowbias 600/1200/2400` 6.6 / 4.1 / 3.1 % (but the shadowed area also halves: the acne counted as shadow).
+- **Fix** (`eden_shadows.cpp`): the light-row bias has a floor in world units, `max( 3 x config x texel, 5 cm )`; `-shadowminbias <cm>` (0 = off). Result at 2250: flips **23.9 % -> 2.9 %**, at 2000 3.8 % -> 1.2 %. Character / ground shadows remain (`docs/images/intro_party_shadow_bias_before_after.webp`, left before).
+- **FREERIDE**: frame 300 with the floor on vs off differs by mean 0.003 (the FREERIDE config bias is already above 5 cm): no change there. The faint freeride flicker is the animated-caster class of the 2026-10-29 sessions (cloth / vegetation vertex stage vs `TD_ShadowCaster`) - not touched.
+- **Not done**: no slope-scaled bias (it would need the shadow shader); the dancers' own caster motion still changes real shadow edges frame to frame (that is animation, not flicker); the 5 cm floor can peter-pan contact shadows by that much; only 2 party windows measured - if a spot still flickers, `-shadowminbias 10` is the next lever.
+
+## Session 2026-11-14 (forehead hair stroke, `main`): the dark hair-like stroke on the character-select face - fixed
 
 Owner: "a weird hair like bug that clips through certain people". Found on the AVATAR_CHOICE male (frame 3100 of `-intro`): a dark curved stroke on the forehead above one eyebrow.
 

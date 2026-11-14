@@ -425,7 +425,15 @@ GPUTexture *EdenShadows::resolve( EdenRenderer &renderer, const EdenSceneParams 
         // bias read from the config was too small; 3x clears it (measured: ground brightness std
         // over a slow pan 15.3 at 1x, 3.6 at 1.5x, 1.2 at 2x and above). -shadowbias <percent>.
         static const float biasScale = static_cast<float>( CmdLine::GetArgInt( "-shadowbias", 300 ) ) * 0.01f;
-        depthRow.w -= biasScale * config.Bias[i] * slices[i].TexelSize / slices[i].DepthRange;
+        // A floor in world units: the cinematic configs (PR / PA / PM: 20 m far, slice 0 texel
+        // ~4 mm) give a 3-4 mm bias, under the depth error of a grazing wall, so the party's
+        // building walls, DJ decks and table cloth flipped between lit and self-shadowed from
+        // frame to frame as the dancers' casters changed the map (intro party, 16-frame lit /
+        // shadow state flips: 24 % of the frame at the default bias, 5 % with the DEFAULT config's
+        // ~4 cm). -shadowminbias <cm> (default 5, 0 = off).
+        static const float minBias = static_cast<float>( CmdLine::GetArgInt( "-shadowminbias", 5 ) ) * 0.01f;
+        const float worldBias = Max( biasScale * config.Bias[i] * slices[i].TexelSize, minBias );
+        depthRow.w -= worldBias / slices[i].DepthRange;
         viewToLight[i] = depthRow;
         const Vector4f row0 = Row( viewToClip, 0 );
         const Vector4f row1 = Row( viewToClip, 1 );
