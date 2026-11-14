@@ -2,7 +2,17 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (party shadow flicker, `main`): a world-space shadow bias floor - flips on walls / decks / cloth 24 % -> 3 %
+`## Session 2026-11-14 (TDU1 physics recon, `main`): tall-car rollover measured and reproduced; load-sensitive grip stops every flip (probe flag, off by default)
+
+Owner: "port TDU1 physics from OpenTDU - hybrid, keep TDU2 physics". Written permission from the OpenTDU maintainer on their issue thread (no LICENSE file): credit `opentdu`; do not paste their code (`docs/re/tdu1_physics_recon.md` section 0).
+
+- **Recon**: TDU1 tyre = same Pacejka family, but D is load dependent (`FUN_0043ceb0` / `FUN_0043cf50`, per-load peak tables, friction ellipse); ours is `mu x Fz`, linear. Their anti-roll is disabled, no help there.
+- **Measured** (`-vehtest`, 19 cars): H3, ML63, Q7, Range Rover, Pekin to Paris flip in 5 of 6 steady corner runs (7 CSR 260 in 2); sports cars never. Mechanism: inner wheels unload in 0.17 s, grip 1.25 g > tipping limit.
+- **Harness fix** (`gm_freeride.cpp`): the corner test spawned big-tyre cars 0.3 m in the road; now spawn height follows the radius + 1 s pre-roll (`-vehtestraw` = old).
+- **Probe** (`vehicle_dynamics.cpp`): `-tyreloadsens k`, mu x clamp(1 - k (Fz/static - 1), 0.5, 1.25), default off. k 0.2: 27 flips -> 0; sports cars -10 % peak lateral g; 100-0 +4-5 %. [INF] k is not the retail law.
+- **Not done / next**: (1) read the PS3 twin of the tyre D (`ps3_enc_twins.json`) to replace k with the real law; (2) check a kerb / bump rollover in-game with `-tyreloadsens 0.2`; (3) decide the default. Not committed.
+
+## Session 2026-11-14 (party shadow flicker, `main`): a world-space shadow bias floor - flips on walls / decks / cloth 24 % -> 3 %
 
 Owner: flickering shadows / lighting, mostly at the intro party (dancing; DJ decks, table cloth, building walls), faint in freeride.
 

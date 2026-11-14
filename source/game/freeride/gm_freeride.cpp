@@ -1130,8 +1130,20 @@ void RunVehicleTest( const VehicleDynamics &templateVehicle ) {
     for ( const float steering : { 0.25f, 0.5f, 1.0f } ) {
         for ( const float targetKmh : { 60.0f, 100.0f } ) {
             v = templateVehicle;
-            v.reset( Vector3f( 0.0f, 0.12f, 0.0f ), Quaternionf(), Vector3f( 0.0f, 0.0f, targetKmh / 3.6f ) );
+            // Spawn clearance follows the tyre radius (the California's 0.34 m
+            // wheel sits at y 0.12): a fixed 0.12 m buried the wheels of the
+            // tall cars (H3 r 0.43) and the depenetration launch rolled them
+            // over, a harness artefact, not the vehicle model. Then a 1 s
+            // straight pre-roll settles the suspension before the steering.
+            const float spawnY = 0.12f + Max( v.getWheelDescs().empty() ? 0.0f : v.getWheelDescs()[0].Radius - 0.34f, 0.0f );
+            v.reset( Vector3f( 0.0f, spawnY, 0.0f ), Quaternionf(), Vector3f( 0.0f, 0.0f, targetKmh / 3.6f ) );
             input = VehicleDynamics::Input();
+            if ( !CmdLine::HasArg( "-vehtestraw" ) ) {
+                for ( int32_t i = 0; i < 60; i++ ) {
+                    input.Throttle = Clamp( ( targetKmh - v.getSpeedKmh() ) * 0.2f + 0.3f, 0.0f, 1.0f );
+                    v.step( dt, input, flat );
+                }
+            }
             float yawRate = 0.0f, lateral = 0.0f, speedSum = 0.0f;
             float rollMax = 0.0f, pitchMax = 0.0f;
             bool bFlipped = false;

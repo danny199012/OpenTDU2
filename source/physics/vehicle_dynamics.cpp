@@ -2,6 +2,7 @@
 #include "vehicle_dynamics.h"
 
 #include "physics/vehicle_collision.h"
+#include "system/cmd_line.h"
 
 // Tags: [CODE] read in the exe (addresses in docs/re/vehicle_physics_spec.md
 // section 6), [INF] chosen here where the edVehicle code is in the SecuROM
@@ -1314,6 +1315,18 @@ void VehicleDynamics::tick( float h, const Input &input, const VehicleWorldColli
             frame.FrictionScale = tyre.BrakingFrictionScale;
         } else {
             frame.FrictionScale = 1.0f;
+        }
+        // EXPERIMENT (-tyreloadsens k, default off): tyre load sensitivity, mu
+        // x ( 1 - k ( Fz / static load - 1 ) ) clamped to [0.5, 1.25]. The TDU1
+        // tyre (OpenTestDriveUnlimited FUN_0043ceb0 / FUN_0043cf50) has D
+        // affine / quadratic in the load; the TDU2 law is in the ENC band and
+        // is not decoded, so k is a probe, not a value [INF].
+        static const float kLoadSensitivity = [] {
+            const char *pValue = CmdLine::GetArgValue( "-tyreloadsens" );
+            return pValue ? static_cast<float>( std::atof( pValue ) ) : 0.0f;
+        }();
+        if ( kLoadSensitivity != 0.0f && staticShare > 1.0f ) {
+            frame.FrictionScale *= Clamp( 1.0f - kLoadSensitivity * ( state.Load / staticShare - 1.0f ), 0.5f, 1.25f );
         }
         const Vector3f suspensionForce = up * suspension;
         force += suspensionForce;
