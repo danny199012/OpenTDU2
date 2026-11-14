@@ -151,6 +151,15 @@ bool GMCine::enter( TestDriveGameInstance *pInstance ) {
         setup.SceneAtPosition = Vector3f( 11103.0f, 4.6f, 17252.0f );
         setup.SceneAtHeading = 0.0f;
     }
+    if ( request.Kind == 2 && !CmdLine::HasArg( "-nosolarcrownoffset" ) ) {
+        // C_SOLAR_CROWN_E: the scene bank's carpet, the walk of Tess and the player, the guards and the car
+        // (.sce tracks, Entity__Actor 'Carpet') are authored 2.45 m toward -z of the house's stair axis: the
+        // stairs of ech_ia span z 0.05..3.55 (centre 1.8, the gate's centre 1.75) while the carpet and the walk
+        // centre on z -0.67 [DATA: collision probe of the exterior model, scene tracks, entities.xmb]. The
+        // retail shows the carpet up the middle of the stairs, so the scene frame is moved 2.45 m along the
+        // spot's local +z; the gate doors (also in the scene bank) stay on the exterior [INF].
+        setup.SceneLocalOffset = Vector3f( 0.0f, 0.0f, 2.45f );
+    }
     bLoaded = cine.load( setup );
     if ( !bLoaded ) {
         OTDU_LOG_WARN( "CINE: '%s' could not be loaded\n", pKind->pBank );

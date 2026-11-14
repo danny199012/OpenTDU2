@@ -3,6 +3,30 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 9th): the Solar Crown arrival - the red carpet and the walk are on the stairs
+
+The owner: "in the scene where you drive tess to the solar crown the walk up the stairs and the carpet aren't aligned correctly".
+
+**Reproduced** (carpet a stair-width left of the house stairs, Tess and the player walking up the carpet's line, off the steps):
+    build-mainin\opentdu2-main.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata C:	emp\otdu2-win-userdata -storystep 5 -nopad -fixedtimestep -playername Danny -autoplay "100:shot=...;330:shot=..." -exitframe 430
+
+### What changed
+- `source/game/avatarchoice/intro_cinematic.{h,cpp}` - `Setup::SceneLocalOffset`: the scene frame (`sceneOrigin`) is moved along the spot's local axes while the exterior bank stays at `spotOrigin`; scene-bank props named `door*` (`Prop::bKeepSpotFrame`) stay on the house (they copy the exterior's gate leaves).
+- `source/game/cine/gm_cine.cpp` - kind 2 (C_SOLAR_CROWN_E) sets the offset (0, 0, +2.45). `-nosolarcrownoffset` = the A/B.
+
+### Why 2.45 [DATA]
+- The `ech_ia` exterior's stair strip, probed with `EdenModel::raycast`, spans spot-local z 0.05..3.55 (centre 1.8; the gate's two leaves are centred on 1.75).
+- The scene bank is centred 2.45 m away: 'Carpet' (entities.xmb) at z -0.67 (width 1.8), Tess / the player's tracks z -0.4..-1.6, the two guards at z -1.86 / +1.13, the car's gate entry z -0.6. They agree with each other, not with the house, and the house's heights agree with the tracks in x (the terrace -0.2, the top 0.9) - so it is a pure z offset. The retail shows the carpet up the middle of the stairs.
+- The reason the retail frames differ is [ENC]/unknown (the C_SOLAR_CROWN_E Entity__Cinematic sits at (21.29, 0, -48.56) turned 180 degrees; ECH_IA_1243I's second spot transform is local (-81, -2, 2.77)) - the offset is a measured fix [INF], not a decoded rule.
+
+### Verified
+- Frames 100 / 250 / 330 / 420: the carpet runs up the middle of the stairs between the lamps, the guards flank it, the pair walks on it, the door poster now shows full-frame (`docs/images/solar_crown_ext_carpet_before_after.webp`, before left / after right).
+- Log: `IntroCinematic: scene frame offset (0.00, 0.00, 2.45) from the spot frame`.
+
+### Not done / next
+- Not run with the validation layer; the scene's first seconds (the car through the gate) were not looked at after the shift - `-autoplay "20:shot=..."`. The cin_viewer tool plays the same cinematic without the offset.
+- The other cameras / shots of C_SOLAR_CROWN_E were only spot-checked at four frames.
+
 ## Session 2026-11-14 (`main`, 8th): the upscalers tested in motion (scripted drive)
 
 The owner: "Test each in motion". I cannot watch a live screen, so: the same scripted drive under every upscaler, 3 frames 3 apart while turning at speed, compared to a native 100 % render of the same frames.

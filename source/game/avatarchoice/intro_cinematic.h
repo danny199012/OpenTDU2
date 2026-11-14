@@ -58,6 +58,10 @@ public:
         float HousePickX = NAN, HousePickZ = NAN;
         // Added to the spot heading (radians): the scene frame turned about the spot (pi = the opposite side).
         float HouseHeadingOffset = 0.0f;
+        // The cinematic's own tracks / sets / props stand this far along the spot frame's axes (metres,
+        // spot-local) from the exterior bank: C_SOLAR_CROWN_E is authored 2.45 m off the house's stair axis
+        // [DATA], see gm_cine.cpp. Door props stay on the house.
+        Vector3f SceneLocalOffset = Vector3f( 0.0f, 0.0f, 0.0f );
         std::string ExteriorBank = "islands/ibiza/exterior/eph_l3di.bnk";
         std::string ExteriorPrefix = "eph_l3di";
         bool bWorld = true;
@@ -492,6 +496,7 @@ private:
         const void *pHeldCinematic = nullptr;
         Matrix4x4f World;
         bool bExterior = false; // an actor of the exterior bank (spot frame)
+        bool bKeepSpotFrame = false; // a house door of the scene bank: stays on the exterior when the scene is offset
         std::vector<Matrix4x4f> WorldBones, Skin;
         EdenAvatarLighting Lighting;
         const EdenAnimation *pDrivenClip = nullptr; // setPropClip

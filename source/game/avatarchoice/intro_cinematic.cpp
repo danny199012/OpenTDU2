@@ -133,6 +133,13 @@ bool IntroCinematic::load( const Setup &newSetup ) {
     sceneRotation = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), heading );
     sceneOrigin = Matrix4x4f::Translation( housePosition ) * Matrix4x4f::FromQuaternion( sceneRotation );
     spotOrigin = sceneOrigin;
+    if ( setup.SceneLocalOffset.x != 0.0f || setup.SceneLocalOffset.y != 0.0f || setup.SceneLocalOffset.z != 0.0f ) {
+        // The tracks / sets / props of the scene bank are authored off the exterior bank's axes
+        // (Solar Crown: the carpet and the walk 2.45 m beside the stairs); the exterior stays at the spot.
+        sceneOrigin = sceneOrigin * Matrix4x4f::Translation( setup.SceneLocalOffset );
+        OTDU_LOG_INFO( "IntroCinematic: scene frame offset (%.2f, %.2f, %.2f) from the spot frame\n", setup.SceneLocalOffset.x,
+                       setup.SceneLocalOffset.y, setup.SceneLocalOffset.z );
+    }
     if ( setup.bSceneAt ) {
         sceneRotation = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), setup.SceneAtHeading );
         sceneOrigin = Matrix4x4f::Translation( setup.SceneAtPosition ) * Matrix4x4f::FromQuaternion( sceneRotation );
@@ -1821,7 +1828,7 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
                                at.z, main.pDef != nullptr ? main.pDef->Name.c_str() : "" );
             }
         }
-        prop.Model->draw( renderer, ( prop.bExterior ? spotOrigin : sceneOrigin ) * local * prop.RootInverse );
+        prop.Model->draw( renderer, ( ( prop.bExterior || prop.bKeepSpotFrame ) ? spotOrigin : sceneOrigin ) * local * prop.RootInverse );
     }
     // The avatars and cars are culled against the frustum of the pass being
     // recorded (the main camera, each shadow slice, the ocean mirror, the
@@ -3118,6 +3125,9 @@ void IntroCinematic::loadBankModels( const Bank &bank, const BankHashcodes &hash
             }
         }
         prop.bExterior = bSkipInteriorLods;
+        // The gate doors of the scene bank copy the exterior's leaves (same bank coordinates [DATA]):
+        // they follow the house, not the offset scene frame.
+        prop.bKeepSpotFrame = StringCmpI( prop.Name.substr( 0, 4 ).c_str(), "door" ) == 0;
         props.push_back( std::move( prop ) );
     }
     }
@@ -4039,7 +4049,7 @@ void IntroCinematic::updateProps() {
                 locals[b] = prop.Skeleton->getBindLocal( b );
             }
             prop.pDrivenClip->sample( *prop.Skeleton, prop.DrivenTime, false, locals );
-            prop.World = ( prop.bExterior ? spotOrigin : sceneOrigin ) * prop.Local;
+            prop.World = ( ( prop.bExterior || prop.bKeepSpotFrame ) ? spotOrigin : sceneOrigin ) * prop.Local;
             prop.Skeleton->computeSkinMatrices( locals, prop.WorldBones, prop.Skin );
             computeAvatarLighting( prop.World.getTranslation(), prop.Lighting );
             prop.bAnimated = true;
