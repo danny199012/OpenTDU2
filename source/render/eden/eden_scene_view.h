@@ -262,6 +262,9 @@ private:
     // resources/shaders/velocity.frag. All matrices are the UNjittered ones.
     void runVelocity();
     RenderTarget *pVelocityTarget = nullptr; // RG16F, previous uv - current uv
+    RenderTarget *pHistoryTarget = nullptr;  // -velcheck: last frame's final image
+    RenderTarget *pCheckTarget = nullptr;    // -velcheck: the reprojection error
+    bool bHistoryValid = false;
     Matrix4x4f currentView, currentProjection, previousView, previousProjection;
     bool bHavePreviousCamera = false;
     uint32_t jitterIndex = 0;

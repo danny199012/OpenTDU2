@@ -3,6 +3,18 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 3rd): the velocity buffer passes its reprojection check
+
+### What changed
+- `-velcheck` (`runVelocity`, `velcheck.frag`): keeps last frame's final image, warps it with the velocity buffer and writes into the final image R = |cur - prev(uv+v)|, G = |cur - prev(uv)| (no compensation), B = |cur - prev(uv-v)| (opposite-sign control). Run without `-jitter`.
+
+### Verified
+- `-gm FREERIDE -skipcine -nopad -nowatermark -fixedtimestep -velcheck`, mean error over the static scenery above the car (x 330-1000, y 130-430), frame 900: driving straight (`accel`): warped 0.0053 / raw 0.0066 / opposite 0.0089; driving and turning (`accel` + `steerleft`): **warped 0.0075 / raw 0.0150 / opposite 0.0190** - the buffer halves the error and the wrong sign is worse than no compensation, so sign and magnitude are right. `docs/images/velocity-reprojection-check.png` (R warped / G raw / B opposite): the static world is near black; the car's outline and the oncoming car light up, which is exactly the per-object gap.
+- Absolute means are the 8-bit swapchain values (not linear); only the ratios matter.
+
+### Not done / next
+- Per-object velocity (the car and traffic currently read as static world). Jitter sign vs FSR 3 still unproven. Then the FSR 3 glue.
+
 ## Session 2026-11-14 (`main`, 2nd): temporal upscaler groundwork - jitter + camera velocity buffer
 
 Continuation of the FSR work (owner: "Yes, start it").

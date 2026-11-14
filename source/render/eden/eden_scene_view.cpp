@@ -11,6 +11,7 @@
 #include "render/shaders/builtin/upscale_frag.h"
 #include "render/shaders/builtin/velocity_frag.h"
 #include "render/shaders/builtin/velocityview_frag.h"
+#include "render/shaders/builtin/velcheck_frag.h"
 #include "render/shaders/builtin/fsr1_easu_frag.h"
 #include "render/shaders/builtin/fsr1_rcas_frag.h"
 #include "render/shaders/builtin/windscreen_frag.h"
@@ -787,7 +788,10 @@ void EdenSceneView::destroyTargets() {
     device.destroyRenderTarget( pFsrEasuTarget );
     device.destroyRenderTarget( pFsrTarget );
     device.destroyRenderTarget( pVelocityTarget );
-    pVelocityTarget = nullptr;
+    device.destroyRenderTarget( pHistoryTarget );
+    device.destroyRenderTarget( pCheckTarget );
+    pVelocityTarget = pHistoryTarget = pCheckTarget = nullptr;
+    bHistoryValid = false;
     pFsrEasuTarget = pFsrTarget = nullptr;
     pFsrResult = nullptr;
     pSceneTarget = pViewPosTarget = pEnvironmentTarget = pEnvironmentScratch = pFinalTarget = pDropletTarget = pAOTarget = nullptr;
@@ -972,7 +976,8 @@ void EdenSceneView::runFsr1() {
 // Camera-motion velocity buffer (resources/shaders/velocity.frag). Runs after
 // the opaque passes, when the depth is final; -jitter / -showvelocity only.
 void EdenSceneView::runVelocity() {
-    static const bool bWanted = CmdLine::HasArg( "-jitter" ) || CmdLine::HasArg( "-showvelocity" );
+    static const bool bVelCheck = CmdLine::HasArg( "-velcheck" );
+    static const bool bWanted = CmdLine::HasArg( "-jitter" ) || CmdLine::HasArg( "-showvelocity" ) || bVelCheck;
     if ( !bWanted || pSceneTarget == nullptr || !pSceneTarget->bInitialized ) {
         return;
     }
@@ -1007,6 +1012,41 @@ void EdenSceneView::runVelocity() {
     previousView = currentView;
     previousProjection = currentProjection;
     jitterIndex++;
+    // -velcheck: reprojection test. R / G / B of the final image become the
+    // error of the warped previous frame / the raw previous frame / the
+    // opposite-sign control; tools read the means over a screenshot.
+    if ( bVelCheck && pFinalTarget != nullptr && pFinalTarget->bInitialized ) {
+        if ( pHistoryTarget == nullptr || pHistoryTarget->Width != pFinalTarget->Width ||
+             pHistoryTarget->Height != pFinalTarget->Height ) {
+            device.destroyRenderTarget( pHistoryTarget );
+            device.destroyRenderTarget( pCheckTarget );
+            pHistoryTarget = device.createRenderTarget( pFinalTarget->Width, pFinalTarget->Height,
+                                                        VK_FORMAT_UNDEFINED, false, "VelCheckHistory" );
+            pCheckTarget = device.createRenderTarget( pFinalTarget->Width, pFinalTarget->Height, VK_FORMAT_UNDEFINED,
+                                                      false, "VelCheckError" );
+            bHistoryValid = false;
+        }
+        static const float kNoBlur[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        GPUTexture *pCurrent = &pFinalTarget->Color;
+        if ( bHistoryValid && pHistoryTarget->bInitialized && pCheckTarget != nullptr ) {
+            GPUTexture *ppCheck[3] = { pCurrent, &pHistoryTarget->Color, &pVelocityTarget->Color };
+            device.beginRenderTarget( pCheckTarget, true );
+            fullscreen.draw( device, kSPIRV_velcheck_frag, sizeof( kSPIRV_velcheck_frag ), ppCheck, 3, nullptr, 0,
+                             eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear );
+            device.endRenderTarget();
+        }
+        // This frame becomes the history, then the error image replaces it.
+        device.beginRenderTarget( pHistoryTarget, true );
+        fullscreen.draw( device, kSPIRV_blit_frag, sizeof( kSPIRV_blit_frag ), &pCurrent, 1, kNoBlur, sizeof( kNoBlur ) );
+        device.endRenderTarget();
+        if ( bHistoryValid && pCheckTarget->bInitialized ) {
+            GPUTexture *pError = &pCheckTarget->Color;
+            device.beginRenderTarget( pFinalTarget, true );
+            fullscreen.draw( device, kSPIRV_blit_frag, sizeof( kSPIRV_blit_frag ), &pError, 1, kNoBlur, sizeof( kNoBlur ) );
+            device.endRenderTarget();
+        }
+        bHistoryValid = pHistoryTarget->bInitialized;
+    }
     // -showvelocity: paint the buffer into the final image (debug view).
     static const bool bShowVelocity = CmdLine::HasArg( "-showvelocity" );
     if ( bShowVelocity && pFinalTarget != nullptr && pFinalTarget->bInitialized ) {
