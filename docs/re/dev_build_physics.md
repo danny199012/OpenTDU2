@@ -136,9 +136,40 @@ contact normal, per step 2) and `-devnocap` (drop the 2x static cap):
 the port already has matches the dev build in structure; the difference left is the **solver**: friction as a constraint limited by
 `mu_eff x N_solver` and the contact normal constraint, versus the port's direct Pacejka force at `Fz = spring force`.
 
+## 8b. The solver is not the lever; the wheel is a body [CODE-dev]
+- The contact "constraints" (`ContactNormalConstraint +0x4a0`, `ContactTangentialConstraint +0x510`) are generic 1-D constraints
+  (struct serializer `0x10111f0`: `GlobalAnchorArray +0x10`, `GlobalVector +0x30`, `MaxImpulse +0x40`, `MaxErrorImpulse +0x44`,
+  `VelocityOffset +0x48`, `DistanceOffset +0x4c`, `Impulse +0x50`, `ErrorImpulse +0x54`).
+- The tangential one (`0xfffb20`: direction = negated tangential contact-point velocity, `MaxImpulse ~ sqrt(a^2+b^2) x Force(+0x6a8) x dt`,
+  scaled by `FrictionScale`) is built only when **car flag bit 19** is set. The car update `0xffbca0` sets bit 19 when
+  **speed <= `TangentialConstraintSolverThreshold`** (a low-speed stabiliser; bits 15 / 17 are "stopped" / "< 1 m/s"). At 60-100 km/h the tyre
+  force goes straight in as impulses (section 8). So the solver does **not** limit cornering grip at speed.
+- **The wheel is its own rigid body** (motion state at wheel `+0x150`; `MaxContactGlobalNormalAngle +0x830`). `0x1002dd0` = SetContactNormal
+  (clamps the angle, builds the contact frame at `+0x840/+0x850/+0x860`); `0xfff970` = SetContactPoint with `p = -n x LoadedRadius`
+  (relative to the wheel body, i.e. from the hub), written to the anchors `+0x4c0` / `+0x530` and the global `+0x870`. The tyre impulses
+  are applied (wheel vfunc `+0x6c`) **to the wheel body** at that point; the chassis receives them only through the suspension / wheel
+  joint. `[INF]` the joint carries the force at the hub, not the contact patch.
+- The port instead applied the lateral force at the ground contact and papered over the resulting tip-over with `kRollCentreFactor`
+  (25 % shorter lever, `[INF]`).
+
+**A/B (2026-11-14, `-vehtest`, flat plane, 6 corner runs per car), new flags `-devhubforce` (lateral + longitudinal at hub height =
+contact point + wheel radius along the suspension axis) and `-devhublat` (lateral only):**
+| car (DB mu) | baseline flips / max lat g / roll | `-devhubforce` | `-devhublat` |
+|---|---|---|---|
+| H3 (1.80) | 5 / 1.25 / 90 deg | 0 / 1.71 / 1.3 | **0 / 1.63 / 1.3** |
+| Q7_V12 (1.90) | 5 / 1.22 / 90 | 0 / 1.81 / 1.5 | **0 / 1.74 / 1.5** |
+| ML63_AMG (2.00) | 5 / 1.22 / 90 | 0 / 1.90 / 1.5 | **0 / 1.82 / 1.5** |
+| Enzo (1.85-1.90) | 0 / 1.77 / 1.3 | 0 / 2.13 / 0.8 | 0 / 2.07 / 0.8 |
+| California | 0 / 1.69 | - | 0 / 1.72 / 1.0 |
+Whole roster `-vehcheck` (105 comparable cars): baseline mean 0-100 error vs DB +0.33 s (46 within 0.3 s); **`-devhubforce` worsens it to +0.44 s
+(40 within)** because moving the *longitudinal* force changes the traction load transfer the port's drive model was calibrated with;
+**`-devhublat` leaves the roster identical to baseline (70 / 137 within 0.3 s, same as before)**. So the lateral lever is the part that
+matters for the rollover and it can be changed without touching the straight-line calibration. Lateral g stays below each car's DB friction.
+Retail cross-check: the owner saw a Q7 SUV slide, not tip, on the 360 build (`docs/re/tdu1_physics_recon.md` 5.2).
+
 ## 9. Next
-1. Read the constraint solver that consumes the two implicit impulses (`ContactTangentialConstraint`, edPhys; start from the vfunc `+0x6c`
-   target and the constructors of `+0x4a0` / `+0x510`): is the tangential impulse clamped by `mu_eff x (solved normal impulse)`, and does the
-   solver run several iterations per step (the car vfuncs `+0x28/+0x2c/+0x30` of retail spec 6.8)?
-2. If yes, prototype "friction cone limit from the solved normal impulse incl. roll" in the port behind a flag; A/B on the same table.
-3. Resolve `[car+0x5dc] == 3`.
+1. Decide whether `-devhublat` becomes the default (it removes all 27 baseline flips; sports-car cornering grip rises 3-17 %, still under
+   the DB friction). The `kRollCentreFactor` fudge becomes dead code when it does.
+2. The longitudinal force at the hub is architecturally right but needs the drive model re-calibrated (0-100 +0.11 s mean) - separate task.
+3. Cornering *feel* check by the owner (DualSense) and an oracle number from the 360 build for peak lateral g.
+4. Open: `[car+0x5dc] == 3`; the rest-length solve normalisation; the wheel joint constraint that carries the hub force (`WheelJoint +0x580`, `0x1004f90`).

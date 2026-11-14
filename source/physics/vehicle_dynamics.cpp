@@ -1431,13 +1431,24 @@ void VehicleDynamics::tick( float h, const Input &input, const VehicleWorldColli
         const Vector3f longForce = frame.Longitudinal * ( longImpulse / h );
         const Vector3f latForce = frame.Lateral * ( latImpulse / h );
         force += longForce + latForce;
-        const Vector3f tyreArm = frame.Point - com;
+        // EXPERIMENT (-devhubforce, default off): in the Apr 2012 dev build the wheel is its
+        // own rigid body (state +0x150); the tyre impulses act on it at hub - n x LoadedRadius
+        // (0xfff970 / 0x1002dd0) and reach the chassis through the suspension joint, so the
+        // chassis feels them at hub height, not at the contact patch [CODE-dev; the transfer
+        // through the joint is INF]. docs/re/dev_build_physics.md 8b.
+        static const bool bDevHubForce = CmdLine::HasArg( "-devhubforce" );
+        const Vector3f tyreArm = bDevHubForce ? ( frame.Point + up * radius - com ) : ( frame.Point - com );
         torque += tyreArm.cross( longForce );
         // The lateral force acts at the roll centre: the lever above the
         // contact patch is shortened by kRollCentreFactor of the height of the
         // centre of mass [INF: the original suspension geometry is ENC; a full
         // height lever tipped the car over in every slide].
-        const Vector3f rollArm = tyreArm - up * ( up.dot( tyreArm ) * kRollCentreFactor );
+        // -devhublat: only the lateral force at hub height (the longitudinal path stays at the
+        // contact patch: it is calibrated against the DB 0-100 / braking).
+        static const bool bDevHubLat = CmdLine::HasArg( "-devhublat" );
+        const Vector3f hubArm = frame.Point + up * radius - com;
+        const Vector3f rollArm = bDevHubForce ? tyreArm
+                                              : ( bDevHubLat ? hubArm : tyreArm - up * ( up.dot( tyreArm ) * kRollCentreFactor ) );
         torque += rollArm.cross( latForce );
     }
 
