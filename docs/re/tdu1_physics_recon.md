@@ -145,6 +145,24 @@ the vtable pointer; vtable slot `+0x24` (PC: `0x54bc70` / `0x54bac0`) is the for
 `vehicle_dynamics.cpp` lines ~1270-1292: in particular whether `MaxDamperForce` caps the damper term (our port does not use
 it) and what the real bump stop is (ours is an `[INF]` capped force).
 
+### 6.2 Third pass (same day) - still not found; stop fingerprinting
+
+| candidate | what it is | verdict |
+|---|---|---|
+| `0xCC09C` (949 lines, `0xCC09C-0xCCE5C`) | **not a serializer**: Havok-style constraint set-up - sums fields `+0xB4..+0x114`, divides by inverse-mass sums, flag bits `&1` / `&2`, float constants at `0xFB1B4C / 50 / 54 / 58` | probably the **contact / chassis constraint solver** (spec 6.8 `[ENC]` item), not the suspension; worth reading for that item |
+| `0x10A0AE8` | a table of ~16 function descriptors (`0x75c798 ... 0x780624`) - a per-class registry (copy / serialize slots), **not** a vtable | the `0x77xxxx` class is registered here; no vtable slot `+0x24` |
+| `0x41D3A0` / `0x41D5F0` | 985-line function; its `+0x6A0/+0x6AC/+0x6B0/+0x6B4` reads use base `0xF3<<16` = **`.rodata` globals**, not wheel fields | false positive (offset collision with data) |
+| `0x86EA60`, `0x787CA8` | wheel set-up / serialization, no arithmetic | not the law |
+
+Conclusion `[INF]`: a scan on field offsets collides with every copy / serialize / data-global access, and the law is probably reached
+through a vtable call, so no function contains the offset set *and* the arithmetic in one place. Three passes of regex scans
+(six functions read, eleven ruled out) have stopped converging. Two routes are left:
+
+1. **A real decompiler on the PS3 ELF** (Ghidra / ReVa on `EBOOT.ELF`): recover the vtable of the wheel's suspension object from
+   the constructor that stores `this+0x640` and read slot `+0x24`. This is the route the TDU1 port itself uses.
+2. **The behavioural oracle**: the 360 build is runnable; measure the retail H3 / Q7 steady-state cornering (lateral g at the point the
+   inner wheels lift) and fit our `[INF]` parameters (CG height, the 2x static load clamp, bump stop) to it, instead of reading the law.
+
 ## 7. Not done
 
 - Their `havok/` (Havok->Jolt converter, 900 lines) not read: relevant only to the
