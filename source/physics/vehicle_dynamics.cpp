@@ -1276,7 +1276,17 @@ void VehicleDynamics::tick( float h, const Input &input, const VehicleWorldColli
         const VehicleWorldCollision::Hit &hit = hits[i];
         const float x = offsets[i];
         // Damper rate (clamped, see kMaxCompressionRate).
-        const float compressionRate = Clamp( ( x - state.Compression ) / h, -kMaxCompressionRate, kMaxCompressionRate );
+        // EXPERIMENT (-devdamper, default off): the damper law of the Apr 2012 dev
+        // build [CODE-dev, docs/re/dev_build_physics.md 4]: F = c clamp(dOffset/dt, -V, V)
+        // with V = 2 |axis . velocity of the chassis anchor| (0x1012130 / 0x1012840)
+        // replaces the fixed kMaxCompressionRate.
+        static const bool bDevDamper = CmdLine::HasArg( "-devdamper" );
+        float rateLimit = kMaxCompressionRate;
+        if ( bDevDamper ) {
+            const Vector3f anchorArm = Rotate( orientation, rayStarts[i] ) + position - com;
+            rateLimit = 2.0f * std::abs( up.dot( velocity + angularVelocity.cross( anchorArm ) ) );
+        }
+        const float compressionRate = Clamp( ( x - state.Compression ) / h, -rateLimit, rateLimit );
         state.Compression = Min( x, s.UpperStop );
         // Spring k (x - LowerStop) (1 + bias (x - LowerStop)), damper bump /
         // rebound (DampingArray[0] / [1]) [CODE values, INF law].

@@ -15,7 +15,12 @@ The owner found `TestDrive2DEV.exe` (Hidden Palace, Apr 6 2012 prototype) and as
 - Tyre law is the retail one (`D = MaxFriction x Fz`), so load sensitivity is NOT in the Pacejka evaluator.
 - Suspension: spring `k x (1 + b x)` matches the port exactly; `0x1012930` (vtable slot 9) is a rest-length solve, probably the retail `[ENC]` 0x54bc70 / 0x54bac0; damper clamps velocity (`V` at +0x80); stabilizer bar `(K dx - C dv) x w`.
 
+### Follow-up (same session): `0x1012130` decoded, damper limit tested
+- `V = 2|axis . v_anchor|` (damper velocity limit), `v = -dOffset/dt`, `MaxDamperForce` is diagnostic only; port signs confirmed. New flag `-devdamper` (`vehicle_dynamics.cpp`, off by default) uses it instead of `kMaxCompressionRate`.
+- A/B `-vehtest` H3 / Q7_V12 / ML63_AMG: 5 of 6 flip with and without it; lateral 12.29 -> 12.30 m/s2. **The damper is not the rollover lever.** Next: the factor `w` (wheel vfunc +0x40) that scales the total suspension force, then the contact solver.
+
 ### Ruled out
+- `-devdamper` identical flips -> not the damper.
 - "Lateral grip cheat" (0x552420) is AI opponent tuning, not a player tyre knob.
 
 ### Not done / next

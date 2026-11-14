@@ -48,18 +48,40 @@ has **slot 9 (+0x24) = `0x1012930`**, and the base `0x1559a20` slot 9 = `0x1001d
   `w` = wheel vfunc `+0x40` (`0x1011460`), also scales the **total** force. Force vector = axis (+0xa0..+0xac) x total.
 - `+0x6c MaxDamperForce` is **computed** each frame by `0x1012130` as `|m_body x (axis . ...)|`, not a static value.
 
+## 4b. `0x1012130` decoded (the per-frame update) [CODE-dev]
+Field names from the serializer `0x1011be0`: `+0xa0 GlobalNormal` (the axis, 4-vector), `+0xb0 StabilizerBarImpulse`,
+`+0xb4 / +0xb8 StabilizerBarDamping / Stiffness`, `+0xbc StabilizerBarVelocity`, `+0xc0 StabilizerBarOffset`,
+`+0xc4 PreviousOffset`, `+0xc8 LowerStop`, `+0xcc UpperStop`, `+0xd0 StopOffset`; `+0x7c Velocity`, `+0x88 Offset`.
+`this+0x10` is the array of the two bodies (`0x10111d0` = array getter, body 0 = chassis); body `+0x150` = its state.
+`0xfd1d30(state, r)` = **velocity of a body point** (linear `+0x80` + `r x w` with `w = +0x90..+0x98`).
+- `axisVel = GlobalNormal . pointVelocity(GlobalAnchor)` in m/s.
+- Update path (flag true): `Velocity (+0x7c) = (PreviousOffset - Offset) x Frequency`, Frequency = owner vfunc `0x44`
+  (the retail spec's "vfunc 0x44 INF = Frequency" is confirmed). So **`v = -dOffset/dt`**.
+- **`V (+0x80) = 2 |axisVel|`**, the damper's velocity limit; **`MaxDamperForce (+0x6c) = |-m_chassis (axis . v_COM) x Frequency|`**
+  (the force that would stop the chassis along the axis in one step). `0x10122f0` does not read `+0x6c`;
+  no consumer was found in this class (it is serialized only) - treat as a diagnostic.
+- Flag false: `+0x7c = axisVel`, `+0x6c = +0x80 = [0x1481d44]` (no clamp).
+- **Signs resolved:** damper `F = -c clamp(v, +-V) = +c clamp(dOffset/dt, +-V)` (same orientation as the port's
+  `compressionRate`); stabilizer bar `K dOffset - C dv` = port's `K dx + C dv`. The port's signs are right.
+
 ## 5. Differences from `source/physics/vehicle_dynamics.cpp` (not changed yet)
 | Item | Port | Dev build | Size of effect |
 |---|---|---|---|
 | spring | `k x (1 + b x)` (line 1288) | same | none - confirmed |
-| damper | `c v` unclamped | `c clamp(v, -V, V)` | unknown until `V` (+0x80) is decoded |
-| stabilizer bar | `(dx K + dv C)` on both wheels, only if both contact | `(K dx - C dv) x w`, `w` = wheel vfunc 0x40 | sign convention of `v` unverified |
+| damper | `c clamp(rate, +-0.5 m/s)` (`kMaxCompressionRate`) | `c clamp(rate, +-V)`, `V = 2 abs(axis . v_anchor)` | **`-devdamper` A/B: no effect on rollover** (section 7) |
+| stabilizer bar | `(dx K + dv C)` on both wheels, only if both contact | `(K dx - C dv) x w`, `w` = wheel vfunc 0x40 | signs agree; `w` still unknown |
 | rest compression | linear `F0/k` (line 311) | solves the bias (4 above) | small: bias x 0.01 per metre |
-| `MaxDamperForce` | not modelled | per-frame momentum-based limit | candidate for the rollover / kerb launch |
+| `MaxDamperForce` | not modelled | per-frame momentum limit, **not read by the force function** | none found |
 
 ## 6. Next (in order)
-1. Decode `0x1012130` fully: the origin of `V (+0x80)` and `MaxDamperForce (+0x6c)`.
-2. Identify `w` (wheel vfunc `+0x40` of the object at `this+0x10`) - the contact / lift factor on the whole force.
-3. Establish which joint class the cars use (callers `0x10001c0`, `0x1002050`) to settle the normalised vs
-   unnormalised rest solve.
-4. Then prototype `V` / `MaxDamperForce` behind a flag, A/B with `-vehtest` / `-logcorner`.
+1. Identify `w` (wheel vfunc `+0x40` of the object at `this+0x10`): the factor that scales the stabilizer bar **and the total
+   suspension force** (`0x10124e6`); the port has no equivalent and it directly shapes weight transfer.
+2. Establish which joint class the cars use (callers `0x10001c0`, `0x1002050`) to settle the normalised vs unnormalised rest solve.
+3. The rollover is weight transfer vs grip: read the wheel contact / constraint solver (`0x10012f0`, `0x100c2e0`, `0x100d370`
+   are large force-application candidates) instead of more damper work.
+
+## 7. A/B: `-devdamper` (2026-11-14, `-vehtest`, flat plane)
+H3 / Q7_V12 / ML63_AMG, 6 corner runs each, baseline vs `-devdamper`: **5 flips of 6 in every case, both ways**; H3 steer 0.25
+@ 60 km/h lateral 12.29 -> 12.30 m/s2 (1.25 g both). The damper limit is real but is **not** the rollover lever
+(it only changes the transient). Flag stays off by default. Command:
+    build-mainin\opentdu2-main.exe -game C:/TDU2-Gamedata/TestDrive2 -userdata C:/temp/otdu2-win-userdata -gm FREERIDE -skipcine -no3d -nopad -fixedtimestep -car H3 -vehtest [-devdamper] -exitframe 5
