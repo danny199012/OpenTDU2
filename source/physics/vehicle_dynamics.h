@@ -128,6 +128,7 @@ public:
     // 0..65535; state 0 clean, 1 scratched (>= IntervalScratch), 2 deformed (>= IntervalDeform),
     // 3 broken (>= IntervalBreak). kind: 0 car, 1 fixed object, 2 moving object.
     inline float getDamage() const { return damage; }
+    inline float getMass() const { return mass; }
     int32_t getDamageState() const;
     inline void resetDamage() { damage = 0.0f; }
     float addImpactDamage( float magnitude, int32_t kind );

@@ -3162,6 +3162,37 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     }
 }
 
+void CinematicCar::applyDamageState( int32_t state ) {
+    const bool bCracked = state >= 2;
+    if ( appliedDamageState == ( bCracked ? 1 : 0 ) || gpRender == nullptr || !car.isLoaded() ) {
+        return;
+    }
+    static const uint64_t kDetail2 = GetIdentifier64bit( "DETAIL2" );
+    static const uint64_t kCarPaint = 0x183157b81c6c7357ull;
+    GPUTexture *pClean = gpRender->getTextureCache().find( "g_i" );
+    GPUTexture *pCracked = gpRender->getTextureCache().find( "glass_b" );
+    if ( pClean == nullptr || pCracked == nullptr ) {
+        return; // common_car.bnk not loaded (yet): retried on the next call
+    }
+    const uint64_t wanted = GetIdentifier64bit( bCracked ? "GLASS_B" : "G_I" );
+    GPUTexture *pWanted = bCracked ? pCracked : pClean;
+    uint32_t changed = 0;
+    for ( EdenMaterial &material : car.getMaterials() ) {
+        if ( material.ShaderSetGUID != kCarPaint || material.Name.compare( 0, 5, "Glass" ) != 0 ) {
+            continue;
+        }
+        for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
+            if ( material.SlotTypes[i] == kDetail2 && material.TextureHashes[i] != wanted ) {
+                material.pTextures[i] = pWanted;
+                material.TextureHashes[i] = wanted;
+                changed++;
+            }
+        }
+    }
+    appliedDamageState = bCracked ? 1 : 0;
+    OTDU_LOG_INFO( "CinematicCar: damage state %d -> %s glass (%u slot(s))\n", state, bCracked ? "cracked" : "clean", changed );
+}
+
 void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, float wetness ) {
     // The crust (hardness) drives the CarDirt wash law; the paint only needs
     // how much stain there is and how wet the body is.

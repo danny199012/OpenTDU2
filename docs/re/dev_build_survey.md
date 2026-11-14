@@ -53,7 +53,7 @@ would show the cut features directly; I have not run it (untrusted download), th
   build folder** (the launcher asks for the folder) into the mods overlay; (b) code features behind flags (damage, hub-height lateral force) that are ours;
   (c) community content packs with a manifest, hosted by their authors.
 - **Launcher today:** a single `Open mods folder` button (`tools/launcher/launcher_ui.cpp:1263`); the game overlay is one directory (`<user data>/mods`, `-mods`, `-nomods`).
-- **Proposed Mods page (not built):** `<mods>/<name>/mod.json` (`name`, `version`, `description`, `author`, `requires`, `files`), the launcher lists them with an
+- **Mods page (built 2026-11-14):** `tools/launcher/launcher_mods.{h,cpp}` + `Page::Mods` in `launcher_ui.cpp`; the game reads `<mods>/enabled.txt` and the folders `<mods>/packages/<id>/` as overlay layers after the loose mods folder (`gs_file.cpp`). Bundled import mod `original-physics` (mod.json only; "Import from my copy" copies `Physics.cpr` from the user's own Dev Build folder). Logic verified headless (9 checks + the engine resolving the package file); the page itself was not looked at on screen. Original proposal: `<mods>/<name>/mod.json` (`name`, `version`, `description`, `author`, `requires`, `files`), the launcher lists them with an
   enable toggle and a "Import from my copy" action for mods that need the user's own files, writes `<user data>/mods.json` (enabled list, priority), and the game
   merges the enabled folders in that order into its overlay. Needs: a multi-root overlay in `gs_file.cpp` (today one root), a manifest parser (the launcher already
   has `launcher_json`), and the page in `launcher_ui.cpp`.

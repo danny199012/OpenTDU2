@@ -53,8 +53,16 @@ moving-object kinds (traffic) are not fed.
 Verified: `-gm FREERIDE ... -autoplay "60:hold=accel;300:hold=steerleft;..." -exitframe 1300` -> scratched -> deformed -> broken in one crash sequence; a gentle
 scrape run reaches 25059 by accumulation. No visual check (headless `-no3d`).
 
+## 3b. Visible damage and the traffic feed (2026-11-14, same day)
+- **Glass:** `CinematicCar::applyDamageState( state )` (called every frame by `gm_freeride.cpp` after `applyCarDirt`): from state 2 (deformed)
+  the exterior `Glass*` materials (CarPaint family) bind `glass_b`, the retail starred-pane art of common_car, in their `DETAIL2` slot (the shader
+  fades the base toward it, `traffic_spec.md`), and `g_i` (clean base) below. Log: `CinematicCar: damage state 2 -> cracked glass (5 slot(s))`.
+  Evidence: `docs/images/damage_cracked_glass_windscreen.png` (windscreen after a ~100 km/h crash: bullet-hole star and scratch web).
+- **Traffic:** a rising-edge player-traffic crash (the same event that feeds the police violation) calls `addImpactDamage( 0.5 m x 1.3 x speed / dt, 0 )`
+  (kind 0 = `ScaleCar`) `[INF]` - compiled, **not yet exercised in play** (a test drive hit only scenery).
+- Calibration seen: ~90 km/h scenery hit = +28,580 (scratched) in one impact; ~100 km/h crash sequences reach broken.
+
 ## 4. Next
-1. Feed traffic / car-car impacts (`kind 0`, `ScaleCar`) from `traffic.cpp`, and the lateral rule for side hits.
-2. Visual damage: `DamageMap` render target + `TD_damagemap` splat + `TD_CarDeform_TS` on the car body, scratches at state 1, deformation at 2, glass
-   cracks (the `DETAIL2` damaged-glass art, `traffic_spec.md`) and the wreck look at 3; `CrushedSuspensionFX`.
+1. Exercise the traffic feed in play; the lateral rule for side hits; AI-vs-AI impacts.
+2. Remaining visuals: `DamageMap` render target + `TD_damagemap` splat + `TD_CarDeform_TS` on the car body (scratches at state 1, deformation at 2, the wreck look at 3), `CrushedSuspensionFX`. The glass crack is done.
 3. Decode the record magnitude: the Havok contact listener that fills the records (the vehicle's `HavokVehicle.cpp` module).

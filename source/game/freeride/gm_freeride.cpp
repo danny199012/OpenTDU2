@@ -4511,6 +4511,8 @@ void GMFreeRide::tickSurfaceFx( float deltaTime ) {
     }
     const float contactsInv = groundedWheels > 0.0f ? 1.0f / groundedWheels : 0.0f;
     applyCarDirt( mudContacts * contactsInv, dirtContacts * contactsInv, carVelocity.length() * 3.6f );
+    // Car damage (docs/re/damage_spec.md): the glass cracks from "deformed".
+    car.applyDamageState( vehicle.getDamageState() );
     if ( bLog ) {
         fx.logStats();
     }
@@ -5732,6 +5734,10 @@ void GMFreeRide::tick( float deltaTime ) {
             // bump filled the awareness meter - the "one crash and they
             // chase you" report. The rising edge counts; the latch re-arms
             // once the contact has been clear for kCrashClearGrace.
+            static float sPrevCrashSpeed = 0.0f;
+            const float speedNow = std::abs( vehicle.getSpeedKmh() ) / 3.6f;
+            const float prevCrashSpeed = sPrevCrashSpeed;
+            sPrevCrashSpeed = speedNow;
             bool bNewCrash = false;
             if ( bTrafficCrash ) {
                 if ( !bTrafficCrashLatch ) {
@@ -5746,6 +5752,12 @@ void GMFreeRide::tick( float deltaTime ) {
                 }
             }
             if ( bNewCrash ) {
+                // Car damage of the hit (damage_spec.md): a car-car impact, kind 0 (ScaleCar). The
+                // magnitude is the contact force an equal-mass head-on at the recent speed would
+                // give, impulse / dt with a reduced mass of m / 2 and restitution 0.3 [INF].
+                const float closing = Max( prevCrashSpeed, speedNow );
+                vehicle.addImpactDamage( 0.5f * vehicle.getMass() * 1.3f * closing / Max( deltaTime, 1e-3f ), 0 );
+
                 // A violation needs a witness: a police car among the traffic
                 // within sight (160 m [INF]) makes a hit count in full (three
                 // solid hits start a chase); with no police around the hit

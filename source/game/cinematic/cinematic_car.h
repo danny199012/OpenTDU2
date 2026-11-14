@@ -276,6 +276,12 @@ public:
     // (and after every repaint) so the blend never accumulates.
     void applySurfaceState( float mud, float dirt, float hardness, float wetness );
 
+    // Car damage (docs/re/damage_spec.md): 0 clean, 1 scratched, 2 deformed, 3 broken. From state 2 the
+    // exterior glass binds the retail damaged-glass art (common_car's glass_b, a starred pane) in its
+    // DETAIL2 slot - the CarPaint glass shader fades the base toward it - and back to the clean glass
+    // base (g_i) below. Idempotent: it only touches the materials when the state changes.
+    void applyDamageState( int32_t state );
+
 private:
     // The light driver (docs/re/car_lights_spec.md): collectLights at load
     // (FUN_00c5ee20 + FUN_00c5f060), updateLights per frame (the blinker
@@ -440,6 +446,7 @@ private:
     EdenMaterial glassDirt;                                 // the interior's Glass_I
     bool bGlassSwapped = false;
     bool bGlassGathered = false;
+    int32_t appliedDamageState = -1;
     void applyGlassSwap( bool bInside );
     // The wiper driver (the comment at setWiperMode).
     struct WiperHalf {
