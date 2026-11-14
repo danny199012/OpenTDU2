@@ -202,6 +202,134 @@ uint64_t CellKey( int32_t x, int32_t z ) {
 }
 } // namespace
 
+// A road with the terrain heightfield well ABOVE it is a covered road: a tunnel, whatever its nodes are
+// called. The up-facing TD_Road triangles are tested against the heightfield at their corners and
+// centre; the covered ones are clustered on an 8 m grid (4-connected) and each cluster becomes a carve
+// box (road extent + 2 m margin, from just under the road to the highest terrain over it). The
+// keyword rule (CarveKeyword) found 17 nodes on Ibiza and missed this one: the whole bore filled with
+// the hill, the car rode the terrain into the jet fans (build 81 report).
+void EdenWorld::FindRoofedRoadBoxes( Sector &sector ) {
+    sector.RoofBoxes.clear();
+    static const bool bOff = CmdLine::HasArg( "-noroofcarve" );
+    if ( bOff || sector.Terrain.Heights.empty() || !sector.Objects.isLoaded() ) {
+        return;
+    }
+    const std::vector<EdenMaterial> &materials = sector.Objects.getMaterials();
+    const std::vector<EdenModel::Item> &items = sector.Objects.getItems();
+    const std::vector<Vector3f> &soup = sector.Objects.getCollisionVertices();
+    const std::vector<uint32_t> &soupIndices = sector.Objects.getCollisionIndices();
+    const std::vector<float> &heights = sector.Terrain.Heights;
+    const float spacing = sector.Terrain.Spacing;
+    // Terrain height at a sector local point (nearest cell).
+    const auto terrainAt = [&]( float x, float z ) -> float {
+        const int32_t gx = static_cast<int32_t>( Clamp( std::floor( x / spacing + 0.5f ), 0.0f, 256.0f ) );
+        const int32_t gz = static_cast<int32_t>( Clamp( std::floor( z / spacing + 0.5f ), 0.0f, 256.0f ) );
+        return heights[static_cast<size_t>( gz ) * kHeightfieldSize + static_cast<size_t>( gx )];
+    };
+    constexpr float kRoof = 3.5f; // terrain this far above the road = covered
+    constexpr float kCell = 8.0f;
+    struct Cluster {
+        Vector3f Min = Vector3f( FLT_MAX, FLT_MAX, FLT_MAX );
+        Vector3f Max = Vector3f( -FLT_MAX, -FLT_MAX, -FLT_MAX );
+        float TerrainMax = -FLT_MAX;
+        uint32_t Triangles = 0;
+    };
+    std::unordered_map<uint64_t, Cluster> cells; // covered 8 m cells
+    for ( const EdenModel::Item &item : items ) {
+        if ( item.CollisionCount < 3 || item.MaterialIndex >= materials.size() ) {
+            continue;
+        }
+        // The ordinary road shader set, and the tunnel road: material "RoadTunnelMater" has its own shader set
+        // id (e8ad93c00455291b, seen at the 35949, 5940 tunnel) [DATA].
+        const uint64_t roadGuid = materials[item.MaterialIndex].ShaderSetGUID;
+        if ( roadGuid != kRoadShaderSet && roadGuid != 0xe8ad93c00455291bull ) {
+            continue;
+        }
+        for ( uint32_t i = 0; i + 2 < item.CollisionCount; i += 3 ) {
+            const uint32_t ia = soupIndices[item.CollisionFirst + i];
+            const uint32_t ib = soupIndices[item.CollisionFirst + i + 1];
+            const uint32_t ic = soupIndices[item.CollisionFirst + i + 2];
+            if ( ia >= soup.size() || ib >= soup.size() || ic >= soup.size() ) {
+                continue;
+            }
+            const Vector3f &a = soup[ia];
+            const Vector3f &b = soup[ib];
+            const Vector3f &c = soup[ic];
+            const Vector3f normal = ( b - a ).cross( c - a );
+            const float length = normal.length();
+            if ( length < 1e-6f || normal.y <= 0.5f * length ) {
+                continue;
+            }
+            // Covered when the terrain is above the road at the centre and at two of the corners.
+            const Vector3f centre = ( a + b + c ) * ( 1.0f / 3.0f );
+            int32_t above = 0;
+            float terrainMax = -FLT_MAX;
+            for ( const Vector3f &p : { centre, a, b, c } ) {
+                const float t = terrainAt( p.x, p.z );
+                if ( t > p.y + kRoof ) {
+                    above++;
+                }
+                terrainMax = Max( terrainMax, t );
+            }
+            if ( above < 3 ) {
+                continue;
+            }
+            const int32_t cx = static_cast<int32_t>( std::floor( centre.x / kCell ) );
+            const int32_t cz = static_cast<int32_t>( std::floor( centre.z / kCell ) );
+            Cluster &cell = cells[CellKey( cx, cz )];
+            cell.Min = Vector3f( Min( cell.Min.x, Min( a.x, Min( b.x, c.x ) ) ), Min( cell.Min.y, Min( a.y, Min( b.y, c.y ) ) ),
+                                 Min( cell.Min.z, Min( a.z, Min( b.z, c.z ) ) ) );
+            cell.Max = Vector3f( Max( cell.Max.x, Max( a.x, Max( b.x, c.x ) ) ), Max( cell.Max.y, Max( a.y, Max( b.y, c.y ) ) ),
+                                 Max( cell.Max.z, Max( a.z, Max( b.z, c.z ) ) ) );
+            cell.TerrainMax = Max( cell.TerrainMax, terrainMax );
+            cell.Triangles++;
+        }
+    }
+    if ( cells.empty() ) {
+        return;
+    }
+    // 4-connected components of the covered cells -> one box each.
+    std::unordered_set<uint64_t> visited;
+    for ( const auto &entry : cells ) {
+        if ( visited.count( entry.first ) ) {
+            continue;
+        }
+        Cluster box;
+        std::vector<uint64_t> stack{ entry.first };
+        visited.insert( entry.first );
+        while ( !stack.empty() ) {
+            const uint64_t key = stack.back();
+            stack.pop_back();
+            const Cluster &cell = cells.at( key );
+            box.Min = Vector3f( Min( box.Min.x, cell.Min.x ), Min( box.Min.y, cell.Min.y ), Min( box.Min.z, cell.Min.z ) );
+            box.Max = Vector3f( Max( box.Max.x, cell.Max.x ), Max( box.Max.y, cell.Max.y ), Max( box.Max.z, cell.Max.z ) );
+            box.TerrainMax = Max( box.TerrainMax, cell.TerrainMax );
+            box.Triangles += cell.Triangles;
+            const int32_t cx = static_cast<int32_t>( static_cast<uint32_t>( key >> 32 ) );
+            const int32_t cz = static_cast<int32_t>( static_cast<uint32_t>( key & 0xffffffffu ) );
+            for ( const int32_t d : { -1, 1 } ) {
+                for ( int32_t axis = 0; axis < 2; axis++ ) {
+                    const uint64_t next = CellKey( cx + ( axis == 0 ? d : 0 ), cz + ( axis == 1 ? d : 0 ) );
+                    if ( cells.count( next ) && visited.insert( next ).second ) {
+                        stack.push_back( next );
+                    }
+                }
+            }
+        }
+        if ( box.Triangles < 6 ) {
+            continue; // a stray triangle, not a bore
+        }
+        const float margin = 2.0f;
+        sector.RoofBoxes.push_back( { Vector3f( box.Min.x - margin, box.Min.y - 1.0f, box.Min.z - margin ),
+                                      Vector3f( box.Max.x + margin, box.TerrainMax + 1.0f, box.Max.z + margin ) } );
+    }
+    for ( const auto &box : sector.RoofBoxes ) {
+        OTDU_LOG_INFO( "EdenWorld: %s: covered road (no tunnel node) x %.0f..%.0f y %.1f..%.1f z %.0f..%.0f carved\n",
+                       SectorName( sector.Id ).c_str(), box.first.x + sector.Origin.x, box.second.x + sector.Origin.x, box.first.y,
+                       box.second.y, box.first.z + sector.Origin.z, box.second.z + sector.Origin.z );
+    }
+}
+
 // Marks the heightfield cells whose height lies inside a tunnel / bridge
 // node's volume (world bbox + a one-cell margin). Their sheet crosses the
 // object's shell and, drawn opaque with depth write ahead of it, fills the
@@ -220,6 +348,7 @@ void EdenWorld::MarkCarvedCells( Sector &sector ) {
     if ( heights.empty() || !sector.Objects.isLoaded() ) {
         return;
     }
+    FindRoofedRoadBoxes( sector );
     const std::vector<SceneNode> &nodes = sector.Objects.getScene().getNodes();
     const float spacing = sector.Terrain.Spacing;
     uint32_t numMarked = 0;
@@ -242,6 +371,24 @@ void EdenWorld::MarkCarvedCells( Sector &sector ) {
                 const uint32_t cell = gz * kHeightfieldSize + gx;
                 const float h = heights[cell];
                 if ( h >= boundsMin.y - 0.25f && h <= boundsMax.y + 0.25f && sector.Terrain.Carved[cell] == 0 ) {
+                    sector.Terrain.Carved[cell] = 1;
+                    numMarked++;
+                }
+            }
+        }
+    }
+    for ( const auto &box : sector.RoofBoxes ) {
+        const float x0 = box.first.x - spacing, x1 = box.second.x + spacing;
+        const float z0 = box.first.z - spacing, z1 = box.second.z + spacing;
+        const uint32_t gx0 = static_cast<uint32_t>( Clamp( x0 / spacing, 0.0f, 255.0f ) );
+        const uint32_t gx1 = static_cast<uint32_t>( Clamp( x1 / spacing, 0.0f, 256.0f ) );
+        const uint32_t gz0 = static_cast<uint32_t>( Clamp( z0 / spacing, 0.0f, 255.0f ) );
+        const uint32_t gz1 = static_cast<uint32_t>( Clamp( z1 / spacing, 0.0f, 256.0f ) );
+        for ( uint32_t gz = gz0; gz <= gz1; gz++ ) {
+            for ( uint32_t gx = gx0; gx <= gx1; gx++ ) {
+                const uint32_t cell = gz * kHeightfieldSize + gx;
+                const float h = heights[cell];
+                if ( h >= box.first.y - 0.25f && h <= box.second.y + 0.25f && sector.Terrain.Carved[cell] == 0 ) {
                     sector.Terrain.Carved[cell] = 1;
                     numMarked++;
                 }
@@ -282,6 +429,9 @@ void EdenWorld::BuildCarveGround( Sector &sector ) {
         if ( sector.Objects.getNodeBounds( i, boundsMin, boundsMax ) ) {
             carveBoxes.push_back( { boundsMin, boundsMax } );
         }
+    }
+    for ( const auto &box : sector.RoofBoxes ) {
+        carveBoxes.push_back( box );
     }
     if ( carveBoxes.empty() ) {
         return;
@@ -1830,6 +1980,67 @@ bool EdenWorld::loadSector( const SectorId &id ) {
                 OTDU_LOG_INFO( "Tunnel: %s '%s' x %.0f..%.0f y %.0f..%.0f z %.0f..%.0f\n", name.c_str(), nodes[i].Name.c_str(),
                                boundsMin.x + pSector->Origin.x, boundsMax.x + pSector->Origin.x, boundsMin.y, boundsMax.y,
                                boundsMin.z + pSector->Origin.z, boundsMax.z + pSector->Origin.z );
+            }
+        }
+    }
+    // -lognodesnear x,z,r: every node of the loaded sector whose world bounds come within r metres of
+    // (x, z) in XZ, with its parent, bounds and carve keyword (finding the node of a tunnel / bridge
+    // the keyword rule misses; owner report 2026-11-14, tunnel at 35949, 5940).
+    if ( const char *pNear = CmdLine::GetArgValue( "-lognodesnear" ) ) {
+        float nx = 0.0f, nz = 0.0f, nr = 60.0f;
+        if ( sscanf( pNear, "%f,%f,%f", &nx, &nz, &nr ) >= 2 && pSector->Objects.isLoaded() ) {
+            const std::vector<SceneNode> &nodes = pSector->Objects.getScene().getNodes();
+            {
+                // The terrain at the point, and every up-facing collision triangle within 3 m of it (item,
+                // shader set, height): what the car can stand on there.
+                const float lx = nx - pSector->Origin.x, lz = nz - pSector->Origin.z;
+                if ( lx >= 0.0f && lz >= 0.0f && !pSector->Terrain.Heights.empty() ) {
+                    const int32_t gx = static_cast<int32_t>( Clamp( std::floor( lx / pSector->Terrain.Spacing + 0.5f ), 0.0f, 256.0f ) );
+                    const int32_t gz = static_cast<int32_t>( Clamp( std::floor( lz / pSector->Terrain.Spacing + 0.5f ), 0.0f, 256.0f ) );
+                    OTDU_LOG_INFO( "NodeNear: %s terrain height at (%.0f, %.0f) = %.2f, carved=%d\n", name.c_str(), nx, nz,
+                                   pSector->Terrain.Heights[static_cast<size_t>( gz ) * kHeightfieldSize + gx],
+                                   pSector->Terrain.Carved.empty() ? -1 : pSector->Terrain.Carved[static_cast<size_t>( gz ) * kHeightfieldSize + gx] );
+                    const std::vector<EdenMaterial> &mats = pSector->Objects.getMaterials();
+                    const std::vector<EdenModel::Item> &its = pSector->Objects.getItems();
+                    const std::vector<Vector3f> &sp = pSector->Objects.getCollisionVertices();
+                    const std::vector<uint32_t> &si = pSector->Objects.getCollisionIndices();
+                    int32_t shown = 0;
+                    for ( const EdenModel::Item &it : its ) {
+                        for ( uint32_t t = 0; t + 2 < it.CollisionCount && shown < 40; t += 3 ) {
+                            const uint32_t ia = si[it.CollisionFirst + t], ib = si[it.CollisionFirst + t + 1], ic = si[it.CollisionFirst + t + 2];
+                            if ( ia >= sp.size() || ib >= sp.size() || ic >= sp.size() ) {
+                                continue;
+                            }
+                            const Vector3f c = ( sp[ia] + sp[ib] + sp[ic] ) * ( 1.0f / 3.0f );
+                            if ( std::abs( c.x - lx ) > 3.0f || std::abs( c.z - lz ) > 3.0f ) {
+                                continue;
+                            }
+                            const Vector3f n = ( sp[ib] - sp[ia] ).cross( sp[ic] - sp[ia] );
+                            OTDU_LOG_INFO( "NodeNear:   tri item node %d '%s' mat '%s' shader %016llx up=%.2f y=%.2f\n", it.NodeIndex,
+                                           it.NodeIndex < nodes.size() ? nodes[it.NodeIndex].Name.c_str() : "?",
+                                           it.MaterialIndex < mats.size() ? mats[it.MaterialIndex].Name.c_str() : "?",
+                                           it.MaterialIndex < mats.size() ? static_cast<unsigned long long>( mats[it.MaterialIndex].ShaderSetGUID ) : 0ull,
+                                           n.length() > 1e-6f ? n.y / n.length() : 0.0f, c.y + pSector->Origin.y );
+                            shown++;
+                        }
+                    }
+                }
+            }
+            for ( int32_t i = 0; i < static_cast<int32_t>( nodes.size() ); i++ ) {
+                Vector3f boundsMin, boundsMax;
+                if ( !pSector->Objects.getNodeBounds( i, boundsMin, boundsMax ) ) {
+                    continue;
+                }
+                const float x0 = boundsMin.x + pSector->Origin.x, x1 = boundsMax.x + pSector->Origin.x;
+                const float z0 = boundsMin.z + pSector->Origin.z, z1 = boundsMax.z + pSector->Origin.z;
+                if ( nx < x0 - nr || nx > x1 + nr || nz < z0 - nr || nz > z1 + nr ) {
+                    continue;
+                }
+                const int32_t parent = nodes[i].Parent;
+                const char *pKeyword = CarveKeyword( nodes, i );
+                OTDU_LOG_INFO( "NodeNear: %s #%d '%s' parent '%s' x %.0f..%.0f y %.1f..%.1f z %.0f..%.0f carve=%s\n",
+                               name.c_str(), i, nodes[i].Name.c_str(), parent >= 0 ? nodes[parent].Name.c_str() : "-", x0, x1,
+                               boundsMin.y, boundsMax.y, z0, z1, pKeyword != nullptr ? pKeyword : "none" );
             }
         }
     }

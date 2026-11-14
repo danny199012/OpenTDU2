@@ -209,6 +209,9 @@ private:
     // node's volume (see eden_world.cpp): their sheet crosses the object's
     // shell and fills the tunnel mouth with terrain (docs/STATE.md session
     // 42; the session-56 island scan). Runs at sector load, -nocarve skips it.
+    // Road triangles with the terrain well above them (a tunnel the keyword rule misses; owner report
+    // 2026-11-14, the tunnel at 35949, 5940): clustered into carve boxes. -noroofcarve disables it.
+    static void FindRoofedRoadBoxes( Sector &sector );
     static void MarkCarvedCells( Sector &sector );
     // Indexes the up-facing triangles of the tunnel / bridge nodes (the
     // cells' carvers) into 8 m XZ buckets: the ground getGroundHeight hands
@@ -275,6 +278,9 @@ private:
         // soup indices into Objects' collision copy (three per triangle) bucketed
         // by 8 m XZ cell (sector local, CellKey) - the ground the drive physics
         // stands on where the heightfield is carved away (getGroundHeight).
+        // Covered-road volumes found from the geometry itself (FindRoofedRoadBoxes), carved like the keyword
+        // tunnels: sector local min / max.
+        std::vector<std::pair<Vector3f, Vector3f>> RoofBoxes;
         std::vector<uint32_t> CarveTriangles;
         std::unordered_map<uint64_t, std::vector<uint32_t>> CarveCells;
         // The same shape for the sector's TD_Road items (BuildRoadIndex): the

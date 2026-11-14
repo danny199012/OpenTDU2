@@ -3,6 +3,23 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 13th): the dirt-filled tunnel at the free-roam start fixed (owner report, build 81)
+
+The owner: "at start of free roam you turn left and there's a tunnel it's blocked oddly" - parked outside it, F2 position X 35949.07 Y 5.71 Z 5889.96 HDG 5.2.
+
+**Reproduced**: `-tp 35949.07,5.71,5889.96 -heading 5.2 ... hold=accel`: the car stops at z 5945 (y 10.3, launched). The black panel with the two amber lamps is the **hill (terrain heightfield) filling the bore**, the jet fans hang in front of it (`docs/images/tunnel_35949_before_terrain_plug.png`).
+
+### What changed
+- `source/world/eden_world.{h,cpp}` `FindRoofedRoadBoxes`: a name-independent carve rule. The keyword rule (`CarveKeyword`: tun / pont / viad / bridge in node names) missed this tunnel: its shell is a *material* (`5067tunnel_mesh`) on the node `BLOCK`, its road a material `RoadTunnelMater` with **its own shader-set id `e8ad93c00455291b`** [DATA] on the node `NETWORK`. Road triangles (that id and the ordinary road id) with the heightfield > 3.5 m above them (centre + 2 corners) are clustered (8 m, 4-connected, >= 6 triangles) into carve boxes that feed both `MarkCarvedCells` and `BuildCarveGround`. `-noroofcarve` is the A/B.
+- `-lognodesnear x,z,r` (debug): nodes near a point, the terrain height there and the collision triangles under it (material, shader id, height).
+
+### Verified
+- Same drive with the fix: z 6011 at 126 km/h and 137 km/h later, car at road level; `-noroofcarve`: stuck at z 5945, y 10.3 (`docs/images/tunnel_35949_after_roofcarve.png`, a long lit bore with fans).
+- `-scantunnels`: the rule now reports the covered roads of this tunnel (sector-5-0-6-7 / 5-1-6-0, ~500 m) and of other tunnels / underpasses across the island (see the log: `covered road (no tunnel node)`); the carve-ground index (road triangles) serves the physics there.
+
+### Not done / next
+- Not driven: the other newly flagged covered roads (city sectors 3-3-x, 3-4-x, 4-2-6-7); a false positive would show as a hole in a hill, `-noroofcarve` is the A/B. The owner also reported (build 78 / 81): the save starting at the Tess drive instead of the hotel (Profiles page shows the story step), dealer cars without collision and the exterior glass hidden in cockpit views (by design, `-keepglass`); F2 opens the coordinate overlay and the advanced graphics menu together (noted, not looked at).
+
 ## Session 2026-11-14 (`main`, 12th): dev-build survey, car damage decoded + accumulator, original Physics.cpr as a mod
 
 The owner: work on damage; what else can the dev build give (grass / vegetation, traffic, road signs, DLC2 / bikes, cut content, menus, outfits); could it be an opt-in mod in a launcher Mods page.
