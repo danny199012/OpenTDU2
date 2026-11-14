@@ -64,7 +64,30 @@ int32_t PhoneCalls::load() {
             calls.push_back( std::move( call ) );
         }
     }
-    OTDU_LOG_INFO( "PhoneCalls: %zu calls from DBPhoneCall\n", calls.size() );
+    // Every caller's portrait, once, here: load() runs in the game load, where
+    // bank textures are created like the rest of the level's [a texture created
+    // when the call rings, mid-frame, crashed the NVIDIA driver (nvoglv64.dll)
+    // in two of three runs, and one released at hang-up left the movie's bitmap
+    // override pointing at a destroyed texture].
+    portraits.clear();
+    if ( gpRender != nullptr && gpFile != nullptr ) {
+        for ( const Call &call : calls ) {
+            const char *pBank = PortraitBank( call.Npc );
+            if ( pBank == nullptr || portraits.count( pBank ) != 0 ) {
+                continue;
+            }
+            GPUTexture *pTexture = nullptr;
+            const std::string path = gpFile->getBankFolder() + "frontend/allres/phonecalls/" + pBank + ".bnk";
+            Bank bank;
+            if ( gpFile->fileExists( path.c_str() ) && bank.load( path.c_str() ) ) {
+                const std::string owner = std::string( "phonecall_" ) + pBank;
+                gpRender->getTextureCache().loadBankTextures( bank, owner.c_str() );
+                pTexture = gpRender->getTextureCache().find( owner.c_str(), pBank );
+            }
+            portraits[pBank] = pTexture;
+        }
+    }
+    OTDU_LOG_INFO( "PhoneCalls: %zu calls from DBPhoneCall, %zu portraits\n", calls.size(), portraits.size() );
     return static_cast<int32_t>( calls.size() );
 }
 
@@ -140,20 +163,11 @@ void PhoneCalls::ring( const Call &call, FreeRideHud &hud ) {
         voice = gpAudio->play( clip, params );
         activeTimer = clip->Duration + 1.0f;
     }
-    // The caller's portrait: the bank's 2db, bound into the popup's lure quad.
+    // The caller's portrait (preloaded in load()), bound into the popup's lure quad.
     GPUTexture *pPortrait = nullptr;
-    const char *pBank = PortraitBank( call.Npc );
-    if ( pBank != nullptr && gpRender != nullptr && gpFile != nullptr ) {
-        const std::string path = gpFile->getBankFolder() + "frontend/allres/phonecalls/" + pBank + ".bnk";
-        Bank bank;
-        if ( gpFile->fileExists( path.c_str() ) && bank.load( path.c_str() ) ) {
-            portraitOwner = std::string( "phonecall_" ) + pBank;
-            gpRender->getTextureCache().loadBankTextures( bank, portraitOwner.c_str() );
-            pPortrait = gpRender->getTextureCache().find( portraitOwner.c_str(), pBank );
-            if ( pPortrait == nullptr ) {
-                OTDU_LOG_WARN( "PhoneCalls: portrait texture '%s' not found in its bank\n", pBank );
-            }
-        }
+    if ( const char *pBank = PortraitBank( call.Npc ) ) {
+        const auto found = portraits.find( pBank );
+        pPortrait = found != portraits.end() ? found->second : nullptr;
     }
     bAnswered = false;
     const std::string text = LocStr( call.TextHc, call.Name.c_str() );
@@ -168,10 +182,6 @@ void PhoneCalls::hangUp( FreeRideHud &hud ) {
     activeName.clear();
     clip.reset();
     voice = GSAudio::kInvalidVoice;
-    if ( !portraitOwner.empty() && gpRender != nullptr ) {
-        gpRender->getTextureCache().releaseOwner( portraitOwner.c_str() );
-        portraitOwner.clear();
-    }
     idleTimer = kGapSeconds;
 }
 
@@ -186,6 +196,9 @@ void PhoneCalls::tick( float deltaTime, const Context &context, FreeRideHud &hud
             OTDU_LOG_INFO( "PhoneCalls: '%s' %s\n", activeName.c_str(), context.bAccept ? "accepted" : "declined" );
             if ( voice != GSAudio::kInvalidVoice && gpAudio != nullptr ) {
                 gpAudio->stop( voice );
+            }
+            if ( context.bAccept ) {
+                acceptedName = activeName;
             }
             hud.answerPhoneCall( context.bAccept );
             activeTimer = Min( activeTimer, 2.0f );
@@ -212,4 +225,42 @@ void PhoneCalls::tick( float deltaTime, const Context &context, FreeRideHud &hud
     if ( const Call *pCall = find( name ) ) {
         ring( *pCall, hud );
     }
+}
+
+std::string PhoneCalls::takeAccepted() {
+    std::string name;
+    name.swap( acceptedName );
+    return name;
+}
+
+bool PhoneCalls::TargetSpot( const std::string &callName, std::string &outIcon, std::string &outPrefix ) {
+    struct Entry {
+        const char *Call, *Icon, *Prefix;
+    };
+    static const Entry kTable[] = {
+        { "CLOTHES_CALL", "clothes", "" },
+        { "TUNER_CALL", "tuning", "" },
+        { "REALTOR_CALL", "estates", "ERE_" }, // the real estate agent, not a house
+        { "CAR_WASH", "carwash", "" },
+        { "STICKERS", "carpaint", "" },
+        { "HAIR_DRESSER", "hair", "" },
+        { "SURGERY_IBIZA", "surgery", "" },
+        { "SURGERY_HAWAI", "surgery", "" },
+        { "PHOTOGRAH", "photograph", "" },
+        { "NEW_ASPHALT_CAR", "cardealer", "" },
+        { "NEW_SUV_CAR", "cardealer", "" },
+        { "RS_ASPHALT", "rschool", "" },
+        { "CALL_C4_NOT_PASSED", "rschool", "" },
+        { "HAWAI_DIRT", "rschool", "" },
+        { "HAWAI_CLASSIC", "rschool", "" },
+        { "HAWAI_CALL", "airport", "" },
+    };
+    for ( const Entry &entry : kTable ) {
+        if ( callName == entry.Call ) {
+            outIcon = entry.Icon;
+            outPrefix = entry.Prefix;
+            return true;
+        }
+    }
+    return false;
 }

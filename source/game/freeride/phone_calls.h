@@ -3,11 +3,13 @@
 #include "audio/gs_audio.h"
 
 #include <deque>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 class FreeRideHud;
+class GPUTexture;
 
 // The story phone calls (docs/re/phone_calls_spec.md). The calls, their text,
 // caller, voice file, delay and repeat count are the retail DBPhoneCall table
@@ -46,6 +48,15 @@ public:
 
     void tick( float deltaTime, const Context &context, FreeRideHud &hud );
 
+    // The call the player accepted this frame ("" when none): the game then
+    // sets the GPS to the place the call talks about.
+    std::string takeAccepted();
+    // The place a call points at, as a map spot: icon kind (MAP.vmf `spot`
+    // labels, docs/re/map_spots_spec.md 1) and an optional building-name
+    // prefix. False when the call has no place (duels, chase, convoy...).
+    // [INF: chosen from each call's text; the retail accept action is unread.]
+    static bool TargetSpot( const std::string &callName, std::string &outIcon, std::string &outPrefix );
+
 private:
     const Call *find( const std::string &name ) const;
     void ring( const Call &call, FreeRideHud &hud );
@@ -60,6 +71,9 @@ private:
     float nudgeClock = 0.0f;  // free driving time since the last nudge check
     GSAudio::VoiceHandle voice = GSAudio::kInvalidVoice;
     std::shared_ptr<AudioClip> clip;
-    std::string portraitOwner; // TextureCache owner of the caller's portrait bank (released at hang-up)
+    // The caller portraits, loaded once at game load (never created or freed
+    // while a frame is in flight: the movie's bitmap override keeps the pointer).
+    std::map<std::string, GPUTexture *> portraits;
+    std::string acceptedName;
     bool bAnswered = false;    // accepted / declined: the popup is closing
 };

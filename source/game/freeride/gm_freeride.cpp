@@ -6250,6 +6250,34 @@ void GMFreeRide::tick( float deltaTime ) {
             phoneContext.bDecline = gpInput->wasPressed( eInputAction::IA_MenuBack );
         }
         phoneCalls.tick( deltaTime, phoneContext, hud );
+        // Accepting a call points the GPS at the place it talks about: the
+        // nearest spot of that kind [INF].
+        const std::string accepted = phoneCalls.takeAccepted();
+        std::string icon, prefix;
+        if ( !accepted.empty() && PhoneCalls::TargetSpot( accepted, icon, prefix ) ) {
+            const Vector3f from = carWorld.getTranslation();
+            float bestSq = 1e30f;
+            Vector3f best;
+            std::string bestName;
+            mapScreen.forEachSpot( [&]( const std::string &name, const char *pIcon, const Vector3f &position, uint64_t, int32_t ) {
+                if ( pIcon == nullptr || icon != pIcon || ( !prefix.empty() && name.compare( 0, prefix.size(), prefix ) != 0 ) ) {
+                    return;
+                }
+                const float dx = position.x - from.x, dz = position.z - from.z;
+                if ( dx * dx + dz * dz < bestSq ) {
+                    bestSq = dx * dx + dz * dz;
+                    best = position;
+                    bestName = name;
+                }
+            } );
+            if ( bestSq < 1e29f ) {
+                mapScreen.setTarget( best );
+                OTDU_LOG_INFO( "PhoneCalls: '%s' accepted -> GPS to '%s' (%s), %.0f m\n", accepted.c_str(), bestName.c_str(),
+                               icon.c_str(), std::sqrt( bestSq ) );
+            } else {
+                OTDU_LOG_INFO( "PhoneCalls: '%s' accepted, no '%s' spot on this island\n", accepted.c_str(), icon.c_str() );
+            }
+        }
     }
     // The 3D cockpit gauge needles: the car's interior model meshes follow the
     // same interior_* tables as the GAUGES movie (docs/re/needles_spec.md).

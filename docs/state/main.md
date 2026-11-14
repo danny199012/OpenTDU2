@@ -9,6 +9,8 @@ appends its entry at the top of this file**, newest first, in the
 - New `source/game/freeride/phone_calls.{h,cpp}` + `FreeRideHud::showPhoneCall/closePhoneCall` + wiring in `gm_freeride.{h,cpp}` + `PlayerProfile::PhoneCallCounts` (saved as `phone_call_<NAME>`). Details and limits in `docs/re/phone_calls_spec.md` "Built". Debug: `-phonecall <NAME>` forces a DBPhoneCall by name.
 ### Verified
 - Build 88, `-gm FREERIDE -skipcine -nopad -fixedtimestep -phonecall REALTOR_CALL -autoplay "400:shot=..."`: the retail popup shows with the voice; `CAR_WASH` hangs up after its voice. Not verified: save round trip across runs, other languages, the nudge firing on its own after 45 s.
+### UNVERIFIED (read first)
+- Accept -> GPS-to-the-shop and the portrait preload were built but never run: from ~16:53 every start of any build (also `build-glm`, also a fresh userdata) crashed in `nvoglv64.dll` (0xc0000094 / 0xc0000005). Reboot / driver check, then run the command in phone_calls_spec.md.
 ### Not done / next
 - Portraits + accept/decline are done (later in the same session; `-phonecall CAR_WASH -autoplay "420:press=validate"` shows Todd's face). Still open: what accepting does (GPS to the shop), the other `BeenIn*` flags set by their shops, the real story conditions (MngPhone2 unread), the chase badge unchecked.
 
