@@ -1,4 +1,5 @@
 #include "shared.h"
+#include "system/cmd_line.h"
 #include "eden_weather.h"
 
 #include "core/xmb.h"
@@ -190,25 +191,42 @@ bool WeatherLibrary::loadModifiers( const char *pPath ) {
         modifier.Name = entry["name"].asString();
         modifier.WeatherName = entry["weather_name"].asString();
         modifier.IntemperyIndex = static_cast<int32_t>( entry["intempery_index"].asInt( -1 ) );
+        // EXPORT_PARAM { String name; Object param }: an Object is stored as
+        // (type index * 2, data offset) - the same raw layout the weather
+        // library reads. (The schema accessor `param["param"]` has no type for
+        // an Object field, which dropped every modifier value: the cinematic
+        // shots' Intro_02..15 overrides never applied.)
+        const int32_t typeFloat[5] = { -1, document.findType( "float1" ), document.findType( "float2" ),
+                                       document.findType( "float3" ), document.findType( "float4" ) };
+        const int32_t typeString = document.findType( "STRING_PARAM" );
         for ( uint32_t j = 0; j < entry.getArraySize( "param" ); j++ ) {
             XmbValue param = entry.getArrayElement( "param", j );
-            const std::string name = param["name"].asString();
-            XmbValue value = param["param"];
-            const XmbType *pType = value.isValid() ? value.getType() : nullptr;
-            if ( pType == nullptr ) {
+            const uint32_t at = param.getOffset();
+            const std::string name = document.readString( at );
+            const int32_t typeIndex = static_cast<int32_t>( document.readU32( at + 4 ) / 2 );
+            const uint32_t valueOffset = document.readU32( at + 8 );
+            if ( typeIndex == typeString ) {
+                modifier.Strings[name] = document.readString( valueOffset );
                 continue;
             }
-            if ( pType->Name.size() == 6 && pType->Name.compare( 0, 5, "float" ) == 0 ) {
-                const int32_t numComponents = pType->Name[5] - '0';
-                const char *pComponents[4] = { "x", "y", "z", "w" };
-                float components[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-                for ( int32_t c = 0; c < numComponents && c < 4; c++ ) {
-                    components[c] = value[pComponents[c]].asFloat();
+            for ( int32_t n = 1; n <= 4; n++ ) {
+                if ( typeIndex == typeFloat[n] ) {
+                    float components[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+                    for ( int32_t k = 0; k < n; k++ ) {
+                        const uint32_t bits = document.readU32( valueOffset + k * 4 );
+                        memcpy( &components[k], &bits, sizeof( float ) );
+                    }
+                    modifier.Values[name] = Vector4f( components[0], components[1], components[2], components[3] );
+                    break;
                 }
-                modifier.Values[name] = Vector4f( components[0], components[1], components[2], components[3] );
-            } else if ( pType->Name == "STRING_PARAM" && !pType->Fields.empty() ) {
-                modifier.Strings[name] = value[pType->Fields[0].Name.c_str()].asString();
             }
+        }
+        if ( CmdLine::HasArg( "-logmodifiers" ) ) {
+            auto it = modifier.Values.find( "sun_shadow_opacity" );
+            OTDU_LOG_INFO( "MODIFIER '%s' weather '%s' intempery %d: %zu values%s%.2f\n", modifier.Name.c_str(),
+                           modifier.WeatherName.c_str(), modifier.IntemperyIndex, modifier.Values.size(),
+                           it != modifier.Values.end() ? " sun_shadow_opacity " : " (no shadow opacity) ",
+                           it != modifier.Values.end() ? it->second.x : 0.0f );
         }
         modifiers.push_back( std::move( modifier ) );
     }

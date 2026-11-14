@@ -2,7 +2,16 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (emote wheel, `main`): the retail emote UI replaces the ImGui panel
+`## Session 2026-11-14 (intro party shadows, `main`): the cinematic weather modifiers never applied - fixed
+
+Owner: after the sea sweep the camera goes up to the party and nobody draws shadows until the select-character shot.
+
+- **Cause** (`source/render/eden/eden_weather.cpp`, `WeatherLibrary::loadModifiers`): every one of the 276 entries of `islands/ibiza/fx/cinematic_modifiers.xmb` parsed with **0 values** - the schema accessor `param["param"]` has no type for an `Object` field, so every param was skipped. The base `Intro` weather has `sun_shadow_opacity 0`; the shots' `wmod:Intro_02..15` modifiers (intempery 0) set it to **1.00** (plus 7 more values) - never applied, so the whole party ran at opacity 0. Earlier sessions blamed "the data" (STATE.md session 48) and the shot shadow configs (PG / PR: ruled out again - `-shadowconfig AVATAR_CHOICE` on the party frame changes nothing; `-cineweather Avatar` brought the shadows back, which pointed at the opacity).
+- **Fix**: the params are decoded with the raw Object layout the weather library already uses (type index x 2, data offset). Debug: `-logmodifiers` lists each modifier with its value count / opacity.
+- **Verified** (build 36, `-intro -nopad -fixedtimestep -logshadows`, frame 1900): ShadowFit opacity now 1.000 for ~2700 of the ~6200 shadow fits (was 0.000 for all); ground / body shadows on the party frame - `docs/images/intro_party_shadows_before.webp` vs `intro_party_shadows_fixed.webp`. The other modifier values also apply now (the party light is warmer), so every cinematic that uses `wmod:` (intro, title scene) shifts toward the retail look.
+- **Not done / open**: the sea sweep and shots without a modifier keep the base opacity 0 (retail data: there is no `Intro_01`); no side-by-side with a retail capture; the title scene / other cinematics were not re-checked for the colour shift.
+
+## Session 2026-11-14 (emote wheel, `main`): the retail emote UI replaces the ImGui panel
 
 Owner: "I had emotes implemented but would like the proper UI if possible".
 
