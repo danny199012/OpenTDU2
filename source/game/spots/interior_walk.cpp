@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "interior_walk.h"
 
+#include "render/gs_render.h"
 #include "filesystem/gs_file.h"
 #include "flash/flash_player.h"
 #include "game/clothes_shop.h"
@@ -593,7 +594,6 @@ void InteriorWalk::applyTestAim() {
 // X toggles the self view, 1..8 the slots, the view returns at the clip end;
 // -emote <label> plays one on the walk start (headless tests).
 void InteriorWalk::updateEmotes( float deltaTime ) {
-    (void)deltaTime;
     // -emote <label>: play once on the walk start; before the self view gate
     // (it is what starts the view).
     static const char *pAutoEmote = CmdLine::GetArgValue( "-emote" );
@@ -609,12 +609,10 @@ void InteriorWalk::updateEmotes( float deltaTime ) {
             OTDU_LOG_WARN( "EMOTE: -emote '%s' is not one of the slots\n", pAutoEmote );
         }
     }
-    if ( gpInput->wasPressed( eInputAction::IA_Emote ) ) {
-        if ( walk.isInSelfView() ) {
-            walk.endSelfView( scene );
-        } else {
-            walk.startSelfView( scene );
-        }
+    // The emote key + the retail wheel movie (WalkMode::updateEmoteWheel).
+    if ( walk.updateEmoteWheel( scene, deltaTime ) ) {
+        bEmoteWasPlaying = false;
+        return;
     }
     if ( !walk.isInSelfView() ) {
         bEmoteWasPlaying = false;
@@ -797,6 +795,7 @@ void InteriorWalk::renderOffscreen() {
 void InteriorWalk::draw() {
     if ( bActive ) {
         scene.draw();
+        walk.drawEmoteWheel( gpRender->get2DRenderer() );
     }
 }
 

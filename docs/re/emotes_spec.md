@@ -92,3 +92,35 @@ Log: `EMOTE: self view in, eye (...)`, `EMOTE: playing 'hello' (em_hello-m.anm, 
 - The woman variants are data-verified (the clips are in the bank, the per-sex branch is
   the `SeatedAvatar` law); the interactive runs played the man clips (the default
   profile's avatar sex).
+
+## 5. The emote wheel (the retail UI)
+
+The wheel is **not** undocumented / [ENC]: it is the `/emotes` clip (character 715) of
+`GENERAL.vmf` (`frontend/hires/general.bnk`; `cas_common.bnk` carries a casino copy) [DATA,
+`tools/vmf_disasm.py`]. Its scripts (S715 frame 0 functions):
+
+- `gotoAndPlay("open")` -> `EmotesOpen()`: FSCommands `emop`, `wmof`; fills `/:avanim1..8` from
+  `/:m_Hello /:m_Cheers /:m_Funny /:m_EmChallenge_ /:m_Angry /:m_Sad /:m_Strong /:m_Laugh`
+  (the DBLoc strings, filled by the `sbdd` FSCommand like every movie); all eight `_locked` flags
+  start `on` (= available; `EmotePreValid` plays `sndp:wrong` for anything else).
+- slot buttons: `EmoteRollOver()` (`/:AvanimNum` = slot, FSCommand `avan:seta`), `EmotePreValid()`
+  (-> `sndp:valid`, the 'valid' section ends in `EmoteValid()`: FSCommand **`avan:vali`** + the
+  'close' section -> `EmotesClose()`: `wmon`). Button 714: Enter (key 13) -> `EmotePreValid`,
+  Backspace (key 8) -> `B()`: FSCommand **`emcl`** + 'close'.
+- the slot order of the ring (clockwise from the top): hello, cheers, funny, challenge (= the
+  followme clip), angry, sad, strong, laugh - the same as the `animAvatar[8..15]` table of section 1.
+
+The port (`source/game/walkmode/emote_wheel.*`, owned by `WalkMode::updateEmoteWheel` /
+`drawEmoteWheel`): a `FlashPlayer` on `general`, `open()` = `gotoLabel("/emotes","open")` with the
+self view started; `avan:vali` -> `IntroCinematic::playPlayerEmote(/:AvanimNum - 1)`; `emcl` -> leave
+the self view; `wmon` starts the 0.5 s close-out. Input (the slot choice is `[INF]`: the retail pad
+law is not decoded): arrows / D-pad / left stick step previous / next around the ring, Enter / A
+validates, Back / X cancel, keys 1..8 pick + validate. The ImGui panel is gone.
+
+Test: `... -gm FIRST_WM -nopad -fixedtimestep -allowskip -logemotes -autoplay
+"120:press=validate;200:press=emote;240:press=right;250:press=right;270:press=validate;330:shot=..." -exitframe 720`
+(3D on - `-no3d` skips the walk draw). Log: `wheel FSCommand 'emop'` ... `'avan:vali'`, `'wmon'`,
+`playing 'funny'`, `self view out`. Evidence: `docs/images/emote_wheel_garage.webp` (Funny selected),
+`emote_wheel_funny_playing.webp`. Not done: mouse hover / click on the ring (the movie's buttons
+need hover events the player lacks), the walk HUD panels stay visible behind the wheel, the
+`Emote_11..33` gating.

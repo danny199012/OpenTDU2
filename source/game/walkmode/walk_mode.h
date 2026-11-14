@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/walkmode/emote_wheel.h"
 #include "game/walkmode/walk_controller.h"
 
 #include <functional>
@@ -70,10 +71,15 @@ public:
     void startSelfView( IntroCinematic &scene );
     void endSelfView( IntroCinematic &scene );
     inline bool isInSelfView() const { return bSelfView; }
-    // The emote picker (Dear ImGui; the retail wheel movie is ENC,
-    // docs/re/emotes_spec.md): one button per retail slot + the state line.
-    // Drawn by the walk modes' drawUI while the walk is live.
-    void drawEmotePickerUi( IntroCinematic &scene );
+    // The emote wheel (GENERAL.vmf /emotes, emote_wheel.h): the emote key
+    // opens the self view and the wheel, the movie's choice plays a slot, its
+    // cancel (B) leaves the self view. Call every frame from the host's
+    // updateEmotes (the key is consumed here); true while the wheel owns the
+    // input (the host skips its own emote keys).
+    bool updateEmoteWheel( IntroCinematic &scene, float deltaTime );
+    // 2D draw of the wheel (the movie), over the 3D walk.
+    void drawEmoteWheel( Renderer2D &renderer );
+    inline bool isEmoteWheelOpen() const { return wheel.isOpen(); }
 
 private:
     WalkController controller;
@@ -85,6 +91,7 @@ private:
     SelectionCallback selectionCallback;
     WorldHook worldHook;
     bool bCursorLabels = false;
+    EmoteWheel wheel;
     bool bSelfView = false;
     float selfViewBlend = 0.0f; // 0: the eye pose, 1: the third person pose
     Vector3f selfViewEye;       // the pose the glide starts from

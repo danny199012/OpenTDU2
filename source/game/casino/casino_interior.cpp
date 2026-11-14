@@ -7,6 +7,7 @@
 #include "game/player_profile.h"
 #include "input/gs_input.h"
 #include "render/eden/eden_scene_view.h"
+#include "render/gs_render.h"
 #include "system/cmd_line.h"
 
 #include <SDL3/SDL_scancode.h>
@@ -240,7 +241,6 @@ void CasinoInterior::startWalk() {
 // plays one on the walk start (headless tests). The casino is where the
 // retail Emote_11..33 unlockables come from (casino_spec.md 7).
 void CasinoInterior::updateEmotes( float deltaTime ) {
-    (void)deltaTime;
     // -emote <label>: play once on the walk start; before the self view gate
     // (it is what starts the view).
     static const char *pAutoEmote = CmdLine::GetArgValue( "-emote" );
@@ -256,12 +256,10 @@ void CasinoInterior::updateEmotes( float deltaTime ) {
             OTDU_LOG_WARN( "EMOTE: -emote '%s' is not one of the slots\n", pAutoEmote );
         }
     }
-    if ( gpInput->wasPressed( eInputAction::IA_Emote ) ) {
-        if ( walk.isInSelfView() ) {
-            walk.endSelfView( scene );
-        } else {
-            walk.startSelfView( scene );
-        }
+    // The emote key + the retail wheel movie (WalkMode::updateEmoteWheel).
+    if ( walk.updateEmoteWheel( scene, deltaTime ) ) {
+        bEmoteWasPlaying = false;
+        return;
     }
     if ( !walk.isInSelfView() ) {
         bEmoteWasPlaying = false;
@@ -1179,6 +1177,7 @@ void CasinoInterior::drawOffscreen() {
 void CasinoInterior::draw() {
     if ( bActive ) {
         scene.draw();
+        walk.drawEmoteWheel( gpRender->get2DRenderer() );
     }
 }
 

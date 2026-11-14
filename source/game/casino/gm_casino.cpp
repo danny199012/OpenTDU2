@@ -2367,10 +2367,6 @@ void GMCasino::drawRoulette( Renderer2D &renderer, const Font *pFont ) {
 void GMCasino::drawDebug() {}
 
 void GMCasino::drawUI() {
-    // The emote picker while the hall / a game room is walked (docs/re/emotes_spec.md).
-    if ( interior.isWalking() ) {
-        interior.getWalk().drawEmotePickerUi( interior.getScene() );
-    }
     // The cheats panel (F4, or the pad's option button): the wallet, so a table
     // can be tested with chips.
     // (Not the option button at a slot machine: X / Square opens its lines

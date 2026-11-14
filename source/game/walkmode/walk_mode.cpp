@@ -1,9 +1,8 @@
 #include "shared.h"
 #include "walk_mode.h"
 
-#include "debug/gs_imgui.h"
 #include "game/avatarchoice/intro_cinematic.h"
-#include "imgui.h"
+#include "input/gs_input.h"
 #include "physics/havok_collision.h"
 #include "system/cmd_line.h"
 
@@ -472,37 +471,37 @@ void WalkMode::placeLooking( IntroCinematic &scene, const Vector3f &eye, const V
     resume( scene );
 }
 
-// The emote picker (docs/re/emotes_spec.md): one button per retail slot,
-// the state line underneath. The retail emote wheel is a Flash movie the
-// port does not have (the emop / emcl FSCommands reach the manager, the
-// movie itself is undocumented); this panel is the OpenTDU2 stand-in.
-void WalkMode::drawEmotePickerUi( IntroCinematic &scene ) {
-    ImGui::SetNextWindowPos( DpiScaled( 20.0f, 260.0f ), ImGuiCond_FirstUseEver );
-    ImGui::SetNextWindowSize( DpiScaled( 220.0f, 240.0f ), ImGuiCond_FirstUseEver );
-    if ( !ImGui::Begin( "EMOTES" ) ) {
-        ImGui::End();
-        return;
+// The emote wheel (docs/re/emotes_spec.md section 5): the retail GENERAL.vmf
+// /emotes movie. The emote key opens the self view (FSCommand 'emop' in the
+// retail manager) and the wheel; 'avan:vali' plays the chosen slot, 'emcl'
+// (B) leaves the self view.
+bool WalkMode::updateEmoteWheel( IntroCinematic &scene, float deltaTime ) {
+    if ( wheel.isOpen() && !bSelfView ) {
+        wheel.close(); // the host left the self view (B / room change)
     }
-    const std::vector<IntroCinematic::PlayerEmote> &emotes = IntroCinematic::getPlayerEmotes();
-    char label[64];
-    for ( int32_t i = 0; i < static_cast<int32_t>( emotes.size() ); i++ ) {
-        snprintf( label, sizeof( label ), "%d  %s", i + 1, emotes[static_cast<size_t>( i )].pLabel );
-        if ( ImGui::Button( label ) ) {
-            if ( !bSelfView ) {
-                startSelfView( scene );
-            }
-            scene.playPlayerEmote( i );
+    if ( gpInput->wasPressed( eInputAction::IA_Emote ) && !wheel.isOpen() ) {
+        if ( bSelfView ) {
+            endSelfView( scene ); // the emote key backs out of a playing clip
+        } else {
+            startSelfView( scene );
+            wheel.open();
+            return wheel.isOpen(); // the opening press is not the cancel
         }
     }
-    ImGui::Separator();
-    if ( scene.isPlayerEmotePlaying() ) {
-        ImGui::Text( "playing %s (%.1f s)",
-                     emotes[static_cast<size_t>( scene.getPlayerEmoteIndex() )].pLabel,
-                     scene.getPlayerEmoteDuration() );
-    } else if ( bSelfView ) {
-        ImGui::TextDisabled( "self view (X: back)" );
-    } else {
-        ImGui::TextDisabled( "X: self view" );
+    if ( !wheel.isOpen() ) {
+        return false;
     }
-    ImGui::End();
+    wheel.tick( deltaTime );
+    const int32_t chosen = wheel.takeChosen();
+    if ( chosen >= 0 ) {
+        scene.playPlayerEmote( chosen );
+    }
+    if ( wheel.takeCancelled() ) {
+        endSelfView( scene );
+    }
+    return wheel.isOpen();
+}
+
+void WalkMode::drawEmoteWheel( Renderer2D &renderer ) {
+    wheel.draw( renderer );
 }

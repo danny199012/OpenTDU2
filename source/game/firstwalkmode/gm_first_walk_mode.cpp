@@ -795,6 +795,7 @@ void GMFirstWalkMode::drawOffscreen() {
 void GMFirstWalkMode::draw() {
     if ( bLoaded ) {
         garage.draw();
+        walk.drawEmoteWheel( gpRender->get2DRenderer() );
         pauseMenu.draw( gpRender->get2DRenderer() );
     }
 }
@@ -805,7 +806,6 @@ void GMFirstWalkMode::draw() {
 // the emote slots while the self view is on; -emote <label> plays one on the
 // walk start (headless tests).
 void GMFirstWalkMode::updateEmotes( float deltaTime ) {
-    (void)deltaTime;
     // -emote <label>: play once on the walk start (headless emote tests).
     // Before the self view gate: it is what starts the view.
     static const char *pAutoEmote = CmdLine::GetArgValue( "-emote" );
@@ -821,12 +821,10 @@ void GMFirstWalkMode::updateEmotes( float deltaTime ) {
             OTDU_LOG_WARN( "EMOTE: -emote '%s' is not one of the slots\n", pAutoEmote );
         }
     }
-    if ( gpInput->wasPressed( eInputAction::IA_Emote ) ) {
-        if ( walk.isInSelfView() ) {
-            walk.endSelfView( garage );
-        } else {
-            walk.startSelfView( garage );
-        }
+    // The emote key + the retail wheel movie (WalkMode::updateEmoteWheel).
+    if ( walk.updateEmoteWheel( garage, deltaTime ) ) {
+        bEmoteWasPlaying = false;
+        return;
     }
     if ( !walk.isInSelfView() ) {
         bEmoteWasPlaying = false;
@@ -846,10 +844,4 @@ void GMFirstWalkMode::updateEmotes( float deltaTime ) {
     bEmoteWasPlaying = bPlaying;
 }
 
-// The emote picker is WalkMode::drawEmotePickerUi (shared with the freeride
-// interiors); it shows while the walk state is live.
-void GMFirstWalkMode::drawUI() {
-    if ( state == eState::Walk ) {
-        walk.drawEmotePickerUi( garage );
-    }
-}
+void GMFirstWalkMode::drawUI() {}

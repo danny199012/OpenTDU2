@@ -2,7 +2,16 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (Advanced graphics page, `main`): a retail-template tab for the extra graphics rows
+`## Session 2026-11-14 (emote wheel, `main`): the retail emote UI replaces the ImGui panel
+
+Owner: "I had emotes implemented but would like the proper UI if possible".
+
+- The wheel is the `/emotes` clip of `GENERAL.vmf` (spec `docs/re/emotes_spec.md` section 5): `emote_wheel.*` drives it (open label, `avan:vali` plays the slot, `emcl` leaves, `wmon` closes), owned by `WalkMode` (`updateEmoteWheel` in the three hosts' `updateEmotes`, `drawEmoteWheel` in the FIRST_WM / InteriorWalk / CasinoInterior draws). ImGui picker removed.
+- Controls: X (keyboard / pad emote action) opens; arrows / D-pad / left stick step the ring; Enter / A plays; Back / X cancels; keys 1..8 pick + play.
+- Verified (build 35, FIRST_WM): `emop` -> `avan:seta` x2 -> `sndp:valid` -> `avan:vali` -> `wmon` -> `playing 'funny'` -> `self view out`; `docs/images/emote_wheel_garage.webp`, `emote_wheel_funny_playing.webp`.
+- Not verified: the casino / freeride interior hosts only compiled (same code path); no pad run. Not done: mouse hover on the ring, hiding the walk HUD panels behind the wheel.
+
+## Session 2026-11-14 (Advanced graphics page, `main`): a retail-template tab for the extra graphics rows
 
 Owner: "expand these menus for graphics or some method that wasn't out of place" -> yes, build it.
 
