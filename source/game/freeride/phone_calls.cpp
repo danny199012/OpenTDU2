@@ -17,7 +17,7 @@ namespace {
     // Quiet gap between two calls, and the first nudge after the story reaches
     // free roam [INF].
     constexpr float kGapSeconds = 30.0f; // [CODE-dev SCPhoneCalls 0x9a32d0: +0x18 = 30.0 at each launch]
-    constexpr float kNudgeCheckSeconds = 45.0f;
+    constexpr float kNudgeCheckSeconds = 5.0f; // the retail checks every frame once the gap is over
     // A call with no voice file (or a voice that failed to load) stays up this long.
     constexpr float kSilentSeconds = 7.0f;
 
@@ -125,17 +125,60 @@ bool PhoneCalls::request( const std::string &name, bool bForce ) {
 }
 
 void PhoneCalls::checkNudges( const Context &context ) {
-    // The nudge rules, inferred from the SCPhoneCalls save fields [INF]: a
-    // call that points the player at a shop rings while that shop's BeenIn*
-    // flag is still false. Only the flags the port keeps are used (the car
-    // wash); the others are added when their shop sets a flag. The story
-    // gate: the first drive after the house is granted (StoryStep >= 10).
+    // The retail trigger order [CODE-dev SCPhoneCalls 0x9a2c30, docs/re/phone_calls_spec.md]:
+    // the first rule that holds rings, one call per pass. Rules whose state the
+    // port does not keep (the C4 / Jane flags, the car categories, the photo
+    // challenge, HAWAI_CALL's progress counter, the championship steps) are not
+    // implemented. The minutes of the TimeBefore*Call settings are unknown
+    // [INF values below].
     if ( context.StoryStep < 10 ) {
         return;
     }
     PlayerProfile &profile = GetPlayerProfile();
-    if ( !profile.BeenInCarWash ) {
-        request( "CAR_WASH" );
+    auto state = [&]( const char *pName ) {
+        const auto found = profile.PhoneState.find( pName );
+        return found != profile.PhoneState.end() ? found->second : 0;
+    };
+    const int32_t playTime = state( "PlayTime" );
+    auto after = [&]( float minutes ) { return static_cast<float>( playTime ) > minutes * 60.0f; };
+    // 3. REALTOR_CALL: one house and two or more cars (the garage is cramped).
+    const size_t cars = std::max( profile.Garage.size(), profile.OwnedCars.size() + 1 );
+    if ( profile.OwnedHouses.size() == 1 && cars >= 2 && request( "REALTOR_CALL" ) ) {
+        return;
+    }
+    // 6. The shop nudges: play time past the delay and the shop not visited yet.
+    if ( after( 10.0f ) && state( "BeenInClothesShop" ) == 0 && request( "CLOTHES_CALL" ) ) {
+        return;
+    }
+    if ( after( 30.0f ) && state( "BeenInHairShop" ) == 0 && request( "HAIR_DRESSER" ) ) {
+        return;
+    }
+    if ( after( 45.0f ) && state( "BeenInSurgeryShop" ) == 0 && request( "SURGERY_IBIZA" ) ) {
+        return;
+    }
+    if ( after( 20.0f ) && state( "BeenInStickerShop" ) == 0 && request( "STICKERS" ) ) {
+        return;
+    }
+    if ( after( 6.0f ) && !profile.BeenInCarWash && request( "CAR_WASH" ) ) {
+        return;
+    }
+    // 7. TREASURE_HUNT: no wreck found yet.
+    int32_t wrecks = 0;
+    for ( const auto &island : profile.FoundWrecks ) {
+        wrecks += static_cast<int32_t>( island.second.size() );
+    }
+    if ( wrecks == 0 && after( 25.0f ) && request( "TREASURE_HUNT" ) ) {
+        return;
+    }
+    // 11. On Hawaii: the racing schools, some minutes after the arrival.
+    if ( context.Island == "hawai" ) {
+        const int32_t sinceArrival = playTime - state( "PlayTimeWhenArrivingOnHawai" );
+        if ( state( "BeenInRSDirtHawai" ) == 0 && sinceArrival > 3 * 60 && request( "HAWAI_DIRT" ) ) {
+            return;
+        }
+        if ( state( "BeenInRSClassicHawai" ) == 0 && sinceArrival > 8 * 60 && request( "HAWAI_CLASSIC" ) ) {
+            return;
+        }
     }
 }
 
@@ -191,6 +234,18 @@ void PhoneCalls::hangUp( FreeRideHud &hud ) {
 }
 
 void PhoneCalls::tick( float deltaTime, const Context &context, FreeRideHud &hud ) {
+    if ( context.bFreeDriving ) {
+        // The play time the nudges read (profile.PhoneState "PlayTime", seconds).
+        clockFraction += deltaTime;
+        if ( clockFraction >= 1.0f ) {
+            const int32_t whole = static_cast<int32_t>( clockFraction );
+            clockFraction -= static_cast<float>( whole );
+            GetPlayerProfile().PhoneState["PlayTime"] += whole;
+        }
+        if ( context.Island == "hawai" && GetPlayerProfile().PhoneState.count( "PlayTimeWhenArrivingOnHawai" ) == 0 ) {
+            GetPlayerProfile().PhoneState["PlayTimeWhenArrivingOnHawai"] = GetPlayerProfile().PhoneState["PlayTime"];
+        }
+    }
     for ( auto &wait : retrigger ) {
         wait.second = Max( 0.0f, wait.second - deltaTime );
     }

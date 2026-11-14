@@ -9,7 +9,7 @@
 #include <vector>
 
 class FreeRideHud;
-class GPUTexture;
+struct GPUTexture;
 
 // The story phone calls (docs/re/phone_calls_spec.md). The calls, their text,
 // caller, voice file, delay and repeat count are the retail DBPhoneCall table
@@ -33,6 +33,7 @@ public:
     struct Context {
         bool bFreeDriving = false; // in the free roam, in the car, no modal screen
         int32_t StoryStep = 0;
+        std::string Island;    // lower case: ibiza | hawai | casino
         bool bAccept = false;  // Validate pressed this frame (take the call)
         bool bDecline = false; // Back pressed this frame (decline the call)
     };
@@ -71,6 +72,7 @@ private:
     // Per call, seconds until it may ring again: _timer * 60 after a ring
     // [CODE-dev SCPhoneCalls 0x9a10c0: remaining = row +0x70 * 60.0].
     std::map<std::string, float> retrigger;
+    float clockFraction = 0.0f; // the part of a second not yet added to PlayTime
     float nudgeClock = 0.0f;  // free driving time since the last nudge check
     GSAudio::VoiceHandle voice = GSAudio::kInvalidVoice;
     std::shared_ptr<AudioClip> clip;

@@ -208,6 +208,12 @@ struct PlayerProfile {
     // Phone calls already rung: DBPhoneCall _phonecallname -> times (the
     // retail SCPhoneCallsSave keeps one state per call; docs/re/phone_calls_spec.md).
     std::map<std::string, int32_t> PhoneCallCounts;
+    // The phone calls' progress state (the SCPhoneCallsSave fields [CODE-dev]):
+    // "PlayTime" (seconds in the free world), "PlayTimeWhenArrivingOnHawai",
+    // "BeenInClothesShop" / "BeenInStickerShop" / "BeenInHairShop" /
+    // "BeenInSurgeryShop" / "BeenInPhotograph" / "BeenInRSDirtHawai" /
+    // "BeenInRSClassicHawai" (0 / 1). Saved as phone_state_<name>.
+    std::map<std::string, int32_t> PhoneState;
     // The "Help: Chase Mode" popup has been shown (it opens by itself on the
     // first traffic violation the police see, once per profile) [INF: the
     // retail help-system seen flags are runtime data, ENC].

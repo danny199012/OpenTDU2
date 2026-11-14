@@ -26,6 +26,16 @@ Checked and rejected as identifiers: the island colour map (`<island>-c.2db`) dr
 `u32 nPoints, 0, 1` + `n` x `(x, y, z, 1)`), and the `ATED` detail blocks repeat the same `+12` pair in their header
 word 2 (257 / 256 / 514 / 512 / 768).
 
+### Dirt roads: the class byte is NOT known to be the type (2026-11-14, `main`)
+The satnav colours a driven road by this byte (`3` = yellow), but nothing proves `+12 == 3` is a dirt track. Tests, all negative:
+- `-scanroadsurface` (ray down at each link's middle): every class, **including 3**, hits the `-R.shk` road collision (Ibiza class 3: 96 of 97 `road`, friction 0.7 on all) - so a dirt track is not
+  distinguished by `Road` vs `Terrain` nor by the Havok body friction.
+- `-logroadfields` / `-logroads`: `+12` / `+13` are two bytes each 0..4 on Ibiza (0..9 / 0..11 on Hawai); `+8` looks like (flag, lane count 1..5); `+24 / +36 / +40 / +44` are almost always 0.
+  **Not** the node slot index: `(node, slot)` pairs clash 40 % of the time for both readings (`slot test` lines).
+- Hawai has 58 % of its links in class 0 and only 164 of 2827 in class 3, which does not look like the island with the big dirt region.
+The retail physics does know the ground (`FUN_00ba81a0`: material ids `1, 0x3d, 0x3e` = dirt), but our Havok reader keeps no per-triangle material ids (`HavokCollision` has none): reading them from
+the `hkpStorageExtendedMeshShape` subparts is the way to classify a link from data. Until then the yellow roads are a guess. Debug flags: `-scanroadsurface`, `-logroads`, `-logroadfields`.
+
 ## ROAD_DETAIL.IA `[DATA]`
 `DI41DAEH` header, then **`ATED`** records, one per road (1392, id = the DAOR id): `+4 id, +8 N` (9 on road 1),
 `N` byte offsets from the record start, then N sub-blocks of 5 header words (`0x60007, 18, 257, 1, 0xc90204` ...

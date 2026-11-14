@@ -812,6 +812,35 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     }
     mapScreen.loadSpots( islandName );
     mapScreen.loadRoads( islandName );
+    // -scanroadsurface: what is under each road link (class byte x surface of a
+    // ray cast down at the middle of the link). The tarmac is in the -R.shk
+    // road collision, a dirt track is terrain paint [INF]: this tests it.
+    if ( CmdLine::HasArg( "-scanroadsurface" ) ) {
+        std::map<std::string, int32_t> tally;
+        const auto &shapes = mapScreen.getRoadShapes();
+        const auto &classes = mapScreen.getRoadClasses();
+        for ( size_t e = 0; e < shapes.size(); e++ ) {
+            if ( shapes[e].size() < 2 ) {
+                continue;
+            }
+            Vector3f mid = shapes[e][shapes[e].size() / 2];
+            collision.streamAround( mid, 1 );
+            VehicleWorldCollision::Hit hit;
+            const char *pSurface = "none";
+            if ( collision.raycast( Vector3f( mid.x, mid.y + 40.0f, mid.z ), Vector3f( 0.0f, -1.0f, 0.0f ), 120.0f, hit ) ) {
+                pSurface = hit.Surface == VehicleWorldCollision::Hit::eSurface::Road
+                               ? "road"
+                               : ( hit.Surface == VehicleWorldCollision::Hit::eSurface::Terrain ? "terrain" : "static" );
+            }
+            char fr[16];
+            snprintf( fr, sizeof( fr ), " f%.2f", pSurface[0] == 'n' ? 0.0f : hit.Friction );
+            tally[std::to_string( e < classes.size() ? classes[e] : 0 ) + " " + pSurface + fr]++;
+        }
+        for ( const auto &entry : tally ) {
+            OTDU_LOG_INFO( "scanroadsurface: class %s : %d links\n", entry.first.c_str(), entry.second );
+        }
+        OTDU_LOG_INFO( "scanroadsurface: done\n" );
+    }
     // The grass road-graph suppression (input to drawGrass; the village
     // streets / plazas are terrain paint the geometric road index never
     // sees - docs/re/grass_spec.md 3 / 7).
@@ -3794,6 +3823,24 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
         dealerSpotName = pShop != nullptr ? pShop->SpotName : spotBank;
         return pShop != nullptr;
     }
+    // The phone calls' BeenIn* flags (SCPhoneCallsSave): set when the shop opens.
+    {
+        auto &phoneState = GetPlayerProfile().PhoneState;
+        if ( kind == "clothes" ) {
+            phoneState["BeenInClothesShop"] = 1;
+        } else if ( kind == "hair" ) {
+            phoneState["BeenInHairShop"] = 1;
+        } else if ( kind == "carpaint" ) {
+            phoneState["BeenInStickerShop"] = 1;
+        } else if ( kind == "rschool" && ToLower( islandName ) == "hawai" ) {
+            const char letter = spotBank.size() > 4 ? spotBank[4] : 'A';
+            if ( letter == 'B' ) {
+                phoneState["BeenInRSDirtHawai"] = 1;
+            } else if ( letter == 'C' ) {
+                phoneState["BeenInRSClassicHawai"] = 1;
+            }
+        }
+    }
     if ( kind == "clothes" ) {
         // The shop row's brand (DBCarShop._clothesshopbrand) is its stock.
         const CarShop *pShop = FindShopBySpotId( spotId );
@@ -6245,6 +6292,7 @@ void GMFreeRide::tick( float deltaTime ) {
         PhoneCalls::Context phoneContext;
         phoneContext.bFreeDriving = state == eState::Drive;
         phoneContext.StoryStep = GetPlayerProfile().StoryStep;
+        phoneContext.Island = ToLower( islandName );
         if ( phoneCalls.isActive() ) {
             phoneContext.bAccept = gpInput->wasPressed( eInputAction::IA_MenuValidate );
             phoneContext.bDecline = gpInput->wasPressed( eInputAction::IA_MenuBack );

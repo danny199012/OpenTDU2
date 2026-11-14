@@ -400,6 +400,7 @@ private:
     std::vector<uint8_t> edgeExplored;
     // The class byte of each link ('DAOR' +12); the map colours the road by it.
     std::vector<uint8_t> edgeClass;
+    std::vector<uint16_t> edgePair; // DAOR +12 / +13 (class and its twin byte)
     std::vector<std::vector<Vector3f>> roadShapes;
     std::vector<float> edgeLengths;
     std::vector<std::array<float, 4>> edgeBoxes; // min x, min z, max x, max z

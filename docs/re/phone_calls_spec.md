@@ -100,6 +100,16 @@ enabled; DBPhoneCall *row }`.
 - **Built from this** (`phone_calls.cpp`): the 30 s gap from the launch and the per-call `_timer * 60` retrigger. **Not built** (the port keeps no play time / house / car-category state for the rules above):
   rules 1-3, 5, 7-12 and the play-time nudges. `TargetSpot` / accept are unchanged ([INF]; the retail accept action is the popup's own `phac` event, unread).
 
+## Rules built (2026-11-14, later) [INF values marked]
+`PhoneCalls::checkNudges` now runs the retail order, one call per pass, every 5 s of free driving once the 30 s gap is over: `REALTOR_CALL` (1 house, >= 2 cars), `CLOTHES_CALL`,
+`HAIR_DRESSER`, `SURGERY_IBIZA`, `STICKERS`, `CAR_WASH` (play time past a delay and the shop's flag 0), `TREASURE_HUNT` (no wreck found, play time), and on Hawaii `HAWAI_DIRT` / `HAWAI_CLASSIC`
+(play time since arrival). State: `profile.PhoneState` (saved `phone_state_<name>`: `PlayTime` seconds in the free world, `PlayTimeWhenArrivingOnHawai`, `BeenIn*`); the flags are set when the shop opens
+(`GMFreeRide::openSpotShop`: clothes, hair, carpaint = stickers, rschool B / C on Hawaii). **The delays are [INF]** (the `TimeBefore*Call` values were not found): clothes 10, car wash 6, stickers 20,
+treasure 25, hair 30, surgery 45 min; Hawaii dirt 3 / classic 8 min after arrival. Verified: a scratch profile (`story_step 12`, `phone_state_PlayTime 3000`, clothes / hair / car wash done) rings
+`SURGERY_IBIZA` by itself (surgery is first in the order); 700 s of play time rings nothing; play time accumulates and is saved.
+**Not built** (no state in the port): `CALL_C4_NOT_PASSED`, `EVENT_JANE`, `NEW_ASPHALT_CAR` / `NEW_SUV_CAR` / `*_CHAMP` (car categories + championship steps), `RS_ASPHALT`, `TUNER_CALL` (one-shot flag), `PHOTOGRAH` /
+`PHOTOGRAPH_END_*` (no photo challenge), `HAWAI_CALL` (progress counter), the surgery shop flag (no surgery shop).
+
 ## Built (2026-11-14, `main`)
 - `source/game/freeride/phone_calls.{h,cpp}`: reads `DBPhoneCall`, queues calls, rings one at a time with a 20 s gap, plays `pc_*.wav` (language, fallback `us`), shows the text
   in the HUD movie's own popup (`FreeRideHud::showPhoneCall`: `/HUD/phone_call` label `open` + `phone_message` `open`, text var `/:dialog_ph`; hang-up = `end_dialog` / `close`),

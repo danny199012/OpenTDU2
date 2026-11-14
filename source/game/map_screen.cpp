@@ -1939,6 +1939,7 @@ void MapScreen::loadRoads( const std::string &island ) {
     edgeBoxes.clear();
     edgeExplored.clear();
     edgeClass.clear();
+    edgePair.clear();
     exploredLength = totalRoadLength = 0.0f;
     roadIsland = island;
     bHasTarget = false;
@@ -2059,6 +2060,41 @@ void MapScreen::loadRoads( const std::string &island ) {
             roadOffsets.push_back( i );
         }
     }
+    if ( CmdLine::HasArg( "-logroadfields" ) ) {
+        // Is +12 / +13 the edge's slot at its two nodes? Count (node, slot) clashes
+        // for the straight and the crossed reading.
+        for ( int32_t variant = 0; variant < 2; variant++ ) {
+            std::map<uint64_t, int32_t> seen;
+            int32_t clashes = 0, total = 0;
+            for ( const size_t offset : roadOffsets ) {
+                const uint32_t na = readU32( offset + 28 ), nb = readU32( offset + 32 );
+                const uint32_t sa = pData[offset + ( variant == 0 ? 12 : 13 )], sb = pData[offset + ( variant == 0 ? 13 : 12 )];
+                for ( const uint64_t key : { ( static_cast<uint64_t>( na ) << 8 ) | sa, ( static_cast<uint64_t>( nb ) << 8 ) | sb } ) {
+                    clashes += seen[key]++ > 0 ? 1 : 0;
+                    total++;
+                }
+            }
+            OTDU_LOG_INFO( "MapScreen: slot test variant %d: %d clashes of %d (node,slot) pairs\n", variant, clashes, total );
+        }
+    }
+    if ( CmdLine::HasArg( "-logroadfields" ) ) {
+        // The unknown dwords of the 48-byte DAOR record: distinct values per field.
+        for ( const size_t field : { 8, 12, 16, 20, 24, 36, 40, 44 } ) {
+            std::map<uint32_t, int32_t> values;
+            for ( const size_t offset : roadOffsets ) {
+                values[readU32( offset + field )]++;
+            }
+            std::string line;
+            int32_t shown = 0;
+            for ( const auto &entry : values ) {
+                if ( shown++ >= 14 ) {
+                    break;
+                }
+                line += " " + std::to_string( entry.first ) + ":" + std::to_string( entry.second );
+            }
+            OTDU_LOG_INFO( "MapScreen: DAOR +%zu: %zu distinct;%s\n", field, values.size(), line.c_str() );
+        }
+    }
     roadLinks.resize( roadNodes.size() );
     int32_t links = 0;
     for ( const size_t offset : roadOffsets ) {
@@ -2100,6 +2136,7 @@ void MapScreen::loadRoads( const std::string &island ) {
         // The road's class (the byte at 'DAOR' +12): the map colours a road by
         // it [DATA: 0..4 on Ibiza, 0..11 on Hawai; docs/re/roads_spec.md].
         edgeClass.push_back( pData[offset + 12] );
+        edgePair.push_back( static_cast<uint16_t>( pData[offset + 12] * 256 + pData[offset + 13] ) );
         totalRoadLength += shapeLength;
         links++;
     }
@@ -2128,6 +2165,15 @@ void MapScreen::loadRoads( const std::string &island ) {
     // value is a dirt track), so -logroads prints it for a comparison with the
     // map's colours.
     if ( CmdLine::HasArg( "-logroads" ) ) {
+        std::map<uint16_t, int32_t> pairs;
+        for ( const uint16_t pr : edgePair ) {
+            pairs[pr]++;
+        }
+        std::string pairLine;
+        for ( const auto &entry : pairs ) {
+            pairLine += " " + std::to_string( entry.first >> 8 ) + "/" + std::to_string( entry.first & 255 ) + ":" + std::to_string( entry.second );
+        }
+        OTDU_LOG_INFO( "MapScreen: road class pairs (+12/+13)%s\n", pairLine.c_str() );
         std::map<uint8_t, int32_t> histogram;
         for ( const uint8_t c : edgeClass ) {
             histogram[c]++;
