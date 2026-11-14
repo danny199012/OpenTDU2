@@ -8,6 +8,7 @@
 #include "render/eden/eden_windscreen.h"
 #include "render/eden/eden_planar_reflections.h"
 #include "render/eden/eden_postfx.h"
+#include "render/upscalers/fsr3_upscaler.h"
 #include "render/eden/eden_shadows.h"
 #include "render/eden/eden_sky.h"
 #include "render/eden/eden_sun.h"
@@ -265,6 +266,11 @@ private:
     // resources/shaders/velocity.frag. All matrices are the UNjittered ones.
     void runVelocity( const EdenSceneParams &params );
     void runObjectVelocity( const EdenSceneParams &params );
+    // Upscaler 3: FSR 3 (temporal, optional DLL plugin) on colour + depth + velocity.
+    void runFsr3();
+    Fsr3Upscaler fsr3;
+    RenderTarget *pFsrDepthTarget = nullptr; // R32F copy of the scene depth for FSR 3
+    bool bFsr3OutputDefined = false;
     RenderTarget *pObjectVelocityTarget = nullptr; // RG16F + depth: the moving meshes' own motion
     std::unordered_map<const EdenMesh *, std::vector<Matrix4x4f>> previousWorlds, currentWorlds;
     std::unordered_map<uint64_t, VkPipeline> objectVelocityPipelines;

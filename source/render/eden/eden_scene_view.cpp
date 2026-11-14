@@ -10,6 +10,7 @@
 #include <cstring>
 #include "render/shaders/builtin/upscale_frag.h"
 #include "render/shaders/builtin/velocity_frag.h"
+#include "render/shaders/builtin/depthcopy_frag.h"
 #include "render/shaders/builtin/velobject_vert.h"
 #include "render/shaders/builtin/velobject_frag.h"
 #include "render/shaders/builtin/velocityview_frag.h"
@@ -648,7 +649,8 @@ void EdenSceneView::setupScene( EdenSceneParams &params ) {
     // Column vector matrices: clip.x gets m[2][0] * view.z and w = -view.z,
     // so m[2][0] = -offset shifts the image by +offset (NDC).
     jitterPixels = Vector2f( 0.0f, 0.0f );
-    static const bool bJitter = CmdLine::HasArg( "-jitter" );
+    static const bool bJitterFlag = CmdLine::HasArg( "-jitter" );
+    const bool bJitter = bJitterFlag || GetGameOptions().Upscaler == 3;
     if ( bJitter ) {
         const float ratio = static_cast<float>( gpRender->getDevice().getBackbufferWidth() ) /
                             Max( 1.0f, static_cast<float>( pSceneTarget->Width ) );
@@ -789,6 +791,11 @@ void EdenSceneView::destroyTargets() {
     device.destroyRenderTarget( pOcclusionTarget );
     device.destroyRenderTarget( pFsrEasuTarget );
     device.destroyRenderTarget( pFsrTarget );
+    vkDeviceWaitIdle( device.getDevice() ); // the FSR context owns GPU resources
+    fsr3.destroy();
+    bFsr3OutputDefined = false;
+    device.destroyRenderTarget( pFsrDepthTarget );
+    pFsrDepthTarget = nullptr;
     device.destroyRenderTarget( pVelocityTarget );
     device.destroyRenderTarget( pObjectVelocityTarget );
     pObjectVelocityTarget = nullptr;
@@ -1094,9 +1101,65 @@ void EdenSceneView::runObjectVelocity( const EdenSceneParams &params ) {
     device.endRenderTarget();
 }
 
+void EdenSceneView::runFsr3() {
+    if ( GetGameOptions().Upscaler != 3 || pSceneTarget == nullptr || !pSceneTarget->bInitialized ||
+         pVelocityTarget == nullptr || !pVelocityTarget->bInitialized ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    const uint32_t outWidth = device.getBackbufferWidth();
+    const uint32_t outHeight = device.getBackbufferHeight();
+    const bool bSizeChanged = pFsrTarget == nullptr || pFsrTarget->Width != outWidth || pFsrTarget->Height != outHeight;
+    if ( bSizeChanged ) {
+        device.destroyRenderTarget( pFsrTarget );
+        pFsrTarget = device.createRenderTarget( outWidth, outHeight, VK_FORMAT_UNDEFINED, false, "Fsr3Output" );
+        bFsr3OutputDefined = false;
+    }
+    if ( !fsr3.ensure( device, pSceneTarget->Width, pSceneTarget->Height, outWidth, outHeight ) ) {
+        return; // no DLLs / no context: the final pass falls back to a plain upscale
+    }
+    if ( pFsrDepthTarget == nullptr || pFsrDepthTarget->Width != pSceneTarget->Width ||
+         pFsrDepthTarget->Height != pSceneTarget->Height ) {
+        device.destroyRenderTarget( pFsrDepthTarget );
+        pFsrDepthTarget = device.createRenderTarget( pSceneTarget->Width, pSceneTarget->Height, VK_FORMAT_R32_SFLOAT,
+                                                     false, "Fsr3Depth" );
+    }
+    {
+        GPUTexture *pSceneDepth = &pSceneTarget->Depth;
+        device.beginRenderTarget( pFsrDepthTarget, true );
+        fullscreen.draw( device, kSPIRV_depthcopy_frag, sizeof( kSPIRV_depthcopy_frag ), &pSceneDepth, 1, nullptr, 0,
+                         eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
+        device.endRenderTarget();
+    }
+    Fsr3Upscaler::Inputs inputs;
+    inputs.pColor = pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    inputs.pDepth = &pFsrDepthTarget->Color;
+    inputs.pMotion = &pVelocityTarget->Color;
+    inputs.pOutput = &pFsrTarget->Color;
+    inputs.bOutputDefined = bFsr3OutputDefined;
+    inputs.RenderWidth = pSceneTarget->Width;
+    inputs.RenderHeight = pSceneTarget->Height;
+    inputs.OutputWidth = outWidth;
+    inputs.OutputHeight = outHeight;
+    inputs.JitterX = jitterPixels.x;
+    inputs.JitterY = jitterPixels.y;
+    inputs.FrameTimeMs = frameDelta * 1000.0f;
+    inputs.Near = camera.Near;
+    inputs.Far = camera.Far;
+    inputs.FovY = effectiveFov;
+    inputs.Sharpness = static_cast<float>( Clamp( GetGameOptions().Sharpness, 0, 10 ) ) / 10.0f;
+    inputs.bReset = !bFsr3OutputDefined;
+    if ( fsr3.dispatch( device, inputs ) ) {
+        bFsr3OutputDefined = true;
+        pFsrResult = &pFsrTarget->Color;
+    }
+}
+
 void EdenSceneView::runVelocity( const EdenSceneParams &params ) {
     static const bool bVelCheck = CmdLine::HasArg( "-velcheck" );
-    static const bool bWanted = CmdLine::HasArg( "-jitter" ) || CmdLine::HasArg( "-showvelocity" ) || bVelCheck;
+    static const bool bWantedFlags =
+        CmdLine::HasArg( "-jitter" ) || CmdLine::HasArg( "-showvelocity" ) || bVelCheck;
+    const bool bWanted = bWantedFlags || GetGameOptions().Upscaler == 3;
     if ( !bWanted || pSceneTarget == nullptr || !pSceneTarget->bInitialized ) {
         return;
     }
@@ -1686,6 +1749,7 @@ void EdenSceneView::renderOffscreen() {
     }
     runFsr1();
     runVelocity( params );
+    runFsr3();
     sceneParams = params;
     device.endGpuPass();
     gSceneTimes.mark( SceneTimes::Post );

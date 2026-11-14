@@ -296,6 +296,9 @@ bool RenderDevice::createDevice() {
     enabledFeatures.fillModeNonSolid = supportedFeatures.fillModeNonSolid;
     enabledFeatures.independentBlend = supportedFeatures.independentBlend;
     enabledFeatures.shaderClipDistance = supportedFeatures.shaderClipDistance;
+    // AMD FSR 3 (optional plugin, source/render/upscalers): its compute shaders use 16 bit integers.
+    enabledFeatures.shaderInt16 = supportedFeatures.shaderInt16;
+    enabledFeatures.shaderStorageImageExtendedFormats = supportedFeatures.shaderStorageImageExtendedFormats;
     OTDU_LOG_INFO( "BC texture compression: %s\n", bSupportsBC ? "yes" : "no (CPU decode)" );
 
     VkPhysicalDeviceProperties properties;
@@ -426,6 +429,23 @@ bool RenderDevice::createDevice() {
         appendFeature( reinterpret_cast<VkBaseOutStructure *>( &enabledBufferAddress ) );
         appendFeature( reinterpret_cast<VkBaseOutStructure *>( &enabledAccelStructure ) );
         appendFeature( reinterpret_cast<VkBaseOutStructure *>( &enabledRayQuery ) );
+    }
+    // VK_KHR_compute_shader_derivatives (FSR 3 plugin): derivative group linear.
+    VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR enabledDerivatives = {};
+    enabledDerivatives.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR;
+    if ( HasExtension( availableExtensions, VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME ) &&
+         vkGetPhysicalDeviceFeatures2 != nullptr ) {
+        VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR supportedDerivatives = {};
+        supportedDerivatives.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR;
+        VkPhysicalDeviceFeatures2 derivativeQuery = {};
+        derivativeQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        derivativeQuery.pNext = &supportedDerivatives;
+        vkGetPhysicalDeviceFeatures2( physicalDevice, &derivativeQuery );
+        if ( supportedDerivatives.computeDerivativeGroupLinear ) {
+            extensions.push_back( VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME );
+            enabledDerivatives.computeDerivativeGroupLinear = VK_TRUE;
+            appendFeature( reinterpret_cast<VkBaseOutStructure *>( &enabledDerivatives ) );
+        }
     }
     OTDU_LOG_INFO( "Original shaders (.sob via DXSO): %s\n",
                    bSupportsDxso ? "supported" : "unsupported (replacement shaders only)" );

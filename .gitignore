@@ -46,3 +46,6 @@ _*
 opentdu2.log
 opentdu2-watchdog.log
 .zcode/
+
+# AMD FidelityFX signed DLLs: optional runtime plugin, binary-only licence (third_party/fidelityfx-api/LICENSE.md)
+third_party/fidelityfx-api/bin/

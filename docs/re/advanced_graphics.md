@@ -57,3 +57,18 @@ time, so it will not raise the frame rate until the draw cost is fixed. Measure 
 SSAO / GTAO (needs only depth + normals; the depth is there, normals would come from depth), shadow
 resolution and cascade count live (`EdenShadows::Config::Resolution` is fixed at init), SMAA / TAA (TAA
 shares the jitter + velocity work), motion blur, view distance split from the Environment row.
+
+
+## FSR 3 (temporal) - the optional plugin (2026-11-14)
+`GameOptions::Upscaler = 3` ("AMD FSR 3 (temporal)"). Built on the FidelityFX **API** (`ffx_api`), loaded at run time:
+- **DLLs (not in git, binary-only AMD licence, `third_party/fidelityfx-api/LICENSE.md`):** copy `amd_fidelityfx_loader_vk.dll` and
+  `amd_fidelityfx_upscaler_vk.dll` from the FidelityFX SDK (`Kits/FidelityFX/signedbin`) next to `opentdu2*.exe`, or into
+  `third_party/fidelityfx-api/bin/` (gitignored, found from `build*/bin`). Without them the option logs one warning and the final pass
+  falls back to a plain bilinear upscale.
+- Code: `source/render/upscalers/fsr3_upscaler.{h,cpp}` (context + dispatch), `EdenSceneView::runFsr3` (inputs: the final colour at
+  render size, an R32F copy of the depth - `depthcopy.frag`, the velocity buffer, the Halton jitter), run after `runVelocity`.
+- The device now enables `shaderInt16` and `VK_KHR_compute_shader_derivatives` (derivative group linear) when the GPU has them; the
+  FSR 3 compute shaders need both (validation named the two missing capabilities).
+- Conventions (proved by the reprojection test, see the session entry): velocity = previous uv - current uv, so `motionVectorScale` =
+  render size; jitter in pixels with the SDK's sign (NDC x += 2jx/W, y -= 2jy/H); input colour is LDR (tone mapped) so the context
+  uses `NON_LINEAR_COLORSPACE` + auto exposure. Sharpening slider 1..10 -> FSR's own sharpening 0.1..1.

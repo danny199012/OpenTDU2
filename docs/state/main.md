@@ -3,6 +3,27 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 5th): AMD FSR 3 in the Upscaling filter (optional DLL plugin)
+
+### What changed
+- `source/render/upscalers/fsr3_upscaler.{h,cpp}`: loads `amd_fidelityfx_loader_vk.dll` (exe folder, then `third_party/fidelityfx-api/bin`), creates an upscale context (`ffxCreateContextDescUpscale` + the VK backend with our device / `vkGetDeviceProcAddr`) and records `ffxDispatchDescUpscale` into the frame's command buffer (`getCommandBuffer()`, so the renderers drop their cached bindings). Headers vendored in `third_party/fidelityfx-api` (MIT sources; the signed DLLs are gitignored, binary-only licence).
+- `EdenSceneView::runFsr3`: colour + an R32F copy of the depth (`depthcopy.frag`: the backend views depth as R32F, our D32S8 image failed validation) + the velocity buffer + jitter; output `pFsrTarget` (window size), presented by `draw()` exactly like FSR 1 (the final pass does no second upscale / sharpen).
+- `render_device.cpp`: enables `shaderInt16`, storage image extended formats and `VK_KHR_compute_shader_derivatives` when supported (FSR 3's shaders declare them). `-jitter` / the velocity pass now also turn on whenever `Upscaler == 3`.
+- Menu: Upscaling filter has a 4th value, "AMD FSR 3 (temporal)" (F2 Advanced page and the Image settings row).
+
+### Verified
+- `options.ini` render_scale=67 upscaler=3, `-gm FREERIDE -skipcine -nopad -nowatermark -fixedtimestep -fsr3debug -vk_enable_validation_layer`, accel + steerleft, 820 frames: `[fsr3] context created: render 858x482 -> 1280x720`, **0 validation errors, 0 [ERROR]**; the frame is clean and sharp (`docs/images/fsr3-67pct-driving.png`, HUD at native resolution).
+- Fallback: DLLs moved away -> one `[WARN] ... FSR 3 is unavailable`, bilinear, no crash.
+- Validation caught (and I fixed) three things: depth/stencil aspect + R32F view of a D32S8 image, the missing R32F format mapping, and the two missing device capabilities.
+
+### Ruled out
+- Passing the combined depth image straight to FSR: invalid views (aspect / format), hence the R32F copy.
+
+### Not done / next
+- Not eyeballed in motion on a real screen (only stills): ghosting on the avatar / glass (camera-only vectors), rain / windscreen path, and the reactive / transparency masks (none given) are the first things to look at.
+- Quality-mode presets (render scale picked from the mode) and frame generation are not done. The jitter sign matches the SDK's convention by construction; a doubled-edge look would mean flipping `m[2][0]` / `m[2][1]` in `setupScene`.
+- XeSS and DLSS: same inputs (colour, depth, velocity, jitter); XeSS has a Vulkan SDK, DLSS needs the user's own NVIDIA DLL.
+
 ## Session 2026-11-14 (`main`, 4th): per-object velocity - the car and traffic carry their own motion
 
 ### What changed
