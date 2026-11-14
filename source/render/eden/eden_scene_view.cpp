@@ -9,6 +9,8 @@
 #include "render/shaders/builtin/rt_ao_combine_frag.h"
 #include <cstring>
 #include "render/shaders/builtin/upscale_frag.h"
+#include "render/shaders/builtin/velocity_frag.h"
+#include "render/shaders/builtin/velocityview_frag.h"
 #include "render/shaders/builtin/fsr1_easu_frag.h"
 #include "render/shaders/builtin/fsr1_rcas_frag.h"
 #include "render/shaders/builtin/windscreen_frag.h"
@@ -636,6 +638,32 @@ void EdenSceneView::setupScene( EdenSceneParams &params ) {
     // and the retail narrow-aspect law, both inside EdenEffectiveFov.
     effectiveFov = EdenEffectiveFov( camera.Fov, camera.FovScale, aspectRatio );
     params.Projection = EdenPerspectiveFovRH( effectiveFov, aspectRatio, camera.Near, camera.Far );
+    currentView = params.View;
+    currentProjection = params.Projection;
+    // -jitter: Halton(2, 3) sub-pixel offset of the projection (what a
+    // temporal upscaler needs); phases = 8 * (display / render)^2 as in FSR.
+    // Column vector matrices: clip.x gets m[2][0] * view.z and w = -view.z,
+    // so m[2][0] = -offset shifts the image by +offset (NDC).
+    jitterPixels = Vector2f( 0.0f, 0.0f );
+    static const bool bJitter = CmdLine::HasArg( "-jitter" );
+    if ( bJitter ) {
+        const float ratio = static_cast<float>( gpRender->getDevice().getBackbufferWidth() ) /
+                            Max( 1.0f, static_cast<float>( pSceneTarget->Width ) );
+        const uint32_t phases = Max<uint32_t>( 8, static_cast<uint32_t>( ceilf( 8.0f * ratio * ratio ) ) );
+        const uint32_t index = jitterIndex % phases + 1;
+        auto halton = []( uint32_t i, uint32_t base ) {
+            float f = 1.0f, r = 0.0f;
+            while ( i > 0 ) {
+                f /= static_cast<float>( base );
+                r += f * static_cast<float>( i % base );
+                i /= base;
+            }
+            return r;
+        };
+        jitterPixels = Vector2f( halton( index, 2 ) - 0.5f, halton( index, 3 ) - 0.5f );
+        params.Projection.m[2][0] -= 2.0f * jitterPixels.x / static_cast<float>( pSceneTarget->Width );
+        params.Projection.m[2][1] += 2.0f * jitterPixels.y / static_cast<float>( pSceneTarget->Height );
+    }
     params.CameraPosition = camera.Position;
     params.CameraDirection = cameraWorld.transformVector( Vector3f( 0.0f, 0.0f, -1.0f ) );
     CoordsOverlay::SetCamera( params.CameraPosition, params.CameraDirection );
@@ -758,6 +786,8 @@ void EdenSceneView::destroyTargets() {
     device.destroyRenderTarget( pOcclusionTarget );
     device.destroyRenderTarget( pFsrEasuTarget );
     device.destroyRenderTarget( pFsrTarget );
+    device.destroyRenderTarget( pVelocityTarget );
+    pVelocityTarget = nullptr;
     pFsrEasuTarget = pFsrTarget = nullptr;
     pFsrResult = nullptr;
     pSceneTarget = pViewPosTarget = pEnvironmentTarget = pEnvironmentScratch = pFinalTarget = pDropletTarget = pAOTarget = nullptr;
@@ -936,6 +966,59 @@ void EdenSceneView::runFsr1() {
                          sizeof( rcas ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
         device.endRenderTarget();
         pFsrResult = &pFsrTarget->Color;
+    }
+}
+
+// Camera-motion velocity buffer (resources/shaders/velocity.frag). Runs after
+// the opaque passes, when the depth is final; -jitter / -showvelocity only.
+void EdenSceneView::runVelocity() {
+    static const bool bWanted = CmdLine::HasArg( "-jitter" ) || CmdLine::HasArg( "-showvelocity" );
+    if ( !bWanted || pSceneTarget == nullptr || !pSceneTarget->bInitialized ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    if ( pVelocityTarget == nullptr || pVelocityTarget->Width != pSceneTarget->Width ||
+         pVelocityTarget->Height != pSceneTarget->Height ) {
+        device.destroyRenderTarget( pVelocityTarget );
+        pVelocityTarget = device.createRenderTarget( pSceneTarget->Width, pSceneTarget->Height,
+                                                     VK_FORMAT_R16G16_SFLOAT, false, "Velocity" );
+        bHavePreviousCamera = false;
+    }
+    // The first frame after a (re)creation has no previous camera: zero motion.
+    if ( !bHavePreviousCamera ) {
+        previousView = currentView;
+        previousProjection = currentProjection;
+        bHavePreviousCamera = true;
+    }
+    struct Push {
+        Matrix4x4f CurrentToPrevious;
+        float Lens[4];
+    } push;
+    push.CurrentToPrevious = previousProjection * previousView * currentView.inverse();
+    push.Lens[0] = 1.0f / currentProjection.m[0][0];
+    push.Lens[1] = 1.0f / currentProjection.m[1][1];
+    push.Lens[2] = camera.Near;
+    push.Lens[3] = camera.Far;
+    GPUTexture *pDepth = &pSceneTarget->Depth;
+    device.beginRenderTarget( pVelocityTarget, true );
+    fullscreen.draw( device, kSPIRV_velocity_frag, sizeof( kSPIRV_velocity_frag ), &pDepth, 1, &push, sizeof( push ),
+                     eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
+    device.endRenderTarget();
+    previousView = currentView;
+    previousProjection = currentProjection;
+    jitterIndex++;
+    // -showvelocity: paint the buffer into the final image (debug view).
+    static const bool bShowVelocity = CmdLine::HasArg( "-showvelocity" );
+    if ( bShowVelocity && pFinalTarget != nullptr && pFinalTarget->bInitialized ) {
+        GPUTexture *pVelocity = &pVelocityTarget->Color;
+        device.beginRenderTarget( pFinalTarget, true );
+        fullscreen.draw( device, kSPIRV_velocityview_frag, sizeof( kSPIRV_velocityview_frag ), &pVelocity, 1 );
+        device.endRenderTarget();
+    }
+    static const bool bLogVelocity = CmdLine::HasArg( "-logvelocity" );
+    if ( bLogVelocity && ( jitterIndex % 60 ) == 0 ) {
+        OTDU_LOG_INFO( "[velocity] frame %u jitter (%.3f, %.3f) px, scene %ux%u\n", jitterIndex, jitterPixels.x,
+                       jitterPixels.y, pSceneTarget->Width, pSceneTarget->Height );
     }
 }
 
@@ -1437,6 +1520,7 @@ void EdenSceneView::renderOffscreen() {
         device.endRenderTarget();
     }
     runFsr1();
+    runVelocity();
     sceneParams = params;
     device.endGpuPass();
     gSceneTimes.mark( SceneTimes::Post );

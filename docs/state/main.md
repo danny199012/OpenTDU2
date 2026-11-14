@@ -3,6 +3,25 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 2nd): temporal upscaler groundwork - jitter + camera velocity buffer
+
+Continuation of the FSR work (owner: "Yes, start it").
+
+### What changed
+- `eden_scene_view.cpp` `setupScene`: `-jitter` adds a Halton(2,3) sub-pixel offset to `params.Projection` (`m[2][0]`, `m[2][1]`; phases 8*(display/render)^2); the unjittered view / projection are kept in `currentView` / `currentProjection`.
+- `runVelocity()` + `resources/shaders/velocity.frag`: from the scene depth rebuild the view position, carry it by `projPrev * viewPrev * inverse(viewCur)` (all unjittered) and write previous uv - current uv into an RG16F target. `-showvelocity` paints it into the final image (`velocityview.frag`), `-logvelocity` logs the jitter.
+- Everything is behind flags: default frames are untouched.
+
+### Verified
+- Parked: the buffer is uniform grey (|v| < 0.0005). Driving (accel held): `docs/images/velocity-debug-drive.png`, bottom pixels vy < 0 (the road came from nearer the horizon), right edge vx < 0 (outward flow) - the expected signs. 0 VUIDs with `-vk_enable_validation_layer`.
+
+### Not verified / limits
+- The magnitude was not checked by a reprojection (warp frame N-1 with the buffer, diff with frame N): that is the first check to do. The car and every moving object read as camera motion only (their own previous transforms are not in the buffer: ghosting on cars until per-object vectors exist). The jitter sign convention vs FSR 3's `jitterOffset` is unproven (flip `m[2][0]` / `m[2][1]` signs in setupScene if the upscaler shows doubled edges).
+- Shadow cascades, the occlusion probe and the RT AO use `params.Projection` (jittered under `-jitter`): not audited.
+
+### Next
+1. Reprojection test. 2. Per-object velocity: mesh vertex path writes a second colour attachment from previous-frame world matrices (car body / wheels first, then skinned, instanced). 3. FSR 3 via the FidelityFX API (the SDK clone is at third_party/_ffx_tmp if still present) fed colour + depth + this buffer + jitter; then XeSS, then DLSS (optional user-supplied DLL).
+
 ## Session 2026-11-14 (`main`): AMD FSR 1.0 in the Upscaling filter
 
 The owner: *"add FSR 3, DLSS and XeSS options ... DLSS and FSR help enhance graphics a bit while also helping some with performance."* Agreed scope: FSR 1.0 now, temporal groundwork after.

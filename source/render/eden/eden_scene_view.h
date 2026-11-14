@@ -257,6 +257,15 @@ private:
     RenderTarget *pFsrTarget = nullptr;
     GPUTexture *pFsrResult = nullptr;
     void runFsr1();
+    // Temporal upscaler groundwork (-jitter / -showvelocity): sub-pixel
+    // projection jitter and the camera-motion velocity buffer, see
+    // resources/shaders/velocity.frag. All matrices are the UNjittered ones.
+    void runVelocity();
+    RenderTarget *pVelocityTarget = nullptr; // RG16F, previous uv - current uv
+    Matrix4x4f currentView, currentProjection, previousView, previousProjection;
+    bool bHavePreviousCamera = false;
+    uint32_t jitterIndex = 0;
+    Vector2f jitterPixels = Vector2f( 0.0f, 0.0f ); // this frame's jitter, in render target pixels
     // The windscreen droplets (normal.xy + presence), composited by the final
     // blit while the effect is active (half the scene size).
     RenderTarget *pDropletTarget = nullptr;
