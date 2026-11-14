@@ -2,7 +2,15 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-14 (sticker shop car in the room, `main`): the editor shows the car on the shop's turntable, not outside
+`## Session 2026-11-14 (brightness slider + the Image settings overlay, `main`)
+
+Owner: add the brightness slider to the picker; "the Image settings with gamma ... I think there is an overlay issue".
+
+- **Slider**: the picker is now a hue x saturation square (white at the bottom) plus a brightness bar (the retail frames), a generated texture bound to `lure_grad` in 17 variants (the bar's handle); brightness = triggers (accelerate / brake) or Page Up / Down on the active colour; paint (two colours keep their own value) and the sticker colour tool. `docs/images/sticker_ui_brightness_slider.webp`.
+- **Overlay root cause** (`pause_menu.cpp` extendOptionsRows): the cloned `bkgd<N>` strips (semi-transparent shadow, a=0.85) were placed at depth 250+slot, ABOVE the game rows at 200+slot, so they washed the rows out (the s76 shots already showed it). They go to 100+slot now. Plus the rows start 13 px lower on the Gamma page so row 1 no longer straddles the board frame. Shots `options-gamma-overlay-fixed.webp`, `options-gamma-rows-inside-panel.webp`; the treadmill still scrolls (`focus slot 7 ... [window scrolled]`). New debug flags `-dumpoptionsclips`, `-hideoptclip <name>`.
+- **Expanding the graphics menus** (not done, proposal): a dedicated "Advanced graphics" tab on the Audio & Video column built from the Video page's own template (crisp retail rows, 7 per page) instead of 13 rows crammed under the gamma slider; `menu_rows.ini` already reorders / relabels.
+
+## Session 2026-11-14 (sticker shop car in the room, `main`): the editor shows the car on the shop's turntable, not outside
 
 The owner sent retail video frames: the car stands on the turntable inside the shop (STICKERS / CAR PAINT signs), pack bars read $10,000 / $13,000 and the invoice $1,000 paint + $23,000 stickers + $1,000 labour. Change: `InteriorWalk::placeStickerCar` parks a copy of the player's car on the room's `D_CAR` PosCam (own dealer + custom paint), `GMFreeRide` orbits a scene-local camera around it (`setLocalCamera`), binds the sticker canvas to it and hands it to `StickerShopUi` as the car the Paint page recolours; the outside cut stays only when no car place exists. My Colors now start empty (retail). Pricing already matched (per pack + $1000 labour + $1000 paint). Verified headless: `docs/images/sticker_ui_room_car.webp` (stickers on the room car), `sticker_ui_paint_in_room.webp`. Not done: the retail brightness slider beside the picker, `cam_new_car_*` cameras, the `sti_carready` arrival; the room car does not turn, and the walk's room view shows it parked while you stand at the seller.
 

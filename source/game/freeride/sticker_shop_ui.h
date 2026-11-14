@@ -72,14 +72,16 @@ private:
     void tintCube( const std::string &clipPath, uint32_t colour );
     // The picker's gradient (hue across, white -> colour -> black down) the
     // movie's lure_grad shows, and the colour under the cursor.
-    static uint32_t GradientColour( float u, float v );
+    static uint32_t GradientColour( float u, float v, float val );
+    static float BrightnessInput();
+    float activeValue() const;
     void bindGradient();
     void placeCursor();
     void applyPickedToSticker();
     // The colour tool's movie root: /stickers/colors (the sticker's colour)
     // or /paint (the Paint page's own box, the same clips).
     std::string colourRoot() const;
-    static void CursorFromColour( uint32_t colour, float &u, float &v );
+    static void CursorFromColour( uint32_t colour, float &u, float &v, float &val );
     // The Paint page (SHOPSCAR /paint, docs/re/stickers_ui_spec.md 7): the
     // body colour, the optional second (bicolour) colour and the finish type
     // recolour the car live; Valid & Pay keeps them.
@@ -116,7 +118,7 @@ private:
     // The colour tool: the box is open, and the dial that replaces the
     // pipette (hue / brightness of the colour about to be saved).
     bool bMyColoursOpen = false; // the colour tool's panel is up (colo:open .. colo:clos)
-    float cursorU = 0.5f, cursorV = 0.0f; // the picker cursor in the gradient (0..1)
+    float cursorU = 0.5f, cursorV = 0.0f, cursorVal = 1.0f; // the picker cursor in the gradient (0..1)
 
     // The Paint page.
     CinematicCar *pCar = nullptr;
@@ -127,7 +129,7 @@ private:
     PlayerProfile::CustomPaint paintCommitted;
     bool bBackupCustom = false; // the state when the page opened (B restores it)
     PlayerProfile::CustomPaint paintBackup;
-    float paintU[2] = { 0.0f, 0.0f }, paintV[2] = { 0.0f, 0.0f }; // each colour's picker cursor
+    float paintU[2] = { 0.0f, 0.0f }, paintV[2] = { 0.0f, 0.0f }, paintVal[2] = { 1.0f, 1.0f }; // each colour's picker cursor
 
     // The invoice of this visit.
     int32_t labourCost = 0;

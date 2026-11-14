@@ -12,6 +12,8 @@
 #include "render/texture_cache.h"
 #include "system/cmd_line.h"
 
+#include <SDL3/SDL_scancode.h>
+
 namespace {
 constexpr int32_t kLocMoneyFormat = 0x3a4; // the money text (gm_shop.cpp formatMoney, FUN_0099d810)
 constexpr int32_t kPricingLabour = 1000;   // DBStickersPricing 'Labour' [DATA]
@@ -472,7 +474,7 @@ uint32_t StickerShopUi::pickedColour() const {
     if ( bPaintOpen ) {
         return activePaintColour();
     }
-    return GradientColour( cursorU, cursorV );
+    return GradientColour( cursorU, cursorV, cursorVal );
 }
 
 uint32_t StickerShopUi::activePaintColour() const {
@@ -484,9 +486,18 @@ std::string StickerShopUi::colourRoot() const {
     return bPaintOpen ? "/paint" : "/stickers/colors";
 }
 
-void StickerShopUi::CursorFromColour( uint32_t colour, float &u, float &v ) {
-    // The gradient's inverse: hue across, saturation on the upper half,
-    // value on the lower.
+float StickerShopUi::BrightnessInput() {
+    // The brightness bar: the triggers (accelerate / brake), Page Up / Down.
+    float value = 0.0f;
+    if ( gpInput->isDown( eInputAction::IA_CarAccel ) || gpInput->isKeyDown( SDL_SCANCODE_PAGEUP ) ) value += 1.0f;
+    if ( gpInput->isDown( eInputAction::IA_CarBrake ) || gpInput->isKeyDown( SDL_SCANCODE_PAGEDOWN ) ) value -= 1.0f;
+    return value;
+}
+
+void StickerShopUi::CursorFromColour( uint32_t colour, float &u, float &v, float &val ) {
+    // The picker's inverse: hue across, saturation down (white at the bottom),
+    // the brightness bar's value [INF: the retail picker's layout from the
+    // owner's video frames: a hue x saturation square and a value bar].
     const float r = ( colour & 0xff ) / 255.0f, g = ( ( colour >> 8 ) & 0xff ) / 255.0f, b = ( ( colour >> 16 ) & 0xff ) / 255.0f;
     const float maxc = Max( r, Max( g, b ) ), minc = Min( r, Min( g, b ) );
     const float saturation = maxc > 0.0f ? ( maxc - minc ) / maxc : 0.0f;
@@ -499,17 +510,16 @@ void StickerShopUi::CursorFromColour( uint32_t colour, float &u, float &v ) {
         if ( hue < 0.0f ) hue += 360.0f;
     }
     u = hue / 360.0f;
-    v = maxc >= 0.995f ? saturation * 0.5f : 1.0f - maxc * 0.5f;
+    v = 1.0f - saturation;
+    val = maxc;
 }
 
-uint32_t StickerShopUi::GradientColour( float u, float v ) {
-    // Hue across; the top half fades white -> the pure colour, the bottom half
-    // pure colour -> black [INF: the retail gradient texture belongs to the exe].
+uint32_t StickerShopUi::GradientColour( float u, float v, float val ) {
     u = Clamp( u, 0.0f, 1.0f );
     v = Clamp( v, 0.0f, 1.0f );
     const float pickHue = u * 360.0f;
-    const float pickSaturation = v < 0.5f ? v * 2.0f : 1.0f;
-    const float pickValue = v < 0.5f ? 1.0f : 2.0f - v * 2.0f;
+    const float pickSaturation = 1.0f - v;
+    const float pickValue = Clamp( val, 0.0f, 1.0f );
     // HSV -> RGBA8 (MakeRGBA order: R low byte, A top).
     const float h = std::fmod( pickHue, 360.0f ) / 60.0f;
     const float c = pickValue * pickSaturation;
@@ -536,23 +546,49 @@ void StickerShopUi::applyPickedToSticker() {
     pushToCanvas();
 }
 
+float StickerShopUi::activeValue() const {
+    if ( bPaintOpen ) {
+        return paintVal[paintWork.Bicolour && pUi != nullptr && atoi( pUi->getVariable( "/:CurrentColor" ).c_str() ) == 2 ? 1 : 0];
+    }
+    return cursorVal;
+}
+
 void StickerShopUi::bindGradient() {
     // The picker's lure_grad is a placeholder the exe fills with its colour
-    // gradient: the generated one is bound to it.
-    static GPUTexture *pGradient = nullptr;
-    if ( pGradient == nullptr && gpRender != nullptr ) {
+    // gradient: a generated one is bound to it - the hue x saturation square
+    // (90 %) and the brightness bar the owner's retail frames show on its
+    // right [INF]. The bar's handle is drawn into one of 17 variants.
+    constexpr int32_t kSteps = 16;
+    static GPUTexture *pGradients[kSteps + 1] = {};
+    const int32_t step = static_cast<int32_t>( Clamp( activeValue(), 0.0f, 1.0f ) * kSteps + 0.5f );
+    if ( pGradients[step] == nullptr && gpRender != nullptr ) {
         constexpr uint32_t kSize = 128;
         std::vector<uint32_t> pixels( kSize * kSize );
+        const float handleV = 1.0f - static_cast<float>( step ) / kSteps;
         for ( uint32_t y = 0; y < kSize; y++ ) {
+            const float fy = ( y + 0.5f ) / kSize;
             for ( uint32_t x = 0; x < kSize; x++ ) {
-                pixels[y * kSize + x] = GradientColour( ( x + 0.5f ) / kSize, ( y + 0.5f ) / kSize );
+                const float fx = ( x + 0.5f ) / kSize;
+                uint32_t colour = 0u;
+                if ( fx < 0.9f ) {
+                    colour = GradientColour( fx / 0.9f, fy, 1.0f );
+                } else if ( fx > 0.93f ) {
+                    // The bar: white on top down to black.
+                    const uint32_t g = static_cast<uint32_t>( ( 1.0f - fy ) * 255.0f );
+                    colour = g | ( g << 8 ) | ( g << 16 ) | ( 0xffu << 24 );
+                }
+                if ( fx > 0.9f && std::fabs( fy - handleV ) < 0.018f ) {
+                    colour = 0xff202020u; // the handle: a dark rule with a light core
+                    if ( std::fabs( fy - handleV ) < 0.007f ) colour = 0xffffffffu;
+                }
+                pixels[y * kSize + x] = colour;
             }
         }
-        pGradient = gpRender->getTextureCache().createFromRGBA( kSize, kSize, reinterpret_cast<const uint8_t *>( pixels.data() ),
-                                                                "sticker_colour_gradient" );
+        pGradients[step] = gpRender->getTextureCache().createFromRGBA(
+            kSize, kSize, reinterpret_cast<const uint8_t *>( pixels.data() ), ( "sticker_colour_gradient_" + std::to_string( step ) ).c_str() );
     }
-    if ( pUi != nullptr && pGradient != nullptr ) {
-        pUi->setBitmapOverride( colourRoot() + "/color_box/color_picker/lure_grad", pGradient, 0.0f, 0.0f, 1.0f, 1.0f );
+    if ( pUi != nullptr && pGradients[step] != nullptr ) {
+        pUi->setBitmapOverride( colourRoot() + "/color_box/color_picker/lure_grad", pGradients[step], 0.0f, 0.0f, 1.0f, 1.0f );
     }
 }
 
@@ -561,21 +597,22 @@ void StickerShopUi::placeCursor() {
         return;
     }
     // lure_grad spans 40..5080 twips of the picker (2..254 px) [DATA: the
-    // movie's display list].
+    // movie's display list]; the square is its left 90 %.
     // The cursor sprite's origin is not its tip (the dropper art hangs ~57 px
     // down-right of it) and its scale against the gradient is 1.19: fitted
     // against screenshots at both corners [INF].
     const std::string picker = colourRoot() + "/color_box/color_picker";
+    constexpr float kSquare = 0.9f;
     if ( bPaintOpen ) {
         // Two cursors: `cursor` is the body colour, `cursor_2` the bicolour's.
-        pUi->setClipTransform( picker + "/cursor", 57.0f + paintU[0] * 212.0f, 59.0f + paintV[0] * 212.0f, 0.0f, 100.0f, 100.0f );
+        pUi->setClipTransform( picker + "/cursor", 57.0f + paintU[0] * 212.0f * kSquare, 59.0f + paintV[0] * 212.0f, 0.0f, 100.0f, 100.0f );
         if ( paintWork.Bicolour ) {
-            pUi->setClipTransform( picker + "/cursor_2", 57.0f + paintU[1] * 212.0f, 59.0f + paintV[1] * 212.0f, 0.0f, 100.0f,
+            pUi->setClipTransform( picker + "/cursor_2", 57.0f + paintU[1] * 212.0f * kSquare, 59.0f + paintV[1] * 212.0f, 0.0f, 100.0f,
                                    100.0f );
         }
         return;
     }
-    pUi->setClipTransform( picker + "/cursor", 57.0f + cursorU * 212.0f, 59.0f + cursorV * 212.0f, 0.0f, 100.0f, 100.0f );
+    pUi->setClipTransform( picker + "/cursor", 57.0f + cursorU * 212.0f * kSquare, 59.0f + cursorV * 212.0f, 0.0f, 100.0f, 100.0f );
 }
 
 int32_t StickerShopUi::selectedSlot() const {
@@ -691,8 +728,8 @@ bool StickerShopUi::onPaintCommand( const std::string &command ) {
         bPaintOpen = true;
         bBackupCustom = bPaintCustom;
         paintBackup = paintWork;
-        CursorFromColour( paintWork.Colour1, paintU[0], paintV[0] );
-        CursorFromColour( paintWork.Colour2, paintU[1], paintV[1] );
+        CursorFromColour( paintWork.Colour1, paintU[0], paintV[0], paintVal[0] );
+        CursorFromColour( paintWork.Colour2, paintU[1], paintV[1], paintVal[1] );
         pUi->setVariableBool( "/:BicolourPaint", paintWork.Bicolour );
         if ( CmdLine::HasArg( "-logstickerui" ) ) {
             pUi->dumpClips( "/paint", 7 );
@@ -742,7 +779,7 @@ bool StickerShopUi::onPaintCommand( const std::string &command ) {
                 SaveProfile( "paint colour slot" );
             } else if ( entry != 0u ) {
                 ( bSecond ? paintWork.Colour2 : paintWork.Colour1 ) = entry;
-                CursorFromColour( entry, paintU[bSecond ? 1 : 0], paintV[bSecond ? 1 : 0] );
+                CursorFromColour( entry, paintU[bSecond ? 1 : 0], paintV[bSecond ? 1 : 0], paintVal[bSecond ? 1 : 0] );
                 bPaintCustom = true;
                 applyPaintToCar();
             }
@@ -775,10 +812,17 @@ void StickerShopUi::tickPaint( float deltaTime, float ax, float ay ) {
         tintCube( picker + "/color2/cube/color", paintWork.Colour2 );
     }
     const bool bEditingSlots = getFlag( ( root + "/:editingColors" ).c_str() );
+    const float bright = BrightnessInput();
+    if ( !bEditingSlots && bright != 0.0f ) {
+        paintVal[at] = Clamp( paintVal[at] + bright * 0.6f * deltaTime, 0.0f, 1.0f );
+        ( bSecond ? paintWork.Colour2 : paintWork.Colour1 ) = GradientColour( paintU[at], paintV[at], paintVal[at] );
+        bPaintCustom = true;
+        applyPaintToCar();
+    }
     if ( !bEditingSlots && ( ax != 0.0f || ay != 0.0f ) ) {
         paintU[at] = Clamp( paintU[at] + ax * 0.45f * deltaTime, 0.0f, 1.0f );
         paintV[at] = Clamp( paintV[at] + ay * 0.45f * deltaTime, 0.0f, 1.0f );
-        ( bSecond ? paintWork.Colour2 : paintWork.Colour1 ) = GradientColour( paintU[at], paintV[at] );
+        ( bSecond ? paintWork.Colour2 : paintWork.Colour1 ) = GradientColour( paintU[at], paintV[at], paintVal[at] );
         bPaintCustom = true;
         applyPaintToCar();
     }
@@ -848,7 +892,7 @@ bool StickerShopUi::onCommand( const std::string &fullCommand ) {
         bMyColoursOpen = true;
         if ( command == "stic:colo:open" && editIndex >= 0 && editIndex < static_cast<int32_t>( working.size() ) ) {
             // The cursor starts on the sticker's own colour.
-            CursorFromColour( working[static_cast<size_t>( editIndex )].Tint, cursorU, cursorV );
+            CursorFromColour( working[static_cast<size_t>( editIndex )].Tint, cursorU, cursorV, cursorVal );
         }
         bindGradient();
         writeMyColours();
@@ -954,6 +998,11 @@ void StickerShopUi::tick( float deltaTime ) {
         bindGradient();
         tintCube( "/stickers/colors/color_box/color_picker/color1/cube/color", pickedColour() );
         const bool bEditingSlots = getFlag( "/stickers/colors/:editingColors" );
+        const float bright = BrightnessInput();
+        if ( !bEditingSlots && bright != 0.0f ) {
+            cursorVal = Clamp( cursorVal + bright * 0.6f * deltaTime, 0.0f, 1.0f );
+            applyPickedToSticker();
+        }
         if ( !bEditingSlots && ( ax != 0.0f || ay != 0.0f ) ) {
             cursorU = Clamp( cursorU + ax * 0.45f * deltaTime, 0.0f, 1.0f );
             cursorV = Clamp( cursorV + ay * 0.45f * deltaTime, 0.0f, 1.0f );

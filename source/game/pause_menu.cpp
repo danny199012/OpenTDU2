@@ -2231,13 +2231,14 @@ void PauseMenu::extendOptionsRows() {
             continue;
         }
         const float slotX = bkgdX - pageX + 19.0f;
-        const float slotY = bkgdY - pageY + 3.0f + kExtraRowPitch * slot;
+        const float panelGap = bVideo ? 0.0f : 13.0f; // the Gamma page's board frame starts under the slider row
+        const float slotY = bkgdY - pageY + 3.0f + panelGap + kExtraRowPitch * slot;
         player.placeCharacter( pagePath, rowCharacter, rowName, 200 + slot, slotX,
                                slotY );
         if ( player.duplicate( pagePath + "/bkgd0", "bkgd" + std::to_string( slot ),
-                               250 + slot ) ) {
+                               100 + slot ) ) {
             player.setClipTransform( pagePath + "/bkgd" + std::to_string( slot ),
-                                     bkgdX - pageX, ( bkgdY - pageY ) + kExtraRowPitch * slot,
+                                     bkgdX - pageX, ( bkgdY - pageY ) + panelGap + kExtraRowPitch * slot,
                                      0.0f, 100.0f, 100.0f );
         }
         placed++;
@@ -2251,6 +2252,12 @@ void PauseMenu::extendOptionsRows() {
     // rows are up and comes back with them (the hint is the board's art).
     if ( !bVideo ) {
         player.setClipVisible( pagePath + "/gamma_board", false );
+    }
+    if ( const char *pHide = CmdLine::GetArgValue( "-hideoptclip" ) ) {
+        player.setClipVisible( pagePath + "/" + pHide, false ); // debug A/B: which clip overlays the rows
+    }
+    if ( CmdLine::HasArg( "-dumpoptionsclips" ) ) {
+        player.dumpClips( pagePath, 3 );
     }
     OTDU_LOG_INFO(
         "PauseMenu: options %s extended with %d game rows (%d visible, "
