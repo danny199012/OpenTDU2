@@ -3,6 +3,30 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 8th): the upscalers tested in motion (scripted drive)
+
+The owner: "Test each in motion". I cannot watch a live screen, so: the same scripted drive under every upscaler, 3 frames 3 apart while turning at speed, compared to a native 100 % render of the same frames.
+
+### Method
+`options.ini` per run (`render_scale` 67 except native = 100; `upscaler` 0 bilinear / 2 FSR 1 / 3 FSR 3 / 4 XeSS / 5 DLSS), `-gm FREERIDE -skipcine -nopad -nowatermark -fixedtimestep -vk_enable_validation_layer -autoplay "200:hold=accel;500:hold=steerleft;800:shot;803:shot;806:shot" -exitframe 815`. Metrics in a scratch script (`_m.py`): PSNR against the native frame, over the full frame, the scenery above the car and the car box; mean absolute change between the first two frames (flicker + real motion).
+
+### Results (mean of 3 frames)
+| upscaler | PSNR full | scenery | car | change a-b |
+|---|---|---|---|---|
+| bilinear | 35.22 | 37.82 | 30.00 | 4.25 |
+| FSR 1.0 | 35.24 | 37.82 | 30.01 | 4.54 |
+| FSR 3 | 33.78 | 37.03 | 29.70 | 3.89 |
+| XeSS | 34.54 | 37.99 | 30.43 | 4.01 |
+| DLSS | 34.96 | 37.53 | 30.41 | 4.05 |
+(native itself: 5.38). 0 validation errors in all six runs.
+
+### Verified / read honestly
+- `docs/images/upscalers-motion-car-sheet.png` (native, bilinear, FSR 1, FSR 3, XeSS, DLSS, same frame): **no ghost trail or smear behind the car or the lamps in any temporal upscaler**; the car body, plate and exhausts hold up, the oncoming car's lights read as native. The per-object velocity pass is doing its job on the car.
+- The temporal upscalers are within about 1.5 dB of the cheap ones against a pixel-exact reference, with XeSS / DLSS best on the car box and FSR 3 slightly lowest (PSNR rewards blur, and the runs are not frame-identical: the world state drifts a little between runs, so a sub-pixel shift costs more PSNR than a blur does).
+
+### Not verified
+- Real time playback: flicker over many frames, shimmer on grass / foliage, the rain windscreen, the driver / passenger avatars and glass (still camera-only vectors, not in this crop), the cutscenes. These still need eyes on a real screen; the single next check is to run the same autoplay with `-gm FREERIDE` in rain (`-weather`-type flag if any) or at the sticker shop car, and compare the crops.
+
 ## Session 2026-11-14 (`main`, 7th): NVIDIA DLSS in the Upscaling filter (optional NGX plugin, restart to apply)
 
 The owner approved downloading the DLSS (NGX) SDK files and running `nvngx_dlss.dll` (this machine has an RTX 5070 Ti).
