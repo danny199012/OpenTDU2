@@ -117,6 +117,34 @@ for sports cars) still needs an oracle number from the 360 build.
 
 Not reached. Blockers found: the PS3 libm is statically linked with no names (the `atan` constants 2.414 / 0.414 are not in the image as floats, `EBOOT.imports.json` has no math imports); the scalar pool `0xf11f00-0xf1214c` has no xrefs (`constant_pools.md` result 3); the `*_enc_twins.json` / `pc_ps3_anchors.json` dumps are not on disk (uncommitted, `README.md` here). What the PC side already says `[CODE]`: the readable `FUN_00868dc0` / `FUN_00869090` / `FUN_00868a60` use `D = MaxFriction x Fz` (linear), so the PS3 twin of the tyre maths will match and **retail's tyre has no D load sensitivity**. The anti-flip behaviour of retail SUVs must come from elsewhere: the ENC suspension force law / roll stiffness, the CG height (`hubY + CgHeight` is `[INF]`), the `kMaxTyreLoadFactor` clamp (`[INF]`, invented), or an aid. So `-tyreloadsens` is a *stopgap probe*, not a recovered law. Next: locate the PS3 edVehicle2 suspension update (the `0x15xxxx-0x17xxxx` cluster) and compare it with our `[INF]` spring / stabiliser / bump-stop law; start with a base-register search for the scalar pool (`constant_pools.md` result 3).
 
+### 6.1 PS3 suspension search (2026-11-14, second pass) - law not found, method and dead ends recorded
+
+Method: scan the 53,119 lifted functions (`port/recompiled/*.cpp`, regex over `vm_read32(ctx->gpr[N] + 0xOFF)`,
+`ppu_fmul` / `ppu_fmadd_core`) for the PC suspension layout (spec section 2: DampingArray +0x60/+0x64, Force +0x68,
+MaxDamperForce +0x6c, ForceAtRest +0x70, StiffnessBias +0x74, StiffnessAtRest +0x78, stabiliser +0xb4/+0xb8, LowerStop +0xc8,
+UpperStop +0xcc). Tool notes: float math in the lifted code is `ppu_fp_single(ppu_fmul|ppu_fadd|ppu_fsub|ppu_fdiv(...))`
+and `ppu_fmadd_core(a, b, c, ...)`; **`gpr[1]` is the stack pointer, so exclude it** (the first scan "found" five wheel
+candidates that were all stack offsets); on Windows use `cygpath -m` paths for Python.
+
+| candidate | what it is | verdict |
+|---|---|---|
+| `0x187C48` / `0x188CD8` / `0x189B08` / `0x189C10` | huge frames, the "wheel offsets" were `sp+0x6a8...` | false positive |
+| `0x46E700`, `0x46D7F8`, `0x8467A8`, `0x2FEC78`, `0x7C9EB0` | serializers / copy: read the fields, no arithmetic | not the law |
+| `0x772A68`, `0x771844`, `0x772680` | struct copy / assignment of the class (fields up to +0x23c, 5 float groups) | **the class exists here** (`0x77xxxx`), useful for the layout, not the law |
+| `0x770AF8` | jump-table (`ctr`) indexed property blend: `(a*t + b*(1-t)) / c` lerps | not the law |
+| `0x40144C` | generic curve / vec3 Hermite-lerp evaluator (reads +0x60..+0x78 of a *curve* class) | false positive |
+
+What it established `[INF]`: the PS3 suspension layout **does** match the PC one (the copy function `0x772A68` moves exactly the
++0x78 / +0xb4 / +0xb8 / +0xc8 / +0xcc float group), so offset fingerprints are valid; but a field-offset match also hits every
+copy / serialize / blend function, so a leaf-function filter is not enough.
+
+**Next, in order:** (1) the suspension serializer is `func_000CC09C` (the `StiffnessAtRest` name `0xfb39b8` is referenced
+at `0xCCDDC`): map each name string to its struct offset (HI/LO materialisation then the `func_00C8B688/BFD0` write call),
+which also confirms `MaxDamperForce +0x6c`; (2) find the class **vtable** - the constructor or copy owner in `0x77xxxx` stores
+the vtable pointer; vtable slot `+0x24` (PC: `0x54bc70` / `0x54bac0`) is the force law; (3) read that function and compare with
+`vehicle_dynamics.cpp` lines ~1270-1292: in particular whether `MaxDamperForce` caps the damper term (our port does not use
+it) and what the real bump stop is (ours is an `[INF]` capped force).
+
 ## 7. Not done
 
 - Their `havok/` (Havok->Jolt converter, 900 lines) not read: relevant only to the
