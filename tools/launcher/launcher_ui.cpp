@@ -732,7 +732,13 @@ void LauncherApp::DrawSidebar() {
     ImDrawList *drawList = ImGui::GetWindowDrawList();
     const float time = static_cast<float>( ImGui::GetTime() );
     const ImVec2 bannerPos = ImGui::GetCursorScreenPos();
-    const ImVec2 bannerSize( sidebarWidth, S( 150.0f ) );
+    // The sidebar must show every nav item and the pinned profile block without scrolling: when the window
+    // is too short for the full banner, a compact one is used (build 81 report: the last item was cut off).
+    constexpr int kNavItems = 6;
+    const float navHeight = kNavItems * S( 46.0f ) + S( 14.0f );
+    const float pinnedHeight = S( 148.0f );
+    const bool bCompactBanner = ImGui::GetWindowHeight() < S( 150.0f ) + S( 12.0f ) + navHeight + pinnedHeight;
+    const ImVec2 bannerSize( sidebarWidth, bCompactBanner ? S( 64.0f ) : S( 150.0f ) );
     DrawCoverImage( drawList, mArtwork.Banner, bannerPos, bannerSize, 0.0f, 1.0f );
     DrawGradientOverlay( drawList, bannerPos, bannerSize );
     // a slow light sweep across the banner
@@ -751,18 +757,29 @@ void LauncherApp::DrawSidebar() {
         drawList->PopClipRect();
     }
 
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 18.0f ) ) );
-    ImGui::PushStyleColor( ImGuiCol_Text, kAccent );
-    ImGui::TextUnformatted( "OPEN SOURCE PORT" );
-    ImGui::PopStyleColor();
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 20.0f ), bannerPos.y + S( 40.0f ) ) );
-    ImGui::PushFont( mFontHero );
-    ImGui::TextUnformatted( "TDU2" );
-    ImGui::PopFont();
-    ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 104.0f ) ) );
-    ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-    ImGui::TextUnformatted( "LAUNCHER  -  IBIZA & OAHU" );
-    ImGui::PopStyleColor();
+    if ( bCompactBanner ) {
+        ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 16.0f ) ) );
+        ImGui::PushFont( mFontTitle );
+        ImGui::TextUnformatted( "TDU2" );
+        ImGui::PopFont();
+        ImGui::SameLine();
+        ImGui::PushStyleColor( ImGuiCol_Text, kAccent );
+        ImGui::TextUnformatted( "  LAUNCHER" );
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 18.0f ) ) );
+        ImGui::PushStyleColor( ImGuiCol_Text, kAccent );
+        ImGui::TextUnformatted( "OPEN SOURCE PORT" );
+        ImGui::PopStyleColor();
+        ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 20.0f ), bannerPos.y + S( 40.0f ) ) );
+        ImGui::PushFont( mFontHero );
+        ImGui::TextUnformatted( "TDU2" );
+        ImGui::PopFont();
+        ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 104.0f ) ) );
+        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+        ImGui::TextUnformatted( "LAUNCHER  -  IBIZA & OAHU" );
+        ImGui::PopStyleColor();
+    }
     // accent underline under the banner
     drawList->AddRectFilledMultiColor(
         ImVec2( bannerPos.x, bannerPos.y + bannerSize.y - 2.0f ),
@@ -772,7 +789,8 @@ void LauncherApp::DrawSidebar() {
 
     ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( S( 14.0f ), S( 4.0f ) ) );
     ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 0.0f, S( 4.0f ) ) );
-    ImGui::BeginChild( "##nav", ImVec2( 0.0f, S( 250.0f ) ), ImGuiChildFlags_None,
+    // Sized from the item count (a NavItem is S(42) tall with S(4) between them, plus the child padding).
+    ImGui::BeginChild( "##nav", ImVec2( 0.0f, navHeight ), ImGuiChildFlags_None,
                        ImGuiWindowFlags_NoScrollbar );
     const UpdateSnapshot update = Snapshot( mUpdate );
     const bool bUpdateBadge = update.bAvailable || update.bStaged;
@@ -800,7 +818,7 @@ void LauncherApp::DrawSidebar() {
     ImGui::PopStyleVar( 2 );
 
     // The bottom block is pinned: the active profile, then the build stamp.
-    const float blockHeight = S( 148.0f );
+    const float blockHeight = pinnedHeight;
     const float bottomY = ImGui::GetWindowHeight() - blockHeight;
     if ( ImGui::GetCursorPosY() < bottomY ) {
         ImGui::SetCursorPosY( bottomY );
@@ -1838,7 +1856,28 @@ void LauncherApp::DrawGameDataPage() {
 void LauncherApp::DrawUpdatesPage() {
     const float width = ImGui::GetContentRegionAvail().x;
     ImDrawList *drawList = ImGui::GetWindowDrawList();
-    const UpdateSnapshot update = Snapshot( mUpdate );
+    UpdateSnapshot update = Snapshot( mUpdate );
+    // Test hook: OTDU2_LAUNCHER_FAKE_UPDATE=1 shows an "update available" state (layout checks only).
+    if ( const char *pFake = std::getenv( "OTDU2_LAUNCHER_FAKE_UPDATE" ); pFake != nullptr && pFake[0] == '1' ) {
+        update.bChecked = true;
+        update.bAvailable = true;
+        update.bCanApply = true;
+        update.DownloadUrl = "fake";
+        update.LatestTag = "v0.2.99";
+        update.LatestName = "v0.2.99 - build 99";
+        update.Summary = "A newer build is available.";
+        update.Entries.clear();
+        UpdateEntry newest;
+        newest.Id = "v0.2.99";
+        newest.When = "2026-11-15";
+        newest.Body = "Automatic build of main (CI run 99).\n\n* world: carve covered roads\n* damage: cracked windscreen\n* launcher: Mods page";
+        UpdateEntry older = newest;
+        older.Id = "v0.2.98";
+        older.When = "2026-11-14";
+        older.Body = "Automatic build of main (CI run 98).\n\n* physics: hub-height lateral force\n\nFull Changelog: https://github.com/x/y/compare/a...b";
+        update.Entries.push_back( newest );
+        update.Entries.push_back( older );
+    }
 
     // The download finished (staged): remember the release tag - without it
     // the next start would offer the same release again even when this apply
@@ -1860,21 +1899,42 @@ void LauncherApp::DrawUpdatesPage() {
     ImGui::SetCursorScreenPos( ImVec2( bannerPos.x + S( 22.0f ), bannerPos.y + S( 62.0f ) ) );
     ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.86f, 0.88f, 0.91f, 1.0f ) );
     ImGui::TextUnformatted(
-        "The build stamp, the changelog since it was made, and one click to update." );
+        "The build you are on, the latest build, and what changed in between." );
     ImGui::PopStyleColor();
     ImGui::SetCursorScreenPos( ImVec2( bannerPos.x, bannerPos.y + bannerSize.y + 16.0f ) );
 
     if ( CardBegin( "##update_status", ImVec2( width, 0.0f ) ) ) {
-        ImGui::PushFont( mFontBold );
-        ImGui::TextUnformatted( OTDU_RELEASE_STRING );
-        ImGui::PopFont();
-        ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-        ImGui::PushFont( mFontSmall );
-        ImGui::TextWrapped( "Built %s, %s", OTDU_BUILD_TIMESTAMP,
-                            mIsGitCheckout ? "running from a git checkout"
-                                           : "running from a packaged build" );
-        ImGui::PopFont();
-        ImGui::PopStyleColor();
+        // The build you are on and the one an update would give you, each with its date.
+        const auto buildRow = [&]( const char *label, const std::string &name, const std::string &date, const ImVec4 &color ) {
+            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+            ImGui::PushFont( mFontSmall );
+            ImGui::TextUnformatted( label );
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+            ImGui::PushFont( mFontBold );
+            ImGui::PushStyleColor( ImGuiCol_Text, color );
+            ImGui::TextUnformatted( name.c_str() );
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            if ( !date.empty() ) {
+                ImGui::SameLine();
+                ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+                ImGui::Text( "   %s", date.c_str() );
+                ImGui::PopStyleColor();
+            }
+        };
+        buildRow( "CURRENT BUILD", OTDU_RELEASE_STRING,
+                  std::string( OTDU_BUILD_TIMESTAMP ) + ( mIsGitCheckout ? "  (git checkout)" : "" ), kText );
+        ImGui::Spacing();
+        if ( update.bAvailable ) {
+            const std::string latestName = !update.LatestName.empty() ? update.LatestName : update.LatestTag;
+            buildRow( "LATEST BUILD  (what an update installs)", latestName,
+                      !update.Entries.empty() ? update.Entries.front().When : std::string(), kAccent );
+        } else if ( update.bChecked && update.Error.empty() ) {
+            ImGui::PushStyleColor( ImGuiCol_Text, kGreen );
+            ImGui::TextUnformatted( "You are on the latest build." );
+            ImGui::PopStyleColor();
+        }
         ImGui::Spacing();
         if ( !update.Source.empty() ) {
             ImGui::PushStyleColor( ImGuiCol_Text, kDim );
@@ -1938,16 +1998,73 @@ void LauncherApp::DrawUpdatesPage() {
     }
     CardEnd();
 
-    // What the update carries: the commit subjects between this build and the
-    // release (the compare API; absent when no hash could be compared).
-    if ( update.bAvailable && !update.WhatsNew.empty() ) {
-        if ( CardBegin( "##whats_new", ImVec2( width, S( 236.0f ) ), true ) ) {
-            SectionTitle( "WHAT'S NEW SINCE YOUR BUILD" );
-            ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.78f, 0.81f, 0.86f, 1.0f ) );
-            ImGui::TextUnformatted( update.WhatsNew.c_str() );
-            ImGui::PopStyleColor();
+    // What the update carries: ONE list of the changes between this build and the latest one (the commit
+    // subjects from the compare API when a hash could be compared, else the release notes of every release
+    // newer than this one). The card grows with its content - the page scrolls, not the card (a card with
+    // its own scrollbar ignored the mouse wheel, so only one of the page's scrollbars ever worked).
+    if ( update.bAvailable ) {
+        std::vector<std::string> changes;
+        const auto addLine = [&]( std::string line ) {
+            size_t first = line.find_first_not_of( " \t\r*-" );
+            if ( first == std::string::npos ) {
+                return;
+            }
+            line = line.substr( first );
+            while ( !line.empty() && ( line.back() == '\r' || line.back() == ' ' ) ) {
+                line.pop_back();
+            }
+            changes.push_back( line );
+        };
+        if ( !update.WhatsNew.empty() ) {
+            size_t pos = 0;
+            while ( pos <= update.WhatsNew.size() ) {
+                size_t end = update.WhatsNew.find( '\n', pos );
+                if ( end == std::string::npos ) {
+                    end = update.WhatsNew.size();
+                }
+                addLine( update.WhatsNew.substr( pos, end - pos ) );
+                pos = end + 1;
+            }
+        } else {
+            const std::string current = OTDU_RELEASE_STRING;
+            for ( const UpdateEntry &entry : update.Entries ) {
+                if ( !entry.Id.empty() && current.compare( 0, entry.Id.size(), entry.Id ) == 0 ) {
+                    break; // this build: everything before it is newer
+                }
+                const std::string body = StripMarkdownNoise( entry.Body );
+                size_t pos = 0;
+                while ( pos <= body.size() ) {
+                    size_t end = body.find( '\n', pos );
+                    if ( end == std::string::npos ) {
+                        end = body.size();
+                    }
+                    const std::string line = body.substr( pos, end - pos );
+                    // The CI boilerplate and the compare link are not changes.
+                    if ( line.find( "Automatic build of" ) == std::string::npos && line.find( "Full Changelog" ) == std::string::npos &&
+                         line.find( "github.com/" ) == std::string::npos ) {
+                        addLine( line );
+                    }
+                    pos = end + 1;
+                }
+            }
+        }
+        if ( CardBegin( "##whats_new", ImVec2( width, 0.0f ) ) ) {
+            SectionTitle( "WHAT'S NEW IN THE LATEST BUILD" );
+            if ( changes.empty() ) {
+                ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+                ImGui::TextWrapped( "No change list was published for this update." );
+                ImGui::PopStyleColor();
+            } else {
+                ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.78f, 0.81f, 0.86f, 1.0f ) );
+                for ( const std::string &line : changes ) {
+                    ImGui::TextWrapped( "- %s", line.c_str() );
+                    ImGui::Spacing();
+                }
+                ImGui::PopStyleColor();
+            }
         }
         CardEnd();
+        ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
     }
 
     // The git-checkout rebuild: the fast-forward above cannot apply here (the
@@ -2006,57 +2123,6 @@ void LauncherApp::DrawUpdatesPage() {
         }
         CardEnd();
     }
-
-    if ( CardBegin( "##changelog", ImVec2( width, S( 330.0f ) ), true ) ) {
-        SectionTitle( "CHANGELOG" );
-        if ( update.Entries.empty() ) {
-            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-            ImGui::TextWrapped( "Nothing yet - press Check for updates." );
-            ImGui::PopStyleColor();
-        } else {
-            for ( size_t index = 0; index < update.Entries.size(); index++ ) {
-                const UpdateEntry &entry = update.Entries[index];
-                ImGui::PushID( static_cast<int>( index ) );
-                ImGui::PushFont( mFontBold );
-                ImGui::TextWrapped( "%s", entry.Title.c_str() );
-                ImGui::PopFont();
-                if ( !entry.Id.empty() || !entry.When.empty() ) {
-                    ImGui::PushStyleColor( ImGuiCol_Text, kDim );
-                    ImGui::PushFont( mFontSmall );
-                const std::string meta = entry.Id + "    " + entry.When;
-                ImGui::TextUnformatted( meta.c_str() );
-                ImGui::PopFont();
-                ImGui::PopStyleColor();
-                }
-                // Release notes are markdown; the launcher renders plain text.
-                const std::string body = StripMarkdownNoise( entry.Body );
-                if ( !body.empty() ) {
-                    ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.78f, 0.81f, 0.86f, 1.0f ) );
-                    if ( entry.bDetailsCollapsed ) {
-                        if ( ImGui::TreeNodeEx( "details", ImGuiTreeNodeFlags_SpanAvailWidth ) ) {
-                            ImGui::PushFont( mFontSmall );
-                            ImGui::TextWrapped( "%s", body.c_str() );
-                            ImGui::PopFont();
-                            ImGui::TreePop();
-                        }
-                    } else {
-                        ImGui::TextWrapped( "%s", body.c_str() );
-                    }
-                    ImGui::PopStyleColor();
-                }
-                if ( !entry.Url.empty() ) {
-                    if ( ImGui::SmallButton( "Open on GitHub" ) ) {
-                        OpenUrl( Utf8ToWide( entry.Url ) );
-                    }
-                }
-                ImGui::Separator();
-                ImGui::PopID();
-            }
-        }
-    }
-    CardEnd();
-
-    ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
 
     if ( CardBegin( "##update_source", ImVec2( width, 0.0f ) ) ) {
         SectionTitle( "UPDATE SOURCE" );

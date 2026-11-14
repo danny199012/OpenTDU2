@@ -538,6 +538,8 @@ int WINAPI WinMain( _In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
                 initialPage = Launcher::Page::Updates;
             } else if ( wcscmp( page, L"player" ) == 0 || wcscmp( page, L"profiles" ) == 0 ) {
                 initialPage = Launcher::Page::Profiles;
+            } else if ( wcscmp( page, L"mods" ) == 0 ) {
+                initialPage = Launcher::Page::Mods;
             } else if ( wcscmp( page, L"online" ) == 0 ) {
                 initialPage = Launcher::Page::Online;
             }

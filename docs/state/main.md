@@ -3,6 +3,19 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 14th): launcher - sidebar fits, Updates page rebuilt (owner request, build 81)
+
+The owner: the sidebar is cut off (Online hidden), the Updates page has many scroll bars of which one works, show only the current build and the build being jumped to with dates and the changes, drop the per-release changelogs.
+
+### What changed
+- `tools/launcher/launcher_ui.cpp` `DrawSidebar`: the nav height comes from the item count (`kNavItems` x `S(46)` + padding) instead of a fixed `S(250)` (sized for five items, so Mods pushed Online out); a compact banner is used when the window is too short for banner + nav + the pinned profile block.
+- `DrawUpdatesPage`: one status card with **CURRENT BUILD** (release string + build time) and **LATEST BUILD** (name + date of the newest release) when an update exists, else "You are on the latest build."; ONE "WHAT'S NEW IN THE LATEST BUILD" list (the compare-API commit subjects, else the notes of every release newer than this one, CI boilerplate and the compare link filtered); the per-release CHANGELOG card is gone. No card on the page has its own scrollbar any more (cards with `bScroll` ignore the mouse wheel, `NoScrollWithMouse`), so the page scrollbar is the only one.
+- `main.cpp`: `--page mods`. Test hook `OTDU2_LAUNCHER_FAKE_UPDATE=1` renders a fake "update available" state on the Updates page (layout checks only).
+
+### Verified
+- DPI-aware window captures (`_shot_launcher.ps1`, scratch): all six nav items and the pinned profile block fit; Updates (normal and with the fake update) and the Mods page render as described. Not tested against a real packaged-build update (this tree is a git checkout).
+
+
 ## Session 2026-11-14 (`main`, 13th): the dirt-filled tunnel at the free-roam start fixed (owner report, build 81)
 
 The owner: "at start of free roam you turn left and there's a tunnel it's blocked oddly" - parked outside it, F2 position X 35949.07 Y 5.71 Z 5889.96 HDG 5.2.
