@@ -68,6 +68,9 @@ private:
     std::string activeName;
     float activeTimer = 0.0f; // seconds until the call hangs up
     float idleTimer = 0.0f;   // the quiet gap after a call
+    // Per call, seconds until it may ring again: _timer * 60 after a ring
+    // [CODE-dev SCPhoneCalls 0x9a10c0: remaining = row +0x70 * 60.0].
+    std::map<std::string, float> retrigger;
     float nudgeClock = 0.0f;  // free driving time since the last nudge check
     GSAudio::VoiceHandle voice = GSAudio::kInvalidVoice;
     std::shared_ptr<AudioClip> clip;

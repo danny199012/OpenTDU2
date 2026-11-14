@@ -71,6 +71,35 @@ saved fields of `SCPhoneCalls` (registration order, `0x14da938..0x14dab88`):
 - The road-discovery rule is **not** there either: `RoadLock` / `AreaRoadsUnlocked` are the save fields (`0xa05771`, `0xa0b4d8`, `0xa0cf0e`); the radius lives in the
   code that writes them (`HudMap` / `MngRoadNetwork` `0xd07120`) and is anchored by no string.
 
+## The real trigger table (2026-11-14, dev exe, `SCPhoneCalls.cpp`) [CODE-dev]
+Correction of the section above: the `SCPhoneCalls` functions are **not only save serialisation** - the class (singleton `0x1721e70`, debug menu `LAUNCH PHONE CALL` -> `0xc1f4c0` ->
+`SCPhoneCalls::Launch(name)` `0x9a1cb0`, `RESET PHONE CALLS` -> `0x9a1630`) holds the whole trigger logic. `MngPhone2` (`0xd20e50`..) is only the **popup UI** (the HUD movie
+"Phone Instance"; its events `phac` / `okph` / `phcl` / `phde` are the movie's own accept / ok / close / end-dialog). The call objects are 12-byte list entries `{ float remaining; int
+enabled; DBPhoneCall *row }`.
+- **Update `0x9a32d0` (per frame)**: runs only when the game is in the free world (not in a menu / cutscene / race; `[0x1b264c0]`, `[0x1b2500c]+0x50`, manager `[0x16fc4fc]+0x38/+0x3c` all
+  clear). Global gap `+0x18` (**30.0 s**, set at every launch) counts down; at 0 each call's `remaining` counts down and the trigger function `0x9a2c30` runs. **One call per pass, first match
+  wins, in this order:**
+  1. `CALL_C4_NOT_PASSED` - a global flag `[0x1af4bb9]` and the classic test-state object `+0x28` is 0 (the player left the Classic school test unfinished) [INF meaning].
+  2. `EVENT_JANE` - the same flag and two state objects set and a third `== 1` (Jane's favour event offered) [INF meaning].
+  3. `REALTOR_CALL` - a profile count `== 1` (**one house**, [INF]) and a second count (`0x42c16f(0,0)`) `>= 2` (**two or more cars** [INF]) - the call text agrees ("garage getting cramped").
+  4. one-shot flags `+0x41` -> `NEW_ASPHALT_CAR`, `+0x40` -> `NEW_SUV_CAR` (set by the refresh when the player's car list has no Cat-A / Cat-B car: category 1..7 resp. 9..12 of the cars owned), cleared after the call.
+  5. `RS_ASPHALT` - `+0x42` and not `+0x43` (ERS_A_2473 / ERS_B_2257 championship states read by the refresh `0x9a33d0`).
+  6. **Play-time nudges** (profile play time `[0x16fdb60]+0xf170`, a double, `>` threshold, and the shop's `BeenIn*` byte still 0): `CLOTHES_CALL` (`+0x1d`, threshold `+0x50`), `HAIR_DRESSER` (`+0x1f`, `+0x5c`),
+     `SURGERY_IBIZA` (`+0x20`, `+0x60`), `STICKERS` (`+0x1e`, `+0x54`), `CAR_WASH` (`+0x21`, `+0x58`).
+  7. `TREASURE_HUNT` - the two wreck counts of the save root are both 0 (**no wreck found yet** [INF]) and play time `> +0x64`.
+  8. `PHOTOGRAH` - the current island name equals a fixed string, `+0x22` (BeenInPhotograph) 0 and `+0x43`; `HAWAI_CALL` - not online, not tutorial, `>= 10` of a progress counter and Hawaii not visited.
+  9. `PHOTOGRAPH_END_IBIZA` / `_HAWAI` - all photos of the island taken (the photograph counter equals the island's total) and the end flag not yet done.
+  10. `TUNER_CALL` - one-shot `+0x44`, cleared after the call.
+  11. `HAWAI_DIRT` / `HAWAI_CLASSIC` - on Hawaii (`0x40e95d == 1`), the school flag (`+0x23` / `+0x24` = `BeenInRSDirtHawai` / `BeenInRSClassicHawai`) 0, and **play time - `PlayTimeWhenArrivingOnHawai` (`+0x3c`) > `+0x68` / `+0x6c`**.
+  12. championship nudges: asphalt progress `[+0] != 0x18` -> `NEW_ASPHALT_CAR` (no Cat-A car) else `ASPHALT_CHAMP`; dirt `[+4] != 0x18` -> `NEW_SUV_CAR` else `DIRT_CHAMP`; classic `[+8] != 0x18` -> `CLASSIC_CHAMP` (`0x18` = the "all done" step).
+- **Per-call retrigger**: after a successful launch `remaining = row[+0x70] * 60.0` (so `_timer` is in **minutes**, not seconds [INF: +0x70 taken as `_timer`]); a call is launchable only at `remaining <= 0`
+  and `enabled` (the repeat budget, `_nbrepeats`). **Gap between any two calls: 30 s.**
+- **Play-time thresholds** (`+0x50..+0x6c`) are config values x 60 (minutes), read at `0x9a14b0` from the settings object `0x1721880`: `TimeBeforeClothesCall`, `TimeBeforeHawaiCRSCall` (used for Stickers - the
+  original reuses it), `TimeBeforeCarWashCall`, `TimeBeforeHairdresserCall`, `TimeBeforeSurgeryCall`, `TimeBeforeWrecksCall`, `TimeBeforeHawaiBRSCall` (Hawaii dirt), `TimeBeforeHawaiCRSCall` (Hawaii classic).
+  **Their values were not found** in `GamePC.cpr` / `db_data.cpr` / any file under 150 MB of the game data (string search), so the minutes are unknown.
+- **Built from this** (`phone_calls.cpp`): the 30 s gap from the launch and the per-call `_timer * 60` retrigger. **Not built** (the port keeps no play time / house / car-category state for the rules above):
+  rules 1-3, 5, 7-12 and the play-time nudges. `TargetSpot` / accept are unchanged ([INF]; the retail accept action is the popup's own `phac` event, unread).
+
 ## Built (2026-11-14, `main`)
 - `source/game/freeride/phone_calls.{h,cpp}`: reads `DBPhoneCall`, queues calls, rings one at a time with a 20 s gap, plays `pc_*.wav` (language, fallback `us`), shows the text
   in the HUD movie's own popup (`FreeRideHud::showPhoneCall`: `/HUD/phone_call` label `open` + `phone_message` `open`, text var `/:dialog_ph`; hang-up = `end_dialog` / `close`),
@@ -84,7 +113,7 @@ saved fields of `SCPhoneCalls` (registration order, `0x14da938..0x14dab88`):
 - Not done: what *accepting* does (the retail likely sets the GPS to the shop / starts the event: unread), the voice bus (shares the GPS one [INF]), the story-step conditions of the rest, the chase dispatcher badge unchecked on screen.
 
 ## Not done / next [INF]
-1. **The trigger conditions**: not in the `SCPhoneCalls` functions (save serialisation, above). Next anchor: `MngPhone2` - `0xd20e50` is only its class-name getter (`mov eax, 0x150e8a8; ret`), so that is a dead end by itself: `0xd20e50` is reached only through the jump thunk `0x4292c6`, which sits in an 8-slot class-descriptor table at `0x150e880` (slots `0x4292c6 0x423e11 0x446957 0x430215 0x40562d 0x42e88e 0x419aab 0x411838`, the descriptor `0x150e880` itself has no direct code reference), NOT in the object's vtable. Next: read those 7 other slots (`--dis` on each thunk target) and look for the Update / OnEvent function from the manager's constructor; `LAUNCH PHONE CALL` (`0x1502350`) has no code xref (debug-menu table); `EFAO_MngPhone` (`0x148b410`) is used at `0x4e2950` and the
+1. **The trigger conditions: READ, see "The real trigger table" above** (they are in `SCPhoneCalls` `0x9a2c30`, not save serialisation). Remaining: the threshold minutes, the exact meaning of the state objects. Old note: Next anchor: `MngPhone2` - `0xd20e50` is only its class-name getter (`mov eax, 0x150e8a8; ret`), so that is a dead end by itself: `0xd20e50` is reached only through the jump thunk `0x4292c6`, which sits in an 8-slot class-descriptor table at `0x150e880` (slots `0x4292c6 0x423e11 0x446957 0x430215 0x40562d 0x42e88e 0x419aab 0x411838`, the descriptor `0x150e880` itself has no direct code reference), NOT in the object's vtable. Next: read those 7 other slots (`--dis` on each thunk target) and look for the Update / OnEvent function from the manager's constructor; `LAUNCH PHONE CALL` (`0x1502350`) has no code xref (debug-menu table); `EFAO_MngPhone` (`0x148b410`) is used at `0x4e2950` and the
    caller of the save-field readers; `python tools/devbuild_disasm.py --dis <va>` (needs `capstone` + `pefile`, not `-I`). Retail twin is `[ENC]`.
 2. HUD side: drive the movie's `/HUD/phone_call` clip (`phone_message` / `lure`) from a queue; play `pc_*.wav` through the voices path; Yes/No uses the in-car menu pad.
 3. Persist the "already called" counters in `SCPhoneCallsSave` (layout in `savegame_spec.md`).

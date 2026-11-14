@@ -16,7 +16,7 @@ namespace {
     constexpr int32_t kVoiceClient = 5;
     // Quiet gap between two calls, and the first nudge after the story reaches
     // free roam [INF].
-    constexpr float kGapSeconds = 20.0f;
+    constexpr float kGapSeconds = 30.0f; // [CODE-dev SCPhoneCalls 0x9a32d0: +0x18 = 30.0 at each launch]
     constexpr float kNudgeCheckSeconds = 45.0f;
     // A call with no voice file (or a voice that failed to load) stays up this long.
     constexpr float kSilentSeconds = 7.0f;
@@ -112,6 +112,10 @@ bool PhoneCalls::request( const std::string &name, bool bForce ) {
         if ( pCall->Repeats >= 0 && times >= pCall->Repeats ) {
             return false;
         }
+        const auto wait = retrigger.find( name );
+        if ( wait != retrigger.end() && wait->second > 0.0f ) {
+            return false;
+        }
     }
     if ( name == activeName || std::find( queue.begin(), queue.end(), name ) != queue.end() ) {
         return false;
@@ -139,6 +143,8 @@ void PhoneCalls::ring( const Call &call, FreeRideHud &hud ) {
     activeName = call.Name;
     activeTimer = kSilentSeconds;
     GetPlayerProfile().PhoneCallCounts[call.Name]++;
+    retrigger[call.Name] = call.Timer * 60.0f;
+    idleTimer = kGapSeconds; // counts from the launch, like the retail's +0x18
     clip.reset();
     voice = GSAudio::kInvalidVoice;
     // pc_*.wav of the language, fallback "us".
@@ -182,10 +188,13 @@ void PhoneCalls::hangUp( FreeRideHud &hud ) {
     activeName.clear();
     clip.reset();
     voice = GSAudio::kInvalidVoice;
-    idleTimer = kGapSeconds;
 }
 
 void PhoneCalls::tick( float deltaTime, const Context &context, FreeRideHud &hud ) {
+    for ( auto &wait : retrigger ) {
+        wait.second = Max( 0.0f, wait.second - deltaTime );
+    }
+    idleTimer = Max( 0.0f, idleTimer - deltaTime );
     if ( !activeName.empty() ) {
         activeTimer -= deltaTime;
         // Validate takes the call (the movie's `accept` label), Back declines it
@@ -211,7 +220,6 @@ void PhoneCalls::tick( float deltaTime, const Context &context, FreeRideHud &hud
     if ( !context.bFreeDriving ) {
         return;
     }
-    idleTimer = Max( 0.0f, idleTimer - deltaTime );
     nudgeClock += deltaTime;
     if ( nudgeClock >= kNudgeCheckSeconds ) {
         nudgeClock = 0.0f;
