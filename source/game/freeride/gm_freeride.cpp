@@ -6245,6 +6245,10 @@ void GMFreeRide::tick( float deltaTime ) {
         PhoneCalls::Context phoneContext;
         phoneContext.bFreeDriving = state == eState::Drive;
         phoneContext.StoryStep = GetPlayerProfile().StoryStep;
+        if ( phoneCalls.isActive() ) {
+            phoneContext.bAccept = gpInput->wasPressed( eInputAction::IA_MenuValidate );
+            phoneContext.bDecline = gpInput->wasPressed( eInputAction::IA_MenuBack );
+        }
         phoneCalls.tick( deltaTime, phoneContext, hud );
     }
     // The 3D cockpit gauge needles: the car's interior model meshes follow the

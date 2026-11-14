@@ -10,7 +10,7 @@ appends its entry at the top of this file**, newest first, in the
 ### Verified
 - Build 88, `-gm FREERIDE -skipcine -nopad -fixedtimestep -phonecall REALTOR_CALL -autoplay "400:shot=..."`: the retail popup shows with the voice; `CAR_WASH` hangs up after its voice. Not verified: save round trip across runs, other languages, the nudge firing on its own after 45 s.
 ### Not done / next
-- Caller portrait, Yes/No (accept/decline), the other `BeenIn*` flags set by their shops, the real story conditions (MngPhone2 unread).
+- Portraits + accept/decline are done (later in the same session; `-phonecall CAR_WASH -autoplay "420:press=validate"` shows Todd's face). Still open: what accepting does (GPS to the shop), the other `BeenIn*` flags set by their shops, the real story conditions (MngPhone2 unread), the chase badge unchecked.
 
 ## Session 2026-11-14 (`main`, 16th): satnav roads blue/grey by discovery; phone calls found in the retail data
 

@@ -53,7 +53,11 @@ public:
     void showGoal( const std::string &text );
     // The phone call popup (HUD.vmf /HUD/phone_call, text var /:dialog_ph;
     // labels default / open / ring and phone_message open / close).
-    void showPhoneCall( const std::string &text );
+    // pPortrait: the caller's 2db (bound into phone_message/lure); bChase: the
+    // dispatcher's calque_chase badge instead of a portrait.
+    void showPhoneCall( const std::string &text, GPUTexture *pPortrait = nullptr, bool bChase = false );
+    // The player's answer: the movie's accept / decline labels.
+    void answerPhoneCall( bool bAccept );
     void closePhoneCall();
     void closeGoal();
     // BACK_ON_TRACK hold indicator: the HUD movie's own element

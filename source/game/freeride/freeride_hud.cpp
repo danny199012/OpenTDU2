@@ -935,7 +935,7 @@ void FreeRideHud::showGoal( const std::string &text ) {
     goalTimer = 30.0f;
 }
 
-void FreeRideHud::showPhoneCall( const std::string &text ) {
+void FreeRideHud::showPhoneCall( const std::string &text, GPUTexture *pPortrait, bool bChase ) {
     // HUD.vmf /HUD/phone_call [DATA: timeline labels default / open 9 /
     // open_loop 15 / ring 25 / stop 38 / accept_pnj 45 / accept 94 / accepted
     // 125 / end_dialog 136 / decline 148; text field /:dialog_ph in
@@ -949,7 +949,23 @@ void FreeRideHud::showPhoneCall( const std::string &text ) {
     hud.setClipVisible( "/HUD/phone_call", true );
     hud.gotoLabel( "/HUD/phone_call", "open", true );
     hud.gotoLabel( "/HUD/phone_call/phone_message", "open", true );
+    if ( pPortrait != nullptr ) {
+        // The portrait quad: the whole 2db over phone_message/lure.
+        const bool bBound = hud.setBitmapOverride( "/HUD/phone_call/phone_message/lure", pPortrait, 0.0f, 0.0f, 1.0f, 1.0f );
+        OTDU_LOG_INFO( "FreeRideHud: phone portrait bound %d\n", bBound ? 1 : 0 );
+    }
+    if ( bChase ) {
+        hud.setClipVisible( "/HUD/phone_call/calque_chase", true );
+        hud.gotoLabel( "/HUD/phone_call/calque_chase", "on", true );
+    }
     OTDU_LOG_INFO( "FreeRideHud: phone call shown\n" );
+}
+
+void FreeRideHud::answerPhoneCall( bool bAccept ) {
+    if ( !hud.isLoaded() || hud.findClip( "/HUD/phone_call" ) == nullptr ) {
+        return;
+    }
+    hud.gotoLabel( "/HUD/phone_call", bAccept ? "accept" : "decline", true );
 }
 
 void FreeRideHud::closePhoneCall() {

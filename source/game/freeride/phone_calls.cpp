@@ -5,7 +5,10 @@
 #include "database/gs_database.h"
 #include "filesystem/gs_file.h"
 #include "game/freeride/freeride_hud.h"
+#include "filesystem/bank.h"
 #include "game/player_profile.h"
+#include "render/gs_render.h"
+#include "render/texture_cache.h"
 
 namespace {
     // The voice client: the phone shares the sat-nav voice bus [INF: the
@@ -17,6 +20,27 @@ namespace {
     constexpr float kNudgeCheckSeconds = 45.0f;
     // A call with no voice file (or a voice that failed to load) stays up this long.
     constexpr float kSilentSeconds = 7.0f;
+
+    // The caller's portrait bank (frontend/allres/phonecalls/<name>.bnk, one
+    // .2db) by DBPNJ hashcode [INF: read off the call texts - 0x187 says "it's
+    // Todd", 0x194 "it's Tess", ...; 0x151 is the chase dispatcher: no
+    // portrait, the movie's calque_chase badge is used].
+    const char *PortraitBank( int32_t npc ) {
+        switch ( npc ) {
+        case 0x17e: return "spt_jane";
+        case 0x17f: return "spt_jude";
+        case 0x180: return "spt_marco";
+        case 0x182: return "spt_mickey";
+        case 0x187: return "spt_todd";
+        case 0x18c: return "sto_ryan";
+        case 0x18d: return "sto_chris";
+        case 0x18f: return "sto_miami";
+        case 0x190: return "sto_stuart";
+        case 0x194: return "sto_tess";
+        case 0x12a: return "ev_bwoman01";
+        default: return nullptr;
+        }
+    }
 } // namespace
 
 int32_t PhoneCalls::load() {
@@ -116,21 +140,58 @@ void PhoneCalls::ring( const Call &call, FreeRideHud &hud ) {
         voice = gpAudio->play( clip, params );
         activeTimer = clip->Duration + 1.0f;
     }
+    // The caller's portrait: the bank's 2db, bound into the popup's lure quad.
+    GPUTexture *pPortrait = nullptr;
+    const char *pBank = PortraitBank( call.Npc );
+    if ( pBank != nullptr && gpRender != nullptr && gpFile != nullptr ) {
+        const std::string path = gpFile->getBankFolder() + "frontend/allres/phonecalls/" + pBank + ".bnk";
+        Bank bank;
+        if ( gpFile->fileExists( path.c_str() ) && bank.load( path.c_str() ) ) {
+            portraitOwner = std::string( "phonecall_" ) + pBank;
+            gpRender->getTextureCache().loadBankTextures( bank, portraitOwner.c_str() );
+            pPortrait = gpRender->getTextureCache().find( portraitOwner.c_str(), pBank );
+            if ( pPortrait == nullptr ) {
+                OTDU_LOG_WARN( "PhoneCalls: portrait texture '%s' not found in its bank\n", pBank );
+            }
+        }
+    }
+    bAnswered = false;
     const std::string text = LocStr( call.TextHc, call.Name.c_str() );
-    hud.showPhoneCall( text );
+    hud.showPhoneCall( text, pPortrait, call.Npc == 0x151 );
     OTDU_LOG_INFO( "PhoneCalls: ring '%s' (npc 0x%x, %s, %.1f s): %s\n", call.Name.c_str(), call.Npc, call.SoundFile.c_str(),
                    activeTimer, text.c_str() );
+}
+
+void PhoneCalls::hangUp( FreeRideHud &hud ) {
+    hud.closePhoneCall();
+    OTDU_LOG_INFO( "PhoneCalls: '%s' hung up\n", activeName.c_str() );
+    activeName.clear();
+    clip.reset();
+    voice = GSAudio::kInvalidVoice;
+    if ( !portraitOwner.empty() && gpRender != nullptr ) {
+        gpRender->getTextureCache().releaseOwner( portraitOwner.c_str() );
+        portraitOwner.clear();
+    }
+    idleTimer = kGapSeconds;
 }
 
 void PhoneCalls::tick( float deltaTime, const Context &context, FreeRideHud &hud ) {
     if ( !activeName.empty() ) {
         activeTimer -= deltaTime;
+        // Validate takes the call (the movie's `accept` label), Back declines it
+        // (`decline`); either ends the voice and the popup closes shortly after
+        // [INF: the retail answer buttons are not read].
+        if ( !bAnswered && ( context.bAccept || context.bDecline ) ) {
+            bAnswered = true;
+            OTDU_LOG_INFO( "PhoneCalls: '%s' %s\n", activeName.c_str(), context.bAccept ? "accepted" : "declined" );
+            if ( voice != GSAudio::kInvalidVoice && gpAudio != nullptr ) {
+                gpAudio->stop( voice );
+            }
+            hud.answerPhoneCall( context.bAccept );
+            activeTimer = Min( activeTimer, 2.0f );
+        }
         if ( activeTimer <= 0.0f ) {
-            hud.closePhoneCall();
-            OTDU_LOG_INFO( "PhoneCalls: '%s' hung up\n", activeName.c_str() );
-            activeName.clear();
-            clip.reset();
-            idleTimer = kGapSeconds;
+            hangUp( hud );
         }
         return;
     }

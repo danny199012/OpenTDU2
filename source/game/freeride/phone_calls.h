@@ -31,6 +31,8 @@ public:
     struct Context {
         bool bFreeDriving = false; // in the free roam, in the car, no modal screen
         int32_t StoryStep = 0;
+        bool bAccept = false;  // Validate pressed this frame (take the call)
+        bool bDecline = false; // Back pressed this frame (decline the call)
     };
 
     // Reads DBPhoneCall. Returns the number of calls.
@@ -47,6 +49,7 @@ public:
 private:
     const Call *find( const std::string &name ) const;
     void ring( const Call &call, FreeRideHud &hud );
+    void hangUp( FreeRideHud &hud );
     void checkNudges( const Context &context );
 
     std::vector<Call> calls;
@@ -57,4 +60,6 @@ private:
     float nudgeClock = 0.0f;  // free driving time since the last nudge check
     GSAudio::VoiceHandle voice = GSAudio::kInvalidVoice;
     std::shared_ptr<AudioClip> clip;
+    std::string portraitOwner; // TextureCache owner of the caller's portrait bank (released at hang-up)
+    bool bAnswered = false;    // accepted / declined: the popup is closing
 };
