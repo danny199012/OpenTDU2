@@ -160,7 +160,10 @@ public:
     // 102/102/204 w4, a locked road 140/140/140). Which value of the road map
     // is the offroad one is not decoded (docs/re/roads_spec.md); the dirt class
     // below is the offroad slot of that table and -dirtclass <n> overrides it.
-    static constexpr uint8_t kRoadClassDirt = 3;
+    static constexpr uint8_t kRoadClassDirt = 3; // the default for an island without a measured dirt class
+    // The measured dirt class of an island (-logroadclass on a known dirt track):
+    // Ibiza 2 (the caravan track and the Area 2 dirt road, owner's drive 2026-11-14).
+    static uint8_t DirtClassOfIsland( const std::string &island );
     // The class drawn as a dirt track: kRoadClassDirt, or -dirtclass <n>.
     static uint8_t getDirtClass();
     inline const std::vector<uint8_t> &getRoadClasses() const { return edgeClass; }

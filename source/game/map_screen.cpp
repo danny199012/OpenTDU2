@@ -1834,11 +1834,23 @@ Vector3f MapScreen::cursorWorld() const {
     return freeCursorWorld();
 }
 
+namespace {
+uint8_t sIslandDirtClass = MapScreen::kRoadClassDirt;
+}
+
+uint8_t MapScreen::DirtClassOfIsland( const std::string &island ) {
+    std::string lower = island;
+    for ( char &c : lower ) {
+        c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+    }
+    return lower == "ibiza" ? 2 : kRoadClassDirt;
+}
+
 uint8_t MapScreen::getDirtClass() {
     // The road map's class byte is not decoded (docs/re/roads_spec.md): the
     // offroad slot of the retail [HudMap] table is the default, -dirtclass
     // switches it when the map shows the wrong roads in yellow.
-    const int32_t arg = CmdLine::GetArgInt( "-dirtclass", kRoadClassDirt );
+    const int32_t arg = CmdLine::GetArgInt( "-dirtclass", sIslandDirtClass );
     return static_cast<uint8_t>( Clamp<int32_t>( arg, 0, 255 ) );
 }
 
@@ -1942,6 +1954,7 @@ void MapScreen::loadRoads( const std::string &island ) {
     edgePair.clear();
     exploredLength = totalRoadLength = 0.0f;
     roadIsland = island;
+    sIslandDirtClass = DirtClassOfIsland( island );
     bHasTarget = false;
     routePoints.clear();
     routeAlong.clear();

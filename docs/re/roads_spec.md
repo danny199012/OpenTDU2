@@ -56,6 +56,10 @@ dev renderer reads at piece `+0x11` is probably the `DAOR +12` class, indexed in
 11 (the AIRL table has 7 rows), class 0 is 54-58 % of the links, and the road collision shows nothing different under class 3. **Ground truth needed:** `-logroadclass` logs the class of the link under the car whenever it
 changes (`roadclass: link N class C at (x, z)`); drive a known dirt track on each island and read the class. `-dirtclass <n>` overrides the yellow one.
 
+**Ground truth, Ibiza (owner's drive 2026-11-14, `-logroadclass`):** the owner stood on a dirt road at (34999, 5568) in Area 2; the log read `link 1023 class 2 at (35036, 5509)`, and the spawn
+track by the caravan (36008, 5814) is `link 1347 class 2` too. Tarmac readings still to confirm (the log also had class 0 at (35901, 5750) and (35139, 5518)). So on **Ibiza the dirt class is 2, not 3**
+(`MapScreen::DirtClassOfIsland`). Hawai has **no class 2 at all** (0, 1, 3..9), so the byte is not one global enum: each island needs its own reading (Hawai still defaults to 3, UNVERIFIED).
+
 ## ROAD_DETAIL.IA `[DATA]`
 `DI41DAEH` header, then **`ATED`** records, one per road (1392, id = the DAOR id): `+4 id, +8 N` (9 on road 1),
 `N` byte offsets from the record start, then N sub-blocks of 5 header words (`0x60007, 18, 257, 1, 0xc90204` ...
