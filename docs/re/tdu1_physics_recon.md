@@ -174,6 +174,21 @@ Checked in `E:\...\Test-Drive-Unlimited-2-Recomp` (rexglue static recomp, native
 
 What a numeric oracle needs, in order (each is a session, not a step): (1) validate or replace the sampler hook (log the chassis `hkpRigidBody` instead, which exists for sure: position `+0x110`, rotation `+0xE0..`, velocities `+0x1A0/+0x1B0` on the entity); (2) get an SUV into the 360 game (money cheat + dealership: H3 / Q7 / Range Rover); (3) a steady circle by hand at ~60 / 100 km/h, then compare peak lateral g, roll angle and wheel lift with `-vehtest -logcorner`. The cheapest oracle is a **yes/no from a person who plays retail**: does a tall SUV roll over on a flat road at a normal steering input?
 
+### 6.4 Retail answer and two candidate fixes (2026-11-14)
+
+**Retail observation (owner, 360 recomp, Q7 V12, flat road):** turning hard and using the handbrake at speed, the SUV **slides and does not tip**. So the tall-car rollover in `-vehtest` (H3 / ML63 / Q7 / Range Rover / Pekin to Paris, 5 of 6 runs each) **is a bug of ours**, not retail behaviour. `[MEASURED]` (one car, one person, by hand).
+
+Two independent switches, both default off, both remove every flip in the 12-car sweep (72 corner runs):
+
+| switch | what | flips | side effects (`-vehtest`) |
+|---|---|---|---|
+| `-cgframe 1` | centre of mass y = `_gravity_center_height / 100` **literally** (spec 6.1: `vfunc 0xf4((0, GEO+0x88, 0))` `[CODE]`); today `hubY + h` (`[INF]`) | 0 of 72; roll max 0.5-2.1 deg | peak lat g 1.8-1.96; Enzo 0-100 3.42 -> 3.83 s, top 324 -> 314.6 km/h; 100-0 26 -> 23 m (Q7), 40 -> 33 m (Enzo): braking looks too short |
+| `-tyreloadsens 0.2` | grip x clamp(1 - k (Fz/static - 1)) `[INF]` | 0 of 72 | peak lat g -10 %; 100-0 +4-5 %; Enzo 0-100 3.42 -> 3.75 s (DB 3.65) |
+
+Evidence about the CG: the DB value is a tuning knob, not a height (Q7 0.08 m, H3 0.15 m, California / Enzo 0.18 m), while the chassis `.dhk` stores a realistic centre of mass (H3 0.542, Q7 0.525, California 0.480, Enzo 0.439 m, same frame). `-cgframe 2` (hub + h/2) still flips 2-4 of 6, so the cure needs a CG well below the hub line. Caveat `[INF]`: `-car X` in `-vehtest` keeps the California's hub positions (`hubY 0.339` for every car), so the SUV numbers are an approximation of the in-game cars.
+
+**Open:** which of the two (or neither alone) matches retail feel for body roll, braking dive and top speed. Needs the DualSense: drive a sports car and an SUV with each flag and say which is closer to retail. A third lead stays untested: retail's anti-flip may live in the suspension law (still `[ENC]`, section 6.1-6.3).
+
 ## 7. Not done
 
 - Their `havok/` (Havok->Jolt converter, 900 lines) not read: relevant only to the

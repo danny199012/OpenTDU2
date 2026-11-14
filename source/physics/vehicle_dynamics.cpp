@@ -285,7 +285,16 @@ void VehicleDynamics::setup( const VehicleSetup &newSetup, const std::vector<Whe
         }
     }
     const float wheelBase = Max( zFront - zRear, 0.5f );
-    centerOfMass = Vector3f( 0.0f, hubY + params.CgHeight, zFront - ( 1.0f - params.LoadDistribution ) * wheelBase );
+    // EXPERIMENT (-cgframe 1): the spec reads vfunc 0xf4((0, GEO+0x88, 0)) [CODE], i.e. the height is the vector
+    // itself in the chassis frame; 'hubY +' above is the [INF] choice. 1 = literal, 2 = hub line + h / 2.
+    static const int32_t kCgFrame = [] {
+        const char *pValue = CmdLine::GetArgValue( "-cgframe" );
+        return pValue ? std::atoi( pValue ) : 0;
+    }();
+    const float cgY = kCgFrame == 1 ? params.CgHeight : kCgFrame == 2 ? hubY + 0.5f * params.CgHeight : hubY + params.CgHeight;
+    OTDU_LOG_INFO( "Vehicle CG: hubY %.3f CgHeight %.3f -> COM y %.3f (cgframe %d)\n", hubY, params.CgHeight, cgY, kCgFrame );
+    OTDU_LOG_INFO( "Vehicle dhk COM %.3f %.3f %.3f\n", params.HavokCenterOfMass.x, params.HavokCenterOfMass.y, params.HavokCenterOfMass.z );
+    centerOfMass = Vector3f( 0.0f, cgY, zFront - ( 1.0f - params.LoadDistribution ) * wheelBase );
 
     // Ray start: hub at the upper stop (full bump); the hub may drop to the
     // lower stop [INF: the wheel contact of edVehicle (FUN_008720e0) uses
