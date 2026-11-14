@@ -18,8 +18,8 @@ Owner: "our satnav isn't accurate as discovered roads should be blue" + "dig for
 - The dev package's data is byte-identical to retail (dev_build_survey.md 1), so **there is no extra map data in it**: the road graph / classes we already read are the same. What the dev exe adds is *readable code*: `HudMap.cpp` / `HudMapRoads` (`0xc9e584`), `SCPhoneCalls.cpp` (`0x9a3670` ...), `MngPhone2`, `/:UnlockedRoadsPercent`, `/:DelockAllRoads`. The retail discovery radius (we use 18 m `[INF]`) can be read there.
 
 ### Not done / next
-1. Read `HudMap` at `0xc9e584` for the real discovery rule (radius, per-link vs per-point) and replace `kExploreRadius` in `map_screen.cpp`.
-2. Read `SCPhoneCalls` for the trigger conditions, then build the phone-call queue (spec above).
+1. The discovery radius is NOT at `HudMap` `0xc9e584` (that is resource setup) nor at the `RoadLock` / `AreaRoadsUnlocked` xrefs (save-field readers). Find the writer of those fields (callers of `0xa05771` region / `MngRoadNetwork` `0xd07120`) to replace `kExploreRadius` in `map_screen.cpp`.
+2. `SCPhoneCalls` xrefs are save serialisation too: the saved fields and a name-based trigger pairing are in `phone_calls_spec.md`; the real triggers are in `MngPhone2` (`0xd20e50`), unread. Then build the phone-call queue.
 3. The cop-menu / avatar-clothes leads from the owner's GLM notes are unverified here.
 
 ## Session 2026-11-14 (`main`, 15th): launcher update-check rails against the GitHub 403 (owner report)

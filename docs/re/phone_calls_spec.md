@@ -53,9 +53,26 @@ Owner request: "dig for the phone calls" after the dev build (`TestDrive2DEV.exe
 1 = the call asks Yes/No. Calls such as `CALL_C4_NOT_PASSED`, `REALTOR_CALL`, `HAWAI_CALL`, `CLOTHES_CALL`, `SURGERY_*`, `STICKERS`, `HAIR_DRESSER`, `CAR_WASH`,
 `*_CHAMP`, `TREASURE_HUNT`, `PHOTOGRAPH*`, `RIVAL_*` (duel challenges: the caller stakes their car) are story / progression nudges.)
 
+## What the dev exe says about the triggers [CODE-dev]
+The string xrefs of `SCPhoneCalls` / `REALTOR_CALL` / `RoadLock` / `AreaRoadsUnlocked` all land in **save-component reflection** (`SCPhoneCalls.cpp`: class
+registered at `0x9a3670`, field readers `0x9a1a28..0x9a3068`), i.e. the *persisted state*, not the triggering code (`SC` = save component). That gives the exact
+saved fields of `SCPhoneCalls` (registration order, `0x14da938..0x14dab88`):
+- **Progress flags / counters:** `PlayTimeWhenArrivingOnHawai`, `BeenInRSDirtHawai`, `BeenInRSClassicHawai`, `BeenInPhotograph`, `BeenInClothesShop`, `BeenInStickerShop`,
+  `BeenInHairShop`, `BeenInSurgeryShop`, `BeenInCarWash`.
+- **One state entry per call name:** `NEW_SUV_CAR NEW_ASPHALT_CAR CLOTHES_CALL SURGERY_IBIZA REALTOR_CALL RS_ASPHALT HAWAI_DIRT HAWAI_CLASSIC HAIR_DRESSER TUNER_CALL
+  PHOTOGRAPH_END_HAWAI PHOTOGRAPH_END_IBIZA PHOTOGRAH HAWAI_CALL TUTO_RESCUE_JANE RACING_LICENCE_A7A6 CLASSIC_CHAMP DIRT_CHAMP ASPHALT_CHAMP EVENT_JANE TREASURE_HUNT
+  CALL_C4_NOT_PASSED` (the container is `SCPhoneCallsSave`). `TUTO_RESCUE_JANE` and `RACING_LICENCE_A7A6` are **not** in `DBPhoneCall`: they are saved call slots
+  of the tutorial / licence scripts.
+- Calls in the DB but **not** in this save (fired by another system, no repeat memory): `WRECKS_CALL`, `CONVOY_*`, `RIVAL_*`, `CHASE_INTRO_*`, `SURGERY_HAWAI`, `STICKERS`, `CAR_WASH`.
+- **Likely trigger pairing [INF, by name]:** a nudge call fires (after its `_timer`, up to `_nbrepeats` times) while its `BeenIn*` flag is still false:
+  `CLOTHES_CALL`/`BeenInClothesShop`, `STICKERS`/`BeenInStickerShop`, `HAIR_DRESSER`/`BeenInHairShop`, `SURGERY_*`/`BeenInSurgeryShop`, `CAR_WASH`/`BeenInCarWash`,
+  `PHOTOGRAH`/`BeenInPhotograph`, `HAWAI_DIRT`/`BeenInRSDirtHawai`, `HAWAI_CLASSIC`/`BeenInRSClassicHawai`, `HAWAI_CALL` after `PlayTimeWhenArrivingOnHawai`.
+  `player_profile.h` already carries `BeenInCarWash` as `SCPhoneCallsSave` +4. The *conditions* (which story step enables the call) are still unread.
+- The road-discovery rule is **not** there either: `RoadLock` / `AreaRoadsUnlocked` are the save fields (`0xa05771`, `0xa0b4d8`, `0xa0cf0e`); the radius lives in the
+  code that writes them (`HudMap` / `MngRoadNetwork` `0xd07120`) and is anchored by no string.
+
 ## Not done / next [INF]
-1. **The trigger conditions** (which game event queues which call) are in the readable dev code: `SCPhoneCalls.cpp` functions at `0x9a3670` (Add/Get), `0x9a1a28`,
-   `0x9a2bc6`, `0x9ffa57`, `0xa0110b`, `0xa013de` (string xrefs of `SCPhoneCalls`), `MngPhone2` (`EFAO_MngPhone`). Read them with
-   `python tools/devbuild_disasm.py --dis <va>` (needs `capstone` + `pefile`, not in isolated mode). Retail twin is `[ENC]`.
+1. **The trigger conditions**: not in the `SCPhoneCalls` functions (save serialisation, above). Next anchor: `MngPhone2` (`EFAO_MngPhone`; string at `0xd20e50`) and the
+   caller of the save-field readers; `python tools/devbuild_disasm.py --dis <va>` (needs `capstone` + `pefile`, not `-I`). Retail twin is `[ENC]`.
 2. HUD side: drive the movie's `/HUD/phone_call` clip (`phone_message` / `lure`) from a queue; play `pc_*.wav` through the voices path; Yes/No uses the in-car menu pad.
 3. Persist the "already called" counters in `SCPhoneCallsSave` (layout in `savegame_spec.md`).
