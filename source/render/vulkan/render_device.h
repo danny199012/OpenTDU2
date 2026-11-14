@@ -184,6 +184,8 @@ public:
     inline bool supportsRayTracing() const { return bSupportsRayTracing; }
     // The device was created with the extensions / features Intel XeSS asked for.
     inline bool isXessReady() const { return bXessReady; }
+    // The instance / device were created with the extensions NVIDIA NGX (DLSS) asked for.
+    inline bool isDlssReady() const { return bDlssReady; }
     inline VkInstance getInstance() const { return instance; }
     // Options > Advanced: whether the extensions were requested at all. The
     // device is created once, so this must be set before create().
@@ -436,6 +438,8 @@ private:
     bool bSupportsDxso = false;
     bool bSupportsRayTracing = false;
     bool bXessReady = false;
+    bool bDlssReady = false;
+    bool bDlssInstance = false;
     bool bWantRayTracing = true;
     VkDeviceSize accelScratchAlignment = 256;
     VkDeviceSize uniformBufferAlignment = 256;

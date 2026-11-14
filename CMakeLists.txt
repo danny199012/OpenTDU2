@@ -34,6 +34,12 @@ add_library( otdu_engine STATIC ${OTDU_ENGINE_SRC} )
 target_include_directories( otdu_engine PUBLIC "${OTDU_SRC_FOLDER}" )
 # AMD FidelityFX API headers (FSR 3 plugin, source/render/upscalers)
 target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/fidelityfx-api" )
+# NVIDIA DLSS (NGX) SDK: local only; present -> the plugin is built and linked
+if( EXISTS "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/include/nvsdk_ngx_vk.h" AND EXISTS "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/lib/nvsdk_ngx_d.lib" )
+    target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/include" )
+    target_compile_definitions( otdu_engine PUBLIC OTDU_HAVE_DLSS=1 )
+    target_link_libraries( otdu_engine PUBLIC "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/lib/nvsdk_ngx_d.lib" )
+endif()
 # Intel XeSS SDK headers: local only (not in the repository); without them the XeSS plugin compiles to a stub
 target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/xess-sdk/inc" )
 target_link_libraries( otdu_engine PUBLIC

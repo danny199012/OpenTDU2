@@ -794,6 +794,8 @@ void EdenSceneView::destroyTargets() {
     vkDeviceWaitIdle( device.getDevice() ); // the FSR context owns GPU resources
     fsr3.destroy();
     xess.destroy();
+    dlss.destroy();
+    bDlssOutputDefined = false;
     bFsr3OutputDefined = false;
     bXessOutputDefined = false;
     device.destroyRenderTarget( pFsrDepthTarget );
@@ -1110,6 +1112,7 @@ bool EdenSceneView::prepareTemporalInputs( uint32_t outWidth, uint32_t outHeight
         pFsrTarget = device.createRenderTarget( outWidth, outHeight, VK_FORMAT_UNDEFINED, false, "UpscalerOutput" );
         bFsr3OutputDefined = false;
         bXessOutputDefined = false;
+        bDlssOutputDefined = false;
     }
     if ( pFsrDepthTarget == nullptr || pFsrDepthTarget->Width != pSceneTarget->Width ||
          pFsrDepthTarget->Height != pSceneTarget->Height ) {
@@ -1123,6 +1126,48 @@ bool EdenSceneView::prepareTemporalInputs( uint32_t outWidth, uint32_t outHeight
                      eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
     device.endRenderTarget();
     return true;
+}
+
+void EdenSceneView::runDlss() {
+    if ( GetGameOptions().Upscaler != 5 || pSceneTarget == nullptr || !pSceneTarget->bInitialized ||
+         pVelocityTarget == nullptr || !pVelocityTarget->bInitialized ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    const uint32_t outWidth = device.getBackbufferWidth();
+    const uint32_t outHeight = device.getBackbufferHeight();
+    if ( !device.isDlssReady() ) {
+        static bool bLogged = false;
+        if ( !bLogged ) {
+            bLogged = true;
+            OTDU_LOG_WARN( "[dlss] the instance / device were not created for DLSS (no SDK in this build, no RTX GPU, "
+                           "or the option was chosen after start); restart after choosing it. Plain upscale.\n" );
+        }
+        return;
+    }
+    prepareTemporalInputs( outWidth, outHeight );
+    if ( !dlss.ensure( device, pSceneTarget->Width, pSceneTarget->Height, outWidth, outHeight ) ) {
+        return;
+    }
+    DlssUpscaler::Inputs inputs;
+    inputs.pColor = pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    inputs.pDepth = &pFsrDepthTarget->Color;
+    inputs.pMotion = &pVelocityTarget->Color;
+    inputs.pOutput = &pFsrTarget->Color;
+    inputs.bOutputDefined = bDlssOutputDefined;
+    inputs.RenderWidth = pSceneTarget->Width;
+    inputs.RenderHeight = pSceneTarget->Height;
+    inputs.OutputWidth = outWidth;
+    inputs.OutputHeight = outHeight;
+    static const bool bFlipJitter = CmdLine::HasArg( "-dlssjitterflip" );
+    inputs.JitterX = bFlipJitter ? -jitterPixels.x : jitterPixels.x;
+    inputs.JitterY = bFlipJitter ? -jitterPixels.y : jitterPixels.y;
+    inputs.FrameTimeMs = frameDelta * 1000.0f;
+    inputs.bReset = !bDlssOutputDefined;
+    if ( dlss.dispatch( device, inputs ) ) {
+        bDlssOutputDefined = true;
+        pFsrResult = &pFsrTarget->Color;
+    }
 }
 
 void EdenSceneView::runXess() {
@@ -1798,6 +1843,7 @@ void EdenSceneView::renderOffscreen() {
     runVelocity( params );
     runFsr3();
     runXess();
+    runDlss();
     sceneParams = params;
     device.endGpuPass();
     gSceneTimes.mark( SceneTimes::Post );

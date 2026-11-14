@@ -51,3 +51,6 @@ opentdu2-watchdog.log
 third_party/fidelityfx-api/bin/
 # Intel XeSS SDK: local only (headers and DLLs are not redistributable from this repo, see its LICENSE.txt)
 third_party/xess-sdk/
+
+# NVIDIA DLSS (NGX) SDK: local only (see third_party/dlss-sdk/LICENSE.txt)
+third_party/dlss-sdk/

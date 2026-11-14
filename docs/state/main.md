@@ -3,6 +3,23 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-14 (`main`, 7th): NVIDIA DLSS in the Upscaling filter (optional NGX plugin, restart to apply)
+
+The owner approved downloading the DLSS (NGX) SDK files and running `nvngx_dlss.dll` (this machine has an RTX 5070 Ti).
+
+### What changed
+- `source/render/upscalers/dlss_upscaler.{h,cpp}`: NGX Vulkan through the static `nvsdk_ngx_d.lib`: instance / device extension queries (before creation), `NVSDK_NGX_VULKAN_Init_with_ProjectID`, optimal-settings preset pick, `NGX_VULKAN_CREATE_DLSS_EXT1` / `NGX_VULKAN_EVALUATE_DLSS_EXT` on colour + R32F depth + velocity + jitter. Compiled to a stub unless `third_party/dlss-sdk/{include,lib}` exist (CMake `OTDU_HAVE_DLSS`); SDK + DLL gitignored (licence).
+- `render_device.cpp`: with `upscaler = 5` / `-dlss` the instance and device add NGX's extensions; the device also enables `shaderStorageImageWrite/ReadWithoutFormat`; render target images gain `TRANSFER_DST`.
+- `EdenSceneView::runDlss`; Upscaler 5 in both menus; jitter / velocity run for upscaler >= 3.
+
+### Verified
+- `upscaler=5`, 67 %, `-vk_enable_validation_layer`, accel + steerleft, 820 frames: `[dlss] feature requirement: supported ... feature created: render 858x482 -> 1280x720`, **0 VUIDs, 0 [ERROR]** after two fixes the validation named (the clear needed `TRANSFER_DST`; the shaders needed storage-image-without-format). `docs/images/dlss-67pct-driving.png`: clean and sharp, HUD native.
+
+### Not done / next
+- Not eyeballed in motion (same open items as the other temporal upscalers: avatar / glass vectors, rain path). The jitter sign check is weak for DLSS (115 vs 109), it is kept the same as FSR 3 / XeSS.
+- Quality-mode presets, DLSS frame generation / ray reconstruction, and a live (no restart) switch to XeSS / DLSS are not done.
+- The launcher / release could ship the vendor DLLs (their licences allow binary redistribution with conditions): not done, the repo stays free of them.
+
 ## Session 2026-11-14 (`main`, 6th): Intel XeSS in the Upscaling filter (optional plugin, needs a restart)
 
 The owner approved the XeSS SDK download (v3.0.2, 77 MB) and running `libxess.dll`.

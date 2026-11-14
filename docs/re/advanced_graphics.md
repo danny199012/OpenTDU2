@@ -89,3 +89,18 @@ choosing it takes effect after a **restart** (the saved `upscaler = 4` is read b
   the projection (the `-xessjitterflip` A/B is measurably blurrier on a static scene: Laplacian variance 38 vs 61), LDR input + auto
   exposure, depth as the R32F copy shared with FSR 3. The preset is the one whose own input size is closest to the render size
   (XeSS 2's Quality is 1.7, Ultra Quality 1.3).
+
+
+## NVIDIA DLSS (temporal) - optional NGX plugin (2026-11-14)
+`GameOptions::Upscaler = 5` ("NVIDIA DLSS (temporal)"), RTX GPUs only, **restart to apply** (NGX names Vulkan instance / device extensions before
+they are created; the saved `upscaler = 5` or `-dlss` is read at start-up).
+- **Not in git** (NVIDIA's licence, `third_party/dlss-sdk/LICENSE.txt`): put the NGX SDK files in `third_party/dlss-sdk/` as
+  `include/nvsdk_ngx*.h`, `lib/nvsdk_ngx_d.lib` (static) and `bin/nvngx_dlss.dll` (all from github.com/NVIDIA/DLSS,
+  `lib/Windows_x86_64/x64` and `.../rel`). CMake then defines `OTDU_HAVE_DLSS`, adds the include dir and links the lib; without them
+  `source/render/upscalers/dlss_upscaler.cpp` is a stub. The DLL is found next to the exe or in `third_party/dlss-sdk/bin`.
+- NGX asked for (RTX 5070 Ti, driver 621): device extensions `VK_NVX_image_view_handle`, `VK_NVX_binary_import`, `VK_KHR_push_descriptor`, no
+  instance extensions. Also needed in the engine: `shaderStorageImageWrite/ReadWithoutFormat` (the DLSS shaders declare them) and
+  `TRANSFER_DST` on the render target images (NGX clears images it is given).
+- Init is `NVSDK_NGX_VULKAN_Init_with_ProjectID` (custom engine, a fixed GUID; no NVIDIA application id). Preset = the one whose optimal input
+  is closest to the render size. Flags: low-res motion vectors, auto exposure, LDR. Vectors scaled by the render size, jitter as applied
+  to the projection (`-dlssjitterflip` is a control: Laplacian variance 115 vs 109 on a static scene, DLSS is much less sensitive to it than XeSS).

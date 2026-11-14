@@ -9,6 +9,7 @@
 #include "render/eden/eden_planar_reflections.h"
 #include "render/eden/eden_postfx.h"
 #include "render/upscalers/fsr3_upscaler.h"
+#include "render/upscalers/dlss_upscaler.h"
 #include "render/upscalers/xess_upscaler.h"
 #include "render/eden/eden_shadows.h"
 #include "render/eden/eden_sky.h"
@@ -274,6 +275,10 @@ private:
     // Shared by the temporal upscalers: the window sized output target and the
     // R32F depth copy. False until the targets exist (their first frame).
     bool prepareTemporalInputs( uint32_t outWidth, uint32_t outHeight );
+    // Upscaler 5: NVIDIA DLSS (optional NGX plugin on an RTX GPU), the same inputs.
+    void runDlss();
+    DlssUpscaler dlss;
+    bool bDlssOutputDefined = false;
     XessUpscaler xess;
     bool bXessOutputDefined = false;
     Fsr3Upscaler fsr3;

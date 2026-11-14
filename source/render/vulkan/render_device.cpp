@@ -5,6 +5,7 @@
 #include "build_info.h"
 #include "filesystem/gs_file.h"
 #include "game/game_options.h"
+#include "render/upscalers/dlss_upscaler.h"
 #include "render/upscalers/xess_upscaler.h"
 
 #include <SDL3/SDL_timer.h>
@@ -166,6 +167,15 @@ bool RenderDevice::createInstance( bool bValidation ) {
         }
     }
 
+    // NVIDIA DLSS (options.ini upscaler = 5 or -dlss): NGX names the instance
+    // extensions it needs before the instance exists.
+    bDlssInstance = false;
+    if ( DlssUpscaler::WantedAtStartup() ) {
+        const size_t before = extensions.size();
+        DlssUpscaler::AppendInstanceExtensions( availableExtensions, extensions );
+        bDlssInstance = extensions.size() >= before;
+    }
+
     VkApplicationInfo appInfo = {};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "OpenTDU2";
@@ -311,6 +321,9 @@ bool RenderDevice::createDevice() {
     enabledFeatures.shaderClipDistance = supportedFeatures.shaderClipDistance;
     // AMD FSR 3 (optional plugin, source/render/upscalers): its compute shaders use 16 bit integers.
     enabledFeatures.shaderInt16 = supportedFeatures.shaderInt16;
+    // DLSS (NGX) compute shaders write / read storage images without a declared format.
+    enabledFeatures.shaderStorageImageWriteWithoutFormat = supportedFeatures.shaderStorageImageWriteWithoutFormat;
+    enabledFeatures.shaderStorageImageReadWithoutFormat = supportedFeatures.shaderStorageImageReadWithoutFormat;
     enabledFeatures.shaderStorageImageExtendedFormats = supportedFeatures.shaderStorageImageExtendedFormats;
     OTDU_LOG_INFO( "BC texture compression: %s\n", bSupportsBC ? "yes" : "no (CPU decode)" );
 
@@ -482,6 +495,12 @@ bool RenderDevice::createDevice() {
     createInfo.pEnabledFeatures = &enabledFeatures;
     createInfo.pNext = pChainHead;
 
+    // NVIDIA DLSS: the device extensions NGX asks for (extensions only).
+    if ( bDlssInstance && DlssUpscaler::WantedAtStartup() ) {
+        DlssUpscaler::AppendDeviceExtensions( instance, physicalDevice, availableExtensions, extensions );
+        createInfo.enabledExtensionCount = static_cast<uint32_t>( extensions.size() );
+        createInfo.ppEnabledExtensionNames = extensions.data();
+    }
     // Intel XeSS: its extensions and a VkPhysicalDeviceFeatures2 chain it
     // patches (pEnabledFeatures must then be null). If the device refuses the
     // result, it is created again the plain way and XeSS stays unavailable.
@@ -554,6 +573,7 @@ bool RenderDevice::createDevice() {
         result = vkCreateDevice( physicalDevice, &createInfo, nullptr, &device );
     }
     bXessReady = bTryXess && result == VK_SUCCESS;
+    bDlssReady = bDlssInstance && DlssUpscaler::WantedAtStartup() && result == VK_SUCCESS;
     if ( result != VK_SUCCESS ) {
         OTDU_LOG_ERROR( "vkCreateDevice failed (%d)\n", static_cast<int32_t>( result ) );
         return false;
@@ -1453,6 +1473,7 @@ RenderTarget *RenderDevice::createRenderTarget( uint32_t width, uint32_t height,
     };
     createImage( pTarget->Color, colorFormat,
                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                     VK_IMAGE_USAGE_TRANSFER_DST_BIT | // NGX (DLSS) clears the images it is given
                      VK_IMAGE_USAGE_STORAGE_BIT, // the compute passes write targets too (-rtao)
                  VK_IMAGE_ASPECT_COLOR_BIT );
     VkImageView attachments[2] = { pTarget->Color.View, VK_NULL_HANDLE };
