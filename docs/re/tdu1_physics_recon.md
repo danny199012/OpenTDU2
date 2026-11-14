@@ -91,9 +91,7 @@ behaviour). Effect: the 0.25@60 runs of H3 / Pekin / Q7 / Range Rover stopped fl
 Pekin to Paris still flip in 5 of 6 runs** (7 CSR 260 in 2 of 6); the sports cars, Touareg,
 Buggy, HotRod, 2CV and Beetle never do. Mechanism from `-logcorner` (H3, 100 km/h, steer
 0.25): in 0.17 s and 1.3 deg of roll the inner wheels unload to 0 N and the outer pair sits
-on the 2x-static clamp (10457 N each); the car holds ~1.25 g = `MaxLateralFriction 1.8 x
-road 0.7`, above its tipping limit (CG height `hubY + 0.15` ~ 0.58 m, track ~1.6 m
--> load transfer ~9.5 kN of 10.5 kN per side). `[INF]` Grip above the tipping limit tips a
+on the 2x-static clamp (10457 N each) and the car tips at ~1.25 g. **Correction (same day):** an earlier draft said this was `MaxLateralFriction 1.8 x road 0.7`; wrong - `hit.Friction` is stored (`state.SurfaceFriction`) but never enters `EvaluateTyre`, so the harness's 0.7 plane does nothing and the tyre has ~1.8 g of grip (`D = MaxLateralFriction x Fz`). The H3 tips at ~1.25 g (CG height `hubY + 0.15` ~ 0.58 m, track ~1.6 m -> load transfer ~9.5 kN of 10.5 kN per side) long before the tyre saturates. `[INF]` Grip above the tipping limit tips a
 tall car instead of letting it slide.
 
 **5.3 Load-sensitive grip probe** (`-tyreloadsens k`, off by default,
@@ -115,7 +113,11 @@ flips in this test; it is not proof that k = 0.2 is the retail law. The retail v
 come from the PS3 twin of the tyre code (plan step 2), and lateral g on a 0.7 plane (1.5 g
 for sports cars) still needs an oracle number from the 360 build.
 
-## 6. Not done
+## 6. PS3 tyre code: attempt and result (2026-11-14)
+
+Not reached. Blockers found: the PS3 libm is statically linked with no names (the `atan` constants 2.414 / 0.414 are not in the image as floats, `EBOOT.imports.json` has no math imports); the scalar pool `0xf11f00-0xf1214c` has no xrefs (`constant_pools.md` result 3); the `*_enc_twins.json` / `pc_ps3_anchors.json` dumps are not on disk (uncommitted, `README.md` here). What the PC side already says `[CODE]`: the readable `FUN_00868dc0` / `FUN_00869090` / `FUN_00868a60` use `D = MaxFriction x Fz` (linear), so the PS3 twin of the tyre maths will match and **retail's tyre has no D load sensitivity**. The anti-flip behaviour of retail SUVs must come from elsewhere: the ENC suspension force law / roll stiffness, the CG height (`hubY + CgHeight` is `[INF]`), the `kMaxTyreLoadFactor` clamp (`[INF]`, invented), or an aid. So `-tyreloadsens` is a *stopgap probe*, not a recovered law. Next: locate the PS3 edVehicle2 suspension update (the `0x15xxxx-0x17xxxx` cluster) and compare it with our `[INF]` spring / stabiliser / bump-stop law; start with a base-register search for the scalar pool (`constant_pools.md` result 3).
+
+## 7. Not done
 
 - Their `havok/` (Havok->Jolt converter, 900 lines) not read: relevant only to the
   chassis-collision side.
