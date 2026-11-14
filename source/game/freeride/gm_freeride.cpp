@@ -1999,9 +1999,6 @@ const char *HologramFrameFor( const char *pIconModel ) {
     if ( strcmp( pIconModel, "Event" ) == 0 ) {
         return "Circle_Orange_Frame";
     }
-    if ( strcmp( pIconModel, "GamblinHall" ) == 0 || strcmp( pIconModel, "Casino" ) == 0 ) {
-        return "Circle_Green_Frame";
-    }
     return "Square_Blue_Frame";
 }
 } // namespace
@@ -2460,6 +2457,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                                    hx, hy, bOn ? "" : " (behind the camera)" );
                 }
                 SpotHolograms::Placement placement;
+                bool bPointerLeft = false;
                 // A spot is the entrance in the facade: the plate floats in
                 // FRONT of the building, nudged toward the viewer so the wall
                 // does not swallow it [INF: the retail offset is not decoded].
@@ -2468,6 +2466,22 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                     const float len = Max( std::sqrt( tx * tx + tz * tz ), 0.01f );
                     const float nudge = Min( 12.0f, len * 0.4f );
                     placement.Position = spot.Position + Vector3f( tx / len * nudge, 0.0f, tz / len * nudge );
+                    // Retail (the owner's captures): the plate floats to ONE
+                    // side of the entrance and its pointer aims back at the
+                    // building - the bracket / pointer are on the plate's door
+                    // side. The side is a fixed world offset per spot [INF: the
+                    // retail rule - road side? - is not decoded]; which way the
+                    // pointer hangs follows from where that puts the door as
+                    // seen from the camera.
+                    // Perpendicular to the line of sight, so the plate keeps the
+                    // same screen side of the door as the camera moves; the side
+                    // is a per-spot hash.
+                    const bool bPlateRight = std::fmod( std::fabs( spot.Position.x * 12.9898f + spot.Position.z * 78.233f ), 2.0f ) < 1.0f;
+                    const Vector3f view( -tx / len, 0.0f, -tz / len );
+                    const Vector3f camRight( view.z, 0.0f, -view.x ); // left-handed Eden: right = up x forward
+                    const float side = ( bPlateRight ? 1.0f : -1.0f ) * ( CmdLine::HasArg( "-holoflip" ) ? 1.0f : -1.0f ); // checked by eye: the pointer sits on the door side
+                    placement.Position = placement.Position + camRight * ( side * 7.0f );
+                    bPointerLeft = side < 0.0f; // plate right of the door -> pointer hangs left, toward it
                 }
                 // The hologram is a flat plate: it turns to face the viewer
                 // about the vertical axis [INF]; its size grows with the
@@ -2486,7 +2500,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                     // (owner, 360 recomp) have the bracket on the right and the
                     // pointer lower-left for the squares, the crescent on the
                     // left for the circles - the mesh's front is the mirror.
-                    if ( !CmdLine::HasArg( "-holofront" ) ) {
+                    if ( bPointerLeft ) {
                         placement.Heading += 3.14159265f;
                     }
                     placements.push_back( placement );
