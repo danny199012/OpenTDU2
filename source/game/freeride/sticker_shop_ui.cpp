@@ -5,6 +5,7 @@
 #include "core/xmb.h"
 #include "database/gs_database.h"
 #include "flash/flash_player.h"
+#include "game/cinematic/cinematic_car.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
 #include "render/gs_render.h"
@@ -110,10 +111,24 @@ bool StickerShopUi::getFlag( const char *pVariable ) const {
     return value == "1" || value == "true" || value == "True";
 }
 
-void StickerShopUi::bind( FlashPlayer *pPlayer, StickerCanvas *pCanvasIn, int32_t newCarId ) {
+void StickerShopUi::bind( FlashPlayer *pPlayer, StickerCanvas *pCanvasIn, int32_t newCarId, CinematicCar *pCarIn ) {
     pUi = pPlayer;
     pCanvas = pCanvasIn;
+    pCar = pCarIn;
     carId = newCarId;
+    bPaintOpen = false;
+    {
+        // The paint the car wears: a custom one from a past visit, else the
+        // dealer's (the working colours start on the body's own colour).
+        const auto found = GetPlayerProfile().OwnedCarCustomPaints.find( carId );
+        bCommittedCustom = found != GetPlayerProfile().OwnedCarCustomPaints.end();
+        paintCommitted = bCommittedCustom ? found->second : PlayerProfile::CustomPaint();
+        paintWork = paintCommitted;
+        bPaintCustom = bCommittedCustom;
+        if ( !bCommittedCustom && pCar != nullptr ) {
+            paintWork.Colour1 = paintWork.Colour2 = pCar->getBodyPaintColour();
+        }
+    }
     committed.clear();
     auto found = GetPlayerProfile().OwnedCarStickers.find( carId );
     if ( found != GetPlayerProfile().OwnedCarStickers.end() ) {
@@ -150,10 +165,10 @@ void StickerShopUi::bind( FlashPlayer *pPlayer, StickerCanvas *pCanvasIn, int32_
         }
     }
     pUi->setVariableBool( "/:IsVehicleStickable", bStickable );
-    // The Paint page (the base / highlight / stroke colours, bicolour) is not
-    // answered yet: the entry shows its lock (docs/re/stickers_ui_spec.md 7).
-    (void)bPaintable;
-    pUi->setVariableBool( "/:IsVehiclePaintable", false );
+    // The Paint page needs a car to recolour (-nostickerpaint keeps the lock).
+    static const bool bNoPaint = CmdLine::HasArg( "-nostickerpaint" );
+    pUi->setVariableBool( "/:IsVehiclePaintable", bPaintable && pCar != nullptr && !bNoPaint );
+    pUi->setVariableBool( "/:BicolourPaint", paintWork.Bicolour );
     pUi->setVariableBool( "/:IsBike", false );
     pUi->setVariableBool( "/:UseSymmetry", true );
     pUi->setVariableBool( "/:IsUniformScale", true );
@@ -174,6 +189,8 @@ void StickerShopUi::unbind() {
     revert();
     pUi = nullptr;
     pCanvas = nullptr;
+    pCar = nullptr;
+    bPaintOpen = false;
     bCarView = false;
 }
 
@@ -244,6 +261,14 @@ void StickerShopUi::revert() {
     working = committed;
     editIndex = -1;
     pushToCanvas();
+    // The paint goes back too (the dealer's, or the custom one of a past visit).
+    bPaintCustom = bCommittedCustom;
+    paintWork = paintCommitted;
+    bPaintChanged = false;
+    applyPaintToCar();
+    if ( !bCommittedCustom && pCar != nullptr ) {
+        paintWork.Colour1 = paintWork.Colour2 = pCar->getBodyPaintColour();
+    }
 }
 
 int32_t StickerShopUi::stickerCost() const {
@@ -444,7 +469,37 @@ void StickerShopUi::writeEditStrings() {
 }
 
 uint32_t StickerShopUi::pickedColour() const {
+    if ( bPaintOpen ) {
+        return activePaintColour();
+    }
     return GradientColour( cursorU, cursorV );
+}
+
+uint32_t StickerShopUi::activePaintColour() const {
+    const bool bSecond = paintWork.Bicolour && pUi != nullptr && atoi( pUi->getVariable( "/:CurrentColor" ).c_str() ) == 2;
+    return bSecond ? paintWork.Colour2 : paintWork.Colour1;
+}
+
+std::string StickerShopUi::colourRoot() const {
+    return bPaintOpen ? "/paint" : "/stickers/colors";
+}
+
+void StickerShopUi::CursorFromColour( uint32_t colour, float &u, float &v ) {
+    // The gradient's inverse: hue across, saturation on the upper half,
+    // value on the lower.
+    const float r = ( colour & 0xff ) / 255.0f, g = ( ( colour >> 8 ) & 0xff ) / 255.0f, b = ( ( colour >> 16 ) & 0xff ) / 255.0f;
+    const float maxc = Max( r, Max( g, b ) ), minc = Min( r, Min( g, b ) );
+    const float saturation = maxc > 0.0f ? ( maxc - minc ) / maxc : 0.0f;
+    float hue = 0.0f;
+    if ( maxc > minc ) {
+        if ( maxc == r ) hue = std::fmod( ( g - b ) / ( maxc - minc ), 6.0f );
+        else if ( maxc == g ) hue = ( b - r ) / ( maxc - minc ) + 2.0f;
+        else hue = ( r - g ) / ( maxc - minc ) + 4.0f;
+        hue *= 60.0f;
+        if ( hue < 0.0f ) hue += 360.0f;
+    }
+    u = hue / 360.0f;
+    v = maxc >= 0.995f ? saturation * 0.5f : 1.0f - maxc * 0.5f;
 }
 
 uint32_t StickerShopUi::GradientColour( float u, float v ) {
@@ -497,9 +552,7 @@ void StickerShopUi::bindGradient() {
                                                                 "sticker_colour_gradient" );
     }
     if ( pUi != nullptr && pGradient != nullptr ) {
-        pUi->setBitmapOverride( "/stickers/colors/color_box/color_picker/lure_grad", pGradient, 0.0f, 0.0f, 1.0f, 1.0f );
-        // The two colour cubes of the picker: the first shows the live colour.
-        tintCube( "/stickers/colors/color_box/color_picker/color1/cube/color", pickedColour() );
+        pUi->setBitmapOverride( colourRoot() + "/color_box/color_picker/lure_grad", pGradient, 0.0f, 0.0f, 1.0f, 1.0f );
     }
 }
 
@@ -512,9 +565,17 @@ void StickerShopUi::placeCursor() {
     // The cursor sprite's origin is not its tip (the dropper art hangs ~57 px
     // down-right of it) and its scale against the gradient is 1.19: fitted
     // against screenshots at both corners [INF].
-    float x = 57.0f + cursorU * 212.0f, y = 59.0f + cursorV * 212.0f;
-
-    pUi->setClipTransform( "/stickers/colors/color_box/color_picker/cursor", x, y, 0.0f, 100.0f, 100.0f );
+    const std::string picker = colourRoot() + "/color_box/color_picker";
+    if ( bPaintOpen ) {
+        // Two cursors: `cursor` is the body colour, `cursor_2` the bicolour's.
+        pUi->setClipTransform( picker + "/cursor", 57.0f + paintU[0] * 212.0f, 59.0f + paintV[0] * 212.0f, 0.0f, 100.0f, 100.0f );
+        if ( paintWork.Bicolour ) {
+            pUi->setClipTransform( picker + "/cursor_2", 57.0f + paintU[1] * 212.0f, 59.0f + paintV[1] * 212.0f, 0.0f, 100.0f,
+                                   100.0f );
+        }
+        return;
+    }
+    pUi->setClipTransform( picker + "/cursor", 57.0f + cursorU * 212.0f, 59.0f + cursorV * 212.0f, 0.0f, 100.0f, 100.0f );
 }
 
 int32_t StickerShopUi::selectedSlot() const {
@@ -522,7 +583,7 @@ int32_t StickerShopUi::selectedSlot() const {
         return -1;
     }
     // The box's own cursor (num_c, 0..5) [DATA: the movie's variable].
-    const std::string value = pUi->getVariable( "/stickers/colors/my_colors_box/:num_c" );
+    const std::string value = pUi->getVariable( colourRoot() + "/my_colors_box/:num_c" );
     return value.empty() ? 0 : atoi( value.c_str() );
 }
 
@@ -532,7 +593,7 @@ void StickerShopUi::writeMyColours() {
     }
     PlayerProfile &profile = GetPlayerProfile();
     profile.StickerMyColors.resize( 6, 0u );
-    const std::string box = "/stickers/colors/my_colors_box";
+    const std::string box = colourRoot() + "/my_colors_box";
     for ( int32_t i = 0; i < 6; i++ ) {
         const uint32_t colour = profile.StickerMyColors[static_cast<size_t>( i )];
         pUi->setVariableBool( box + "/c" + std::to_string( i ) + "/:isColor", colour != 0u );
@@ -574,12 +635,154 @@ void StickerShopUi::pay() {
         profile.OwnedCarStickers[carId] = working;
     }
     committed = working;
+    // The paint the car now wears is the car's from now on.
+    if ( bPaintCustom ) {
+        profile.OwnedCarCustomPaints[carId] = paintWork;
+    } else {
+        profile.OwnedCarCustomPaints.erase( carId );
+    }
+    bCommittedCustom = bPaintCustom;
+    paintCommitted = paintWork;
     bPaintChanged = false;
     SaveProfile( "stickers paid" );
-    OTDU_LOG_INFO( "StickerShopUi: paid %d (%zu sticker(s) on car %d), money now %d\n", total, working.size(), carId,
-                   profile.Money );
+    OTDU_LOG_INFO( "StickerShopUi: paid %d (%zu sticker(s) on car %d%s), money now %d\n", total, working.size(), carId,
+                   bPaintCustom ? ", custom paint" : "", profile.Money );
     refreshPrices();
     writeModifiedFlags();
+}
+
+bool StickerShopUi::paintDiffers() const {
+    if ( bPaintCustom != bCommittedCustom ) {
+        return true;
+    }
+    if ( !bPaintCustom ) {
+        return false;
+    }
+    return paintWork.Type != paintCommitted.Type || paintWork.Bicolour != paintCommitted.Bicolour ||
+           paintWork.Colour1 != paintCommitted.Colour1 || ( paintWork.Bicolour && paintWork.Colour2 != paintCommitted.Colour2 );
+}
+
+void StickerShopUi::applyPaintToCar() {
+    if ( pCar == nullptr ) {
+        return;
+    }
+    if ( bPaintCustom ) {
+        pCar->applyCustomPaint( paintWork.Type, paintWork.Colour1, paintWork.Bicolour, paintWork.Colour2 );
+    } else {
+        pCar->restorePaint();
+    }
+}
+
+void StickerShopUi::writePaintType() {
+    // The finish name in the "Color type" box (left / right changes it): the
+    // text field's variable is `_root.ColorType` [DATA: -dumpclips]. The names
+    // are the colors.2dm base materials' [INF: the retail strings are the
+    // game's].
+    static const char *const kNames[] = { "Glossy", "Matt", "Metal", "Carbon" };
+    const int32_t type = Clamp( paintWork.Type, 0, 3 );
+    pUi->setVariable( "/:ColorType", kNames[type] );
+}
+
+bool StickerShopUi::onPaintCommand( const std::string &command ) {
+    // The movie's Paint page: pain:colo:open / vali / canc / clos, bich (the
+    // active colour moved to the other one), bion / biof (the bicolour
+    // switch), type:open / next / prev (the finish), pain:myco:* (My Colors).
+    if ( command == "colo:open" ) {
+        bPaintOpen = true;
+        bBackupCustom = bPaintCustom;
+        paintBackup = paintWork;
+        CursorFromColour( paintWork.Colour1, paintU[0], paintV[0] );
+        CursorFromColour( paintWork.Colour2, paintU[1], paintV[1] );
+        pUi->setVariableBool( "/:BicolourPaint", paintWork.Bicolour );
+        if ( CmdLine::HasArg( "-logstickerui" ) ) {
+            pUi->dumpClips( "/paint", 7 );
+        }
+    } else if ( command == "myco:init" || command == "myco:open" ) {
+        bPaintOpen = true;
+        writeMyColours();
+    } else if ( command == "colo:vali" ) {
+        bPaintChanged = paintDiffers();
+        refreshPrices();
+        writeModifiedFlags();
+    } else if ( command == "colo:canc" ) {
+        bPaintCustom = bBackupCustom;
+        paintWork = paintBackup;
+        bPaintChanged = paintDiffers();
+        applyPaintToCar();
+        refreshPrices();
+        writeModifiedFlags();
+    } else if ( command == "colo:clos" ) {
+        bPaintOpen = false;
+    } else if ( command == "colo:bion" || command == "colo:biof" ) {
+        paintWork.Bicolour = command == "colo:bion";
+        bPaintCustom = true;
+        pUi->setVariableBool( "/:BicolourPaint", paintWork.Bicolour );
+        applyPaintToCar();
+    } else if ( command == "colo:bich" ) {
+        // /:CurrentColor moved; the tick reads it.
+    } else if ( command == "colo:type:open" ) {
+        writePaintType();
+    } else if ( command == "colo:type:next" || command == "colo:type:prev" ) {
+        paintWork.Type = ( paintWork.Type + ( command == "colo:type:next" ? 1 : 3 ) ) % 4;
+        bPaintCustom = true;
+        applyPaintToCar();
+        writePaintType();
+    } else if ( command == "myco:vali" || command == "myco:fill" || command == "myco:eras" ) {
+        PlayerProfile &profile = GetPlayerProfile();
+        profile.StickerMyColors.resize( 6, 0u );
+        const int32_t slot = selectedSlot();
+        const bool bSecond = paintWork.Bicolour && atoi( pUi->getVariable( "/:CurrentColor" ).c_str() ) == 2;
+        if ( slot >= 0 && slot < 6 ) {
+            uint32_t &entry = profile.StickerMyColors[static_cast<size_t>( slot )];
+            if ( command == "myco:fill" ) {
+                entry = activePaintColour();
+                SaveProfile( "paint colour slot" );
+            } else if ( command == "myco:eras" ) {
+                entry = 0u;
+                SaveProfile( "paint colour slot" );
+            } else if ( entry != 0u ) {
+                ( bSecond ? paintWork.Colour2 : paintWork.Colour1 ) = entry;
+                CursorFromColour( entry, paintU[bSecond ? 1 : 0], paintV[bSecond ? 1 : 0] );
+                bPaintCustom = true;
+                applyPaintToCar();
+            }
+        }
+        writeMyColours();
+    } else if ( command == "myco:clos" || command == "myco:clea" ) {
+        // The slots closed; the picker stays up.
+    } else {
+        OTDU_LOG_INFO( "StickerShopUi: unhandled paint command '%s'\n", command.c_str() );
+    }
+    return true;
+}
+
+void StickerShopUi::tickPaint( float deltaTime, float ax, float ay ) {
+    const std::string root = colourRoot();
+    const std::string picker = root + "/color_box/color_picker";
+    const bool bSecond = paintWork.Bicolour && atoi( pUi->getVariable( "/:CurrentColor" ).c_str() ) == 2;
+    const int32_t at = bSecond ? 1 : 0;
+    // The movie re-places the cubes' colour sprites as the box animates: the
+    // tints are written every frame.
+    const PlayerProfile &profile = GetPlayerProfile();
+    const std::string box = root + "/my_colors_box";
+    for ( size_t i = 0; i < 6 && i < profile.StickerMyColors.size(); i++ ) {
+        tintCube( box + "/c" + std::to_string( i ) + "/cube/color", profile.StickerMyColors[i] );
+    }
+    tintCube( box + "/picked_color/color", activePaintColour() );
+    bindGradient();
+    tintCube( picker + "/color1/cube/color", paintWork.Colour1 );
+    if ( paintWork.Bicolour ) {
+        tintCube( picker + "/color2/cube/color", paintWork.Colour2 );
+    }
+    const bool bEditingSlots = getFlag( ( root + "/:editingColors" ).c_str() );
+    if ( !bEditingSlots && ( ax != 0.0f || ay != 0.0f ) ) {
+        paintU[at] = Clamp( paintU[at] + ax * 0.45f * deltaTime, 0.0f, 1.0f );
+        paintV[at] = Clamp( paintV[at] + ay * 0.45f * deltaTime, 0.0f, 1.0f );
+        ( bSecond ? paintWork.Colour2 : paintWork.Colour1 ) = GradientColour( paintU[at], paintV[at] );
+        bPaintCustom = true;
+        applyPaintToCar();
+    }
+    placeCursor();
 }
 
 bool StickerShopUi::onCommand( const std::string &fullCommand ) {
@@ -588,6 +791,9 @@ bool StickerShopUi::onCommand( const std::string &fullCommand ) {
     }
     const std::string command = fullCommand.substr( 5 );
     OTDU_LOG_INFO( "StickerShopUi: %s\n", command.c_str() );
+    if ( command.compare( 0, 5, "pain:" ) == 0 ) {
+        return onPaintCommand( command.substr( 5 ) );
+    }
     if ( command == "mcin" ) {
         bCarView = true;
     } else if ( command == "mcou" ) {
@@ -641,22 +847,8 @@ bool StickerShopUi::onCommand( const std::string &fullCommand ) {
     } else if ( command == "stic:colo:open" || command == "stic:myco:init" || command == "stic:myco:open" ) {
         bMyColoursOpen = true;
         if ( command == "stic:colo:open" && editIndex >= 0 && editIndex < static_cast<int32_t>( working.size() ) ) {
-            // The cursor starts on the sticker's own colour (the gradient's
-            // inverse: saturation on the upper half, value on the lower).
-            const uint32_t tint = working[static_cast<size_t>( editIndex )].Tint;
-            const float r = ( tint & 0xff ) / 255.0f, g = ( ( tint >> 8 ) & 0xff ) / 255.0f, b = ( ( tint >> 16 ) & 0xff ) / 255.0f;
-            const float maxc = Max( r, Max( g, b ) ), minc = Min( r, Min( g, b ) );
-            const float saturation = maxc > 0.0f ? ( maxc - minc ) / maxc : 0.0f;
-            float hue = 0.0f;
-            if ( maxc > minc ) {
-                if ( maxc == r ) hue = std::fmod( ( g - b ) / ( maxc - minc ), 6.0f );
-                else if ( maxc == g ) hue = ( b - r ) / ( maxc - minc ) + 2.0f;
-                else hue = ( r - g ) / ( maxc - minc ) + 4.0f;
-                hue *= 60.0f;
-                if ( hue < 0.0f ) hue += 360.0f;
-            }
-            cursorU = hue / 360.0f;
-            cursorV = maxc >= 0.995f ? saturation * 0.5f : 1.0f - maxc * 0.5f;
+            // The cursor starts on the sticker's own colour.
+            CursorFromColour( working[static_cast<size_t>( editIndex )].Tint, cursorU, cursorV );
         }
         bindGradient();
         writeMyColours();
@@ -708,7 +900,7 @@ void StickerShopUi::tick( float deltaTime ) {
     if ( pUi == nullptr ) {
         return;
     }
-    if ( editIndex < 0 || editIndex >= static_cast<int32_t>( working.size() ) ) {
+    if ( !bPaintOpen && ( editIndex < 0 || editIndex >= static_cast<int32_t>( working.size() ) ) ) {
         return;
     }
     // The movie owns the keys (the tool strip moves on left / right, A stamps,
@@ -742,6 +934,10 @@ void StickerShopUi::tick( float deltaTime ) {
     if ( std::fabs( ay ) < 0.12f ) {
         ay = 0.0f;
     }
+    if ( bPaintOpen ) {
+        tickPaint( deltaTime, ax, ay );
+        return;
+    }
     if ( bMyColoursOpen ) {
         // The movie's own frames re-place the cubes' colour sprites as the box
         // opens and as a slot lights: the tint is written every frame.
@@ -756,6 +952,7 @@ void StickerShopUi::tick( float deltaTime ) {
         // the sticker's, live. In "My Colors" the movie moves its own slots
         // and the X press saves the colour under the cursor [INF].
         bindGradient();
+        tintCube( "/stickers/colors/color_box/color_picker/color1/cube/color", pickedColour() );
         const bool bEditingSlots = getFlag( "/stickers/colors/:editingColors" );
         if ( !bEditingSlots && ( ax != 0.0f || ay != 0.0f ) ) {
             cursorU = Clamp( cursorU + ax * 0.45f * deltaTime, 0.0f, 1.0f );

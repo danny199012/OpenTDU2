@@ -2,7 +2,31 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-`## Session 2026-11-13 (sticker shop UI, `main`): the ESTICK room runs the retail SHOPSCAR stickers page
+`## Session 2026-11-14 (sticker shop Paint page, `main`): the retail Paint screen recolours the car - finish, one or two colours, My Colors, paid and saved
+
+The owner said yes to the open piece of the last entry: the Paint entry of the retail stickers menu.
+
+**Reproduced / how to see it**: `build-main/bin/opentdu2-main.exe -game C:/TDU2-Gamedata/TestDrive2 -userdata <seeded profile> -gm FREERIDE -car One_77 -skipcine -nopad -fixedtimestep -interior ESTICK_B -nointeriorintro -walkaim StickersShop_area -autoplay "200:press=validate;340:press=validate;490:press=camera;560:hold=accright;600:release=accright;650:press=opt2;680:press=validate;760:press=validate;..." -exitframe 1400` (A on the seller, A on Paint; `camera` = L1/R1 key 51 = next finish, `accright` = numpad 6 = the stick, `opt2` = Y = bicolour). The California cannot be painted (`_isvalidcarpaintdeluxe` 0): use `-car One_77`.
+
+### What changed
+- `source/game/freeride/sticker_shop_ui.{h,cpp}` - `onPaintCommand` answers `stsh:pain:colo:open/vali/canc/clos/bion/biof/bich/type:*` and `pain:myco:*`; `tickPaint` moves the active colour's cursor, tints the picker cubes / My Colors, binds the gradient (the colour tool's helpers now take their root from `colourRoot()`: `/stickers/colors` or `/paint`); the page's two colours + finish live in `paintWork` (restore point `paintBackup`, committed `paintCommitted`); `pay()` saves them, `revert()` / `unbind()` put the car's paint back; the Paint entry unlocks from `_isvalidcarpaintdeluxe`. The finish name goes to `/:ColorType` (found with `-logstickerui`, which dumps `/paint`).
+- `source/game/cinematic/cinematic_car.{h,cpp}` - `applyCustomPaint(type, colour1, bBicolour, colour2)`, `restorePaint()` (snapshot of the dealer paint, dropped by `applyDatabasePaint`), `getBodyPaintColour()`: the colors.2dm base material of the finish (`GLOSSY/MATT/METAL/CARBON`, FUN_00c62490's list [CODE]) copied like `applyDatabasePaint`, the colour on `RampClr2` (the body) with a lighter `RampClr1` [INF].
+- `player_profile.{h,cpp}` - `OwnedCarCustomPaints` (`car_custom_paints = id:type;bicolour;c1;c2`); `gm_freeride.cpp` - `applyOwnedPaint` puts it over the dealer paint at spawn, the shop gets the car; `gm_shop.cpp` - a dealer purchase drops it.
+
+### Verified (headless, build 31, 0 stalls, plain FREERIDE smoke exit 0)
+- The page opens (shots `docs/images/sticker_ui_paint_*.webp`): Color type "Glossy", the cursor on the car's own blue (`body 52,77,111`), the car recolours live as the cursor moves; L1/R1 -> Matt -> Metal; Y -> the second cursor and cube, A -> colour 2, A -> Apply; the cart shows $1,000; Valid & Pay -> `paid 1000 (0 sticker(s) on car 431, custom paint), money now 93000`, `profile.sav` `car_custom_paints = 431:2;1;4282712175;4278218521`; the next FREERIDE logs `'One_77' in its custom paint (type 2, ff45006f + bicolour)` and the bonnet is purple metal.
+- B on colour 1 -> `pain:colo:canc` -> the original blue is back, $0; a My Colors slot (X, right x2, A) makes the car red.
+
+### Ruled out
+- The page is not base / highlight / stroke (my earlier guess): the movie has one finish selector, one or two colours (bicolour) and My Colors.
+- The finish is not on up / down: the keys are 49 / 51 (L1 / R1; `camera` / `backview` actions) - `press=right` did nothing.
+
+### Not done / next
+- The colour -> ramp mapping (`RampClr1` lighter by +42 / 0 / 30 / 25 %) is my choice [INF]; the retail one is [ENC] (FUN_008c8d20). The finish names are the base material names; the paint price is the flat $1000. `One_77` has no `Paint2`, so the bicolour only shows on cars that have it (the `DBCarsAndColors` `_color_id_2` cars): not verified on one.
+- Unverified by feel: the DualSense (L1 / R1 = finish, left stick = cursor).
+- Still open from the stickers entry: `C_NEW_CAR_DESIGN_I`, diary stats, casino / chase packs, DLC popup.
+
+## Session 2026-11-13 (sticker shop UI, `main`): the ESTICK room runs the retail SHOPSCAR stickers page
 
 The owner: *"Can you try implement the real ui for the stickers/vinyl editor in the shop it's only partially implemented with non real ui"* - the port's own `PaintMenu` panel stood in for the movie; `shopscar.vmf` holds the real thing (menu, pack grid, tool strip, colour picker, history, itemized invoice) and nothing answered its `stsh:` FSCommands.
 

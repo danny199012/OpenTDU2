@@ -236,6 +236,16 @@ public:
     // the car's paint materials. Returns the row's _color_name ("" when the
     // car has no row / no colour material: the .2dm paint is kept).
     std::string applyDatabasePaint( int32_t paintIndex );
+    // The paint shop's custom paint (the sticker shop's Paint page): the
+    // finish (0 gloss, 1 matt, 2 metal, 3 carbon - the colors.2dm base
+    // materials GLOSSY / MATT / METAL / CARBON) with the body colour (RGBA8,
+    // MakeRGBA order) on the Paint materials and, with bBicolour, the second
+    // colour on Paint2. restorePaint() puts the dealer paint back (the values
+    // the first custom paint found). getBodyPaintColour() is the body's
+    // current colour (RampClr2). [INF: the colour -> ramp mapping is [ENC]]
+    bool applyCustomPaint( int32_t type, uint32_t colour1, bool bBicolour, uint32_t colour2 );
+    void restorePaint();
+    uint32_t getBodyPaintColour();
     // Number of DBCarsAndColors rows of a car.
     static int32_t CountDatabasePaints( int32_t carId );
     // The catalogue of a car: its DBCarsAndColors rows in paint index order
@@ -468,6 +478,17 @@ private:
     };
     std::vector<PaintBaseline> paintBaseline;
     bool paintBaselineValid = false;
+    // The dealer paint's materials (applyCustomPaint snapshots them once;
+    // restorePaint writes them back; a new database paint drops the snapshot).
+    struct PaintSnapshot {
+        uint32_t Material = 0;
+        std::unordered_map<uint64_t, Vector4f> Parameters;
+        Vector4f Diffuse;
+        Vector4f Ambient;
+        Vector4f Specular;
+    };
+    std::vector<PaintSnapshot> paintOriginal;
+    bool bPaintOriginal = false;
     float stainVisual = 0.0f; // the last applySurfaceState inputs (draw's gloss)
     float wetVisual = 0.0f;
     std::vector<int32_t> wheelNodes;

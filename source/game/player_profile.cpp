@@ -187,6 +187,32 @@ void LoadProfile() {
                 }
                 pText = *pEnd == ',' ? pEnd + 1 : pEnd;
             }
+        } else if ( key == "car_custom_paints" ) {
+            // "<id>:<type>;<bicolour>;<colour1>;<colour2>,..."
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const long id = strtol( pText, &pEnd, 10 );
+                if ( pEnd == pText || *pEnd != ':' ) {
+                    break;
+                }
+                int type = 0, bicolour = 0;
+                unsigned int colour1 = 0xffffffffu, colour2 = 0xffffffffu;
+                int used = 0;
+                if ( sscanf( pEnd + 1, "%d;%d;%u;%u%n", &type, &bicolour, &colour1, &colour2, &used ) < 4 ) {
+                    break;
+                }
+                PlayerProfile::CustomPaint paint;
+                paint.Type = type;
+                paint.Bicolour = bicolour != 0;
+                paint.Colour1 = colour1;
+                paint.Colour2 = colour2;
+                profile.OwnedCarCustomPaints[static_cast<int32_t>( id )] = paint;
+                pText = pEnd + 1 + used;
+                if ( *pText == ',' ) {
+                    pText++;
+                }
+            }
         } else if ( key == "car_stickers" ) {
             // "<id>:<bank>;<index>;<u>;<v>;<scale>;<angle>;<tint>|...,..."
             // (the bank file name carries none of the separators).
@@ -607,6 +633,14 @@ bool SaveProfile( const char *pReason ) {
                      << ";" << p.YStretch;
             }
             bFirstSticker = false;
+        }
+        file << "\n";
+        file << "car_custom_paints = ";
+        bool bFirstCustom = true;
+        for ( const auto &custom : profile.OwnedCarCustomPaints ) {
+            file << ( bFirstCustom ? "" : "," ) << custom.first << ":" << custom.second.Type << ";"
+                 << ( custom.second.Bicolour ? 1 : 0 ) << ";" << custom.second.Colour1 << ";" << custom.second.Colour2;
+            bFirstCustom = false;
         }
         file << "\n";
         file << "sticker_colors = ";

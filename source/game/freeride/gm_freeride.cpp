@@ -2471,6 +2471,13 @@ void GMFreeRide::applyOwnedPaint() {
         const std::string name = car.applyDatabasePaint( it->second );
         OTDU_LOG_INFO( "FREERIDE: '%s' in its ordered paint %d '%s'\n", carDesc.FileName.c_str(), it->second, name.c_str() );
     }
+    // The custom paint of the sticker shop's Paint page goes over the dealer's.
+    const auto custom = profile.OwnedCarCustomPaints.find( car.getIdCar() );
+    if ( custom != profile.OwnedCarCustomPaints.end() ) {
+        car.applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour, custom->second.Colour2 );
+        OTDU_LOG_INFO( "FREERIDE: '%s' in its custom paint (type %d, %08x%s)\n", carDesc.FileName.c_str(),
+                       custom->second.Type, custom->second.Colour1, custom->second.Bicolour ? " + bicolour" : "" );
+    }
 }
 
 void GMFreeRide::applyOwnedStickers() {
@@ -3376,7 +3383,7 @@ void GMFreeRide::bindStickerShop() {
     if ( !interior.isStickUi() || !StickerBankCatalog::isEnabled() ) {
         return;
     }
-    stickerShop.bind( &interior.getScene().getUi(), &stickerCanvas, car.getIdCar() );
+    stickerShop.bind( &interior.getScene().getUi(), &stickerCanvas, car.getIdCar(), car.isLoaded() ? &car : nullptr );
 }
 
 bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotBank, uint64_t spotId ) {

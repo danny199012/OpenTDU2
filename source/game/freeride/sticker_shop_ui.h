@@ -1,12 +1,14 @@
 #pragma once
 
 #include "game/freeride/sticker_bank.h"
+#include "game/player_profile.h"
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
 class FlashPlayer;
+class CinematicCar;
 
 // The game's half of the retail sticker shop (docs/re/stickers_ui_spec.md).
 //
@@ -26,7 +28,8 @@ public:
     // The shop room is up: the movie `pUi` shows the stickers page, `pCanvas`
     // is the car's sticker canvas (the working layout composites into it), the
     // profile layout of `carId` is the committed state.
-    void bind( FlashPlayer *pUi, StickerCanvas *pCanvas, int32_t carId );
+    // `pCar` (may be null) is the car the Paint page recolours live.
+    void bind( FlashPlayer *pUi, StickerCanvas *pCanvas, int32_t carId, CinematicCar *pCar = nullptr );
     // The shop room is gone: an unpaid layout reverts to the committed one.
     void unbind();
     inline bool isBound() const { return pUi != nullptr; }
@@ -73,6 +76,19 @@ private:
     void bindGradient();
     void placeCursor();
     void applyPickedToSticker();
+    // The colour tool's movie root: /stickers/colors (the sticker's colour)
+    // or /paint (the Paint page's own box, the same clips).
+    std::string colourRoot() const;
+    static void CursorFromColour( uint32_t colour, float &u, float &v );
+    // The Paint page (SHOPSCAR /paint, docs/re/stickers_ui_spec.md 7): the
+    // body colour, the optional second (bicolour) colour and the finish type
+    // recolour the car live; Valid & Pay keeps them.
+    bool onPaintCommand( const std::string &command );
+    void tickPaint( float deltaTime, float ax, float ay );
+    void applyPaintToCar();
+    void writePaintType();
+    bool paintDiffers() const;
+    uint32_t activePaintColour() const;
     int32_t selectedSlot() const;
     std::string formatMoney( int32_t value ) const;
     bool getFlag( const char *pVariable ) const;
@@ -101,6 +117,17 @@ private:
     // pipette (hue / brightness of the colour about to be saved).
     bool bMyColoursOpen = false; // the colour tool's panel is up (colo:open .. colo:clos)
     float cursorU = 0.5f, cursorV = 0.0f; // the picker cursor in the gradient (0..1)
+
+    // The Paint page.
+    CinematicCar *pCar = nullptr;
+    bool bPaintOpen = false;    // pain:colo:open .. pain:colo:clos
+    bool bPaintCustom = false;  // the working paint is a custom one (else the dealer's)
+    PlayerProfile::CustomPaint paintWork;
+    bool bCommittedCustom = false;
+    PlayerProfile::CustomPaint paintCommitted;
+    bool bBackupCustom = false; // the state when the page opened (B restores it)
+    PlayerProfile::CustomPaint paintBackup;
+    float paintU[2] = { 0.0f, 0.0f }, paintV[2] = { 0.0f, 0.0f }; // each colour's picker cursor
 
     // The invoice of this visit.
     int32_t labourCost = 0;

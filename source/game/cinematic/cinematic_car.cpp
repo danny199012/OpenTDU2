@@ -2406,7 +2406,147 @@ std::string CinematicCar::applyDatabasePaint( int32_t paintIndex ) {
     // baseline or the next frame would blend the dirt over the NEW clean value
     // and the tint would never come back to this paint.
     paintBaselineValid = false;
+    // The dealer paint is the new "original" a custom paint restores.
+    bPaintOriginal = false;
     return colorName;
+}
+
+namespace {
+bool IsBodyPaint( const std::string &name ) {
+    return StringCmpI( name.c_str(), "Paint" ) == 0 || StringCmpI( name.c_str(), "Paint_SK" ) == 0 ||
+           StringCmpI( name.c_str(), "Paint_LR" ) == 0 || StringCmpI( name.c_str(), "Paint_MR" ) == 0 ||
+           StringCmpI( name.c_str(), "Paint_N" ) == 0;
+}
+
+bool IsSecondPaint( const std::string &name ) {
+    return StringCmpI( name.c_str(), "Paint2" ) == 0 || StringCmpI( name.c_str(), "Paint2_SK" ) == 0;
+}
+
+Vector4f Rgba8ToVector( uint32_t colour ) {
+    return Vector4f( ( colour & 0xff ) / 255.0f, ( ( colour >> 8 ) & 0xff ) / 255.0f, ( ( colour >> 16 ) & 0xff ) / 255.0f,
+                     1.0f );
+}
+} // namespace
+
+uint32_t CinematicCar::getBodyPaintColour() {
+    for ( const EdenMaterial &material : car.getMaterials() ) {
+        if ( !IsBodyPaint( material.Name ) ) {
+            continue;
+        }
+        static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
+        Vector4f value = material.Diffuse;
+        const auto it = material.Parameters.find( kRampClr2 );
+        if ( it != material.Parameters.end() ) {
+            value = it->second;
+        }
+        const auto toByte = []( float f ) {
+            return static_cast<uint32_t>( ( f < 0.0f ? 0.0f : ( f > 1.0f ? 1.0f : f ) ) * 255.0f + 0.5f );
+        };
+        return toByte( value.x ) | ( toByte( value.y ) << 8 ) | ( toByte( value.z ) << 16 ) | 0xff000000u;
+    }
+    return 0xffffffffu;
+}
+
+void CinematicCar::restorePaint() {
+    if ( !bPaintOriginal ) {
+        return;
+    }
+    std::vector<EdenMaterial> &materials = car.getMaterials();
+    for ( const PaintSnapshot &snapshot : paintOriginal ) {
+        if ( snapshot.Material >= materials.size() ) {
+            continue;
+        }
+        EdenMaterial &material = materials[snapshot.Material];
+        material.Parameters = snapshot.Parameters;
+        material.Diffuse = snapshot.Diffuse;
+        material.Ambient = snapshot.Ambient;
+        material.Specular = snapshot.Specular;
+    }
+    paintBaselineValid = false;
+}
+
+bool CinematicCar::applyCustomPaint( int32_t type, uint32_t colour1, bool bBicolour, uint32_t colour2 ) {
+    // The paint shop's custom paint [CODE: FUN_00c62490 / FUN_00c62620 pick the
+    // base material of colors.2dm by the paint type (CARBON / MATT / METAL /
+    // GLOSSY) and apply it in mode 0 and 10, then the custom RGB colours
+    // (FUN_008c8d20); the colour -> ramp mapping is [ENC] - [INF] here].
+    // The body is mostly RampClr2 with RampClr1 in the highlight lobe
+    // (paint_spec.md 6): the picked colour is the body, the highlight is a
+    // lighter shade of it.
+    static const bool bLog = CmdLine::HasArg( "-logpaint" );
+    if ( !car.isLoaded() ) {
+        return false;
+    }
+    static const char *const kTypeMaterials[] = { "GLOSSY", "MATT", "METAL", "CARBON" };
+    static const float kHighlight[] = { 0.42f, 0.0f, 0.30f, 0.25f };
+    static const float kFlake[] = { 0.0f, 0.0f, 0.60f, 0.0f };
+    type = type < 0 ? 0 : ( type > 3 ? 3 : type );
+    std::vector<EdenMaterial> &materials = car.getMaterials();
+    if ( !bPaintOriginal ) {
+        paintOriginal.clear();
+        for ( size_t i = 0; i < materials.size(); i++ ) {
+            if ( !IsBodyPaint( materials[i].Name ) && !IsSecondPaint( materials[i].Name ) ) {
+                continue;
+            }
+            PaintSnapshot snapshot;
+            snapshot.Material = static_cast<uint32_t>( i );
+            snapshot.Parameters = materials[i].Parameters;
+            snapshot.Diffuse = materials[i].Diffuse;
+            snapshot.Ambient = materials[i].Ambient;
+            snapshot.Specular = materials[i].Specular;
+            paintOriginal.push_back( std::move( snapshot ) );
+        }
+        bPaintOriginal = true;
+    }
+    restorePaint();
+    const MaterialDesc *pBase = FindNamedMaterial( SharedColorLibrary(), kTypeMaterials[type] );
+    static const uint64_t kRampClr1 = GetIdentifier64bit( "RAMPCLR1" );
+    static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
+    static const uint64_t kRampFlake = GetIdentifier64bit( "RAMPFLAKE" );
+    const auto paint = [&]( EdenMaterial &material, uint32_t colour ) {
+        if ( pBase != nullptr ) {
+            for ( const char *pName : kPaintParameters ) {
+                Vector4f value;
+                if ( pBase->getParameter( pName, value ) ) {
+                    material.Parameters[GetIdentifier64bit( pName )] = value;
+                }
+            }
+            material.Diffuse = pBase->DiffuseColor;
+            material.Ambient = pBase->AmbientColor;
+            material.Specular = pBase->SpecularColor;
+        }
+        const Vector4f body = Rgba8ToVector( colour );
+        const auto lighten = [&]( float amount ) {
+            return Vector4f( body.x + ( 1.0f - body.x ) * amount, body.y + ( 1.0f - body.y ) * amount,
+                             body.z + ( 1.0f - body.z ) * amount, 1.0f );
+        };
+        material.Parameters[kRampClr2] = body;
+        material.Parameters[kRampClr1] = lighten( kHighlight[type] );
+        if ( kFlake[type] > 0.0f ) {
+            material.Parameters[kRampFlake] = lighten( kFlake[type] );
+        }
+        material.Diffuse = Vector4f( body.x, body.y, body.z, material.Diffuse.w );
+    };
+    size_t painted = 0;
+    for ( EdenMaterial &material : materials ) {
+        if ( IsBodyPaint( material.Name ) ) {
+            paint( material, colour1 );
+            painted++;
+        } else if ( bBicolour && IsSecondPaint( material.Name ) ) {
+            paint( material, colour2 );
+            painted++;
+        }
+    }
+    paintBaselineValid = false;
+    if ( bLog ) {
+        char second[24] = "";
+        if ( bBicolour ) {
+            snprintf( second, sizeof( second ), " + %08x", colour2 );
+        }
+        OTDU_LOG_INFO( "CarPaint: %s custom paint type %d (%s%s) colour %08x%s on %zu material(s)\n", fileName.c_str(),
+                       type, kTypeMaterials[type], pBase != nullptr ? "" : " MISSING", colour1, second, painted );
+    }
+    return painted > 0;
 }
 
 bool CinematicCar::applyColor( const std::string &colorId ) {

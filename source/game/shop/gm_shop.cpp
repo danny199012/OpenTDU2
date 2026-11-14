@@ -1218,6 +1218,7 @@ bool GMShop::buyOrEvaluate( bool bEvalOnly ) {
             profile.OwnedCars.push_back( car.IdCar );
         }
         profile.OwnedCarPaints[car.IdCar] = car.Color;
+        profile.OwnedCarCustomPaints.erase( car.IdCar ); // the dealer's paint replaces a paint-shop one
         // The buy window's wheels and interior (FREERIDE loads the rims).
         profile.OwnedCarRims[car.IdCar] = car.RimsHashcode;
         profile.OwnedCarInteriors[car.IdCar] = car.Interior;

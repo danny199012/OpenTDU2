@@ -118,6 +118,18 @@ struct PlayerProfile {
     // menu's sticker page): _id_car -> the placements composited onto the
     // paint's sticker canvas (StickerCanvas -> the TD_CarPaint2 STIKERS slot).
     std::map<int32_t, std::vector<StickerPlacement>> OwnedCarStickers;
+    // The custom paint each car got at a paint shop (the sticker shop's Paint
+    // page, SHOPSCAR /paint): a finish (0 gloss, 1 matt, 2 metal, 3 carbon)
+    // and one or two RGBA8 colours (MakeRGBA order); Colour2 is the bicolour's
+    // second colour (the Paint2 parts), used only with Bicolour. A car without
+    // an entry keeps its dealer paint (OwnedCarPaints / the model's own).
+    struct CustomPaint {
+        int32_t Type = 0;
+        bool Bicolour = false;
+        uint32_t Colour1 = 0xffffffffu;
+        uint32_t Colour2 = 0xffffffffu;
+    };
+    std::map<int32_t, CustomPaint> OwnedCarCustomPaints;
     // The sticker packs paid for (DBStickersBanks._bankfile, lower case): a
     // pack is bought once, whichever car wears it (the SHOPSCAR invoice's
     // "Stickers" line charges the packs a layout newly uses).

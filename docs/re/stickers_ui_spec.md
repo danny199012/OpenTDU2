@@ -88,12 +88,12 @@ room loads, owner of the working layout; `GMFreeRide` forwards the commands
 | `stsh:save:vali` | the "Validate and pay?" answer `a` | pays and saves |
 | `stsh:clea` | the "Clear" answer | empties the layout |
 | `stsh:canc` | the "Exit and cancel modifications?" answer | reverts to the saved layout; the movie then plays `st_close` -> `gofr` |
-| `stsh:pain:*`, `stsh:pain:myco:*` | the Paint page | **not answered** (section 7) |
+| `stsh:pain:colo:*`, `stsh:pain:myco:*` | the Paint page | section 8 |
 
 Variables the game writes (all `/:` unless a path is given) [DATA: read by the scripts]:
 
 - at bind: `IsVehicleStickable` (DBCarPhysicsData `_isvalidsticker`), `IsVehiclePaintable`
-  (false, section 7), `IsBike` (false), `UseSymmetry` / `IsUniformScale` (true), `CanUndo`,
+  (`_isvalidcarpaintdeluxe`, section 8), `IsBike` (false), `UseSymmetry` / `IsUniformScale` (true), `CanUndo`,
   `CanColourSticker`, `HasModifiedVehicle` (the B in the menu asks "cancel modifications?"
   only when true), `EnoughMoney`.
 - per pack: `NbStickersCat` (the sold packs), `CurrentStickersCat`, `NbStickersCurPage`
@@ -154,36 +154,74 @@ cameras are not used [INF].
 (`Itemized invoice`: Paint Color / Stickers / Labor costs) is: **Stickers** = the pack price
 of every pack the layout uses that the profile has not paid (`OwnedStickerBanks`: a pack is
 paid once, for every car), **Labor** = $1000 when the layout changed (the erase fee when it
-was emptied), **Paint** = $1000 when the paint changed (never, yet). `stsh:save:vali` pays,
+was emptied), **Paint** = $1000 when the paint changed (section 8). `stsh:save:vali` pays,
 adds the packs, writes `car_stickers` and saves. Backing out (`stsh:canc`, or leaving) puts
 the saved layout back.
 
-## 8. Not done / next
+## 8. The Paint page (`stsh:pain:*`) [DATA: the movie's scripts, `-dumpclips /paint`; INF: the paint maths]
 
-- **Paint** (`stsh:pain:*`): the base / highlight / stroke colours, the bicolour switch, the
-  type picker and the "My Colors" slots of that page. The page reuses the same colour picker
-  (`/paint/color_box`, `/paint/my_colors_box`). The car paint's custom colours need the
-  TD_CarPaint2 colour parameters (`paint_spec.md`); until then the Paint entry shows its lock.
-- The retail pipette (picks a colour from the scene) is the gradient picker here.
+The menu's Paint entry (locked unless `/:IsVehiclePaintable`, here `_isvalidcarpaintdeluxe` -
+One_77 is 1, the California 0) runs `pain:colo:open`, `pain:myco:init`, `mcin`, then plays
+`/paint` `open`. The page is **not** base / highlight / stroke: it is a **Color type** box (a
+finish, L1 / R1 = keys 49 / 51, or the two arrows), the same **Color Picker** gradient as the
+sticker's colour tool with up to **two colours** (the "Bicolor paint" switch on Y = key 121 turns
+the second one on; A on colour 1 moves to colour 2, A on colour 2 or on a single colour is
+**Apply color**, B on colour 2 goes back to colour 1, B on colour 1 cancels), and **My Colors**
+(X = key 120, the same six slots as the sticker's). The paint is **not paid on Apply**: it joins
+the invoice as "Paint Color" $1000 and Valid & Pay keeps it.
+
+| FSCommand | when | the game |
+|---|---|---|
+| `pain:colo:open` | Paint pressed | opens the session (the state to restore on B), cursors on the colours, `/:BicolourPaint` |
+| `pain:myco:init` / `open` / `clos` / `clea` | My Colors | writes the slots (`writeMyColours`, shared with the stickers) |
+| `pain:colo:bion` / `biof` | Y | `Bicolour` on / off (the movie keeps `/:BicolourPaint` and `/:CurrentColor` 1 / 2) |
+| `pain:colo:bich` | A / B moved the active colour | none (the tick reads `/:CurrentColor`) |
+| `pain:colo:type:open` / `next` / `prev` | the page opened / L1 / R1 | the finish moves, the name goes to `/:ColorType` (the text var of the box, `_root.ColorType`) |
+| `pain:colo:vali` | Apply | `bPaintChanged` -> the invoice and `HasModifiedVehicle` |
+| `pain:colo:canc` | B on colour 1 | the paint goes back to what it was when the page opened |
+| `pain:colo:clos` | the page's close | |
+| `pain:myco:vali` / `fill` / `eras` | A / X / Y on a slot | the slot's colour becomes the active colour / saves the active colour / empties it |
+
+- **The car** (`CinematicCar::applyCustomPaint( type, colour1, bBicolour, colour2 )`): the finish is
+  the base material of `colors.2dm` (`GLOSSY` / `MATT` / `METAL` / `CARBON`, `FUN_00c62490` picks
+  them by the paint type [CODE]; the four-finish order is [INF]), copied with the same parameter
+  list as `applyDatabasePaint` onto `Paint` / `Paint_SK` / `Paint_LR` / `Paint_MR` / `Paint_N`
+  (colour 1) and `Paint2` / `Paint2_SK` (colour 2, bicolour only). The picked colour is `RampClr2`
+  (the body: paint_spec 6, `RampClr1` only lights in the highlight lobe) and `RampClr1` a lighter
+  shade of it (+42 % gloss, +0 matt, +30 metal, +25 carbon; metal's `RampFlake` +60 %) [INF: the
+  retail colour -> ramp mapping, FUN_008c8d20, is [ENC]]. `restorePaint()` writes back the paint
+  the first custom call found (a dealer paint repaint drops the snapshot).
+- **Saved** per car: `profile.sav` `car_custom_paints = <id>:<type>;<bicolour>;<c1>;<c2>,...`
+  (`PlayerProfile::OwnedCarCustomPaints`); `GMFreeRide::applyOwnedPaint` puts it over the dealer's
+  paint at every spawn; buying that car again at a dealer drops it. B / leaving the shop reverts.
+- Flag `-nostickerpaint` keeps the entry locked.
+
+## 9. Not done / next
+
+- The retail pipette (picks a colour from the scene) is the gradient picker here; the finishes'
+  names are the base materials' (the retail strings are the game's); the paint price is the flat
+  `DBStickersPricing` $1000 [INF].
 - The retail car presentation (`C_NEW_CAR_DESIGN_I`) and the seller's `sti_carready` anims.
-- `HasModifiedVehicle` ignores paint; `EdCarSticked` / `NbStickersBought` (the diary's stat
-  lines) are not written.
+- `EdCarSticked` / `NbStickersBought` (the diary's stat lines) are not written.
 - Casino / chase packs (types 4 / 5) are not listed (no ownership data); the movie has the
   lock overlay (`StickLocked`) for them.
 - DLC pack popup (`dlc_popup`, `DLC_Ok`) is off (`DLC_Locked` false).
 - A pad is not at hand in headless runs: the stick / shoulder mapping above is the pause
-  menu's; **to confirm with a DualSense**: L1 / R1 switch tool and pack, the left stick edits
-  the tool, the right stick / D-pad orbit the camera, Select is the history.
+  menu's; **to confirm with a DualSense**: L1 / R1 switch tool and pack (and the paint finish),
+  the left stick edits the tool / moves the colour cursor, the right stick / D-pad orbit the
+  camera, Select is the history.
 
-## 9. Flags
+## 10. Flags
 
 | flag | what |
 |---|---|
 | `-nostickerui` | the native `PaintMenu` in the ESTICK room (the A/B) |
-| `-logstickerui` | the colour cubes' transforms and the picker cursor |
+| `-logstickerui` | the colour cubes' transforms, the picker cursor and a `/paint` clip dump |
+| `-nostickerpaint` | the Paint entry stays locked |
+| `-car One_77` | a car whose `_isvalidcarpaintdeluxe` is 1 (the California is 0) |
 | `-interior ESTICK_B -walkaim StickersShop_area -nointeriorintro` | straight into the shop, facing the seller (a scripted run presses `validate` on it) |
 
-## 10. Evidence (headless, build 29-30, 0 stalls)
+## 11. Evidence (headless, build 29-31, 0 stalls)
 
 `docs/images/sticker_ui_shop_entry.webp` (the retail "Stickers Shop" title bar), `_menu` (the
 five-button menu: Paint locked, Stick, Clear, Cancel, Valid & Pay), `_pack_grid` / `_pack_switch`
@@ -194,3 +232,12 @@ Stickers $5,000, Labor $1,000, total $6,000 of $100,000), `_owned_pack` (the che
 paying, money $94,000). The pay round trip: `StickerShopUi: paid 6000 (4 sticker(s) on car
 387), money now 94000` -> `profile.sav` `car_stickers` / `sticker_banks` / `money` -> the next
 FREERIDE logs `'California' wears 4 sticker(s)`.
+
+Paint (build 31, `-car One_77`): `sticker_ui_paint_page` (Color type box "Glossy", the picker
+cursor on the car's own blue, "Bicolor paint", "Apply color", My Colors), `_paint_types` (Matt /
+Metal / the menu with the $1 000 cart / the second colour's cursor), `_paint_bicolour`,
+`_paint_mycolors` (a My Colors slot applied: the car red), `_paint_saved` (the next free ride:
+`'One_77' in its custom paint (type 2, ff45006f + bicolour)`, the bonnet purple metal). The pay
+round trip: `paid 1000 (0 sticker(s) on car 431, custom paint), money now 93000` -> `profile.sav`
+`car_custom_paints = 431:2;1;4282712175;4278218521`; B on colour 1 puts the original blue back
+(`pain:colo:canc`).
