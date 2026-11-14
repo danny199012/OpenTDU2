@@ -367,6 +367,7 @@ void VehicleWorldCollision::addCollision( const HavokCollision &collision, const
                 triangle.Normal = -triangle.Normal;
             }
             triangle.Friction = body.Friction;
+            triangle.Material = t < collision.TriMaterial.size() ? collision.TriMaterial[t] : 0;
             triangle.bRoad = bRoad;
             const uint32_t index = static_cast<uint32_t>( triangles.size() );
             triangles.push_back( triangle );
@@ -478,6 +479,7 @@ bool VehicleWorldCollision::raycast( const Vector3f &origin, const Vector3f &dir
                         outHit.Distance = t;
                         outHit.Normal = triangle.Normal;
                         outHit.Friction = triangle.Friction;
+                        outHit.Material = triangle.Material;
                         outHit.Surface = triangle.bRoad ? Hit::eSurface::Road : Hit::eSurface::Static;
                     }
                 }
@@ -733,6 +735,39 @@ void VehicleWorldCollision::forEachRoadTriangle(
                     callback( triangle.A, triangle.B, triangle.C );
                 }
             }
+        }
+    }
+}
+
+void VehicleWorldCollision::logMaterialHistogram() const {
+    std::map<uint32_t, uint32_t> road, other;
+    for ( const Triangle &triangle : triangles ) {
+        ( triangle.bRoad ? road : other )[triangle.Material]++;
+    }
+    for ( int32_t pass = 0; pass < 2; pass++ ) {
+        std::string line;
+        for ( const auto &entry : pass == 0 ? road : other ) {
+            char text[48];
+            snprintf( text, sizeof( text ), " 0x%x:%u", entry.first, entry.second );
+            line += text;
+        }
+        OTDU_LOG_INFO( "VehicleWorldCollision: %s triangle materials:%s\n", pass == 0 ? "road" : "static", line.c_str() );
+    }
+}
+
+void VehicleWorldCollision::materialsAt( float x, float z, std::set<std::string> &out ) const {
+    const auto it = triangleCells.find( CellKey( static_cast<int32_t>( std::floor( x / kCellSize ) ), static_cast<int32_t>( std::floor( z / kCellSize ) ) ) );
+    if ( it == triangleCells.end() ) {
+        return;
+    }
+    for ( const uint32_t index : it->second ) {
+        const Triangle &t = triangles[index];
+        auto side = [&]( const Vector3f &a, const Vector3f &b ) { return ( b.x - a.x ) * ( z - a.z ) - ( b.z - a.z ) * ( x - a.x ); };
+        const float s0 = side( t.A, t.B ), s1 = side( t.B, t.C ), s2 = side( t.C, t.A );
+        if ( ( s0 >= 0 && s1 >= 0 && s2 >= 0 ) || ( s0 <= 0 && s1 <= 0 && s2 <= 0 ) ) {
+            char text[24];
+            snprintf( text, sizeof( text ), "%c%x", t.bRoad ? 'R' : 'S', t.Material );
+            out.insert( text );
         }
     }
 }

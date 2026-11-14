@@ -3,6 +3,8 @@
 #include "core/math.h"
 
 #include <functional>
+#include <set>
+#include <string>
 
 struct HavokCollision;
 class Bank;
@@ -34,6 +36,7 @@ public:
         Vector3f Position;
         Vector3f Normal;
         float Friction = 1.0f; // hkpRigidBody material friction (0.7 roads) / terrain [INF 0.7]
+        uint32_t Material = 0; // the mesh material value of the triangle hit (0: none / terrain)
         enum class eSurface : uint8_t { Road, Static, Terrain } Surface = eSurface::Road;
     };
 
@@ -84,6 +87,10 @@ public:
                               const std::function<void( const Vector3f &, const Vector3f &, const Vector3f & )> &callback ) const;
 
     inline size_t getNumTriangles() const { return triangles.size(); }
+    // Debug (-scanroadsurface): triangle count per mesh material value, road / other meshes.
+    void logMaterialHistogram() const;
+    // Debug: the materials of every triangle (any height) over the point (x, z): 'R' road / 'S' static + value.
+    void materialsAt( float x, float z, std::set<std::string> &out ) const;
     inline size_t getNumSectors() const { return loadedSectors.size(); }
 
 private:
@@ -91,6 +98,7 @@ private:
         Vector3f A, B, C;
         Vector3f Normal;
         float Friction;
+        uint32_t Material = 0;
         bool bRoad;
     };
     struct Box {

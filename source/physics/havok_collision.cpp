@@ -64,6 +64,8 @@ constexpr uint32_t kSubpartFlipAlternate = 0x39;
 constexpr uint32_t kStorageVertices = 0x08;  // hkArray<hkVector4>
 constexpr uint32_t kStorageIndices16 = 0x14; // hkArray<hkUint16>
 constexpr uint32_t kStorageIndices32 = 0x20; // hkArray<hkUint32>
+constexpr uint32_t kStorageMaterialIndices = 0x2c; // hkArray<hkUint8>, one per triangle [INF layout]
+constexpr uint32_t kStorageMaterials = 0x38;       // hkArray<hkUint32> [INF layout]
 // hkpConstraintInstance
 constexpr uint32_t kConstraintData = 0x0c;
 constexpr uint32_t kConstraintEntityA = 0x14;
@@ -326,6 +328,11 @@ struct Builder {
                 continue;
             }
 
+            uint32_t materialIndices = 0, numMaterialIndices = 0, materials = 0, numMaterials = 0;
+            if ( !pack.valid( storage, 0x44 ) || !pack.array( storage + kStorageMaterialIndices, 1, materialIndices, numMaterialIndices ) ||
+                 !pack.array( storage + kStorageMaterials, 4, materials, numMaterials ) ) {
+                numMaterialIndices = numMaterials = 0;
+            }
             const uint32_t base = static_cast<uint32_t>( out.Vertices.size() );
             for ( uint32_t v = 0; v < numVertices; v++ ) {
                 Vector3f p = pack.vec3( vertices + v * 16 );
@@ -347,6 +354,14 @@ struct Builder {
                 out.Indices.push_back( base + tri[0] );
                 out.Indices.push_back( base + tri[1] );
                 out.Indices.push_back( base + tri[2] );
+                uint32_t material = 0;
+                if ( t < numMaterialIndices ) {
+                    const uint32_t slot = pack.pData[materialIndices + t];
+                    material = slot < numMaterials ? pack.u32( materials + slot * 4 ) : slot;
+                } else if ( numMaterials > 0 ) {
+                    material = pack.u32( materials );
+                }
+                out.TriMaterial.push_back( material );
             }
         }
     }
@@ -479,6 +494,7 @@ Vector3f ClosestPointOnSegment( const Vector3f &p, const Vector3f &a, const Vect
 void HavokCollision::clear() {
     Vertices.clear();
     Indices.clear();
+    TriMaterial.clear();
     Boxes.clear();
     Capsules.clear();
     Bodies.clear();

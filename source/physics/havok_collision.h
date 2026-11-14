@@ -21,6 +21,9 @@ struct HavokCollision {
     // Triangle soup (hkpStorageExtendedMeshShape subparts), world frame.
     std::vector<Vector3f> Vertices;
     std::vector<uint32_t> Indices; // 3 per triangle
+    // One per triangle: the mesh material value (hkpStorageExtendedMeshShape
+    // MeshSubpartStorage m_materials[m_materialIndices[t]], 0 when the subpart has none).
+    std::vector<uint32_t> TriMaterial;
 
     struct Box {
         Matrix4x4f Transform; // box centre/orientation, world frame (rigid, no scale)

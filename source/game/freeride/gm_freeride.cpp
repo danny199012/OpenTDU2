@@ -817,6 +817,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     // road collision, a dirt track is terrain paint [INF]: this tests it.
     if ( CmdLine::HasArg( "-scanroadsurface" ) ) {
         std::map<std::string, int32_t> tally;
+        std::map<std::string, int32_t> overlap;
         const auto &shapes = mapScreen.getRoadShapes();
         const auto &classes = mapScreen.getRoadClasses();
         for ( size_t e = 0; e < shapes.size(); e++ ) {
@@ -827,18 +828,34 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             collision.streamAround( mid, 1 );
             VehicleWorldCollision::Hit hit;
             const char *pSurface = "none";
-            if ( collision.raycast( Vector3f( mid.x, mid.y + 40.0f, mid.z ), Vector3f( 0.0f, -1.0f, 0.0f ), 120.0f, hit ) ) {
+            if ( collision.raycast( Vector3f( mid.x, 1500.0f, mid.z ), Vector3f( 0.0f, -1.0f, 0.0f ), 3000.0f, hit ) ) {
                 pSurface = hit.Surface == VehicleWorldCollision::Hit::eSurface::Road
                                ? "road"
                                : ( hit.Surface == VehicleWorldCollision::Hit::eSurface::Terrain ? "terrain" : "static" );
             }
             char fr[16];
-            snprintf( fr, sizeof( fr ), " f%.2f", pSurface[0] == 'n' ? 0.0f : hit.Friction );
+            snprintf( fr, sizeof( fr ), " m%08x", pSurface[0] == 'n' ? 0u : hit.Material );
             tally[std::to_string( e < classes.size() ? classes[e] : 0 ) + " " + pSurface + fr]++;
+            {
+                std::set<std::string> found;
+                collision.materialsAt( mid.x, mid.z, found );
+                for ( const std::string &m : found ) {
+                    overlap[std::to_string( e < classes.size() ? classes[e] : 0 ) + " " + m]++;
+                }
+            }
+            static int32_t noneShown = 0;
+            if ( pSurface[0] == 'n' && noneShown++ < 12 ) {
+                OTDU_LOG_INFO( "scanroadsurface: none link %zu class %d at (%.0f, %.0f, %.0f)\n", e,
+                               static_cast<int32_t>( e < classes.size() ? classes[e] : 0 ), mid.x, mid.y, mid.z );
+            }
         }
         for ( const auto &entry : tally ) {
             OTDU_LOG_INFO( "scanroadsurface: class %s : %d links\n", entry.first.c_str(), entry.second );
         }
+        for ( const auto &entry : overlap ) {
+            OTDU_LOG_INFO( "scanroadsurface: overlap class %s : %d links\n", entry.first.c_str(), entry.second );
+        }
+        collision.logMaterialHistogram();
         OTDU_LOG_INFO( "scanroadsurface: done\n" );
     }
     // The grass road-graph suppression (input to drawGrass; the village

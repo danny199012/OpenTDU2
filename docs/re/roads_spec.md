@@ -36,6 +36,15 @@ The satnav colours a driven road by this byte (`3` = yellow), but nothing proves
 The retail physics does know the ground (`FUN_00ba81a0`: material ids `1, 0x3d, 0x3e` = dirt), but our Havok reader keeps no per-triangle material ids (`HavokCollision` has none): reading them from
 the `hkpStorageExtendedMeshShape` subparts is the way to classify a link from data. Until then the yellow roads are a guess. Debug flags: `-scanroadsurface`, `-logroads`, `-logroadfields`.
 
+**Per-triangle material ids (2026-11-14, later) [DATA].** `HavokCollision::TriMaterial` now carries each triangle's mesh material (`hkpStorageExtendedMeshShape` `MeshSubpartStorage`
+`m_materialIndices` @`+0x2c` (u8 per triangle) -> `m_materials` @`+0x38` (u32) [INF layout; it yields real values, not noise]), `VehicleWorldCollision::Hit::Material` reports it.
+Triangle counts on Ibiza: road meshes `0x0:419757 0x8:15600 0x9:2542 0x3f:14034 0x40:13977 0x41:234317 0x43:3588 ...`, static meshes `0x0:498411 0x1:23311 0x2:22237 0x3:136564 ...`
+(Hawai alike, bigger). The retail table (`FUN_00ba81a0`) calls ids `1, 0x3d, 0x3e` dirt and `2, 4, 5, 0xb..0xd, 0x2b..0x2e, 0x42` grass. **Result: under the middle of every road link (all classes) the road
+mesh is material `0` (a few `8`)** - class 3 included (96 of 97 links `R0`) - so the collision does **not** mark dirt tracks either; `0x3f / 0x40 / 0x41 / 0x43` are meshes beside the links (shoulders?).
+Material `1` (dirt) exists only on static meshes (23311 triangles) and under 7 class-2 links. The dirt / grass / sand distinction of a track therefore lives in the **terrain paint** (the sector colour
+maps carry the sand / mud textures, surface_effects_spec.md 1), not in the road graph or the road collision. Still undecoded: which `DAOR` byte, if any, is the AIRL type. Next lead: the dev exe's
+`HudMapRoads` draw code (`0xc9e584`..) and how it picks the colour per road (it reads the road list from a resource, not `ROAD_MAP.IA` [INF]).
+
 ## ROAD_DETAIL.IA `[DATA]`
 `DI41DAEH` header, then **`ATED`** records, one per road (1392, id = the DAOR id): `+4 id, +8 N` (9 on road 1),
 `N` byte offsets from the record start, then N sub-blocks of 5 header words (`0x60007, 18, 257, 1, 0xc90204` ...
