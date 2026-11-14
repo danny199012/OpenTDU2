@@ -62,6 +62,19 @@ scrape run reaches 25059 by accumulation. No visual check (headless `-no3d`).
   (kind 0 = `ScaleCar`) `[INF]` - compiled, **not yet exercised in play** (a test drive hit only scenery).
 - Calibration seen: ~90 km/h scenery hit = +28,580 (scratched) in one impact; ~100 km/h crash sequences reach broken.
 
+## 3c. Damage by zone: doors and bumpers (2026-11-14, `main`)
+Owner's 360-recomp references (traffic cars with fallen bumpers, popped bonnets and boots, cracked windscreens; the player car with a door left ajar after repeated crashes): the retail damage is per part,
+not one scalar. The car banks carry `<car>.dhk` (a Havok dynamic compound with hinged door / hood / trunk parts: havok_collision_spec.md 5) and `<car>_break_parts.2db` (the debris texture) [DATA].
+The starter model (`-lognodes` dumps the node names; the first glyph of a name is lost in the 3dd, `?UMP_F_H` = `BUMP_F_H`) has separate nodes `BUMP_F_H/M/L`, `BUMP_R_H/M/L`, `DOOR_L`, `DOOR_R`;
+the hood and the boot are part of `BODY_HR`, so they cannot hinge as nodes here.
+- `VehicleDynamics::zoneDamage[4]` (front, rear, left, right, 0..65535): every chassis contact's gain is split over its end and its side from the contact sphere's place on the body (+X left, +Z forward).
+- `CinematicCar::applyPartDamage( front, rear, left, right )` (every frame, cheap when unchanged): the doors come loose from ~6000 of side damage, up to 0.2 rad (`setDoorAngle`: left negative, right positive);
+  each bumper sags from ~12000 and hangs at ~48000 (pitched 0.9 rad about its top edge on the car side, dropped 0.3 m and pushed out 0.25 m) [INF thresholds and shapes].
+- The zones are saved (`last_drive` +4 fields) and survive scene trips (`VehicleSceneState::ZoneDamage`).
+- Verified: a headless crash with rendering on: front bumper hanging, windscreen cracked (screenshot checked by eye, not committed).
+- Not done: the bonnet / boot popping (needs the `.dhk` hinge bodies mapped onto the model, or a model with those nodes), the bumper falling off completely with `break_parts` debris, traffic cars (their damage is not fed), the lateral rule,
+  the real record magnitude (still the impulse scale of section 3, which saturates after one crash sequence).
+
 ## 4. Next
 1. Exercise the traffic feed in play; the lateral rule for side hits; AI-vs-AI impacts.
 2. Remaining visuals: `DamageMap` render target + `TD_damagemap` splat + `TD_CarDeform_TS` on the car body (scratches at state 1, deformation at 2, the wreck look at 3), `CrushedSuspensionFX`. The glass crack is done.
