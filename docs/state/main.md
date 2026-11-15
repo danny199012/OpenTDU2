@@ -3,6 +3,17 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 4): the wipers now clear the outside glass drops (and actually sweep)
+
+### What changed
+- `cinematic_car.cpp` `updateWipers`: **bug fix** - a sweep started at `wiperTimer = -1e-6` and finished on the next frame, so the blades never moved (the owner's "wipers to work"); now `-1.0`. The outside-glass water (`glassWater`, new) beads up 0.08/s while it rains (capped by the body's water film), a sweep past 80 % of its angle sets it to 0, and the droplet overlay (`applyGlassWet`, now called from here every frame instead of from `applySurfaceState`) follows it.
+
+### Verified
+- `-intempery 3 -wipers on`, 1500 frames: the glass level cycles 1 -> 0 -> 1 -> 0 with each sweep. Not looked at in 3D (blades moving, overlay flicker).
+
+### Not done / next
+- Level steps are a hard swap (no fade); a smoother wipe would need a shader term. Sweep period is the existing auto interval (7 s drizzle .. 1.2 s downpour); F6 cycles off / auto / fast.
+
 ## Session 2026-11-15 (`main`, 3): rain on the car's glass from outside, cars get wetter over time
 
 ### What changed

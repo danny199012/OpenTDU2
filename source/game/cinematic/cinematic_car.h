@@ -467,6 +467,7 @@ private:
     bool bGlassSwapped = false;
     bool bGlassGathered = false;
     int32_t appliedDamageState = -1;
+    float glassWater = 0.0f;      // droplets on the outside glass 0..1 (wipers clear it)
     int32_t appliedGlassWet = 0;  // 0 dry, 1..3 the droplet overlay on the exterior glass
     void applyGlassWet( float wet );
     // applyPartDamage: the bumpers and the bonnet / boot lid of the model (the doors are moved here, with the

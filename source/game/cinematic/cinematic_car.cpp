@@ -2900,6 +2900,17 @@ void CinematicCar::setWiperMode( eWiperMode mode ) {
 }
 
 void CinematicCar::updateWipers( float deltaTime, float rainAlpha ) {
+    // The water on the outside glass follows the body's water film while it
+    // rains (beading up at about 0.08 per second) and dries with it; a wiper
+    // sweep wipes it off (below), the droplet overlay follows glassWater.
+    if ( deltaTime > 0.0f ) {
+        if ( rainAlpha > 0.001f ) {
+            glassWater = Min( wetVisual, glassWater + 0.08f * deltaTime );
+        } else {
+            glassWater = Min( wetVisual, glassWater );
+        }
+        applyGlassWet( glassWater );
+    }
     if ( wipers.empty() || deltaTime <= 0.0f ) {
         return;
     }
@@ -2931,13 +2942,16 @@ void CinematicCar::updateWipers( float deltaTime, float rainAlpha ) {
                                     kIntervalMax - Clamp( rainAlpha / 255.0f, 0.0f, 1.0f ) * ( kIntervalMax - kIntervalMin ) );
         } else {
             wiperAngle = kMaxAngle * sinf( 3.14159265f * -wiperTimer );
+            if ( wiperAngle > 0.8f * kMaxAngle ) {
+                glassWater = 0.0f; // the blades are across the glass: it is clear behind them
+            }
         }
         return;
     }
     // Waiting for the next sweep (0: sweep right away).
     wiperTimer -= deltaTime;
     if ( wiperTimer <= 0.0f ) {
-        wiperTimer = -1e-6f;
+        wiperTimer = -1.0f; // a sweep starts at progress 0 (was -1e-6: it ended on the next frame)
     }
 }
 
@@ -3448,7 +3462,6 @@ void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, flo
     }
     stainVisual = stain;
     wetVisual = wet;
-    applyGlassWet( wet );
     static const uint64_t kRampClr1 = GetIdentifier64bit( "RAMPCLR1" );
     static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
     const auto isPaint = []( const std::string &name ) {
