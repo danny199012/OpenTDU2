@@ -2801,6 +2801,7 @@ void CinematicCar::collectWipers() {
     if ( !car.isLoaded() ) {
         return;
     }
+    collectGlassFit();
     Vector3f bodyMin, bodyMax;
     const bool bHaveBody = getBodyBounds( bodyMin, bodyMax );
     const std::vector<EdenModel::Item> &items = car.getItems();
@@ -2892,6 +2893,287 @@ void CinematicCar::collectWipers() {
                    wipers.size() > 0 ? wipers[0].IndexCount : 0, wipers.size() > 1 ? wipers[1].IndexCount : 0 );
 }
 
+namespace {
+void FillGlassTint( std::vector<uint8_t> &pixels );
+}
+
+// Fits uv = A . (x, y, z, 1) over the windscreen's vertices (car space), so a
+// wiper blade point can be put on the glass overlay. The glass is gently
+// curved: a plane through its uv is close enough for the drops [INF].
+void CinematicCar::collectGlassFit() {
+    bGlassFit = false;
+    const int32_t glassNode = car.getScene().findNode( "GLASS_F" );
+    if ( glassNode < 0 ) {
+        return;
+    }
+    double ata[4][4] = {}, atb[2][4] = {};
+    uint32_t count = 0;
+    float uvMin[2] = { 1e9f, 1e9f }, uvMax[2] = { -1e9f, -1e9f };
+    Vector3f pMin( 1e9f, 1e9f, 1e9f ), pMax( -1e9f, -1e9f, -1e9f );
+    for ( const EdenModel::Item &item : car.getItems() ) {
+        if ( item.NodeIndex != glassNode || item.PrimitiveUVs.size() < item.PrimitiveVertices.size() * 2 ) {
+            continue;
+        }
+        const Matrix4x4f nodeT = car.getNodeTransform( glassNode );
+        for ( size_t i = 0; i < item.PrimitiveVertices.size(); i++ ) {
+            const Vector3f p = nodeT.transformPoint( item.PrimitiveVertices[i] );
+            const double row[4] = { std::abs( p.x ), p.y, p.z, 1.0 }; // the glass uv is mirrored left / right
+            for ( int32_t a = 0; a < 4; a++ ) {
+                for ( int32_t b = 0; b < 4; b++ ) {
+                    ata[a][b] += row[a] * row[b];
+                }
+                atb[0][a] += row[a] * item.PrimitiveUVs[i * 2];
+                atb[1][a] += row[a] * item.PrimitiveUVs[i * 2 + 1];
+            }
+            uvMin[0] = Min( uvMin[0], item.PrimitiveUVs[i * 2] ); uvMax[0] = Max( uvMax[0], item.PrimitiveUVs[i * 2] );
+            uvMin[1] = Min( uvMin[1], item.PrimitiveUVs[i * 2 + 1] ); uvMax[1] = Max( uvMax[1], item.PrimitiveUVs[i * 2 + 1] );
+            pMin = Vector3f( Min( pMin.x, p.x ), Min( pMin.y, p.y ), Min( pMin.z, p.z ) );
+            pMax = Vector3f( Max( pMax.x, p.x ), Max( pMax.y, p.y ), Max( pMax.z, p.z ) );
+            count++;
+        }
+    }
+    if ( count < 8 ) {
+        return;
+    }
+    for ( int32_t a = 0; a < 3; a++ ) {
+        ata[a][a] += 1e-6 * count; // ridge: a flat glass has no depth direction
+    }
+    for ( int32_t c = 0; c < 2; c++ ) {
+        double m[4][5];
+        for ( int32_t a = 0; a < 4; a++ ) {
+            for ( int32_t b = 0; b < 4; b++ ) {
+                m[a][b] = ata[a][b];
+            }
+            m[a][4] = atb[c][a];
+        }
+        for ( int32_t col = 0; col < 4; col++ ) {
+            int32_t pivot = col;
+            for ( int32_t r = col + 1; r < 4; r++ ) {
+                if ( std::abs( m[r][col] ) > std::abs( m[pivot][col] ) ) {
+                    pivot = r;
+                }
+            }
+            if ( std::abs( m[pivot][col] ) < 1e-12 ) {
+                return;
+            }
+            for ( int32_t k = 0; k < 5; k++ ) {
+                std::swap( m[col][k], m[pivot][k] );
+            }
+            for ( int32_t r = 0; r < 4; r++ ) {
+                if ( r == col ) {
+                    continue;
+                }
+                const double f = m[r][col] / m[col][col];
+                for ( int32_t k = col; k < 5; k++ ) {
+                    m[r][k] -= f * m[col][k];
+                }
+            }
+        }
+        for ( int32_t a = 0; a < 4; a++ ) {
+            glassFit[c][a] = static_cast<float>( m[a][4] / m[a][a] );
+        }
+    }
+    bGlassFit = true;
+    OTDU_LOG_INFO( "CinematicCar: glass uv %.2f..%.2f x %.2f..%.2f, pos x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f\n", uvMin[0], uvMax[0], uvMin[1], uvMax[1], pMin.x, pMax.x, pMin.y, pMax.y, pMin.z, pMax.z );
+    OTDU_LOG_INFO( "CinematicCar: windscreen uv fit from %u vertices (u %.2f %.2f %.2f %.2f, v %.2f %.2f %.2f %.2f)\n", count,
+                   glassFit[0][0], glassFit[0][1], glassFit[0][2], glassFit[0][3], glassFit[1][0], glassFit[1][1],
+                   glassFit[1][2], glassFit[1][3] );
+}
+
+// The drops on the outside windscreen, pushed by the blades. Spawn follows the
+// body's water film (rain), the blade segment (pivot -> tip in glass uv) drags
+// the drops it crosses along its own motion and thins them (a thin film is
+// left), they leave a short trail behind. The overlay is re-rendered while
+// something changes (about 30 Hz while wiping, 3 Hz otherwise).
+void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
+    if ( deltaTime <= 0.0f || gpRender == nullptr || !car.isLoaded() || appliedDamageState == 1 ) {
+        return;
+    }
+    auto rnd = [this]() {
+        glassRng = glassRng * 1664525u + 1013904223u;
+        return static_cast<float>( glassRng >> 8 ) / 16777216.0f;
+    };
+    const auto toUv = [this]( const Vector3f &p, float &u, float &v ) {
+        const float ax = std::abs( p.x );
+        u = glassFit[0][0] * ax + glassFit[0][1] * p.y + glassFit[0][2] * p.z + glassFit[0][3];
+        v = glassFit[1][0] * ax + glassFit[1][1] * p.y + glassFit[1][2] * p.z + glassFit[1][3];
+    };
+    // Spawn / evaporate toward the body's water film.
+    const size_t target = static_cast<size_t>( Clamp( wetVisual, 0.0f, 1.0f ) * 300.0f );
+    const float rate = rainAlpha > 0.001f ? 40.0f : 25.0f;
+    float budget = rate * deltaTime;
+    while ( glassDrops.size() < target && budget > 0.0f ) {
+        budget -= 1.0f;
+        GlassDrop drop;
+        drop.U = rnd();
+        drop.V = rnd();
+        const float roll = rnd();
+        drop.Radius = roll < 0.85f ? 0.8f + rnd() * 1.6f : 2.2f + rnd() * 2.2f;
+        drop.Alpha = 0.05f;
+        glassDrops.push_back( drop );
+        bGlassDirty = true;
+    }
+    while ( glassDrops.size() > target && budget > 0.0f ) {
+        budget -= 1.0f;
+        glassDrops[static_cast<size_t>( rnd() * glassDrops.size() ) % glassDrops.size()] = glassDrops.back();
+        glassDrops.pop_back();
+        bGlassDirty = true;
+    }
+    for ( GlassDrop &drop : glassDrops ) {
+        if ( drop.Alpha < 1.0f ) {
+            drop.Alpha = Min( 1.0f, drop.Alpha + deltaTime * 0.8f ); // beads in
+            bGlassDirty = true;
+        }
+        const float decay = Max( 0.0f, 1.0f - 2.0f * deltaTime );
+        drop.TailX *= decay;
+        drop.TailY *= decay;
+    }
+    // The blades.
+    bool bWiping = false;
+    for ( uint32_t half = 0; half < 2; half++ ) {
+        Vector3f pivot, tip;
+        if ( !getWiperSweep( half, pivot, tip ) ) {
+            bGlassBladePrev[half] = false;
+            continue;
+        }
+        float cur[4];
+        toUv( pivot, cur[0], cur[1] );
+        toUv( tip, cur[2], cur[3] );
+        if ( bGlassBladePrev[half] ) {
+            const float *prev = glassBladePrev[half];
+            const float sx = cur[2] - cur[0], sy = cur[3] - cur[1];
+            const float lengthSq = Max( 1e-8f, sx * sx + sy * sy );
+            for ( size_t i = 0; i < glassDrops.size(); ) {
+                GlassDrop &drop = glassDrops[i];
+                const float t = ( ( drop.U - cur[0] ) * sx + ( drop.V - cur[1] ) * sy ) / lengthSq;
+                bool bKill = false;
+                if ( t >= 0.0f && t <= 1.0f ) {
+                    const float px = cur[0] + sx * t, py = cur[1] + sy * t;
+                    const float dist = std::sqrt( ( drop.U - px ) * ( drop.U - px ) + ( drop.V - py ) * ( drop.V - py ) );
+                    if ( dist < 0.03f ) {
+                        // how far this point of the blade moved since last frame
+                        const float qx = prev[0] + ( prev[2] - prev[0] ) * t, qy = prev[1] + ( prev[3] - prev[1] ) * t;
+                        const float dx = px - qx, dy = py - qy;
+                        drop.U += dx;
+                        drop.V += dy;
+                        drop.TailX -= dx * 3.0f;
+                        drop.TailY -= dy * 3.0f;
+                        drop.Alpha -= 2.5f * std::sqrt( dx * dx + dy * dy ) + 0.01f;
+                        bKill = drop.Alpha <= 0.0f || drop.U < -0.05f || drop.U > 1.05f || drop.V < -0.05f || drop.V > 1.05f;
+                        bWiping = true;
+                    }
+                }
+                if ( bKill ) {
+                    glassDrops[i] = glassDrops.back();
+                    glassDrops.pop_back();
+                } else {
+                    i++;
+                }
+            }
+        }
+        for ( int32_t k = 0; k < 4; k++ ) {
+            glassBladePrev[half][k] = cur[k];
+        }
+        bGlassBladePrev[half] = true;
+    }
+    if ( bWiping ) {
+        bGlassDirty = true;
+    }
+    // Re-render the overlay while it changes.
+    dynGlassTimer -= deltaTime;
+    if ( !bGlassDirty || dynGlassTimer > 0.0f ) {
+        return;
+    }
+    dynGlassTimer = bWiping ? 0.033f : 0.33f;
+    bGlassDirty = false;
+    constexpr int32_t kSize = 256;
+    GPUTexture *pWanted = nullptr;
+    uint64_t wanted = GetIdentifier64bit( "G_I" );
+    if ( glassDrops.empty() ) {
+        if ( pDynGlass == nullptr && appliedGlassWet == 0 ) {
+            return; // already the clean overlay
+        }
+        pWanted = gpRender->getTextureCache().find( "g_i" );
+        if ( pWanted == nullptr ) {
+            bGlassDirty = true;
+            return;
+        }
+    } else {
+        std::vector<uint8_t> pixels( static_cast<size_t>( kSize ) * kSize * 4, 0 );
+        FillGlassTint( pixels );
+        for ( const GlassDrop &drop : glassDrops ) {
+            const float cx = drop.U * kSize, cy = drop.V * kSize;
+            const float grow = Clamp( drop.Alpha, 0.0f, 1.0f );
+            const float radius = drop.Radius * ( 0.55f + 0.45f * grow );
+            const float tailLength = std::sqrt( drop.TailX * drop.TailX + drop.TailY * drop.TailY ) * kSize;
+            const float tailMax = Min( tailLength, 24.0f );
+            const int32_t extent = static_cast<int32_t>( radius + tailMax ) + 3;
+            const float tx = tailLength > 0.01f ? drop.TailX * kSize / tailLength : 0.0f;
+            const float ty = tailLength > 0.01f ? drop.TailY * kSize / tailLength : 0.0f;
+            for ( int32_t dy = -extent; dy <= extent; dy++ ) {
+                for ( int32_t dx = -extent; dx <= extent; dx++ ) {
+                    float alpha = 0.0f, shade = 0.0f;
+                    const float d = std::sqrt( static_cast<float>( dx * dx + dy * dy ) );
+                    if ( d <= radius ) {
+                        alpha = 0.10f + 0.10f * ( d / radius );
+                        const float side = ( -dx * 0.5f + dy * 0.8f ) / Max( radius, 1.0f );
+                        shade = 0.55f + 0.45f * Clamp( side, 0.0f, 1.0f );
+                        alpha += 0.22f * Clamp( side, 0.0f, 1.0f );
+                    } else if ( tailLength > 1.0f ) {
+                        // the trail: along (tx, ty) from the drop, about 2 px wide
+                        const float along = dx * tx + dy * ty;
+                        const float across = std::abs( dx * -ty + dy * tx );
+                        if ( along > 0.0f && along < tailMax && across < 0.8f ) {
+                            alpha = 0.06f * ( 1.0f - along / tailMax );
+                            shade = 0.8f;
+                        }
+                    }
+                    alpha *= grow;
+                    if ( alpha <= 0.0f ) {
+                        continue;
+                    }
+                    const int32_t x = ( ( static_cast<int32_t>( cx ) + dx ) % kSize + kSize ) % kSize;
+                    const int32_t y = ( ( static_cast<int32_t>( cy ) + dy ) % kSize + kSize ) % kSize;
+                    uint8_t *px = &pixels[( static_cast<size_t>( y ) * kSize + x ) * 4];
+                    const float a = Max( alpha, px[3] / 255.0f );
+                    const float c = Clamp( 0.45f + 0.40f * shade, 0.0f, 1.0f );
+                    (void)a;
+                    px[0] = static_cast<uint8_t>( px[0] * ( 1.0f - alpha ) + 205.0f * c * alpha );
+                    px[1] = static_cast<uint8_t>( px[1] * ( 1.0f - alpha ) + 222.0f * c * alpha );
+                    px[2] = static_cast<uint8_t>( px[2] * ( 1.0f - alpha ) + 240.0f * c * alpha );
+                }
+            }
+        }
+        const void *pData = pixels.data();
+        const uint32_t size = static_cast<uint32_t>( pixels.size() );
+        char name[40];
+        snprintf( name, sizeof( name ), "rain_dyn_%u", ++dynGlassSerial );
+        pWanted = gpRender->getDevice().createTexture2D( kSize, kSize, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, name );
+        if ( pWanted == nullptr ) {
+            return;
+        }
+        wanted = GetIdentifier64bit( name );
+    }
+    static const uint64_t kDetail2 = GetIdentifier64bit( "DETAIL2" );
+    static const uint64_t kCarPaint = 0x183157b81c6c7357ull;
+    for ( EdenMaterial &material : car.getMaterials() ) {
+        if ( material.ShaderSetGUID != kCarPaint || material.Name.compare( 0, 5, "Glass" ) != 0 ) {
+            continue;
+        }
+        for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
+            if ( material.SlotTypes[i] == kDetail2 ) {
+                material.pTextures[i] = pWanted;
+                material.TextureHashes[i] = wanted;
+            }
+        }
+    }
+    if ( pDynGlass != nullptr ) {
+        gpRender->getDevice().destroyTexture( pDynGlass ); // deferred by the device
+    }
+    pDynGlass = glassDrops.empty() ? nullptr : pWanted;
+    appliedGlassWet = glassDrops.empty() ? 0 : -1;
+}
+
 void CinematicCar::setWiperMode( eWiperMode mode ) {
     wiperMode = mode;
     if ( mode == eWiperMode::Off ) {
@@ -2903,7 +3185,10 @@ void CinematicCar::updateWipers( float deltaTime, float rainAlpha ) {
     // The water on the outside glass follows the body's water film while it
     // rains (beading up at about 0.08 per second) and dries with it; a wiper
     // sweep wipes it off (below), the droplet overlay follows glassWater.
-    if ( deltaTime > 0.0f ) {
+    static const bool bNoDynGlass = CmdLine::HasArg( "-nodynglass" );
+    if ( bGlassFit && !wipers.empty() && !bNoDynGlass ) {
+        updateGlassDrops( deltaTime, rainAlpha );
+    } else if ( deltaTime > 0.0f ) {
         if ( rainAlpha > 0.001f ) {
             glassWater = Min( wetVisual, glassWater + 0.08f * deltaTime );
         } else {
@@ -3016,6 +3301,7 @@ void CinematicCar::applyGlassSwap( bool bInside ) {
     // forget what it applied.
     appliedDamageState = -1;
     appliedGlassWet = 0;
+    bGlassDirty = true;
 }
 
 void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const WeatherPreset *pWeather,
@@ -3224,11 +3510,24 @@ namespace {
 // the cracked glass swaps there too). Procedural: round beads with a bright
 // lower rim and, on the bigger ones, a short run-off tail. Three densities.
 constexpr int32_t kRainGlassLevels = 12;
+// The stock glass overlay (G_I) is a heavy dark tint over the whole window
+// (measured: a dry windscreen shows the cabin at about 25 % of the untinted
+// value). The droplet overlays carry that tint themselves and blend the beads
+// over it, or the glass would turn milky white [DATA: screenshot A/B].
+void FillGlassTint( std::vector<uint8_t> &pixels ) {
+    for ( size_t i = 0; i + 3 < pixels.size(); i += 4 ) {
+        pixels[i] = 24;
+        pixels[i + 1] = 25;
+        pixels[i + 2] = 28;
+        pixels[i + 3] = 222;
+    }
+}
 GPUTexture *MakeRainGlassTexture( int32_t level ) {
     constexpr int32_t kSize = 256;
     constexpr int32_t kDrops = 340;
     const float wet = static_cast<float>( level ) / kRainGlassLevels;
     std::vector<uint8_t> pixels( static_cast<size_t>( kSize ) * kSize * 4, 0 );
+    FillGlassTint( pixels );
     // The same drops at every level (fixed seed, every random drawn up front):
     // each one has its own wetness threshold and fades / swells in over 0.2 of
     // it, so one level step changes the picture only a little (a smooth fade).
@@ -3245,22 +3544,22 @@ GPUTexture *MakeRainGlassTexture( int32_t level ) {
         if ( grow <= 0.0f ) {
             continue;
         }
-        const float fullRadius = sizeRoll < 0.8f ? 1.5f + sizeA * 3.0f : 4.0f + sizeB * 4.5f;
+        const float fullRadius = sizeRoll < 0.85f ? 0.8f + sizeA * 1.6f : 2.2f + sizeB * 2.2f;
         const float radius = fullRadius * ( 0.55f + 0.45f * grow );
-        const float tail = fullRadius > 4.0f && tailRoll < 0.6f ? radius * ( 2.0f + tailA * 4.0f ) : 0.0f;
+        const float tail = fullRadius > 2.2f && tailRoll < 0.6f ? radius * ( 2.0f + tailA * 4.0f ) : 0.0f;
         const int32_t extent = static_cast<int32_t>( radius + tail ) + 2;
         for ( int32_t dy = -static_cast<int32_t>( radius ) - 2; dy <= extent; dy++ ) {
             for ( int32_t dx = -static_cast<int32_t>( radius ) - 2; dx <= static_cast<int32_t>( radius ) + 2; dx++ ) {
                 float alpha = 0.0f, shade = 0.0f;
                 const float d = std::sqrt( static_cast<float>( dx * dx + dy * dy ) );
                 if ( d <= radius ) {
-                    alpha = 0.20f + 0.18f * ( d / radius );
+                    alpha = 0.10f + 0.10f * ( d / radius );
                     // bright rim on the lower left, a dark core: a lens
                     const float side = ( -dx * 0.5f + dy * 0.8f ) / Max( radius, 1.0f );
                     shade = 0.55f + 0.45f * Clamp( side, 0.0f, 1.0f );
-                    alpha += 0.35f * Clamp( side, 0.0f, 1.0f );
+                    alpha += 0.22f * Clamp( side, 0.0f, 1.0f );
                 } else if ( dy > 0 && dy < tail && std::abs( dx ) <= 1 ) {
-                    alpha = 0.10f * ( 1.0f - dy / tail );
+                    alpha = 0.06f * ( 1.0f - dy / tail );
                     shade = 0.8f;
                 }
                 alpha *= grow;
@@ -3271,11 +3570,11 @@ GPUTexture *MakeRainGlassTexture( int32_t level ) {
                 const int32_t y = ( ( static_cast<int32_t>( cy ) + dy ) % kSize + kSize ) % kSize;
                 uint8_t *px = &pixels[( static_cast<size_t>( y ) * kSize + x ) * 4];
                 const float a = Max( alpha, px[3] / 255.0f );
-                const float c = Clamp( 0.60f + 0.40f * shade, 0.0f, 1.0f );
-                px[0] = static_cast<uint8_t>( 205.0f * c );
-                px[1] = static_cast<uint8_t>( 222.0f * c );
-                px[2] = static_cast<uint8_t>( 240.0f * c );
-                px[3] = static_cast<uint8_t>( Clamp( a, 0.0f, 1.0f ) * 255.0f );
+                const float c = Clamp( 0.45f + 0.40f * shade, 0.0f, 1.0f );
+                (void)a;
+                px[0] = static_cast<uint8_t>( px[0] * ( 1.0f - alpha ) + 205.0f * c * alpha );
+                px[1] = static_cast<uint8_t>( px[1] * ( 1.0f - alpha ) + 222.0f * c * alpha );
+                px[2] = static_cast<uint8_t>( px[2] * ( 1.0f - alpha ) + 240.0f * c * alpha );
             }
         }
     }

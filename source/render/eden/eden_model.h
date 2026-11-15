@@ -34,6 +34,7 @@ public:
         // indices. Cleared by the consumer after the split (a body prim is
         // small, but a whole car of these would sit in memory for nothing).
         std::vector<Vector3f> PrimitiveVertices;
+        std::vector<float> PrimitiveUVs; // u, v per PrimitiveVertices entry (the glass fit)
         // Triangles of this item in the CPU collision copy (setKeepCollision):
         // what raycast() walks. 0 when the copy is not kept.
         uint32_t CollisionFirst = 0; // first index (three per triangle)

@@ -2,7 +2,21 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-
+
+## Session 2026-11-15 (`main`, 6): the wipers push the water down the glass (spatial wipe)
+
+### What changed
+- `eden_model.*`: `Item::PrimitiveUVs` (kept with the primitive data) so the windscreen's uv can be read.
+- `cinematic_car.cpp` `collectGlassFit`: least-squares `uv = A.(|x|, y, z, 1)` over GLASS_F's vertices in car space. **[DATA]** the windscreen uv is mirrored left/right (x does not change it) and uses only a part of the DETAIL2 texture (0.44..0.99 x 0.33..0.99 on the California), so a blade on either side clears the mirrored side too.
+- `updateGlassDrops`: a live drop sim (about 300 x wet, beads in over ~1 s). Each wiper blade's pivot->tip segment is mapped to uv; drops it crosses are dragged by the blade's own motion, thinned (a thin film is left), leave a short trail, and die when thin or pushed off the glass. The overlay is re-rendered (256^2 RGBA, new `rain_dyn_N` texture, old one `destroyTexture`d) about 30 Hz while wiping, 3 Hz otherwise. Cars with no blades / no fit keep the 12-level static overlay; `-nodynglass` forces it.
+- **Fix (both overlays)**: the stock G_I overlay is a dark tint (alpha ~0.87) over the whole window; the first droplet overlays had none and turned the glass milky white (A/B screenshots, dry 56/50/50 vs 224). They now carry the tint (`FillGlassTint`) and blend the beads over it; beads are also much smaller (0.8..4 px) and fainter.
+
+### Verified
+- `-intempery 3 -wipers on -cameramode 20`, backview (front of the car): dry glass dark; wet glass with small beads; sweep frames show the glass clearing progressively. Validation layer: no VUIDs apart from the 6 objects leaked at exit (the cached overlay textures are never destroyed).
+
+### Not done / next
+- The blade-pushed water leaves no accumulated bead line at the blade edge, and drops do not run down on their own. Wiper uv mapping is a plane fit (a strongly curved windscreen may drift). Side windows get no sim (they only show the static-style overlay when it rains).
+
 ## Session 2026-11-15 (`main`, 5): the glass droplets fade smoothly
 
 - `cinematic_car.cpp`: the droplet overlay is now 12 levels of the SAME 340 drops (fixed seed), each with its own wetness threshold that fades / swells it in over 0.2 of wetness (`MakeRainGlassTexture`), so a level step changes the glass only a little (was 3 levels, hard swap). The wiper no longer zeroes `glassWater`: it eases down 3/s while the blade is across the glass (about 0.3 s). The level line is DEBUG now. [INF all constants]

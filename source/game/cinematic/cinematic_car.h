@@ -467,6 +467,24 @@ private:
     bool bGlassSwapped = false;
     bool bGlassGathered = false;
     int32_t appliedDamageState = -1;
+    // Water drops on the outside windscreen that the blades push (the sim in
+    // updateGlassDrops, rendered into a small RGBA overlay in the glass DETAIL2
+    // slot). glassFit maps car space to the windscreen's uv (least squares).
+    struct GlassDrop {
+        float U = 0, V = 0, Radius = 2, Alpha = 0, TailX = 0, TailY = 0;
+    };
+    std::vector<GlassDrop> glassDrops;
+    float glassFit[2][4] = {};
+    bool bGlassFit = false;
+    bool bGlassDirty = false;
+    float glassBladePrev[2][4] = {}; // uv of the blade pivot / tip last frame
+    bool bGlassBladePrev[2] = {};
+    GPUTexture *pDynGlass = nullptr;
+    uint32_t dynGlassSerial = 0;
+    float dynGlassTimer = 0.0f;
+    uint32_t glassRng = 0x2545f491u;
+    void collectGlassFit();
+    void updateGlassDrops( float deltaTime, float rainAlpha );
     float glassWater = 0.0f;      // droplets on the outside glass 0..1 (wipers clear it)
     int32_t appliedGlassWet = 0;  // 0 dry, 1..3 the droplet overlay on the exterior glass
     void applyGlassWet( float wet );

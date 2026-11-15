@@ -352,6 +352,8 @@ bool EdenModel::load( EdenRenderer &renderer, const BankEntry &sceneEntry, const
                 item.PrimitiveVertices.reserve( primitive.Vertices.size() );
                 for ( const MeshVertex &vertex : primitive.Vertices ) {
                     item.PrimitiveVertices.emplace_back( vertex.Position[0], vertex.Position[1], vertex.Position[2] );
+                    item.PrimitiveUVs.push_back( vertex.Texcoord[0] );
+                    item.PrimitiveUVs.push_back( vertex.Texcoord[1] );
                 }
             }
 
@@ -532,6 +534,8 @@ void EdenModel::clearPrimitiveData() {
         item.PrimitiveIndices.shrink_to_fit();
         item.PrimitiveVertices.clear();
         item.PrimitiveVertices.shrink_to_fit();
+        item.PrimitiveUVs.clear();
+        item.PrimitiveUVs.shrink_to_fit();
     }
 }
 
