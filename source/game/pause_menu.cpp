@@ -678,6 +678,9 @@ bool PauseMenu::load() {
             "PauseMenu: MAIN.vmf (FrontEnd/HiRes/main.bnk) not available\n" );
         return false;
     }
+    if ( CmdLine::HasArg( "-dumpgasclips" ) ) {
+        player.dumpClips( "/gas_station", 8 );
+    }
     player.setVariable( "/:m_Pause", LocStr( kLocPause, "Pause" ) );
     player.setVariable( "/:m_Resume", LocStr( kLocResume, "Resume" ) );
     player.setVariable( "/:m_Options", LocStr( kLocOptions, "Options" ) );
