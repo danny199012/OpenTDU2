@@ -4138,6 +4138,22 @@ void GMFreeRide::updateCaveGate( float deltaTime ) {
     if ( islandName != "hawai" || bDisabled || state != eState::Drive ) {
         return;
     }
+    // Once the club car has been collected the gate stays open for good (it is saved with the garage): anyone who
+    // earned the secret can drive in whenever they like. -cavegatealways keeps the 88 mph rule even then.
+    {
+        static const bool bAlways = CmdLine::HasArg( "-cavegatealways" );
+        const PlayerProfile &profile = GetPlayerProfile();
+        const bool bCollected =
+            std::find( profile.OwnedCars.begin(), profile.OwnedCars.end(), 436 ) != profile.OwnedCars.end();
+        if ( bCollected && !bAlways ) {
+            if ( !bCaveGateOpen || !VehicleWorldCollision::CaveWalls() ) {
+                bCaveGateOpen = true;
+                VehicleWorldCollision::CaveWalls() = true;
+                OTDU_LOG_INFO( "FREERIDE: the cave stays open (the club car was collected)\n" );
+            }
+            return;
+        }
+    }
     const Vector3f p = carWorld.getTranslation();
     // A car that starts inside the cave box (a save made in the cave) finds the gate open: it would be inside solid rock.
     static bool bGateInit = false;

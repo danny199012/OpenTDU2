@@ -7,7 +7,11 @@ appends its entry at the top of this file**, newest first, in the
 - The wrong icons are **GENERAL.vmf's emote-wheel art** [DATA, `-dumpflashart`]: up = cell 684 (hand + sound waves), down = 678 (waving person), left / right = 2698 / 2695 (the "L / R" eye glyphs); the HUD's own cells for the slots are 1003 (roof), 1005 (windows), 1001 (car + arrow). The title "Accessories", the arrows and the layout are the HUD's `ig_menu`, and the owner's wheel shows NO red lock on the roof slot (the retail-correct wheel for this hardtop Porsche shows one) - so it is not the same clip content.
 - Re-checked and NOT reproduced: `-gm FREERIDE` with / without `-skipcine`, the LOGIN -> FREERIDE continue path, the owner's options.ini (4K, button_prompts 3), mods, profile, a connected DualSense (no `-nopad`), DLSS on. All show roof(locked) / windows / indicators.
 - Open discriminators to ask the owner: numpad 4 (keyboard) vs the pad's D-pad left; before / after the "Enjoy!" popup closes.
-
+
+
+### Update (owner tested the gate, "works pretty well"): the cave stays open once the club car is collected
+- `updateCaveGate`: when the profile owns car 436 (`OwnedCars`, saved with the garage) the gate opens and never closes again - the rock collision stays off for good, so anyone who earned the secret can drive in whenever they like. `-cavegatealways` keeps the 88 mph rule even for owners. Verified: with the owner's profile (436 owned) the run logs `the cave stays open (the club car was collected)` at once. A new player still needs the 88 mph run; collecting the car (it is added to `OwnedCars` in `updateCaveCar`) opens it the same frame.
+
 ## Session 2026-11-15 (`main`, 11): the Hawai cave is an 88 mph gate (Back to the Future)
 
 Owner's idea: the cave's rock only lets the car in if it hits it at 88 mph.
