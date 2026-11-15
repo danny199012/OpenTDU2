@@ -221,11 +221,13 @@ bool MapScreen::load() {
                 bFastTravelPending = true;
             }
             bCardExtended = false;
+            cardSpot = -1;
             return;
         }
         if ( command == "targ" ) {
             toggleTarget();
             bCardExtended = false;
+            cardSpot = -1;
             return;
         }
         if ( command.compare( 0, 4, "mysp" ) == 0 && cardSpot >= 0 ) {
@@ -243,6 +245,7 @@ bool MapScreen::load() {
             toastTimer = 3.0f;
             SaveProfile( "bookmark" );
             bCardExtended = false;
+            cardSpot = -1;
             return;
         }
         if ( command == "cred:close" ) {
@@ -1412,9 +1415,8 @@ void MapScreen::updateSpotCard() {
 }
 
 bool MapScreen::cardAccept() {
-    // WIP: the extended pop-up opens on OK only with -mapspotpopup. Its first button (Go there) works, but Up / Down
-    // (SWF keys 38 / 40) never move the highlight to GPS Target / Bookmark it, so the default stays the OK menu.
-    static const bool bPopup = CmdLine::HasArg( "-mapspotpopup" );
+    // The extended pop-up is the default OK on a spot; -nospotpopup brings the old three-row menu back.
+    static const bool bPopup = !CmdLine::HasArg( "-nospotpopup" );
     if ( !bPopup || cardSpot < 0 ) {
         return false;
     }
@@ -1429,7 +1431,7 @@ bool MapScreen::cardAccept() {
 
 void MapScreen::cardMove( int32_t step ) {
     if ( cardSpot >= 0 && bCardExtended ) {
-        player.sendKey( step < 0 ? 38 : 40 );
+        player.sendKey( step < 0 ? 14 : 15 ); // SWF keyPress codes: 13 Enter, 14 Up, 15 Down
     }
 }
 
