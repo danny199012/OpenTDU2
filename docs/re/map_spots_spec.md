@@ -223,3 +223,22 @@ is set. The screen keeps an item list (count `[this+0x1b6bd4]`, items at `[this+
 So the dev map shows at most 51 (122) pins at a time, while the port clones every discovered spot. Hawai has 115 icon spots, so the 122 mode is likely the large map [INF: the meaning of `[0x1b1d351]` is not decoded].
 
 **Not found yet:** the code that fills the item list from the spot list (tab filter, discovery distance test, the 450-cap writer) and what `[0x1b1d351]` is.
+
+## 7. The pin popup, "new spot" and favourites (2026-11-15, `main`) [CODE-dev]
+
+The Spot class vtable is `0x14d7cd8` (installed by the constructor `0x972880`). Slot 7 = the category -> kind switch of section 5 (reached only through this vtable, so no direct caller exists); slot 4 = type id (the base spot returns 1);
+slot 3 / 10 / 14 are small getters; **slot 12 (`0x96ee20`) is `isNew`**: `category == 9` (race school) -> true when the player-data array at `[playerdata + 0x3e48 + sub*4]` is 0 (that race school, sub-kind 0..2 = the three `ERS_*` banks, has no progress yet); every other category -> false.
+
+**The selected pin's popup** (`0xb1dc60`) pushes these Flash variables into the map movie for the highlighted spot, in this order: `/:reward_type`, `/:IsSpotLocked`, `/:NetworkErrorLock` (`ERROR`), `/:vehicle_restriction`
+and `/:GroupRestriction01/02` (`empty` when none), `/:IsCarOK`, `/:IsRoadLocked`, `/:IsChaLocked`, `/:IsLevelOK`, `/:IsTeleportOK`, `/:IsTargetOK`, `/:IsNewSpot` (= `isNew` above), `/:CanAddMySpot`, `/:IsSpotFavorite`;
+then it plays `spot/newspot/anim/bulle` (the "new" bubble) and sets `lightIcon`, `/:SpotName`, `/:ChallengeName`, `/:WhatSpot` (the kind string of section 5) and `/:WhatSpotType`.
+- `CanAddMySpot` = the player's favourite count `< 0x20` (**32** "my spots") and the spot's type id is not 3.
+- `IsSpotFavorite` = a lookup of the spot's u64 id (`[spot+0x10]`) in a player-data set.
+- `0xab2d34..0xab3264` fills `/:SpotLockedText` and the lock conditions per kind: `/:IsCarOK`, `/:IsChaLocked`, `/:IsWeatherOK`, `/:IsDayperiodOK`, `/:isPhotoConditions` (the photo studio only opens in set weather / daypart), `/:m_SurgeryLocked2_`.
+- A separate function (`0xb18a30`) feeds the vehicle strip (`/:SpotName`, `/:m_MapPlayerVehicle`, `/:MapPlayerVehicleGroup`, `/:MapPlayerVehicleUpg`, `/:IsRoadLocked`).
+
+**Port today**: `map_screen.cpp` already sets `IsSpotLocked`, `IsTeleportOK`, `IsTargetOK`, `CanAddMySpot`, `IsSpotFavorite`, `WhatSpotType`, `IsLevelOK`, `IsCarOK`; it does **not** set `IsNewSpot`, `IsChaLocked`, `SpotLockedText`, `IsWeatherOK`, `IsDayperiodOK`, `isPhotoConditions`.
+Cheap candidates: `IsNewSpot` for race schools (needs the school progress, which the port does not keep), and the 32-bookmark cap (the port uses 20 `[INF]`; the dev cap is 32).
+
+**Global flag `[0x1b1d351]`** (the 51 / 122 pin-pool switch): read from about 60 functions across the exe (input, camera, HUD, map), so it is a game-wide mode bool, not a map option. Not decoded.
+**Still not found:** the map's item-list builder (the code that copies discovered spots into the 0x80-byte items), and the discovery distance test.
