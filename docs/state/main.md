@@ -3,6 +3,12 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 12): Hawai test cave - ghost mode to get through the wall
+
+Owner found a video (HSG Automotive "TDU2 : Secret cave location on Hawaii"): the cave is behind a rock wall in the **dark patch just right of the yellow dirt track** north-centre of the Hawai map (the map-glitch gets through on the 360). Their frames: player near the top-middle of the island, a looping dirt track, a lake with cyan roads to the south-east.
+- Added a debug **ghost mode**: `VehicleWorldCollision::Ghost()` makes `raycast` / `sphereContact` return false (no world, no ground), `-ghost` at start or the F4 checkbox "ghost - drive through the world". The car falls with no ground (tested: y 198 -> -92 in 200 frames), so toggle it off once inside the cave, where its floor has collision. Use with the F4 teleport (x / z, y snaps) and F2 / F6 marks on Hawai.
+- Coordinates not pinned: my estimate from the island's road bounding box, (~40000, ~35250), was wrong (no roads there). Next: the owner's F6 mark at the patch. Bank scan for cave / test assets in `islands/hawai` banks was started (`_cavescan.txt`), not read yet.
+
 ## Session 2026-11-15 (`main`, 11): travel between islands (F4 panel + the airport pop-up)
 
 Owner: "I tried to teleport to Hawaii; the airport is not wired and F4 has no way to go there" (the secret test cave is supposedly on Hawai).

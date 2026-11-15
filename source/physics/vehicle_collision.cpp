@@ -421,6 +421,9 @@ void VehicleWorldCollision::addCollision( const HavokCollision &collision, const
 
 bool VehicleWorldCollision::raycast( const Vector3f &origin, const Vector3f &dir, float maxDistance,
                                      Hit &outHit ) const {
+    if ( Ghost() ) {
+        return false;
+    }
     if ( bFlatGround ) {
         if ( dir.y >= -1e-6f || origin.y < flatHeight ) {
             return false;
@@ -525,6 +528,9 @@ bool VehicleWorldCollision::raycast( const Vector3f &origin, const Vector3f &dir
 
 bool VehicleWorldCollision::sphereContact( const Vector3f &center, float radius, Contact &outContact,
                                            const Vector3f *pPrevious ) const {
+    if ( Ghost() ) {
+        return false;
+    }
     if ( bFlatGround ) {
         (void)pPrevious;
         if ( center.y - radius >= flatHeight ) {

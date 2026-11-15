@@ -4152,6 +4152,9 @@ void GMFreeRide::drawUI() {
     if ( cheats.takeTeleport( target, heading, bHasHeading ) ) {
         teleportTo( target, heading, bHasHeading );
     }
+    if ( CmdLine::HasArg( "-ghost" ) ) {
+        VehicleWorldCollision::Ghost() = true;
+    }
     std::string travelIsland;
     if ( cheats.takeIslandTravel( travelIsland ) ) {
         travelToIsland( travelIsland );

@@ -75,6 +75,13 @@ public:
 
     // Closest hit along a ray (Havok triangles, then the heightfield when
     // nothing nearer is found). dir normalized.
+    // Debug "ghost" (the F4 panel / -ghost): the static world and the roads are ignored, so a car can be driven
+    // through a rock wall (the TDU2 Hawai test cave sits behind one). The ground pull stays off too: toggle it off
+    // again once inside.
+    static bool &Ghost() {
+        static bool bGhost = false;
+        return bGhost;
+    }
     bool raycast( const Vector3f &origin, const Vector3f &dir, float maxDistance, Hit &outHit ) const;
     // Deepest penetration of a sphere into the static world / roads.
     // pPrevious: the centre at the previous step (a centre that went inside a

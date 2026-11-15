@@ -7,6 +7,7 @@
 #include "game/player_profile.h"
 #include "game/skill_levels.h"
 #include "game/units.h"
+#include "physics/vehicle_collision.h"
 #include "system/cmd_line.h"
 
 #include "imgui.h"
@@ -484,6 +485,9 @@ void Cheats::drawUI( const char *pModeName ) {
         if ( ImGui::Button( "+100k" ) ) {
             addChips( 100000 );
         }
+        ImGui::Separator();
+
+        ImGui::Checkbox( "ghost - drive through the world (collision off)", &VehicleWorldCollision::Ghost() );
         ImGui::Separator();
 
         // ---- Travel to another island (the mode restarts there, at its airport) ----
