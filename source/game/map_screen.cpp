@@ -3,6 +3,7 @@
 #include <set>
 #include "map_screen.h"
 #include "game/pause_menu.h"
+#include "game/freeride/race_events.h"
 
 #include "database/gs_database.h"
 #include "flash/flash_localization.h"
@@ -1970,6 +1971,29 @@ void MapScreen::loadSpots( const std::string &island ) {
                            static_cast<unsigned>( category ), spot.Position.x, spot.Position.z );
         }
     }
+    // The instant challenges of the island (tab 0 "Single Player Challenges"): one `event` pin per real event start
+    // (spotworld.bin, docs/re/map_spots_spec.md section 12). They are discovered like the buildings (the car drives
+    // up to the start); they are pins only: no enter prompt, no HUD building marker, no "new" badge.
+    if ( !CmdLine::HasArg( "-nochallengepins" ) ) {
+        for ( const RaceEvents::RaceStart &event : RaceEvents::GetRealStarts( island ) ) {
+            Spot pin;
+            pin.Name = event.Name;
+            uint64_t hash = 1469598103934665603ull; // FNV-1a of the event file name: a stable id for KnownSpots
+            for ( char c : event.Name ) {
+                hash = ( hash ^ static_cast<uint8_t>( c ) ) * 1099511628211ull;
+            }
+            pin.Id = hash;
+            pin.TimeLimitSeconds = event.TimeLimitMs / 1000;
+            pin.Position = event.Position;
+            pin.pIcon = "event";
+            pin.Tab = 0;
+            pin.bChallenge = true;
+            char clip[16];
+            snprintf( clip, sizeof( clip ), "point%03d", static_cast<int>( spots.size() ) + 1 );
+            pin.Clip = clip;
+            spots.push_back( pin );
+        }
+    }
     // The discovery state (the retail law: a spot's icon shows on the map only
     // once the car drove within discovery range of the building; the profile
     // keeps the ids per island). Auto-known: the houses the player owns (their
@@ -2047,6 +2071,15 @@ void MapScreen::buildSpots() {
         }
         player.gotoLabel( path + "/spot", pIcon, false );
         player.gotoLabel( path, "zoom_default", false );
+        if ( spot.bChallenge && spot.TimeLimitSeconds > 0 ) {
+            // The event icon's bar is a "MM SS" time (text fields evnt_min / evnt_sec, resolved on the spot clip,
+            // -dumpmapspot). Shown: the event's time limit (CtDw) [INF: the retail bar may show the best time instead].
+            char minutes[8], seconds[8];
+            snprintf( minutes, sizeof( minutes ), "%02d", spot.TimeLimitSeconds / 60 );
+            snprintf( seconds, sizeof( seconds ), "%02d", spot.TimeLimitSeconds % 60 );
+            player.setVariable( path + "/spot:evnt_min", minutes );
+            player.setVariable( path + "/spot:evnt_sec", seconds );
+        }
         if ( spot.LogoIndex >= 0 ) {
             // pack/point/spot/ic/logo: one frame per logo of the brands_map
             // atlas, the frame being _logo_global_index + 1 [INF].
@@ -2081,6 +2114,11 @@ void MapScreen::buildSpots() {
             const FlashDefinitions &defs = player.getDefinitions();
             std::function<void( uint16_t, int )> walk = [&]( uint16_t id, int level ) {
                 if ( level > 5 ) {
+                    return;
+                }
+                if ( const FlashEditText *pEdit = defs.getEditText( id ) ) {
+                    OTDU_LOG_INFO( "MapScreen: %*stext field %u variable '%s' default '%s' color %08x\n", level * 2, "", id,
+                                   pEdit->VariableName.c_str(), pEdit->Text.c_str(), pEdit->Color );
                     return;
                 }
                 if ( const FlashShape *pShape = defs.getShape( id ) ) {
@@ -2152,7 +2190,7 @@ bool MapScreen::isSpotTracked( size_t index ) const {
         return false;
     }
     const Spot &spot = spots[index];
-    if ( spot.pIcon == nullptr || strcmp( spot.pIcon, "home" ) == 0 ) {
+    if ( spot.pIcon == nullptr || spot.bChallenge || strcmp( spot.pIcon, "home" ) == 0 ) {
         return false;
     }
     return !( strcmp( spot.pIcon, "estates" ) == 0 && spot.Name.compare( 0, 3, "EPH" ) == 0 );
@@ -3669,7 +3707,7 @@ bool MapScreen::findSpotNear( const Vector3f &position, const char *pIcon, float
 void MapScreen::forEachSpot(
     const std::function<void( const std::string &, const char *, const Vector3f &, uint64_t, int32_t )> &visit ) const {
     for ( const Spot &spot : spots ) {
-        if ( spot.pIcon != nullptr ) {
+        if ( spot.pIcon != nullptr && !spot.bChallenge ) {
             visit( spot.Name, spot.pIcon, spot.Position, spot.Id, spot.LogoIndex );
         }
     }
@@ -3684,7 +3722,7 @@ bool MapScreen::findNearestSpot( const Vector3f &position, float radius,
     for ( const Spot &spot : spots ) {
         const float dx = spot.Position.x - position.x, dz = spot.Position.z - position.z;
         const float d = dx * dx + dz * dz;
-        if ( spot.pIcon == nullptr || d >= best || ( filter && !filter( spot.Name, spot.Id ) ) ) {
+        if ( spot.pIcon == nullptr || spot.bChallenge || d >= best || ( filter && !filter( spot.Name, spot.Id ) ) ) {
             continue;
         }
         best = d;

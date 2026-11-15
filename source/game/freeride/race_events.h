@@ -25,11 +25,17 @@ public:
     struct RaceStart {
         Vector3f Position;
         std::string Name;   // DBEvent hashcode name or "Instant challenge"
+        int32_t TimeLimitMs = 0; // CtDw of the event file
+        std::string Title;  // the localized event name (spotworld dbna): "Extreme speed"
         int32_t Reward = 500;
         bool bUsed = false; // the race was won once (the retail markers stay)
     };
 
     enum class eStage { Idle, Countdown, Running, Finished };
+
+    // The island's real instant-challenge starts: every DBEvent row of type 1..8 listed in scenarics/spotworld.bin
+    // (the free-ride race markers and the world map's challenge pins share this list).
+    static std::vector<RaceStart> GetRealStarts( const std::string &island );
 
     using SurfaceFunction = std::function<bool( float x, float z, float y, float &outHeight )>;
 

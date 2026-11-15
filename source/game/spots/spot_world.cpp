@@ -55,6 +55,9 @@ std::vector<SpotWorldEntry> Parse( const std::vector<uint8_t> &data ) {
                 break;
             }
             const std::string key( reinterpret_cast<const char *>( data.data() + p ), 4 );
+            if ( size == 8 && key == "dbna" ) {
+                entry.NameLoc = static_cast<int32_t>( ReadBE32( data.data() + p + 12 ) ); // a u64, the low word
+            }
             if ( size == 4 ) {
                 const int32_t value = static_cast<int32_t>( ReadBE32( data.data() + p + 8 ) );
                 if ( key == "isla" ) {
@@ -65,6 +68,8 @@ std::vector<SpotWorldEntry> Parse( const std::vector<uint8_t> &data ) {
                     entry.Laps = value;
                 } else if ( key == "cops" ) {
                     entry.Cops = value;
+                } else if ( key == "CtDw" ) {
+                    entry.TimeLimitMs = value;
                 }
             }
             p += 8 + size;

@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 25): challenge pins on the world map's first tab
+
+- Tab 0 now shows an `event` pin per real event start (39 Ibiza / 60 Hawai), discovered by proximity like the buildings; `Spot::bChallenge` keeps them out of enter prompts, HUD building markers and the news badge. `RaceEvents::GetRealStarts` is the shared list. `-nochallengepins` removes them. The icon's bar shows the event's `CtDw` time limit as `MM SS` [INF]. `-dumpmapspot` lists the text fields too.
+- Verified: screenshot of the Ibiza map (all discovered) `docs/images/map_challenge_pins_ibiza.png`; a fresh profile driven to `EVIA1SP1`: `discovered 'EVIA1SP1' (event)`, saved, one pin built. NOT verified: Hawai, the pins' hover (no card), clicking OK on one.
+- Next: a card for the pins (title = `dbna` loc), per-kind icon frames (the movie has `speed`, `timeattack`, `race`, ...), events from their own `.ig2` gates.
+
 ## Session 2026-11-15 (`main`, 24): spotworld.bin decoded - real positions for all 532 challenges; free-ride races use them
 
 - `scenarics/spotworld.bin` = the world index of the `.ig2` challenge files with their start positions (spec section 12). New `source/game/spots/spot_world.{h,cpp}` + `tools/dump_spotworld.py`. Validation: 25 / 25 championship first gates equal the record's position (0 m); 40 / 40 DBEvent rows found.

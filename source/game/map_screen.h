@@ -427,6 +427,8 @@ private:
         int32_t Tab;          // tab row index the icon belongs to (-1: none)
         int32_t LogoIndex = -1; // DBBrands _logo_global_index for dealer tiles (-1: none)
         std::string Clip;     // name of the clone under /pack
+        int32_t TimeLimitSeconds = 0; // an event pin's bar (evnt_min / evnt_sec)
+        bool bChallenge = false; // an instant-challenge pin (spotworld.bin): a map pin only, never a building
     };
     std::vector<Spot> spots;
     // The retail hover card (MAP.vmf /tool_tip, SetInfos): shown for the spot the reticle is on.

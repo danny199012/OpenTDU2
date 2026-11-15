@@ -20,6 +20,8 @@ struct SpotWorldEntry {
     int32_t GameMode = -1; // gmth: 0 / 1 / 3 / 7 / 10 / 11 / 12, docs/re/map_spots_spec.md section 12
     int32_t Laps = 0;      // nblp
     int32_t Cops = 0;      // cops
+    int32_t TimeLimitMs = 0; // CtDw: the time limit (ms)
+    int32_t NameLoc = 0;   // dbna: the loc id of the challenge's name ("Extreme speed")
 };
 
 class SpotWorld {

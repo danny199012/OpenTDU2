@@ -17,6 +17,38 @@ constexpr float kRouteLength = 3500.0f;      // point to point length [INF]
 constexpr float kCheckpointRadius = 22.0f;   // pass distance of a gate [INF]
 } // namespace
 
+// Every DBEvent row of the EV* family (_eventtype 1..8) is listed in scenarics/spotworld.bin with its world start
+// position [DATA, docs/re/map_spots_spec.md section 12]. The duels and the story events (types >= 10) are not instant
+// challenges.
+std::vector<RaceEvents::RaceStart> RaceEvents::GetRealStarts( const std::string &island ) {
+    std::vector<RaceStart> result;
+    const int32_t islandIndex = SpotWorld::IslandIndex( island );
+    if ( islandIndex < 0 || gpDatabase == nullptr ) {
+        return result;
+    }
+    XmbValue root = gpDatabase->getDocument().getRoot();
+    const uint32_t count = root.getArraySize( "DBEvent" );
+    for ( uint32_t i = 0; i < count; i++ ) {
+        XmbValue row = root.getArrayElement( "DBEvent", i );
+        const int32_t eventType = static_cast<int32_t>( row["_eventtype"].asInt() );
+        if ( !row["_isvalid"].asBool() || eventType < 1 || eventType > 8 ) {
+            continue;
+        }
+        if ( const SpotWorldEntry *pEntry = SpotWorld::Find( row["_eventfile"].asString(), islandIndex ) ) {
+            RaceStart real;
+            real.Position = pEntry->Position;
+            real.Reward = static_cast<int32_t>( row["_moneyreward"].asInt() );
+            real.Name = pEntry->Name;
+            real.TimeLimitMs = pEntry->TimeLimitMs;
+            if ( const char *pTitle = pEntry->NameLoc > 0 ? gpDatabase->getString( pEntry->NameLoc ) : nullptr ) {
+                real.Title = pTitle;
+            }
+            result.push_back( real );
+        }
+    }
+    return result;
+}
+
 bool RaceEvents::load( const std::string &island, const std::vector<Vector3f> &nodes,
                        const std::vector<std::pair<int32_t, int32_t>> &edges ) {
     unload();
@@ -35,11 +67,7 @@ bool RaceEvents::load( const std::string &island, const std::vector<Vector3f> &n
     // moneyreward / eventfile columns [DATA], the event files themselves are
     // not readable [ENC]).
     std::vector<int32_t> rewards;
-    // The real event starts: every DBEvent row of the EV* family (_eventtype 1..8) is listed in scenarics/spotworld.bin
-    // with its world start position [DATA, docs/re/map_spots_spec.md section 12]. The duels and the story events
-    // (types >= 10) are not instant challenges.
-    std::vector<RaceStart> realStarts;
-    const int32_t islandIndex = SpotWorld::IslandIndex( island );
+    const std::vector<RaceStart> realStarts = CmdLine::HasArg( "-oldraces" ) ? std::vector<RaceStart>() : GetRealStarts( island );
     if ( gpDatabase != nullptr ) {
         XmbValue root = gpDatabase->getDocument().getRoot();
         const uint32_t count = root.getArraySize( "DBEvent" );
@@ -54,16 +82,6 @@ bool RaceEvents::load( const std::string &island, const std::vector<Vector3f> &n
                                static_cast<int32_t>( row["_moneyreward"].asInt() ), row["_eventfile"].asString().c_str() );
             }
             rewards.push_back( static_cast<int32_t>( row["_moneyreward"].asInt() ) );
-            const int32_t eventType = static_cast<int32_t>( row["_eventtype"].asInt() );
-            if ( islandIndex >= 0 && eventType >= 1 && eventType <= 8 && !CmdLine::HasArg( "-oldraces" ) ) {
-                if ( const SpotWorldEntry *pEntry = SpotWorld::Find( row["_eventfile"].asString(), islandIndex ) ) {
-                    RaceStart real;
-                    real.Position = pEntry->Position;
-                    real.Reward = static_cast<int32_t>( row["_moneyreward"].asInt() );
-                    real.Name = pEntry->Name;
-                    realStarts.push_back( real );
-                }
-            }
         }
         OTDU_LOG_INFO( "RaceEvents: %u valid DBEvent rows\n", static_cast<unsigned>( rewards.size() ) );
     }
