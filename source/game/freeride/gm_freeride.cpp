@@ -5864,7 +5864,7 @@ void GMFreeRide::tick( float deltaTime ) {
             } else if ( bAccLeft ) {
                 bCarMenuOpen = true;
                 accessoriesHideTimer = kAccAutoHideDuration;
-                hud.showCarMenu( true, car.hasHardtop(), car.hasWindows() );
+                hud.showCarMenu( true, car.hasHardtop(), car.hasWindows(), CmdLine::HasArg( "-bike" ) );
             }
             // The game's own radio keys (RADIO_CHANNEL / RADIO_VOL_LESS /
             // RADIO_VOL_MORE = keyboard 1 / 2 / 3; not read from the pad, see

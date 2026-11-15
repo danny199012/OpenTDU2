@@ -104,7 +104,7 @@ public:
                                                          { "clil", "Indicators left" } };
     // Opens (/:HasHood, /:HasWindows, /:HasTurnSignals then the 'open'
     // label, FUN_00928840 + FUN_00928c10) or closes ('close') the menu.
-    void showCarMenu( bool bVisible, bool bHasHood = true, bool bHasWindows = true );
+    void showCarMenu( bool bVisible, bool bHasHood = true, bool bHasWindows = true, bool bIsBike = false );
     // An entry was applied: the movie's ValidIGM(label) shows the entry over
     // valid_icon and slides the menu out (FUN_00928e70).
     void validateCarMenu( int32_t entry );

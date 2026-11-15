@@ -836,7 +836,7 @@ void FreeRideHud::showRadio( bool bVisible, const RadioPlayer::Station &station,
     }
 }
 
-void FreeRideHud::showCarMenu( bool bVisible, bool bHasHood, bool bHasWindows ) {
+void FreeRideHud::showCarMenu( bool bVisible, bool bHasHood, bool bHasWindows, bool bIsBike ) {
     if ( !hud.isLoaded() ) {
         return;
     }
@@ -866,6 +866,12 @@ void FreeRideHud::showCarMenu( bool bVisible, bool bHasHood, bool bHasWindows ) 
     bCarMenuShown = true;
     // FUN_00928840: the three availability flags the movie's SetIcons reads
     // (the turn signals are never locked by this movie: ig_lock_2 / 4 = 0).
+    // Later retail builds of HUD.vmf (the owner's unpacked data) test
+    // `_root.IsBike == false` in SetIcons: with the variable undefined the
+    // comparison fails and the wheel shows the BIKE set (horn 'taun', wave
+    // 'hell', the L / R eye glyphs 'clbl' / 'clbr') - the owner's "emote
+    // icons" [DATA: hud.vmf SetIcons, ConstantPool 'IsBike' / 'taun' / 'hell'].
+    hud.setVariableBool( "/:IsBike", bIsBike );
     hud.setVariableBool( "/:HasHood", bHasHood );
     hud.setVariableBool( "/:HasWindows", bHasWindows );
     hud.setVariableBool( "/:HasTurnSignals", true );
