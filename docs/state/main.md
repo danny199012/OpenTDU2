@@ -8,6 +8,13 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 30): Hawai dealers failed to load - ReadSpot read Ibiza's spots.bin only
+
+- Bug: `IntroCinematic::ReadSpot` (`avatarchoice/intro_cinematic.cpp`) opened `islands/ibiza/level/spots.bin` always; every Hawai dealer / shop spot warned "not in hawai's spots.bin" and fell back to defaults (callers: gm_shop x2, gm_testcar, gm_cine). Now searches ibiza, hawai, casino (ids are hashes of unique names).
+- Verified: `-gm SHOP -shopspot ECD_MERC_7416 -island hawai` and `ECD_US1_5005`: "SHOP: spot ... type 0x1 at (44452.94, 12.99, 29811.37)" / (31672, 4416), showrooms render (sheet `_sh2_sheet.png`, scratch). NOT verified: the real FREERIDE enter press at a Hawai dealer, buying, shops that are not dealers.
+- Overtake chase: the three early overtakes are on Ibiza ~150 m from the start, out of view; a deterministic on-screen shot was not obtained (log now prints the position). Still numeric evidence only.
+- Next: PROGRESS row "Hawai: traffic behaviour + dealers"; vegetation survey (Hawai 7.7 % green vs 12.2 % reference), other Hawai shops.
+
 ## Session 2026-11-15 (`main`, 29): traffic front-wheel steer verified; traffic overtakes slow cars (owner: "both")
 
 - Steer verified: `-trafficpark -trafficparkface 1 -trafficsteer 25` vs `0` - the vans' front wheels visibly turn (crop in `_sp_crop.png`, scratch). Sign follows the rivals' law, not checked against a real turn.

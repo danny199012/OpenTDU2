@@ -923,24 +923,30 @@ void IntroCinematic::placeEntityAt( const std::string &restEntity, const Vector3
 }
 
 bool IntroCinematic::ReadSpot( const char *pName, SpotRecord &out ) {
-    std::vector<uint8_t> data;
-    if ( !gpFile->loadFile( ( gpFile->getBankFolder() + "islands/ibiza/level/spots.bin" ).c_str(), data ) ||
-         data.size() < 0x20 || memcmp( data.data() + 0x10, "SPTA", 4 ) != 0 ) {
-        return false;
-    }
-    uint32_t size = 0;
-    memcpy( &size, data.data() + 0x14, 4 );
+    // The record id is the hash of the spot's own name, unique over the islands (Ibiza names end in 'I', the
+    // Hawai ones do not), so every island's spots.bin is searched, Ibiza first. It used to read Ibiza's file
+    // only: every Hawai dealer / shop spot came back "not in spots.bin" [DATA].
+    static const char *const kIslands[] = { "ibiza", "hawai", "casino" };
     const uint64_t id = GetIdentifier64bit( pName );
-    for ( size_t offset = 0x20; offset + 0x110 <= data.size() && offset < 0x20 + size; offset += 0x110 ) {
-        uint64_t recordId = 0;
-        memcpy( &recordId, data.data() + offset, 8 );
-        if ( recordId == id ) {
-            memcpy( &out.Position, data.data() + offset + 0x10, 12 );
-            memcpy( &out.Heading, data.data() + offset + 0x20, 4 );
-            memcpy( &out.Position2, data.data() + offset + 0x28, 12 );
-            memcpy( &out.Heading2, data.data() + offset + 0x38, 4 );
-            out.Type = data[offset + 0x100];
-            return true;
+    for ( const char *pIsland : kIslands ) {
+        std::vector<uint8_t> data;
+        if ( !gpFile->loadFile( ( gpFile->getBankFolder() + "islands/" + pIsland + "/level/spots.bin" ).c_str(), data ) ||
+             data.size() < 0x20 || memcmp( data.data() + 0x10, "SPTA", 4 ) != 0 ) {
+            continue;
+        }
+        uint32_t size = 0;
+        memcpy( &size, data.data() + 0x14, 4 );
+        for ( size_t offset = 0x20; offset + 0x110 <= data.size() && offset < 0x20 + size; offset += 0x110 ) {
+            uint64_t recordId = 0;
+            memcpy( &recordId, data.data() + offset, 8 );
+            if ( recordId == id ) {
+                memcpy( &out.Position, data.data() + offset + 0x10, 12 );
+                memcpy( &out.Heading, data.data() + offset + 0x20, 4 );
+                memcpy( &out.Position2, data.data() + offset + 0x28, 12 );
+                memcpy( &out.Heading2, data.data() + offset + 0x38, 4 );
+                out.Type = data[offset + 0x100];
+                return true;
+            }
         }
     }
     return false;

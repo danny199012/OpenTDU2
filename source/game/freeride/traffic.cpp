@@ -1257,8 +1257,9 @@ void Traffic::tick( float deltaTime, const Vector3f &player, const CinematicCar:
                         blockerSpeed < 0.7f * agent.CruiseSpeed && agent.IndicatorSide == 0 ) {
                 agent.bOvertaking = true;
                 agent.OvertakeTime = 0.0f;
-                OTDU_LOG_INFO( "Traffic: overtake starts (blocker %.1f m ahead at %.1f m/s, own cruise %.1f, edge left %.0f m)\n",
-                               blockerAhead, blockerSpeed, agent.CruiseSpeed, edgeLeft );
+                OTDU_LOG_INFO( "Traffic: overtake starts (blocker %.1f m ahead at %.1f m/s, own cruise %.1f, edge left %.0f m) at (%.0f, %.0f)\n",
+                               blockerAhead, blockerSpeed, agent.CruiseSpeed, edgeLeft, agent.Position.x,
+                               agent.Position.z );
                 agent.IndicatorSide = -1;
                 agent.IndicatorHold = 99.0f;
                 agent.IndicatorPhase = 0.0f;
