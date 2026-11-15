@@ -401,7 +401,8 @@ void EdenModel::clearPrimitiveData() {
 void EdenModel::draw( EdenRenderer &renderer, const Matrix4x4f &world, const EdenDrawParams *pParams ) const {
     for ( size_t itemIndex = 0; itemIndex < items.size(); itemIndex++ ) {
         const Item &item = items[itemIndex];
-        if ( item.Lod != 0 || !nodeVisible[item.NodeIndex] ) {
+        if ( item.Lod != 0 || !nodeVisible[item.NodeIndex] ||
+             ( !hiddenItems.empty() && itemIndex < hiddenItems.size() && hiddenItems[itemIndex] ) ) {
             continue;
         }
         if ( pParams != nullptr ) {

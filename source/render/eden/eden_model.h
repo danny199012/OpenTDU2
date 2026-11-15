@@ -88,6 +88,15 @@ public:
     inline const Matrix4x4f &getNodeTransform( int32_t nodeIndex ) const { return nodeTransforms[nodeIndex]; }
     void setNodeTransform( int32_t nodeIndex, const Matrix4x4f &transform ) { nodeTransforms[nodeIndex] = transform; }
     void setNodeVisible( int32_t nodeIndex, bool bVisible ) { nodeVisible[nodeIndex] = bVisible; }
+    // Hides one item (primitive) of the model in draw() (the car wash forecourt plates over the road).
+    void setItemHidden( size_t itemIndex, bool bHidden ) {
+        if ( hiddenItems.size() < items.size() ) {
+            hiddenItems.resize( items.size(), false );
+        }
+        if ( itemIndex < hiddenItems.size() ) {
+            hiddenItems[itemIndex] = bHidden;
+        }
+    }
     bool isNodeVisible( int32_t nodeIndex ) const {
         return nodeIndex < 0 || nodeIndex >= static_cast<int32_t>( nodeVisible.size() ) || nodeVisible[nodeIndex];
     }
@@ -189,6 +198,7 @@ private:
     std::vector<Item> items;
     std::vector<Matrix4x4f> nodeTransforms;
     std::vector<bool> nodeVisible;
+    std::vector<bool> hiddenItems;
     std::vector<std::pair<uint32_t, uint32_t>> nodeItems; // first item, count
     // The same range per INS. LOD level ([node][lod]); LOD0 == nodeItems.
     std::vector<std::array<std::pair<uint32_t, uint32_t>, 3>> nodeLodItems;

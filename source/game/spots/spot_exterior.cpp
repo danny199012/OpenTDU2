@@ -108,6 +108,35 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
         boundsMax = Vector3f( Max( boundsMax.x, pSet->getBoundsMax().x ), Max( boundsMax.y, pSet->getBoundsMax().y ),
                               Max( boundsMax.z, pSet->getBoundsMax().z ) );
     }
+    // The car washes (ecw_a, Ibiza x3 / Hawai x5): the bank's flat forecourt ground plate
+    // (item 2, 42 x 56 m, 0.4 m thick) is drawn over the road that runs along the wash front
+    // at bank-local z 24..28 and hides it (the owner, 2026-11-15: "it's blocking the road";
+    // the collision never blocked, measured with -scanwash). The plate is not drawn; the
+    // world's own terrain / road shows. -keepwashplate keeps it. [INF: retail drew the road
+    // differently there; the data places the plate over the link].
+    if ( path.find( "/ecw_" ) != std::string::npos && !CmdLine::HasArg( "-keepwashplate" ) ) {
+        for ( auto &pSet : sets ) {
+            const auto &setItems = pSet->getItems();
+            for ( size_t i = 0; i < setItems.size(); i++ ) {
+                const Vector3f ext = setItems[i].BoundsMax - setItems[i].BoundsMin;
+                if ( ext.y < 0.5f && ext.x > 40.0f && ext.z > 50.0f ) {
+                    pSet->setItemHidden( i, true );
+                }
+            }
+        }
+    }
+    if ( CmdLine::HasArg( "-logspotitems" ) ) {
+        for ( const auto &pSet : sets ) {
+            for ( const EdenModel::Item &item : pSet->getItems() ) {
+                const SceneNode &node = pSet->getScene().getNodes()[item.NodeIndex];
+                const Matrix4x4f &w = pSet->getNodeTransform( item.NodeIndex );
+                const Vector3f lo = w.transformPoint( item.BoundsMin ), hi = w.transformPoint( item.BoundsMax );
+                OTDU_LOG_INFO( "spotitem %s: node %d '%s' mat %u lod %u bounds (%.1f %.1f %.1f)-(%.1f %.1f %.1f) verts %u\n",
+                               path.c_str(), item.NodeIndex, node.Name.c_str(), item.MaterialIndex, item.Lod, lo.x, lo.y,
+                               lo.z, hi.x, hi.y, hi.z, item.NumVertices );
+            }
+        }
+    }
     OTDU_LOG_INFO( "SpotExterior: %s: %zu set models, %zu props, local bounds (%.1f, %.1f, %.1f) - (%.1f, %.1f, %.1f)\n",
                    path.c_str(), sets.size(), props.size(), boundsMin.x, boundsMin.y, boundsMin.z, boundsMax.x,
                    boundsMax.y, boundsMax.z );
