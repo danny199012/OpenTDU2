@@ -22,6 +22,11 @@ Owner got in by switching the **F4 "Hawai cave" option** on (static rock collisi
 - **Cave light**: within 260 m of the cave centre (39350, 20230) the weather's `sun_ambient` is lifted toward a cool (1.10, 1.18, 1.35) glow, fading in over the last 120 m (`caveWeather` copy in `gm_freeride.cpp`; `-nocavelight` = off). Night (-clock 2.00) inside: mean brightness readable instead of near black; by day it adds a warm lift. The values are [INF] by eye, one night / one day capture; the owner plays with the gamma down, so tune with the F4 weather presets if it is still dark.
 - Idea parked: hide something in the cave (a car, a collectible) - needs a spawn point inside; the floor spans roughly x 39250..39500, z 20150..20300 at y ~118..121.
 
+### The cave's hidden club car (owner: "hide a club car; I want all cars obtainable offline")
+- `DBClubRewardCars` has 4 rows [DATA]: **280 MF3 Roadster, 400 2-Eleven, 365 Apollo Sport, 436 Ferrari FXX Evoluzione**. The cave holds **436** (the other three are free for the same trick elsewhere; the id is `kCaveCarId` in `GMFreeRide::updateCaveCar`).
+- Parked at (39420, 119.7, 20175) (the cave floor, found by a down ray), loaded lazily when the player is within 500 m on Hawai and the car is not owned. Drive within 6 m under 25 km/h and it is added to the garage (`OwnedCars`, `Garage`, `NbCars`, the "Vehicles bought" popup / COLLECTION_CARS_DIF XP, a hint "You found a secret ...", saved) and the parked model is removed. `-nocavecar` = off.
+- Verified headless: at 5 m the log reads `the cave car (id 436) was taken`, the save has `cars_owned = 436` and the HUD shows the hint + the +75 pts popup. **Not verified**: the parked FXX is not visible in my 22 m approach shot (dark, behind the player car); its heading / spot may need adjusting by eye. The paint is the default.
+
 ## Session 2026-11-15 (`main`, 12): Hawai test cave - ghost mode to get through the wall
 
 Owner found a video (HSG Automotive "TDU2 : Secret cave location on Hawaii"): the cave is behind a rock wall in the **dark patch just right of the yellow dirt track** north-centre of the Hawai map (the map-glitch gets through on the 360). Their frames: player near the top-middle of the island, a looping dirt track, a lake with cyan roads to the south-east.

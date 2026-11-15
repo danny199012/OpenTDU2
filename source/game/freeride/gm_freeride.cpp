@@ -807,6 +807,9 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( ( bScenePass || bCubeActors ) && car.isLoaded() ) {
             if ( bScenePass ) {
                 car.draw( renderer, carWorld, view.getWeather(), bEnvironmentAssigned );
+                if ( bCaveCarLoaded ) {
+                    caveCar.draw( renderer, caveCarWorld, view.getWeather(), bEnvironmentAssigned );
+                }
                 debris.draw( renderer );
                 // Driver (and passenger): the head is hidden in the cockpit view.
                 if ( bDriverSeated ) {
@@ -4061,6 +4064,54 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
     return false;
 }
 
+// The Hawai cave's hidden club car. DBClubRewardCars lists 4 club-only prizes (280 MF3 Roadster, 400 2-Eleven,
+// 365 Apollo Sport, 436 Ferrari FXX Evoluzione [DATA]); the cave holds one. Park next to it (< 6 m, under 25 km/h)
+// and it is yours: it is added to the garage with the car's default paint, the HUD says so, and it is gone.
+void GMFreeRide::updateCaveCar( float deltaTime ) {
+    (void)deltaTime;
+    static const int32_t kCaveCarId = 436;
+    static const Vector3f kSpot( 39420.0f, 0.0f, 20175.0f );
+    static const float kYaw = 2.3f; // radians: roughly facing the cave mouth
+    if ( islandName != "hawai" || CmdLine::HasArg( "-nocavecar" ) ) {
+        return;
+    }
+    PlayerProfile &profile = GetPlayerProfile();
+    const bool bOwned = std::find( profile.OwnedCars.begin(), profile.OwnedCars.end(), kCaveCarId ) != profile.OwnedCars.end();
+    const Vector3f playerPosition = carWorld.getTranslation();
+    const float dx = playerPosition.x - kSpot.x, dz = playerPosition.z - kSpot.z;
+    const float distance = std::sqrt( dx * dx + dz * dz );
+    if ( !bCaveCarLoaded && !bCaveCarTried && !bOwned && distance < 500.0f ) {
+        bCaveCarTried = true;
+        CinematicCar::Desc desc;
+        if ( CinematicCar::DescFromDatabase( kCaveCarId, desc ) && caveCar.load( desc ) ) {
+            collision.streamAround( kSpot, 1 );
+            float floorY = 119.0f;
+            VehicleWorldCollision::Hit hit;
+            if ( collision.raycast( Vector3f( kSpot.x, 128.0f, kSpot.z ), Vector3f( 0.0f, -1.0f, 0.0f ), 60.0f, hit ) ) {
+                floorY = hit.Position.y;
+            }
+            const Quaternionf yaw = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), kYaw );
+            caveCarWorld = Matrix4x4f::FromRotationTranslation( yaw, Vector3f( kSpot.x, floorY + caveCar.getBodyLift(), kSpot.z ) );
+            bCaveCarLoaded = true;
+            OTDU_LOG_INFO( "FREERIDE: the cave car (id %d) is parked at (%.1f, %.1f, %.1f)\n", kCaveCarId, kSpot.x, floorY, kSpot.z );
+        }
+    }
+    if ( bCaveCarLoaded && distance < 6.0f && vehicle.getSpeedKmh() < 25.0f && !bOwned ) {
+        profile.OwnedCars.push_back( kCaveCarId );
+        OwnedCar owned;
+        owned.IdCar = kCaveCarId;
+        owned.Km = 0.0f;
+        profile.Garage.push_back( owned );
+        profile.NbCars++;
+        AwardCollectionMilestones( "COLLECTION_CARS_DIF", profile.NbCars );
+        SaveProfile( "the cave car" );
+        hud.showHint( "You found a secret: the Ferrari FXX Evoluzione is yours - it is in your garage", 8.0f );
+        OTDU_LOG_INFO( "FREERIDE: the cave car (id %d) was taken - added to the garage (%zu car(s))\n", kCaveCarId, profile.Garage.size() );
+        caveCar.unload();
+        bCaveCarLoaded = false;
+    }
+}
+
 void GMFreeRide::travelToIsland( const std::string &island ) {
     Vector3f entrance;
     float heading = 0.0f;
@@ -7254,6 +7305,7 @@ void GMFreeRide::tick( float deltaTime ) {
     // Side windows: slides WND_x1 between its rest and the door frame rest.
     car.updateWindows( deltaTime );
 
+    updateCaveCar( deltaTime );
     view.setMapView( false );
     view.setCamera( camera );
     {

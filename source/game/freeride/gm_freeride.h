@@ -121,6 +121,13 @@ private:
     FirstOutro outro;
     FadeFreeride wakeup;
     CinematicCar car;
+    // The Hawai cave easter egg: a parked club car (DBClubRewardCars) in the test cave; driving up to it takes it
+    // into the garage. Lazy: loaded when the player comes within 500 m, only while the car is not owned.
+    CinematicCar caveCar;
+    bool bCaveCarLoaded = false;
+    bool bCaveCarTried = false;
+    Matrix4x4f caveCarWorld;
+    void updateCaveCar( float deltaTime );
     CinematicCar::Desc carDesc;
     // The driver (and, in the story, Tess as passenger) seated in the car:
     // avatarsdriver.bnk base clips + the car's seat IK (docs/re/driver_seat_spec.md).
