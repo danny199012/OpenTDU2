@@ -1832,7 +1832,14 @@ void Traffic::draw( EdenRenderer &renderer, const WeatherPreset *pWeather ) {
             const Vector3f hub( base.m[3][0], base.m[3][1], base.m[3][2] );
             const float angle = forcedWheelAngle >= 0 ? static_cast<float>( forcedWheelAngle ) * kDegToRad
                                                       : std::fmod( agent.WheelSpin, 2.0f * kPi );
+            // The front wheels (FL, FR) steer by the path curvature, as the rivals' wheels do
+            // (yaw rate over speed x a 2.7 m wheelbase [INF]); -notrafficsteer = the old straight wheels.
+            static const bool bNoSteer = CmdLine::HasArg( "-notrafficsteer" );
+            const float steer = ( w < 2 && !bNoSteer )
+                                    ? Clamp( std::atan( 2.7f * agent.YawRate / Max( agent.Speed, 2.0f ) ), -0.6f, 0.6f )
+                                    : 0.0f;
             const Matrix4x4f spin = Matrix4x4f::Translation( hub ) *
+                                    Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), steer ) ) *
                                     Matrix4x4f::FromQuaternion(
                                         Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), angle ) ) *
                                     Matrix4x4f::Translation( Vector3f( -hub.x, -hub.y, -hub.z ) );

@@ -8,6 +8,13 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 28): Hawai traffic survey + front wheels steer (owner: "Hawaii traffic needs work ... pretty much everything")
+
+- Survey (build 179, `-travelisland hawai`, night, 1500 frames): Hawai traffic spawns and drives (29 cars, red-light stops, 0 VUIDs, ~8 ms/frame), vegetation / buildings render. `-island hawai -gm FREERIDE` alone spawns at Ibiza coordinates (grey plane, "Ibiza Area 1", 0 traffic): use `-travelisland hawai` or F4. Gaps still open per `docs/re/traffic_spec.md` "Not done": lane changes / overtaking, the real zone lookup, signal models, front-wheel steer.
+- Changed: `traffic.cpp` draw - the front wheel nodes (WLR_FL/FR) steer by atan(2.7 * yawRate / speed), same law as the rivals; `-notrafficsteer` = old.
+- Verified: builds, 0 VUIDs. NOT verified visually: no traffic car was in frame in the A/B (`_st_ab.png`, 146 px differ). Next: park a car mid-turn (`-trafficpark`) or tp to a junction and compare with `-notrafficsteer`; then lane changes.
+- Shops / dealers / vegetation on Hawai not surveyed.
+
 ## Session 2026-11-15 (`main`, 27): events run to their real destination, with the real time limit and rule title (committed, not pushed)
 
 - `RaceEvents::start` loads the event's `.ig2` (gate 0 = start, others = real destination), `CtDw` = time limit (expiry -> "Time is up", no reward, `takeFinished` now reports failure), title = rule shown as the goal. Spec section 13. `-oldraces` restores the random walk.
