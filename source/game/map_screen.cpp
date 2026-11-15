@@ -2687,7 +2687,10 @@ void MapScreen::loadRoads( const std::string &island ) {
             bool bDirtRecord = false;
             if ( !bNoStaticDirt && header != detailHeaders.end() ) {
                 const uint32_t code = header->second[4] & 0xffffu;
-                bDirtRecord = code == 0x0u || code == 0x100u || code == 0x400u || code == 0x604u;
+                // 0x604 is a TUNNEL (the owner drove road 827 at 20504, 6440: "fell through the world on top of a tunnel") and
+                // 0x400 / 0x100 sit on the small closed circuit, so only 0x0 (the caravan track, owner-confirmed dirt) stays
+                // from the first guess; [HudMap] AIRL: 4 circuit, 6 tunnel - the type may be the HIGH byte of the code [INF].
+                bDirtRecord = code == 0x0u;
                 // The offroad school's tracks (owner's 360 map, 2026-11-15: yellow once discovered, thin grey
                 // before): header word 2 = 0x202, code 0x5, profile word 1 in {13, 14, 17} - ids 1350..1356 /
                 // 1367 / 1368, the ~5 km chain that ends at the school (17164, 18079) [DATA + INF]. Word 1 = 15 is

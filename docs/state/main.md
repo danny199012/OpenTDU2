@@ -3,6 +3,12 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 10): road 827 (code 0x604) is a tunnel, not dirt; the owner's "fell through the world"
+
+Owner, build 128 (the depth bias was still on): the map showed black trees and white tracks, the overlay read `road 827 type 604 w1 21 w2 101 class 0 DIRT` at (20471, 197, 6073) and the car ended up inside a diamond-plate structure on top of a tunnel.
+- `0x604` is **not dirt**: road 827 (20504, 6440) is a tunnel. By the `[HudMap]` AIRL table (4 circuit, 6 tunnel) the road type may be the **high byte** of the ROAD_DETAIL code half-word (0x604 -> 6 tunnel, 0x400 -> 4 circuit), which would also explain `0x400 / 0x100` sitting on the small closed circuit [INF: a guess that fits two data points]. The static dirt rule now keeps only `0x0` (the caravan track) and the offroad-school chain (`0x5 / 0x202 / w1 13,14,17`).
+- Not reproduced: a car dropped at (20471, 200, 6073) rests at y 198 with all four contacts (a solid surface there), so the car was on the tunnel's roof structure; the depth bias is render-only and does not touch collision. The map's black trees did not reproduce either (close map at (20333, 56, 20182), bias on / off: mean diff 0.07). Both reports were on the bias build; retest on the current build.
+
 ## Session 2026-11-15 (`main`, 9): the terrain depth bias is reverted (it caused the blue line / see-through look)
 
 Owner (screenshot at 17308 / 125.6 / 17970.9, build 128): "a weird blue line and it makes things look kind of transparent".
