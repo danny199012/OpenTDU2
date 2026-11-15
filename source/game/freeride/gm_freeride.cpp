@@ -7162,7 +7162,71 @@ void GMFreeRide::tick( float deltaTime ) {
         outro.registerLightmaps( view );
     }
     addSpotExteriorCollisions();
+    scanWashBlockage();
     view.tick( deltaTime );
+}
+
+// -scanwash (debug): which road-graph points around a car wash a car-sized
+// sphere cannot occupy (the owner, 2026-11-15: the wash blocks a road, traffic
+// included). Runs once, 150 frames after the start, for the washes within
+// 200 m of the car.
+void GMFreeRide::scanWashBlockage() {
+    static const bool bScan = CmdLine::HasArg( "-scanwash" );
+    static int32_t frames = 0;
+    static bool bDone = false;
+    if ( !bScan || bDone || ++frames < 150 || !carWash.isLoaded() ) {
+        return;
+    }
+    bDone = true;
+    const Vector3f carPos = carWorld.getTranslation();
+    const auto &shapes = mapScreen.getRoadShapes();
+    for ( const CarWashSpot &spot : carWash.getSpots() ) {
+        if ( std::hypot( spot.Position.x - carPos.x, spot.Position.z - carPos.z ) > 200.0f ) {
+            continue;
+        }
+        const float c = std::cos( spot.Heading ), s = std::sin( spot.Heading );
+        int32_t blocked = 0, tested = 0;
+        for ( size_t e = 0; e < shapes.size(); e++ ) {
+            for ( size_t i = 0; i + 1 < shapes[e].size(); i++ ) {
+                const Vector3f &a = shapes[e][i], &b = shapes[e][i + 1];
+                const float len = std::hypot( b.x - a.x, b.z - a.z );
+                const int32_t steps = Max( 1, static_cast<int32_t>( len / 1.5f ) );
+                for ( int32_t k = 0; k < steps; k++ ) {
+                    const float t = static_cast<float>( k ) / static_cast<float>( steps );
+                    Vector3f p( a.x + ( b.x - a.x ) * t, a.y + ( b.y - a.y ) * t, a.z + ( b.z - a.z ) * t );
+                    if ( std::hypot( p.x - spot.Position.x, p.z - spot.Position.z ) > 70.0f ) {
+                        continue;
+                    }
+                    tested++;
+                    {
+                        const float lx = p.x - spot.Position.x, lz = p.z - spot.Position.z;
+                        const float ux = lx * c - lz * s, uz = lx * s + lz * c;
+                        if ( ux > -20.0f && ux < 24.0f && uz > -23.0f && uz < 35.0f && ( k % 3 ) == 0 ) {
+                            VehicleWorldCollision::Hit top;
+                            const bool bTop = collision.raycast( Vector3f( p.x, p.y + 6.0f, p.z ), Vector3f( 0.0f, -1.0f, 0.0f ), 12.0f, top );
+                            OTDU_LOG_INFO( "scanwash: road in footprint: link %zu pt %zu world (%.1f, %.1f, %.1f) local (%.1f, %.1f) top surface %+.2f m (%d)\n", e, i, p.x, p.y, p.z, ux, uz, bTop ? top.Position.y - p.y : -99.0f, bTop ? static_cast<int>( top.Surface ) : -1 );
+                        }
+                    }
+                    VehicleWorldCollision::Contact contact;
+                    // two heights: the bumper line and the roof line of a car
+                    const float heights[2] = { 0.9f, 1.5f };
+                    for ( float h : heights ) {
+                        const Vector3f centre( p.x, p.y + h, p.z );
+                        if ( collision.sphereContact( centre, 0.45f, contact ) ) {
+                            const float dx = p.x - spot.Position.x, dz = p.z - spot.Position.z;
+                            OTDU_LOG_INFO( "scanwash: BLOCKED link %zu pt %zu at (%.1f, %.1f, %.1f) h %.1f, wash-local (%.1f, %.1f), depth %.2f n(%.2f %.2f %.2f)\n",
+                                           e, i, p.x, p.y, p.z, h, dx * c - dz * s, dx * s + dz * c, contact.Depth,
+                                           contact.Normal.x, contact.Normal.y, contact.Normal.z );
+                            blocked++;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        OTDU_LOG_INFO( "scanwash: wash at (%.0f, %.0f) hdg %.2f: %d road samples, %d blocked\n", spot.Position.x,
+                       spot.Position.z, spot.Heading, tested, blocked );
+    }
 }
 
 void GMFreeRide::addSpotExteriorCollisions() {

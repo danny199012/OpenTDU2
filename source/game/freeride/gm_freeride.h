@@ -251,6 +251,7 @@ private:
     // frame) already handed to `collision`: bank path + frame index.
     std::unordered_set<std::string> spotCollisionsAdded;
     void addSpotExteriorCollisions();
+    void scanWashBlockage(); // -scanwash
     bool bSpotExteriors = true; // -noexteriors
     // Our own buildings (docs/re/modding.md): OBJ + MTL + PNG meshes placed from
     // the mods overlay (props.txt), drawn with the spot exteriors. -nomodprops.
