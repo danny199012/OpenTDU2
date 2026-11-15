@@ -205,6 +205,16 @@ public:
     // when it is an undiscovered road - the retail refuses it.
     bool getFastTravelPoint( Vector3f &outPoint ) const;
     void toggleTarget();
+    // The context menu of OK on a position (the retail wording: loc 424 "Go there", 1694 "Target this spot" /
+    // 4304 "Remove target", 3314 "Bookmark it" / 3914 "Remove bookmark"): fast travel only on a discovered road.
+    inline bool isMenuOpen() const { return bMenuOpen; }
+    void openMenu();
+    void closeMenu();
+    void menuMove( int32_t step );
+    // Runs the selected row; true when the menu did something (it closes).
+    bool menuAccept();
+    // True once when "Go there" was chosen: the point to fast travel to.
+    bool takeFastTravel( Vector3f &outPoint );
     inline bool hasRoute() const { return routePoints.size() > 1; }
     inline const std::vector<Vector3f> &getRoutePoints() const { return routePoints; }
     // Metres of road left to the destination (0 without a route).
@@ -431,6 +441,21 @@ private:
     std::vector<float> edgeLengths;
     std::vector<std::array<float, 4>> edgeBoxes; // min x, min z, max x, max z
     float exploredLength = 0.0f, totalRoadLength = 0.0f;
+    // The OK menu.
+    struct MenuRow {
+        int32_t Action = 0; // 0 go there, 1 target, 2 bookmark
+        std::string Label;
+    };
+    bool bMenuOpen = false;
+    int32_t menuSelection = 0;
+    std::vector<MenuRow> menuRows;
+    Vector3f menuPoint;
+    bool bFastTravelPending = false;
+    Vector3f fastTravelPoint;
+    std::string toastText;
+    float toastTimer = 0.0f;
+    int32_t findBookmarkNear( const Vector3f &point, float radius ) const;
+    void drawBookmarks( Renderer2D &renderer );
     float trackTimer = 0.0f;
     std::string roadIsland;
     bool bHasTarget = false;

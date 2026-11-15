@@ -130,3 +130,14 @@ and only it, draws; the save round-trips — a later run reloads `3 discovered`)
   (the bike dealers are DLC data the port does not read).
 - Hawai's pins were not screenshot-verified (no retail Hawai grab beyond the
   owner's one, which matches the same bank set); the law is island-independent.
+
+## Bike dealerships and the map's OK menu (2026-11-15, `main`)
+- **The bike dealerships are in the spot list as building sites**: `EUC_BDCL` (23119, 16659: the Ducati / Harley-Davidson showroom the owner found) and `EUC_BDAS` (31932, 10098), category 0x08 like the other `EUC_*`. The bank
+  `euc_bdcl.bnk` is the building; the data also has the showroom interior `interior/ibd_cla.bnk` (`spots/bikedeal/bd_cla`, cinematics `C_LIFE_HOSTESS` / `C_INTRO_I` / `C_BUY_CAR_I`, 3 selectables: two exits and the hostess) and the exterior
+  `ebd_cla.bnk`, both unused by the base spot list (the bike dealers are the DLC hook). `-logspots` lists the records without an icon. Now `EUC_BD*` get the `bikedealer` icon (a label the movie has) and
+  `InteriorWalk::InteriorBankFor` maps them to `ibd_cla`, so the enter prompt works and the showroom opens (empty podiums: there is no bike stock - no DBCarShop row, the bikes are DLC data). The satnav enter tile wears the car dealer tile
+  (the movie's Spot tile has no bike art). NOT done: bike stock / buying, the map icon art for `bikedealer` (not checked on the map), `EUC_BDAS` has no interior of its own (it opens `ibd_cla` too).
+- **OK on the map opens a menu** (`MapScreen::openMenu`, native panel, the retail wording from the localization): "Go there" (loc 424, only on a discovered road: the old F5 rule), "Target this spot" (1694) / "Remove target" (4304),
+  "Bookmark it" (3314) / "Remove bookmark" (3914). Up / Down, OK runs the row, Back closes only the menu. Bookmarks are saved per island (`bookmarks_<island> = x:z,...`, at most 20 [INF]; loc 6853 "Bookmarks limit number reached",
+  4059 "New favorite place added in this tab") and drawn as a yellow diamond. The retail movie has a bookmarks tab (`m_MapHsysTab5`, `m_Bookmarks_`) that is not driven; the GPS target logic is the old `toggleTarget`. `-locfind <word>` finds loc ids.
+- Verified headless (rendering on): the menu rows, a bookmark added (saved + diamond on the map) and removed, a target set. NOT verified: "Go there" in a real session (it needs a discovered road).

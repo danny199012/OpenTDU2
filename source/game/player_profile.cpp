@@ -545,6 +545,21 @@ void LoadProfile() {
         } else if ( key.compare( 0, 5, "done_" ) == 0 ) {
             // done_<EVENT> = times earned (DBRewardXP events)
             profile.EventsDone[key.substr( 5 )] = number;
+        } else if ( key.compare( 0, 10, "bookmarks_" ) == 0 && key.size() > 10 ) {
+            // bookmarks_<island> = x:z,x:z
+            std::vector<float> &list = profile.Bookmarks[key.substr( 10 )];
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const float x = strtof( pText, &pEnd );
+                if ( pEnd == pText || *pEnd != ':' ) {
+                    break;
+                }
+                const float z = strtof( pEnd + 1, &pEnd );
+                list.push_back( x );
+                list.push_back( z );
+                pText = *pEnd == ',' ? pEnd + 1 : pEnd;
+            }
         } else if ( key == "last_drive" ) {
             // island|x|y|z|yaw|carfile|hardtop|windows|damage|mud|dirt|hardness|wetness
             std::vector<std::string> parts;
@@ -857,6 +872,18 @@ bool SaveProfile( const char *pReason ) {
             if ( !line.empty() ) {
                 file << "exploredseg_" << island.first << " = " << line << "\n";
             }
+        }
+        for ( const auto &island : profile.Bookmarks ) {
+            if ( island.second.size() < 2 ) {
+                continue;
+            }
+            file << "bookmarks_" << island.first << " = ";
+            for ( size_t i = 0; i + 1 < island.second.size(); i += 2 ) {
+                char pair[48];
+                snprintf( pair, sizeof( pair ), "%.1f:%.1f", island.second[i], island.second[i + 1] );
+                file << ( i > 0 ? "," : "" ) << pair;
+            }
+            file << "\n";
         }
         if ( profile.LastDrive.bValid ) {
             const PlayerProfile::LastDriveState &drive = profile.LastDrive;

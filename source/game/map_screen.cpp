@@ -460,6 +460,7 @@ void MapScreen::tick( float deltaTime ) {
     if ( !isLoaded() || !bOpen ) {
         return;
     }
+    toastTimer = Max( 0.0f, toastTimer - deltaTime );
     player.tick( deltaTime );
     transition = Clamp( transition + ( bClosing ? -deltaTime : deltaTime ) / kTransitionTime, 0.0f, 1.0f );
     if ( bCreditsRequested && !bCreditsOpen && !bClosing ) {
@@ -668,6 +669,165 @@ void MapScreen::draw( Renderer2D &renderer ) {
         return;
     }
     player.draw( renderer );
+    // The OK menu and its toast, over the movie (native panel, the retail wording).
+    const Font *pFont = gpFlash != nullptr ? gpFlash->getTitleFont() : nullptr;
+    if ( pFont != nullptr && ( bMenuOpen || toastTimer > 0.0f ) ) {
+        auto rgba = []( uint32_t r, uint32_t g, uint32_t b, uint32_t a = 255 ) { return r | ( g << 8 ) | ( b << 16 ) | ( a << 24 ); };
+        renderer.begin( 1280.0f, 720.0f );
+        if ( bMenuOpen ) {
+            const float rowHeight = 46.0f;
+            const float w = 360.0f, h = 24.0f + rowHeight * static_cast<float>( menuRows.size() );
+            const float x0 = 860.0f, y0 = 250.0f;
+            renderer.drawRect( Rect2D( x0, y0, w, h ), rgba( 14, 18, 24, 235 ) );
+            renderer.drawRectOutline( Rect2D( x0, y0, w, h ), 2.0f, rgba( 200, 200, 200 ) );
+            for ( size_t i = 0; i < menuRows.size(); i++ ) {
+                const float y = y0 + 12.0f + rowHeight * static_cast<float>( i );
+                const bool bSelected = static_cast<int32_t>( i ) == menuSelection;
+                if ( bSelected ) {
+                    renderer.drawRect( Rect2D( x0 + 8.0f, y, w - 16.0f, rowHeight - 6.0f ), rgba( 40, 70, 100 ) );
+                }
+                renderer.drawText( pFont, menuRows[i].Label.c_str(), x0 + 24.0f, y + 8.0f, 22.0f,
+                                   bSelected ? rgba( 255, 255, 255 ) : rgba( 180, 190, 200 ) );
+            }
+        }
+        if ( toastTimer > 0.0f && !toastText.empty() ) {
+            renderer.drawRect( Rect2D( 330.0f, 600.0f, 620.0f, 44.0f ), rgba( 14, 18, 24, 225 ) );
+            renderer.drawText( pFont, toastText.c_str(), 640.0f, 608.0f, 22.0f, rgba( 255, 230, 140 ), eTextAlign::TA_Center );
+        }
+    }
+}
+
+int32_t MapScreen::findBookmarkNear( const Vector3f &point, float radius ) const {
+    const auto found = GetPlayerProfile().Bookmarks.find( roadIsland );
+    if ( found == GetPlayerProfile().Bookmarks.end() ) {
+        return -1;
+    }
+    for ( size_t i = 0; i + 1 < found->second.size(); i += 2 ) {
+        const float dx = found->second[i] - point.x, dz = found->second[i + 1] - point.z;
+        if ( dx * dx + dz * dz <= radius * radius ) {
+            return static_cast<int32_t>( i / 2 );
+        }
+    }
+    return -1;
+}
+
+void MapScreen::openMenu() {
+    if ( roadNodes.empty() || !isCursorValid() ) {
+        return; // the cursor shows the "no" sign
+    }
+    const Vector3f point = cursorWorld();
+    menuRows.clear();
+    // 1. Go there: only on a road that has been discovered (the retail rule).
+    Vector3f travelPoint;
+    if ( getFastTravelPoint( travelPoint ) ) {
+        menuRows.push_back( { 0, LocStr( 424, "Go there" ) } );
+    }
+    // 2. The GPS destination: set here, or cleared when it already is the target.
+    bool bIsTarget = false;
+    if ( bHasTarget ) {
+        float bestDistance = 1e30f;
+        Vector3f best;
+        for ( const Vector3f &node : roadNodes ) {
+            if ( node.x < 0.0f ) {
+                continue;
+            }
+            const float d = ( node - point ).length();
+            if ( d < bestDistance ) {
+                bestDistance = d;
+                best = node;
+            }
+        }
+        bIsTarget = ( best - target ).length() < 30.0f;
+    }
+    menuRows.push_back( { 1, bIsTarget ? LocStr( 4304, "Remove target" ) : LocStr( 1694, "Target this spot" ) } );
+    // 3. The bookmark.
+    menuRows.push_back( { 2, findBookmarkNear( point, 40.0f ) >= 0 ? LocStr( 3914, "Remove bookmark" ) : LocStr( 3314, "Bookmark it" ) } );
+    menuSelection = 0;
+    menuPoint = point;
+    bMenuOpen = true;
+}
+
+void MapScreen::closeMenu() {
+    bMenuOpen = false;
+}
+
+void MapScreen::menuMove( int32_t step ) {
+    if ( !bMenuOpen || menuRows.empty() ) {
+        return;
+    }
+    const int32_t count = static_cast<int32_t>( menuRows.size() );
+    menuSelection = ( menuSelection + step + count ) % count;
+}
+
+bool MapScreen::menuAccept() {
+    if ( !bMenuOpen || menuSelection < 0 || menuSelection >= static_cast<int32_t>( menuRows.size() ) ) {
+        return false;
+    }
+    const int32_t action = menuRows[static_cast<size_t>( menuSelection )].Action;
+    bMenuOpen = false;
+    if ( action == 0 ) {
+        Vector3f travelPoint;
+        if ( getFastTravelPoint( travelPoint ) ) {
+            fastTravelPoint = travelPoint;
+            bFastTravelPending = true;
+        }
+    } else if ( action == 1 ) {
+        toggleTarget();
+    } else {
+        std::vector<float> &list = GetPlayerProfile().Bookmarks[roadIsland];
+        const int32_t existing = findBookmarkNear( menuPoint, 40.0f );
+        if ( existing >= 0 ) {
+            list.erase( list.begin() + existing * 2, list.begin() + existing * 2 + 2 );
+            toastText = LocStr( 3914, "Remove bookmark" );
+        } else if ( list.size() >= 40 ) {
+            toastText = LocStr( 6853, "Bookmarks limit number reached" ); // 20 bookmarks [INF]
+        } else {
+            list.push_back( menuPoint.x );
+            list.push_back( menuPoint.z );
+            toastText = LocStr( 4059, "New favorite place added in this tab" );
+        }
+        toastTimer = 3.0f;
+        SaveProfile( "bookmark" );
+    }
+    return true;
+}
+
+bool MapScreen::takeFastTravel( Vector3f &outPoint ) {
+    if ( !bFastTravelPending ) {
+        return false;
+    }
+    bFastTravelPending = false;
+    outPoint = fastTravelPoint;
+    return true;
+}
+
+void MapScreen::drawBookmarks( Renderer2D &renderer ) {
+    const auto found = GetPlayerProfile().Bookmarks.find( roadIsland );
+    if ( found == GetPlayerProfile().Bookmarks.end() ) {
+        return;
+    }
+    // A yellow diamond with a dark rim at each bookmark, in the map's own space.
+    for ( size_t i = 0; i + 1 < found->second.size(); i += 2 ) {
+        float x = 0.0f, stageY = 0.0f;
+        if ( !projectToStage( Vector3f( found->second[i], 0.0f, found->second[i + 1] ), x, stageY ) ) {
+            continue;
+        }
+        const float y = StageToCanvasY( stageY );
+        for ( int32_t pass = 0; pass < 2; pass++ ) {
+            const float r = pass == 0 ? 11.0f : 7.0f;
+            const uint32_t colour = pass == 0 ? MakeRGBA( 20, 20, 20 ) : MakeRGBA( 255, 214, 20 );
+            Vertex2D v[6];
+            const float px[6] = { x, x + r, x, x, x - r, x };
+            const float py[6] = { y - r, y, y + r, y - r, y, y + r };
+            for ( int32_t k = 0; k < 6; k++ ) {
+                v[k].X = px[k];
+                v[k].Y = py[k];
+                v[k].U = v[k].V = 0.0f;
+                v[k].Color = colour;
+            }
+            renderer.drawTriangles( nullptr, v, 6 );
+        }
+    }
 }
 
 void MapScreen::resetCamera( const Vector3f &newCenter ) {
@@ -1196,6 +1356,7 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
     }
     // The gas stations of our own, over the island and under the route.
     drawFuelIcons( renderer );
+    drawBookmarks( renderer );
     if ( bRoute ) {
         // The GPS route: a thick red line along the projected polyline. The
         // movie's own stroke clips (strokes_pack) are DefineMorphShape objects,
@@ -1455,7 +1616,12 @@ void MapScreen::loadSpots( const std::string &island ) {
             else if ( startsWith( "ESTICK" ) ) { spot.pIcon = "carpaint"; spot.Tab = 3; }
             else if ( startsWith( "ENC" ) ) { spot.pIcon = "club"; spot.Tab = 2; }
             else if ( startsWith( "ERE" ) ) { spot.pIcon = "estates"; spot.Tab = 2; }
-            // EUC_*: spots\under_construction (building sites, no icon) [DATA].
+            // EUC_BD*: the two bike dealerships (EUC_BDCL at the Ducati / Harley-Davidson showroom, EUC_BDAS),
+            // carried as under-construction sites in the base data (the bike dealers are the DLC hook): the movie
+            // has the bikedealer kind and the data has the ibd_cla showroom, so they get the icon and the
+            // showroom [INF].
+            else if ( startsWith( "EUC_BD" ) ) { spot.pIcon = "bikedealer"; spot.Tab = 3; }
+            // The other EUC_*: under_construction (building sites, no icon) [DATA].
             break;
         // ELANDCAA (Ibiza / Hawai): the seaplane dock of the casino trip; the
         // casino icon [INF: the retail icon of category 0x0e is not read].
@@ -1476,6 +1642,9 @@ void MapScreen::loadSpots( const std::string &island ) {
             snprintf( clip, sizeof( clip ), "point%03d", static_cast<int>( spots.size() ) + 1 );
             spot.Clip = clip;
             spots.push_back( spot );
+        } else if ( CmdLine::HasArg( "-logspots" ) ) {
+            OTDU_LOG_INFO( "MapScreen: spot without an icon: '%s' category 0x%02x at (%.0f, %.0f)\n", spot.Name.c_str(),
+                           static_cast<unsigned>( category ), spot.Position.x, spot.Position.z );
         }
     }
     // The discovery state (the retail law: a spot's icon shows on the map only

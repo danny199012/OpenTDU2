@@ -91,6 +91,8 @@ struct PlayerProfile {
     std::map<std::string, std::vector<uint32_t>> ExploredSegments;
     // The explored segments that are dirt track (same (link << 12) | segment ids).
     std::map<std::string, std::vector<uint32_t>> ExploredDirt;
+    // The map bookmarks ("Bookmark it" / "Remove bookmark", loc 3314 / 3914) per island: flat x, z pairs.
+    std::map<std::string, std::vector<float>> Bookmarks;
     // Where and how the player last drove (updated every free-roam frame, written with
     // every save): a loaded save puts the car back exactly there - same island, spot,
     // heading, car, damage, dirt, roof and windows - instead of the garage exit.

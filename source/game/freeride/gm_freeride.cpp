@@ -859,6 +859,19 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         }
     }
     mapScreen.loadSpots( islandName );
+    if ( const char *pLogSpots = CmdLine::GetArgValue( "-logspots" ) ) {
+        // Research: the map spots within r metres of (x, z): -logspots x,z,r
+        float lx = 0.0f, lz = 0.0f, lr = 300.0f;
+        if ( sscanf( pLogSpots, "%f,%f,%f", &lx, &lz, &lr ) >= 2 ) {
+            mapScreen.forEachSpot( [&]( const std::string &name, const char *pIcon, const Vector3f &position, uint64_t id, int32_t tab ) {
+                const float dx = position.x - lx, dz = position.z - lz;
+                if ( dx * dx + dz * dz <= lr * lr ) {
+                    OTDU_LOG_INFO( "logspots: '%s' icon %s tab %d at (%.0f, %.0f) id 0x%llx\n", name.c_str(), pIcon != nullptr ? pIcon : "(none)",
+                                   tab, position.x, position.z, static_cast<unsigned long long>( id ) );
+                }
+            } );
+        }
+    }
     mapScreen.loadRoads( islandName );
     // -scanroadsurface: what is under each road link (class byte x surface of a
     // ray cast down at the middle of the link). The tarmac is in the -R.shk
@@ -4743,6 +4756,28 @@ void GMFreeRide::tick( float deltaTime ) {
     if ( mapScreen.isOpen() ) {
         // Back / the map key again closes it; the screen's own IsBackFromMap /
         // IsMapQuit / MapCancel do the same from inside (MapScreen::tick).
+        if ( mapScreen.isMenuOpen() ) {
+            // The OK menu has the input: up / down, OK runs the row, Back / the map key closes the menu only.
+            if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
+                mapScreen.menuMove( -1 );
+            }
+            if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
+                mapScreen.menuMove( 1 );
+            }
+            if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) && mapScreen.menuAccept() ) {
+                Vector3f travelPoint;
+                if ( mapScreen.takeFastTravel( travelPoint ) ) {
+                    OTDU_LOG_INFO( "FREERIDE: fast travel (Go there) to (%.1f, %.1f, %.1f)\n", travelPoint.x, travelPoint.y, travelPoint.z );
+                    mapScreen.close();
+                    teleportTo( travelPoint, 0.0f, false );
+                }
+            }
+            if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_Map ) ||
+                 gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
+                mapScreen.closeMenu();
+            }
+            return;
+        }
         if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_Map ) ||
              gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
             if ( mapScreen.isContest() && mapScreen.contestBack() ) {
@@ -4777,8 +4812,8 @@ void GMFreeRide::tick( float deltaTime ) {
                 }
             }
         } else if ( mapScreen.isUiShown() && gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
-            // OK sets / clears the GPS destination at the cursor
-            mapScreen.toggleTarget();
+            // OK opens the menu at the cursor: go there / target / bookmark (the retail wording)
+            mapScreen.openMenu();
         }
         if ( vehicleAudio.isEngineOn() ) {
             VehicleAudio::Params muted;

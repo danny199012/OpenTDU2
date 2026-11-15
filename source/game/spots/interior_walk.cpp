@@ -35,6 +35,14 @@ std::string InteriorWalk::InteriorBankFor( const std::string &spotBank ) {
     if ( it != cache.end() ) {
         return it->second;
     }
+    // The bike dealerships are carried as building sites (EUC_BDCL / EUC_BDAS) in the base spot list; the
+    // showroom of the data is ibd_cla (spots/bikedeal/bd_cla) [INF: the only bike dealer interior].
+    if ( spotBank.size() >= 7 && _strnicmp( spotBank.c_str(), "EUC_BD", 6 ) == 0 ) {
+        const std::string bikeBank = "interior/ibd_cla.bnk";
+        const bool bThere = gpFile != nullptr && gpFile->fileExists( ( gpFile->getBankFolder() + bikeBank ).c_str() );
+        cache[spotBank] = bThere ? bikeBank : std::string();
+        return cache[spotBank];
+    }
     std::string name = spotBank.substr( 1 );
     std::transform( name.begin(), name.end(), name.begin(),
                     []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );

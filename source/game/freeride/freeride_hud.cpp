@@ -1026,6 +1026,11 @@ void FreeRideHud::showEnterSpot( const char *pSpotKind, const std::string &text,
     if ( hud.findClip( "/HUD/enter" ) == nullptr ) {
         return;
     }
+    // The movie's Spot tile has no bike dealer art (the label exists, the icon slot stays empty): a bike
+    // dealership wears the car dealer tile.
+    if ( strcmp( pSpotKind, "bikedealer" ) == 0 ) {
+        pSpotKind = "cardealer";
+    }
     const bool bOffroad = strcmp( pSpotKind, "offroad" ) == 0;
     if ( !bEnterShown_ ) {
         bEnterShown_ = true;
