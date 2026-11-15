@@ -92,6 +92,28 @@ int32_t CruisingZones::find( float x, float z ) const {
     return -1;
 }
 
+int32_t CruisingZones::findNearest( float x, float z ) const {
+    int32_t best = -1;
+    float bestDistance = 0.0f;
+    for ( size_t zone = 0; zone < polygons.size(); zone++ ) {
+        const Polygon &p = polygons[zone];
+        for ( size_t i = 0, j = p.X.size() - 1; i < p.X.size(); j = i++ ) {
+            // distance to the edge j -> i
+            const float ex = p.X[i] - p.X[j], ez = p.Z[i] - p.Z[j];
+            const float lengthSq = ex * ex + ez * ez;
+            float t = lengthSq > 0.0001f ? ( ( x - p.X[j] ) * ex + ( z - p.Z[j] ) * ez ) / lengthSq : 0.0f;
+            t = t < 0.0f ? 0.0f : ( t > 1.0f ? 1.0f : t );
+            const float dx = x - ( p.X[j] + ex * t ), dz = z - ( p.Z[j] + ez * t );
+            const float distance = dx * dx + dz * dz;
+            if ( best < 0 || distance < bestDistance ) {
+                best = static_cast<int32_t>( zone );
+                bestDistance = distance;
+            }
+        }
+    }
+    return best;
+}
+
 const std::string &CruisingZones::getName( int32_t zone ) const {
     static const std::string empty;
     return zone >= 0 && zone < getCount() ? polygons[zone].Name : empty;

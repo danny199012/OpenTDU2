@@ -8,6 +8,13 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 32): Hawai buy + other shops verified, zone badge fallback fixed, `-atspot`
+
+- Buy: `-gm SHOP -shopspot ECD_MERC_7416 -island hawai -shopaim 3 -money 500000` with the Audi key recipe (`docs/state/main.md` buy test): FSCommands eval / buyc, "bought Mercedes-Benz SLS AMG (car 401) for 244500", profile saved; next FREERIDE "driving the profile's car 401 'SLS_AMG', rims mercedes/sls_amg_f_02 (ordered at the dealer)". (A blind recipe at the wrong `-shopaim` buys nothing; the shop view shows no menu without the presses - same on Ibiza.)
+- New hook `-atspot <spots.bin name>` (`gm_freeride.cpp`, via `FindSpotEntrance`): ESTICK_B_8570 (stickers, the retail sticker shop), ETUN_A_3136 (tuning bay), ESTOL_B_2265 (used dealer, NPC scene), EAS_A_1555 (clothes, hostess) all enter with validate on Hawai (`_hs_sheet.png`).
+- Bug fixed: `FreeRideHud` zone fallback printed the hardcoded "Ibiza Area 1" while the car was outside every cruising-zone polygon (Hawai clothes shop 10736,35032). `CruisingZones::findNearest` picks the nearest polygon edge; shows "Hawaii Area 2". The badge still keeps the last zone when leaving polygons (retail rule untouched).
+- Not verified: other shop types on Hawai (surgery, club, photo, realtor, car wash walk-in), buying clothes / stickers, an on-screen overtake. Oddity unexamined: the car at 44452,29811 sits under the dealer's overhang.
+
 ## Session 2026-11-15 (`main`, 31): Hawai dealer entry from FREERIDE verified; Hawai vegetation looks fine
 
 - Verified: `-gm FREERIDE -island hawai -tp 44452,29811`, `press=validate` at frame 260 -> SHOP "Mercedes-Benz (6564), 6 cars ... free-ride visit, loop C_LIFE_HOSTESS", showroom with the hostess drawn. Hawai HUD badge "Hawaii Area 3" there. Oddity: the parked car at that tp sits under the dealer's overhanging first floor with a floating look - not investigated.

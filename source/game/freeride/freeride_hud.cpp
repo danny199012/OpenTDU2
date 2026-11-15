@@ -2002,8 +2002,16 @@ void FreeRideHud::tick( float deltaTime, const State &newState ) {
         zoneIndex = zone + 1;
         zoneName = zones.getName( zone );
     } else if ( zoneIndex == 0 ) {
-        zoneIndex = 1;
-        zoneName = LocStr( 3336, "Ibiza Area 1" );
+        // Outside every polygon on the first frame: the island's nearest zone (the hardcoded Ibiza Area 1
+        // showed on Hawai spots the polygons do not cover, e.g. the clothes shop at 10736, 35032).
+        const int32_t nearest = zones.findNearest( state.CarX, state.CarZ );
+        if ( nearest >= 0 ) {
+            zoneIndex = nearest + 1;
+            zoneName = zones.getName( nearest );
+        } else {
+            zoneIndex = 1;
+            zoneName = LocStr( 3336, "Ibiza Area 1" );
+        }
     }
 }
 

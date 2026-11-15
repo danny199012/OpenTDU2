@@ -483,6 +483,21 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             OTDU_LOG_WARN( "FREERIDE: -home '%s' not in the spots of '%s'\n", home.c_str(), islandName.c_str() );
         }
     }
+    // -atspot <spots.bin name>: spawn at that spot's entrance (the test hook for visiting a shop of
+    // any island with -island; e.g. ESTICK_B_8570 on Hawai).
+    if ( const char *pAtSpot = CmdLine::GetArgValue( "-atspot" ) ) {
+        Vector3f entrance;
+        float spotHeading = 0.0f;
+        if ( FindSpotEntrance( islandName, pAtSpot, entrance, spotHeading ) ) {
+            tpPosition = entrance;
+            tpYaw = spotHeading;
+            bTp = true;
+            OTDU_LOG_INFO( "FREERIDE: -atspot '%s', entrance at (%.1f, %.1f, %.1f)\n", pAtSpot, entrance.x, entrance.y,
+                           entrance.z );
+        } else {
+            OTDU_LOG_WARN( "FREERIDE: -atspot '%s' not in the spots of '%s'\n", pAtSpot, islandName.c_str() );
+        }
+    }
     // -atwash: spawn 18 m in front of the island's first car wash, facing it
     // (the wash test hook: the prompt and the validate can be scripted). The
     // forecourt is the building's local -Z (C_WASHING rests PLAYER_CAR at local

@@ -15,6 +15,8 @@ public:
     void load( const std::string &island );
     // Zone index (0-based) at a world position, -1 outside every polygon.
     int32_t find( float x, float z ) const;
+    // The zone whose polygon edge is nearest (-1 with no zones): the badge's choice outside every polygon.
+    int32_t findNearest( float x, float z ) const;
     inline int32_t getCount() const { return static_cast<int32_t>( polygons.size() ); }
     const std::string &getName( int32_t zone ) const;
     inline const std::string &getIsland() const { return island; }
