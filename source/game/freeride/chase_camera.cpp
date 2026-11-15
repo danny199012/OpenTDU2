@@ -56,6 +56,9 @@ Quaternionf ChaseCamera::LookRotation( const Vector3f &eye, const Vector3f &targ
 }
 
 bool ChaseCamera::load( int32_t carCameraId ) {
+    if ( CmdLine::HasArg( "-cameracar" ) ) {
+        carCameraId = CmdLine::GetArgInt( "-cameracar", carCameraId );  // test a car's camera set
+    }
     cameras.clear();
     current = 0;
     std::vector<uint8_t> data;
@@ -84,10 +87,30 @@ bool ChaseCamera::load( int32_t carCameraId ) {
         }
     }
     const int32_t numVehicles = static_cast<int32_t>( root["nb_camera_vehicles"].asInt( 0 ) );
+    if ( CmdLine::HasArg( "-dumpcameras" ) ) {
+        // Every car's camera modes (which cars lack a chase camera).
+        for ( int32_t v = 0; v < numVehicles + 1; v++ ) {
+            XmbValue car = root[( "Car " + std::to_string( v ) ).c_str()];
+            if ( !car.isValid() ) {
+                continue;
+            }
+            std::string modes;
+            const int32_t n = static_cast<int32_t>( car["nb_cameras"].asInt( 0 ) );
+            for ( int32_t c = 0; c < n; c++ ) {
+                XmbValue cam = car[( "Camera " + std::to_string( c ) ).c_str()];
+                modes += " " + ( cam.isValid() ? std::to_string( cam["mode"].asInt( -1 ) ) : std::string( "?" ) );
+            }
+            OTDU_LOG_INFO( "CAMDUMP Car %d id_car %d nb %d modes:%s\n", v, static_cast<int>( car["id_car"].asInt( -1 ) ), n,
+                           modes.c_str() );
+        }
+    }
+    // One car set of camerasingame.xmb by its id_car (the car's own, or a
+    // default set 9998 / 10000).
+    auto loadSet = [&]( int32_t wantedId ) {
     std::vector<Params> carCameras;
     for ( int32_t v = 0; v < numVehicles + 1 && carCameras.empty(); v++ ) {
         XmbValue car = root[( "Car " + std::to_string( v ) ).c_str()];
-        if ( !car.isValid() || car["id_car"].asInt( -1 ) != carCameraId ) {
+        if ( !car.isValid() || car["id_car"].asInt( -1 ) != wantedId ) {
             continue;
         }
         const int32_t numCameras = static_cast<int32_t>( car["nb_cameras"].asInt( 0 ) );
@@ -147,13 +170,36 @@ bool ChaseCamera::load( int32_t carCameraId ) {
             carCameras.push_back( p );
         }
     }
-    // Switch order, modes of the car only.
+    return carCameras;
+    };
+    std::vector<Params> carCameras = loadSet( carCameraId );
+    // Default sets: 9998 (modes 20 21 22 23: chase, cockpit) and 10000 (all).
+    // About 100 of the 163 car sets carry no chase mode (the club / reward
+    // cars, id 436 among them): the dev build's camera lookup (TestDrive2DEV
+    // FUN_0068fed0: find the mode in the car's set, else in set 9998 -
+    // 0x270e) takes the missing mode from the default set [CODE dev build].
+    const std::vector<Params> defaultA = loadSet( 9998 );
+    const std::vector<Params> defaultB = loadSet( 10000 );
+    // Switch order; a mode the car lacks comes from the default sets.
     for ( int32_t mode : cycle ) {
-        for ( const Params &p : carCameras ) {
-            if ( p.Mode == mode ) {
-                cameras.push_back( p );
+        const Params *found = nullptr;
+        const std::vector<Params> *const sets[3] = { &carCameras, &defaultA, &defaultB };
+        for ( const std::vector<Params> *set : sets ) {
+            for ( const Params &p : *set ) {
+                if ( p.Mode == mode ) {
+                    found = &p;
+                    break;
+                }
+            }
+            if ( found && !CmdLine::HasArg( "-nocamfallback" ) ) {
                 break;
             }
+            if ( set == &carCameras && CmdLine::HasArg( "-nocamfallback" ) ) {
+                break;
+            }
+        }
+        if ( found ) {
+            cameras.push_back( *found );
         }
     }
     if ( cameras.empty() ) {

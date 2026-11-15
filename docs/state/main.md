@@ -3,6 +3,19 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`): cars with no chase camera now fall back to the default camera sets
+
+Owner: "I can only go into camera views cockpit and bonnet, no chase or anything else ... dig for the real camera data from the dev build".
+
+### What changed
+- `source/game/freeride/chase_camera.cpp` - **[DATA]** 99 of the 163 car sets in `camerasingame.xmb` have no mode 20/21/22 (chase); the club/reward cars (id 436, the cave FXX) have only 23/43/24/44, so the cycle `21 20 23 24 22` collapsed to 2 cameras. **[CODE dev build]** `TestDrive2DEV FUN_0068fed0` looks the mode up in a set and, on a miss, in the default set `0x270e` = **9998** (modes 20 21 22 23); 9999 / 10000 are the other defaults. The port now takes any cycle mode the car lacks from set 9998, then 10000. `-nocamfallback` restores the old behaviour, `-cameracar <id>` loads another car's set, `-dumpcameras` logs every car's modes.
+
+### Verified
+- `-cameracar 436 -logcameras`: 2 cameras in the cycle with `-nocamfallback`, 5 (first mode 21) without. Not yet looked at in 3D.
+
+### Not done / next
+- The dev build's first key for ids < 9998 is 9999/10000 by `[veh+0x79a0]==2` (0x68fed0): not understood (bike/class?), so I only used it as the second fallback. Chase offsets of 9998 are not scaled to car length - check a long car by eye.
+
 ### Update: the cave sector is `sector-6-3-6-5` (Hawai), centre about (42240, 22656)
 The bank scan found **`mur_cave.2db` / `mur_cave_n.2db`** ("cave wall") in `islands/hawai/level/area-6/area-6-3/sector-6-3-6-5.bnk` - the only cave-named assets in Hawai. Sector origin = (6*8+6, odd row +half) * 768 = (41856, 22272), size 768 m, centre (42240, 22656). The island map's marker for a car there sits at 0.60 / 0.38 of the island image, the same spot as the player in the owner's video frame (0.60 / 0.35) - so this is the dark patch [INF, two independent hints agree]. `-island hawai -tp 42240,0,22656` lands there (Y 285). Not yet explored in 3D.
 
