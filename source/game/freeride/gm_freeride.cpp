@@ -248,6 +248,66 @@ GMFreeRide::GMFreeRide() : GameMode( eGameMode::GM_FreeRide ) {}
 
 GMFreeRide::~GMFreeRide() { exit(); }
 
+// A preset between two others (the smooth weather change): every numeric key is
+// interpolated component-wise (smoothstep); the rain / thunder keys ease in
+// with t^2 when the rain grows (a drizzle first, then it picks up) and out with
+// the mirrored curve when it fades. Strings (cloud meshes) switch at the middle.
+// The result is flat: the overlay intemperies are resolved into Values.
+static void BlendWeather( const WeatherPreset &a, const WeatherPreset &b, float t, WeatherPreset &out ) {
+    out.Name = b.Name;
+    out.Hour = b.Hour;
+    out.Minutes = b.Minutes;
+    out.Intempery = b.Intempery;
+    out.Intemperies.clear();
+    out.IntemperyStrings.clear();
+    out.ActiveIntempery = -1;
+    std::unordered_map<std::string, Vector4f> keysB;
+    auto collect = [&]( const WeatherPreset &w, std::unordered_map<std::string, Vector4f> &into ) {
+        for ( const auto &kv : w.Values ) {
+            into[kv.first] = w.get( kv.first.c_str() );
+        }
+        if ( w.ActiveIntempery >= 0 && w.ActiveIntempery < static_cast<int32_t>( w.Intemperies.size() ) ) {
+            for ( const auto &kv : w.Intemperies[w.ActiveIntempery] ) {
+                into[kv.first] = kv.second;
+            }
+        }
+    };
+    std::unordered_map<std::string, Vector4f> keysA;
+    collect( a, keysA );
+    collect( b, keysB );
+    const float smooth = t * t * ( 3.0f - 2.0f * t );
+    const bool bRainGrows = b.getFloat( "rain_alpha", 0.0f ) >= a.getFloat( "rain_alpha", 0.0f );
+    const float rainT = bRainGrows ? t * t : 1.0f - ( 1.0f - t ) * ( 1.0f - t );
+    std::unordered_map<std::string, Vector4f> merged;
+    for ( const auto &kv : keysB ) {
+        auto itA = keysA.find( kv.first );
+        const bool bRain = kv.first.compare( 0, 5, "rain_" ) == 0 || kv.first.compare( 0, 8, "thunder_" ) == 0;
+        const float w = bRain ? rainT : smooth;
+        const Vector4f from = itA != keysA.end() ? itA->second : Vector4f();
+        merged[kv.first] = itA != keysA.end() ? Vector4f( from.x + ( kv.second.x - from.x ) * w,
+                                                          from.y + ( kv.second.y - from.y ) * w,
+                                                          from.z + ( kv.second.z - from.z ) * w,
+                                                          from.w + ( kv.second.w - from.w ) * w )
+                                              : kv.second;
+    }
+    for ( const auto &kv : keysA ) {
+        if ( !merged.count( kv.first ) ) {
+            const bool bRain = kv.first.compare( 0, 5, "rain_" ) == 0 || kv.first.compare( 0, 8, "thunder_" ) == 0;
+            const float w = 1.0f - ( bRain ? rainT : smooth );
+            merged[kv.first] = Vector4f( kv.second.x * w, kv.second.y * w, kv.second.z * w, kv.second.w * w );
+        }
+    }
+    out.Values = std::move( merged );
+    // Strings: the source's until the middle, then the target's.
+    const WeatherPreset &strings = t < 0.5f ? a : b;
+    out.Strings = strings.Strings;
+    if ( strings.ActiveIntempery >= 0 && strings.ActiveIntempery < static_cast<int32_t>( strings.IntemperyStrings.size() ) ) {
+        for ( const auto &kv : strings.IntemperyStrings[strings.ActiveIntempery] ) {
+            out.Strings[kv.first] = kv.second;
+        }
+    }
+}
+
 bool GMFreeRide::surfaceHeight( float x, float z, float y, float &outHeight ) const {
     VehicleWorldCollision::Hit hit;
     if ( collision.raycast( Vector3f( x, y, z ), Vector3f( 0.0f, -1.0f, 0.0f ), 60.0f, hit ) ) {
@@ -813,7 +873,8 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
                 debris.draw( renderer );
                 // Driver (and passenger): the head is hidden in the cockpit view.
                 if ( bDriverSeated ) {
-                    driver.draw( renderer, chase.getMode() != 23 );
+                    // (the photo camera sees the driver from outside: head on)
+                    driver.draw( renderer, chase.getMode() != 23 || photoCamera.isOpen() );
                 }
                 if ( bPassengerSeated ) {
                     passenger.draw( renderer );
@@ -6562,7 +6623,11 @@ void GMFreeRide::tick( float deltaTime ) {
         // windscreen effect on. The bumper / bonnet view has no glass in front
         // of its eye, so it must not get the droplet composite (it fogged the
         // whole frame with rain streaks).
-        view.setDropletsEnabled( chase.isBehindGlass() && CmdLine::GetArgInt( "-droplets", 1 ) != 0 );
+        // The other views (chase, bumper) get the lens variant: a few drops on
+        // the camera and no wet film (-nolensdrops for the old behaviour).
+        static const bool bLensDrops = !CmdLine::HasArg( "-nolensdrops" );
+        view.setDropletsEnabled( ( chase.isBehindGlass() || bLensDrops ) && CmdLine::GetArgInt( "-droplets", 1 ) != 0 );
+        view.setDropletsLens( !chase.isBehindGlass() );
         // -cameramode <n>: a test start in one of the car's views (23 driver,
         // 24 bumper, 20 chase; the car's list is camerasingame.xmb's). Once:
         // the C key keeps cycling from there.
@@ -6739,10 +6804,36 @@ void GMFreeRide::tick( float deltaTime ) {
     {
         const WeatherCycle::Tick weatherTick = weatherCycle.tick( deltaTime );
         if ( weatherTick.bPresetChanged && weatherTick.pPreset != nullptr ) {
-            pWeather = weatherTick.pPreset;
+            // Blend from what is lit now to the new preset (-noweatherblend: the
+            // old instant switch). A weather state change (clear -> rain) takes
+            // longer than the clock's next time-of-day preset.
+            static const bool bNoBlend = CmdLine::HasArg( "-noweatherblend" );
+            if ( !bNoBlend && pWeather != nullptr && pWeather != weatherTick.pPreset ) {
+                blendFrom = *pWeather;
+                const bool bStateChange = pWeather->Intempery != weatherTick.pPreset->Intempery;
+                blendDuration = bStateChange ? 40.0f : 10.0f;
+                blendTime = 0.0f;
+                pBlendTo = weatherTick.pPreset;
+                bBlending = true;
+                BlendWeather( blendFrom, *pBlendTo, 0.0f, blendWeather );
+                pWeather = &blendWeather;
+            } else {
+                pWeather = weatherTick.pPreset;
+            }
             OTDU_LOG_INFO( "FREERIDE: clock %02d:%02d, weather '%s' intempery %d (rain %.2f)\n",
                            weatherCycle.getHour(), weatherCycle.getMinute(), pWeather->Name.c_str(),
                            pWeather->Intempery, pWeather->getFloat( "rain_ground_global_intensity", 0.0f ) );
+        }
+        if ( bBlending ) {
+            blendTime += deltaTime;
+            const float t = Min( 1.0f, blendTime / blendDuration );
+            if ( t >= 1.0f ) {
+                bBlending = false;
+                pWeather = pBlendTo;
+            } else {
+                BlendWeather( blendFrom, *pBlendTo, t, blendWeather );
+                pWeather = &blendWeather;
+            }
         }
         if ( weatherTick.bClockChanged ) {
             // The pause screen has its own clock (PauseMenu::refreshClock reads

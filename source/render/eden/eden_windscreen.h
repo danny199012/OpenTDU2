@@ -26,6 +26,9 @@ public:
     // nothing draws.
     inline void setEnabled( bool bEnable ) { bEnabled = bEnable; }
     inline bool isEnabled() const { return bEnabled; }
+    // The lens variant (views with no glass in front of the eye: chase, bumper):
+    // a few drops on the camera, no wet film (the old fog report).
+    inline void setLens( bool bOn ) { bLens = bOn; }
     // Raining (the frame's weather) and enabled: the composite runs.
     inline bool isActive() const { return bEnabled && alpha > 0.0f; }
     // The strength of the wet film 0..1 (the composite fogs by it).
@@ -76,6 +79,7 @@ private:
     float spawnRate = 0.0f; // per second (retail freq * -dropletscale)
     float lifeTime = 2.0f;
     bool bEnabled = false;
+    bool bLens = false;
 
     static constexpr uint32_t kMaxDroplets = 2048;
 

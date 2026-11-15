@@ -3,6 +3,23 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 2): spec card off, photo-mode head, weather blend, lens droplets
+
+Owner: remove the bottom-right car stats card (predates the dealership UI); headless driver in photo mode; blend weather / day-night better (rain starting slow); droplets and wipers in other views.
+
+### What changed
+- `freeride_hud.cpp` `showCarSpecCard`: no-op unless `-speccard` (traffic and showroom card both).
+- `gm_freeride.cpp`: the driver's head draws while `photoCamera.isOpen()` (it was hidden for the cockpit mode 23 the photo cam inherits).
+- `gm_freeride.cpp` `BlendWeather` + `gm_freeride.h`: a preset change (clock preset or clear/cloud/rain state) now blends 10 s (time of day) / 40 s (state change) through a flat interpolated preset; rain_* / thunder_* keys ease with t^2 when growing (drizzle first), mirrored when fading. `-noweatherblend` = old instant switch. [INF: durations and curves]
+- `eden_windscreen.*`, `eden_scene_view.h`, `gm_freeride.cpp`: droplets now also show in chase / bumper views as a "lens" variant (45 % cap, no wet film); cap ramps with rain_alpha (full from 128). `-nolensdrops` = old (cockpit only).
+
+### Verified
+- Builds; `-clockrate 600` run 1500 frames, no errors; chase view `-intempery 3` log "droplets on", screenshot shows rain scene with no card. The blend itself and the headed driver were NOT looked at in 3D.
+
+### Not done / next
+- Rain on the car's glass seen from outside (needs a glass-material wetness term in the car shader) - not started. Wipers already exist (F6 cycles off/auto/fast, `-wipers`); only the cockpit view shows the blades.
+- Lens drops are few (retail cap is 10 x `-dropletscale 4`); raise `-dropletscale` if too faint.
+
 ## Session 2026-11-15 (`main`): cars with no chase camera now fall back to the default camera sets
 
 Owner: "I can only go into camera views cockpit and bonnet, no chase or anything else ... dig for the real camera data from the dev build".

@@ -80,7 +80,10 @@ void EdenWindscreen::update( float deltaTime, const WeatherPreset *pWeather ) {
     // The retail keys (rain_shadow_spec.md A.1: droplets [+0xdbc]: +0x3890 =
     // int(max), +0x3888 = life, +0x3894 = freq, enabled if max > 0).
     const float maxValue = pWeather->getFloat( "rain_droplets_max", 0.0f );
-    cap = maxValue * scale;
+    // The shower builds up with the rain: few drops while rain_alpha is still
+    // growing (the weather blend ramps it), the full cap from half intensity.
+    const float rainRamp = Clamp( pWeather->getFloat( "rain_alpha", 0.0f ) / 128.0f, 0.0f, 1.0f );
+    cap = maxValue * scale * rainRamp * ( bLens ? 0.45f : 1.0f );
     lifeTime = Max( 0.25f, pWeather->getFloat( "rain_droplets_life_time", 2.0f ) );
     // The retail spawn freq is tiny (0.15/s on the per-hour presets): with the
     // 0.8 s life the equilibrium would be ~0 visible drops. The rate at least
@@ -110,7 +113,7 @@ void EdenWindscreen::update( float deltaTime, const WeatherPreset *pWeather ) {
     // The wet film soaks with the rain, the wiper sweep clears it (wipe()).
     // Soak-rate halved: the film is a light mist on the glass, not a screen
     // tint (the streak-filter report).
-    film = Min( 1.0f, film + deltaTime * 0.10f * Clamp( alpha / 255.0f, 0.0f, 1.0f ) );
+    film = bLens ? 0.0f : Min( 1.0f, film + deltaTime * 0.10f * Clamp( alpha / 255.0f, 0.0f, 1.0f ) );
 
     // Spawn: the retail freq per second, up to the cap.
     if ( numAlive < static_cast<uint32_t>( cap ) ) {

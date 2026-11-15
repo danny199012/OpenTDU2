@@ -195,6 +195,7 @@ public:
         }
         windscreen.setEnabled( bEnable );
     }
+    inline void setDropletsLens( bool bLens ) { windscreen.setLens( bLens ); }
     inline EdenWindscreen &getWindscreen() { return windscreen; }
 
     void tick( float deltaTime );

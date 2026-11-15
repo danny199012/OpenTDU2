@@ -116,6 +116,14 @@ private:
     // -intempery <n>: the picked preset with that intempery's block resolved
     // over its base (a copy, since the presets vector stays read-only).
     WeatherPreset intemperyWeather;
+    // Smooth weather changes (the preset switch used to be instant): the world
+    // is lit with blendWeather while a blend from blendFrom to *pBlendTo runs.
+    WeatherPreset blendFrom;
+    WeatherPreset blendWeather;
+    const WeatherPreset *pBlendTo = nullptr;
+    float blendTime = 0.0f;
+    float blendDuration = 1.0f;
+    bool bBlending = false;
     WeatherPreset caveWeather; // the Hawai cave's lit copy of the current weather
     void applyForcedIntempery();
     FirstOutro outro;

@@ -2955,6 +2955,13 @@ void FreeRideHud::drawZone( Renderer2D &renderer ) {
 }
 
 void FreeRideHud::showCarSpecCard( const std::string &name, int32_t price, const CarSpec &spec ) {
+    // Off by default (owner, 2026-11-15): it predates the real dealership UI.
+    // -speccard brings it back.
+    static const bool bEnabled = CmdLine::HasArg( "-speccard" );
+    if ( !bEnabled ) {
+        bCarSpecCard_ = false;
+        return;
+    }
     carSpecName_ = name;
     carSpecPrice_ = price;
     carSpec_ = spec;
