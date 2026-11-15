@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "traffic.h"
+#include "game/freeride/car_debris.h"
 
 #include "core/crypto/cpr.h"
 #include "core/xmb.h"
@@ -592,6 +593,9 @@ void Traffic::appendLampGlows( std::vector<EdenLampGlow> &out, const Vector3f &c
 }
 
 void Traffic::unload() {
+    if ( debris != nullptr ) {
+        debris->clear();
+    }
     rivalTypes = 0;
     rivalTimer = 0.0f;
     bLoaded = false;
@@ -1009,6 +1013,9 @@ bool Traffic::spawn( const Vector3f &player, const CinematicCar::SurfaceFunction
         if ( kForcedDamage > 0 ) {
             agent.Zone[0] = agent.Zone[1] = static_cast<float>( kForcedDamage );
             agent.Zone[2] = agent.Zone[3] = 0.5f * static_cast<float>( kForcedDamage );
+            if ( agent.Type >= 0 && static_cast<size_t>( agent.Type ) < types.size() && types[agent.Type].Model ) {
+                agent.LostParts = types[agent.Type].Rig.lostMask( agent.Zone[0], agent.Zone[1], agent.Zone[2], agent.Zone[3] );
+            }
         }
         agents.push_back( agent );
         if ( ++spawned % 5 == 1 ) {
@@ -1806,6 +1813,29 @@ void Traffic::draw( EdenRenderer &renderer, const WeatherPreset *pWeather ) {
     }
 }
 
+void Traffic::checkLostParts( Agent &agent ) {
+    Type &type = types[agent.Type];
+    if ( !type.Model || !type.Rig.hasParts() ) {
+        return;
+    }
+    const uint32_t mask = type.Rig.lostMask( agent.Zone[0], agent.Zone[1], agent.Zone[2], agent.Zone[3] );
+    const uint32_t fresh = mask & ~agent.LostParts;
+    agent.LostParts = mask;
+    if ( fresh == 0 || debris == nullptr ) {
+        return;
+    }
+    const float fx = std::sin( agent.Yaw ), fz = std::cos( agent.Yaw );
+    const Vector3f velocity( fx * agent.Speed, 0.0f, fz * agent.Speed );
+    Matrix4x4f world = agent.World;
+    world.m[3][1] += type.GroundLift;
+    for ( int32_t part = 0; part < CarPartRig::NumParts; part++ ) {
+        CarPartRig::Detached detached;
+        if ( ( ( fresh >> part ) & 1u ) && type.Rig.detachPart( *type.Model, part, detached ) ) {
+            debris->spawn( *type.Model, detached, world, velocity );
+        }
+    }
+}
+
 void Traffic::damageAgent( Agent &agent, float nx, float nz, float gain ) {
     if ( gain <= 0.0f ) {
         return;
@@ -1819,6 +1849,15 @@ void Traffic::damageAgent( Agent &agent, float nx, float nz, float gain ) {
         Min( agent.Zone[localZ >= 0.0f ? 0 : 1] + gain * std::fabs( localZ ) / spread, 65535.0f );
     agent.Zone[localX >= 0.0f ? 2 : 3] =
         Min( agent.Zone[localX >= 0.0f ? 2 : 3] + gain * std::fabs( localX ) / spread, 65535.0f );
+    // A hard single hit on a part that is already well damaged knocks it off [INF].
+    for ( int32_t zone = 0; zone < 4; zone++ ) {
+        const float share = zone < 2 ? ( zone == ( localZ >= 0.0f ? 0 : 1 ) ? std::fabs( localZ ) / spread : 0.0f )
+                                     : ( zone == ( localX >= 0.0f ? 2 : 3 ) ? std::fabs( localX ) / spread : 0.0f );
+        if ( gain * share >= 9000.0f && agent.Zone[zone] >= 30000.0f ) {
+            agent.Zone[zone] = Max( agent.Zone[zone], zone < 2 ? 52500.0f : 60500.0f );
+        }
+    }
+    checkLostParts( agent );
 }
 
 void Traffic::setGlassCracked( Type &type, bool bCracked ) {

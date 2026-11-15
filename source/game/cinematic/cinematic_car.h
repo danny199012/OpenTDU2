@@ -286,6 +286,9 @@ public:
     // door not shut properly) and the bumpers sag and hang off [owner's retail captures, the
     // model's separate BUMP_F_* / BUMP_R_* / DOOR_L / DOOR_R nodes]. Cheap when nothing changed.
     void applyPartDamage( float front, float rear, float left, float right );
+    // The detachable parts (bumpers, bonnet, boot lid): which are gone at these zone values, and the
+    // part of the model to throw (CarDebris).
+    inline const CarPartRig &getPartRig() const { return partRig; }
 
 private:
     // The light driver (docs/re/car_lights_spec.md): collectLights at load

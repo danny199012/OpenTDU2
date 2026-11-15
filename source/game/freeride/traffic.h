@@ -43,6 +43,8 @@ public:
                const std::vector<std::pair<int32_t, int32_t>> &edges, const std::vector<std::vector<Vector3f>> &shapes,
                float hour );
     void unload();
+    // The debris of the parts that come off a traffic car (owned by the game mode).
+    inline void setDebris( class CarDebris *pDebris ) { debris = pDebris; }
 
     // The headlight cones of the agents whose front lamps are shown (the
     // Traffic::draw night gate), nearest to cameraPosition first, up to
@@ -151,6 +153,7 @@ public:
                            float length, float mass, Vector3f &outDeltaVelocity );
 
 private:
+    class CarDebris *debris = nullptr;
     // The lamp function letters of the FA_<c>_<FL|FR|RL|RR>[_n] glow sprite
     // nodes (docs/re/car_lights_spec.md 2.5): 'L' front lights, 'B' rear
     // position, 'S' stop, 'R' reverse, 'W' warning (the blinker of the node
@@ -216,6 +219,7 @@ private:
         // Damage by zone (0..65535): front, rear, left, right. Drives the bumpers, the doors and the
         // cracked glass of this car's draw (docs/re/damage_spec.md 3c).
         float Zone[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        uint32_t LostParts = 0; // CarPartRig::lostMask already thrown as debris
         float NearMissCooldown = 0.0f;
         float BrakeHold = 0.0f; // the brake lamps stay lit this long after a decel (s)
         uint32_t AudioId = 0;   // stable id of the engine voice (TrafficAudio)
@@ -267,6 +271,7 @@ private:
     void neutraliseGlassArt();
     // A hit on an agent: direction (nx, nz) from the agent towards what hit it, gain in damage units.
     void damageAgent( Agent &agent, float nx, float nz, float gain );
+    void checkLostParts( Agent &agent );
     // Binds the cracked (glass_b) or the clean (g_i) art in the DETAIL2 slot of the type's glass for one draw.
     void setGlassCracked( Type &type, bool bCracked );
 

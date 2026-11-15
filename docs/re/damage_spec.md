@@ -86,6 +86,15 @@ the hood and the boot are part of `BODY_HR`, so they cannot hinge as nodes here.
 - Verified: parked pre-damaged traffic: smashed bus windscreen, hanging rear bumpers and a popped boot lid on the cars (screenshot checked by eye, not committed). NOT verified: a real player-vs-traffic crash end to end, the player car's bonnet (no node).
 - The gain scale (0.9 x impulse) is a guess; the retail record magnitude is still not decoded (section 4).
 
+## 3e. Parts that come off, sparks and smoke (2026-11-15, `main`)
+- `CarPartRig::lostMask` (stateless, from the zone values): front / rear bumper at 52000, bonnet / boot lid and traffic doors at 60000 [INF]. A hard single hit (>= 9000 in one step) on a part already at >= 30000 knocks it off
+  (the zone is raised past the threshold, so the loss survives a save: it is derived from the zone). The player car's doors are not thrown (its interior panels follow `setDoorAngle`). A repair (zone 0) brings every part back.
+- A lost part collapses on the car (`apply` writes a ~0 scale to its nodes) and `CarDebris` (`source/game/freeride/car_debris.{h,cpp}`) draws it from the car's own model (`ForceHiddenNodes` = every other mesh node): it keeps the car's velocity
+  plus a kick, tumbles, bounces on the collision (raycast down) and settles; max 40 pieces, dropped beyond 450 m. Player (`GMFreeRide::updateLostParts`) and traffic (`Traffic::checkLostParts`, from `damageAgent`; `-trafficdamage` cars spawn already without them).
+- Effects (`EdenSurfaceFx::emitBurst`, port-native [INF]): sparks at the end / flank that took the hit, a dust + spark puff where a part tears off, engine-bay smoke from 30000 of front damage (darker and thicker towards 65535).
+- Test hook: `-setzone <frame>,<front>,<rear>` writes the player's end zones once. Verified: parked car, `-setzone 250,60000,60000` (`-tp 27037,11610`): two pieces thrown, tumbling next to the car in frame 262, rear bumper gone from the car at frame 400; cockpit view with the front bumper gone.
+- NOT verified visually: the sparks and the smoke particles (nothing readable in the cockpit shots; log shows no errors), the landing of a piece at ground level (it left the chase camera's view), traffic debris in play, a door leaving a traffic car.
+
 ## 4. Next
 1. Exercise the traffic feed in play; the lateral rule for side hits; AI-vs-AI impacts.
 2. Remaining visuals: `DamageMap` render target + `TD_damagemap` splat + `TD_CarDeform_TS` on the car body (scratches at state 1, deformation at 2, the wreck look at 3), `CrushedSuspensionFX`. The glass crack is done.

@@ -461,6 +461,24 @@ void EdenSurfaceFx::updateBrakeDisc( uint32_t wheelIndex, const WheelContact &co
     disc.Glow = Saturate( ( disc.Temperature - kBrakeGlowStart ) / ( kBrakeGlowFull - kBrakeGlowStart ) );
 }
 
+void EdenSurfaceFx::emitBurst( const Vector3f &position, const Vector3f &velocity, const Vector4f &color, float size,
+                               float life, float gravity, float drag ) {
+    if ( !bEnabled ) {
+        return;
+    }
+    Particle particle;
+    particle.Position = position;
+    particle.Velocity = velocity;
+    particle.Color = color;
+    particle.Life = 0.0f;
+    particle.MaxLife = life;
+    particle.Size = size;
+    // The pool's Gravity field is a signed acceleration (-9.81 falls).
+    particle.Gravity = -gravity;
+    particle.Drag = drag;
+    spawnParticle( particle );
+}
+
 void EdenSurfaceFx::spawnParticle( const Particle &particle ) {
     if ( particles.empty() ) {
         return;

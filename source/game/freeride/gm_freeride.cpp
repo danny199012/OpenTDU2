@@ -737,6 +737,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             if ( car.isLoaded() ) {
                 car.draw( renderer, carWorld, view.getWeather(), bEnvironmentAssigned );
             }
+            debris.draw( renderer );
             traffic.draw( renderer, view.getWeather() );
             police.draw( renderer, view.getWeather() );
             opponents.draw( renderer, view.getWeather() );
@@ -770,6 +771,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( ( bScenePass || bCubeActors ) && car.isLoaded() ) {
             if ( bScenePass ) {
                 car.draw( renderer, carWorld, view.getWeather(), bEnvironmentAssigned );
+                debris.draw( renderer );
                 // Driver (and passenger): the head is hidden in the cockpit view.
                 if ( bDriverSeated ) {
                     driver.draw( renderer, chase.getMode() != 23 );
@@ -873,6 +875,16 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         }
     }
     mapScreen.loadRoads( islandName );
+    // The parts that come off cars land on the same collision the car drives on.
+    debris.setGround( [this]( const Vector3f &from, float &outHeight ) {
+        VehicleWorldCollision::Hit hit;
+        if ( !collision.raycast( from, Vector3f( 0.0f, -1.0f, 0.0f ), 12.0f, hit ) ) {
+            return false;
+        }
+        outHeight = hit.Position.y;
+        return true;
+    } );
+    traffic.setDebris( &debris );
     // -scanroadsurface: what is under each road link (class byte x surface of a
     // ray cast down at the middle of the link). The tarmac is in the -R.shk
     // road collision, a dirt track is terrain paint [INF]: this tests it.
@@ -4188,6 +4200,8 @@ bool GMFreeRide::switchCar( const CinematicCar::Desc &desc, const Vector3f &posi
         }
     }
     unloadOccupants();
+    debris.clear();
+    bLostPartsInit = false;
     car.unload();
     carDesc = desc;
     ApplyProfileRims( carDesc );
@@ -4666,6 +4680,7 @@ void GMFreeRide::tickSurfaceFx( float deltaTime ) {
     applyCarDirt( mudContacts * contactsInv, dirtContacts * contactsInv, carVelocity.length() * 3.6f );
     // Car damage (docs/re/damage_spec.md): the glass cracks from "deformed".
     car.applyDamageState( vehicle.getDamageState() );
+    updateLostParts( carVelocity, deltaTime );
     car.applyPartDamage( vehicle.getZoneDamage( 0 ), vehicle.getZoneDamage( 1 ), vehicle.getZoneDamage( 2 ),
                          vehicle.getZoneDamage( 3 ) );
     if ( CmdLine::HasArg( "-lognodes" ) ) {
@@ -4986,6 +5001,7 @@ void GMFreeRide::tick( float deltaTime ) {
             vehicle.resetDamage();
             car.applyDamageState( 0 );
             car.applyPartDamage( 0.0f, 0.0f, 0.0f, 0.0f );
+            lostParts = 0;
             OTDU_LOG_INFO( "FREERIDE: the car was repaired\n" );
         }
         interior.tickBackground( deltaTime );
@@ -7162,6 +7178,7 @@ void GMFreeRide::tick( float deltaTime ) {
         outro.registerLightmaps( view );
     }
     addSpotExteriorCollisions();
+    debris.update( deltaTime, carWorld.getTranslation() );
     scanWashBlockage();
     view.tick( deltaTime );
 }
@@ -7226,6 +7243,97 @@ void GMFreeRide::scanWashBlockage() {
         }
         OTDU_LOG_INFO( "scanwash: wash at (%.0f, %.0f) hdg %.2f: %d road samples, %d blocked\n", spot.Position.x,
                        spot.Position.z, spot.Heading, tested, blocked );
+    }
+}
+
+void GMFreeRide::updateLostParts( const Vector3f &velocity, float deltaTime ) {
+    // A hard single hit on an end that is already well damaged knocks the bumper off (the zone
+    // jumps over the threshold; the loss is derived from the zone, so it survives a save) [INF].
+    // -setzone <frame>,<front>,<rear>: test hook, writes the player's end zones once at that frame.
+    static const char *pSetZone = CmdLine::GetArgValue( "-setzone" );
+    static int32_t zoneFrames = 0;
+    if ( pSetZone != nullptr && ++zoneFrames == [&]() { int f = 0; float a = 0, b = 0; sscanf( pSetZone, "%d,%f,%f", &f, &a, &b ); return f; }() ) {
+        int f = 0; float a = 0, b = 0;
+        sscanf( pSetZone, "%d,%f,%f", &f, &a, &b );
+        vehicle.setZoneDamage( 0, a );
+        vehicle.setZoneDamage( 1, b );
+    }
+    float zone[4];
+    for ( int32_t i = 0; i < 4; i++ ) {
+        zone[i] = vehicle.getZoneDamage( i );
+    }
+    if ( bLostPartsInit ) {
+        for ( int32_t i = 0; i < 2; i++ ) {
+            if ( zone[i] - prevZone[i] >= 9000.0f && zone[i] >= 30000.0f &&
+                 zone[i] < CarPartRig::loseThreshold( CarPartRig::BumperF ) ) {
+                zone[i] = CarPartRig::loseThreshold( CarPartRig::BumperF ) + 500.0f;
+                vehicle.setZoneDamage( i, zone[i] );
+            }
+        }
+    }
+    // Damage effects (port-native [INF]): sparks from the body that took the hit, a dust puff at a part
+    // that came off, smoke from the engine bay once the front is badly hurt (it darkens and thickens
+    // towards the broken state).
+    if ( gpRender != nullptr && bLostPartsInit ) {
+        EdenSurfaceFx &fx = gpRender->getSurfaceFx();
+        static std::mt19937 rng( 4242u );
+        auto rnd = [&]() { return std::uniform_real_distribution<float>( 0.0f, 1.0f )( rng ); };
+        const Vector3f fwd = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+        const Vector3f side = carWorld.transformVector( Vector3f( 1.0f, 0.0f, 0.0f ) );
+        const Vector3f origin = carWorld.getTranslation();
+        for ( int32_t i = 0; i < 4; i++ ) {
+            const float delta = zone[i] - prevZone[i];
+            if ( delta < 150.0f ) {
+                continue;
+            }
+            // Where the body was hit: front / rear at the bumper, left / right at the flank.
+            const Vector3f at = origin + ( i < 2 ? fwd * ( i == 0 ? 2.0f : -2.0f ) : side * ( i == 2 ? 0.9f : -0.9f ) ) +
+                                Vector3f( 0.0f, 0.35f, 0.0f );
+            const int32_t sparks = Clamp( static_cast<int32_t>( delta / 400.0f ), 2, 16 );
+            for ( int32_t k = 0; k < sparks; k++ ) {
+                const Vector3f dir( rnd() - 0.5f, rnd() * 0.8f, rnd() - 0.5f );
+                fx.emitBurst( at, velocity * 0.6f + dir * ( 3.0f + 5.0f * rnd() ), Vector4f( 1.0f, 0.72f + 0.2f * rnd(), 0.25f, 0.95f ),
+                              0.018f + 0.02f * rnd(), 0.25f + 0.3f * rnd(), 9.81f, 0.6f );
+            }
+        }
+        const float front = zone[0];
+        if ( front >= 30000.0f ) {
+            const float level = Clamp( ( front - 30000.0f ) / 35535.0f, 0.0f, 1.0f );
+            smokeClock += deltaTime;
+            const float rate = 6.0f + 24.0f * level;
+            while ( smokeClock * rate >= 1.0f ) {
+                smokeClock -= 1.0f / rate;
+                const float grey = 0.55f - 0.45f * level;
+                fx.emitBurst( origin + fwd * 1.6f + Vector3f( 0.0f, 0.75f, 0.0f ) + side * ( rnd() - 0.5f ) * 0.6f,
+                              velocity * 0.85f + Vector3f( ( rnd() - 0.5f ) * 0.4f, 0.7f + rnd() * 0.8f, ( rnd() - 0.5f ) * 0.4f ),
+                              Vector4f( grey, grey, grey, 0.22f + 0.2f * level ), 0.22f + 0.2f * rnd(), 1.4f + 1.4f * level,
+                              -0.7f, 0.9f );
+            }
+        }
+    }
+    for ( int32_t i = 0; i < 4; i++ ) {
+        prevZone[i] = zone[i];
+    }
+    const CarPartRig &rig = car.getPartRig();
+    const uint32_t mask = rig.lostMask( zone[0], zone[1], zone[2], zone[3], false );
+    const uint32_t fresh = bLostPartsInit ? ( mask & ~lostParts ) : 0u; // a loaded save: gone, not thrown
+    lostParts = mask;
+    bLostPartsInit = true;
+    for ( int32_t part = 0; part < CarPartRig::NumParts && fresh != 0; part++ ) {
+        CarPartRig::Detached detached;
+        if ( ( ( fresh >> part ) & 1u ) && rig.detachPart( car.getModel(), part, detached ) ) {
+            debris.spawn( car.getModel(), detached, carWorld, velocity );
+            if ( gpRender != nullptr ) {
+                // The dust and sparks of the part tearing off.
+                const Vector3f at = carWorld.transformPoint( detached.Center );
+                for ( int32_t k = 0; k < 14; k++ ) {
+                    const float a = 0.45f * static_cast<float>( k );
+                    gpRender->getSurfaceFx().emitBurst( at, velocity * 0.7f + Vector3f( std::cos( a ) * 2.0f, 1.0f + 0.2f * k, std::sin( a ) * 2.0f ),
+                                                        k < 5 ? Vector4f( 1.0f, 0.8f, 0.3f, 0.9f ) : Vector4f( 0.6f, 0.58f, 0.55f, 0.35f ),
+                                                        k < 5 ? 0.03f : 0.25f, k < 5 ? 0.4f : 0.9f, k < 5 ? 9.81f : -0.3f, 0.8f );
+                }
+            }
+        }
     }
 }
 
@@ -7484,6 +7592,7 @@ void GMFreeRide::exit() {
     wheelFfb.shutdown(); // never leave the wheel torqued
     radio.stop();
     opponents.stop();
+    debris.clear();
     traffic.unload();
     aircraft.unload();
     birds.unload();

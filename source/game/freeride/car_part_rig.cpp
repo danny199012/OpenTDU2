@@ -73,64 +73,156 @@ void CarPartRig::gather( const EdenModel &model ) {
     }
 }
 
+void CarPartRig::poseBumper( int32_t end, float zone, std::vector<std::pair<int32_t, Matrix4x4f>> &out ) const {
+    // Sag from ~12000 on the bumper's end, dangling at ~48000 (pitched about the top edge on the
+    // car side, dropped and pushed out) [INF].
+    const float hang = Clamp( ( zone - 12000.0f ) / 36000.0f, 0.0f, 1.0f );
+    if ( bumpers[end].Nodes.empty() || hang <= 0.0f ) {
+        return;
+    }
+    const float pitch = ( end == 0 ? 1.0f : -1.0f ) * 0.9f * hang;
+    const Vector3f pivot = bumpers[end].Pivot;
+    const Matrix4x4f about = Matrix4x4f::Translation( pivot ) *
+                             Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), pitch ) ) *
+                             Matrix4x4f::Translation( -pivot );
+    const Matrix4x4f drop = Matrix4x4f::Translation( Vector3f( 0.0f, -0.3f * hang, ( end == 0 ? 0.25f : -0.25f ) * hang ) );
+    for ( const auto &node : bumpers[end].Nodes ) {
+        out.emplace_back( node.first, drop * about * node.second );
+    }
+}
+
+void CarPartRig::poseHood( int32_t end, float zone, std::vector<std::pair<int32_t, Matrix4x4f>> &out ) const {
+    // Pop up about the cabin-side edge from ~20000 on their end, up to ~0.55 rad (latched ajar,
+    // not flung open) [INF]. The bonnet's free edge is at +z: raising it is a negative pitch.
+    const float pop = 0.55f * Clamp( ( zone - 20000.0f ) / 20000.0f, 0.0f, 1.0f );
+    if ( hoods[end].Nodes.empty() || pop <= 0.0f ) {
+        return;
+    }
+    const float pitch = end == 0 ? -pop : pop;
+    const Vector3f pivot = hoods[end].Pivot;
+    const Matrix4x4f about = Matrix4x4f::Translation( pivot ) *
+                             Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), pitch ) ) *
+                             Matrix4x4f::Translation( -pivot );
+    for ( const auto &node : hoods[end].Nodes ) {
+        out.emplace_back( node.first, about * node.second );
+    }
+}
+
+void CarPartRig::poseDoor( int32_t side, float zone, std::vector<std::pair<int32_t, Matrix4x4f>> &out ) const {
+    // Loose from ~6000 of side damage, up to ~0.2 rad (left swings out on a negative angle).
+    const Door &door = doors[side];
+    const float ajar = 0.2f * Clamp( ( zone - 6000.0f ) / 40000.0f, 0.0f, 1.0f );
+    if ( door.Node < 0 || ajar <= 0.0f ) {
+        return;
+    }
+    const Matrix4x4f rotation = Matrix4x4f::FromQuaternion(
+        Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), side == 0 ? -ajar : ajar ) );
+    const Matrix4x4f delta = door.Rest * rotation * door.Rest.inverse();
+    for ( const auto &rest : door.Subtree ) {
+        out.emplace_back( rest.first, delta * rest.second );
+    }
+}
+
+float CarPartRig::loseThreshold( int32_t part ) {
+    return part <= BumperR ? 52000.0f : 60000.0f;
+}
+
+uint32_t CarPartRig::lostMask( float front, float rear, float left, float right, bool bDoors ) const {
+    uint32_t mask = 0;
+    const float zones[NumParts] = { front, rear, front, rear, left, right };
+    for ( int32_t part = 0; part < NumParts; part++ ) {
+        const bool bHas = part <= BumperR   ? !bumpers[part].Nodes.empty()
+                          : part <= HoodR   ? !hoods[part - HoodF].Nodes.empty()
+                                            : ( bDoors && hasDoor( part - DoorL ) );
+        if ( bHas && zones[part] >= loseThreshold( part ) ) {
+            mask |= 1u << part;
+        }
+    }
+    return mask;
+}
+
+bool CarPartRig::detachPart( const EdenModel &model, int32_t part, Detached &out ) const {
+    out = Detached();
+    if ( part <= BumperR ) {
+        poseBumper( part, 48000.0f, out.Nodes );
+        if ( out.Nodes.empty() ) {
+            out.Nodes = bumpers[part].Nodes;
+        }
+    } else if ( part <= HoodR ) {
+        poseHood( part - HoodF, 40000.0f, out.Nodes );
+        if ( out.Nodes.empty() ) {
+            out.Nodes = hoods[part - HoodF].Nodes;
+        }
+    } else {
+        poseDoor( part - DoorL, 46000.0f, out.Nodes );
+        if ( out.Nodes.empty() ) {
+            out.Nodes = doors[part - DoorL].Subtree;
+        }
+    }
+    if ( out.Nodes.empty() ) {
+        return false;
+    }
+    Vector3f lo( 1e30f, 1e30f, 1e30f ), hi( -1e30f, -1e30f, -1e30f );
+    for ( const auto &node : out.Nodes ) {
+        Vector3f mn, mx;
+        if ( !model.getNodeBounds( node.first, mn, mx ) ) {
+            continue;
+        }
+        for ( int32_t corner = 0; corner < 8; corner++ ) {
+            const Vector3f point = node.second.transformPoint(
+                Vector3f( ( corner & 1 ) ? mx.x : mn.x, ( corner & 2 ) ? mx.y : mn.y, ( corner & 4 ) ? mx.z : mn.z ) );
+            lo = Vector3f( Min( lo.x, point.x ), Min( lo.y, point.y ), Min( lo.z, point.z ) );
+            hi = Vector3f( Max( hi.x, point.x ), Max( hi.y, point.y ), Max( hi.z, point.z ) );
+        }
+    }
+    if ( lo.x > hi.x ) {
+        return false; // no node of the set has a mesh
+    }
+    out.Center = Vector3f( 0.5f * ( lo.x + hi.x ), 0.5f * ( lo.y + hi.y ), 0.5f * ( lo.z + hi.z ) );
+    const float sum = ( hi.x - lo.x ) + ( hi.y - lo.y ) + ( hi.z - lo.z );
+    out.Radius = Clamp( sum / 6.0f, 0.12f, 0.6f );
+    return true;
+}
+
 void CarPartRig::apply( EdenModel &model, float front, float rear, float left, float right, bool bDoors ) {
     if ( !bGathered ) {
         return;
     }
-    // The doors: loose from ~6000 of side damage, up to ~0.2 rad (left swings out on a negative angle).
+    const uint32_t lost = lostMask( front, rear, left, right, bDoors );
+    std::vector<std::pair<int32_t, Matrix4x4f>> poses;
+    // The doors (bDoors false leaves them to the caller).
     const float sides[2] = { left, right };
-    for ( int32_t side = 0; side < 2; side++ ) {
-        const Door &door = doors[side];
-        if ( !bDoors ) {
-            continue;
+    for ( int32_t side = 0; bDoors && side < 2; side++ ) {
+        if ( !( ( lost >> ( DoorL + side ) ) & 1u ) ) {
+            poseDoor( side, sides[side], poses );
         }
-        const float ajar = 0.2f * Clamp( ( sides[side] - 6000.0f ) / 40000.0f, 0.0f, 1.0f );
-        if ( door.Node < 0 || ajar <= 0.0f ) {
-            continue;
-        }
-        const Matrix4x4f rotation = Matrix4x4f::FromQuaternion(
-            Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), side == 0 ? -ajar : ajar ) );
-        const Matrix4x4f delta = door.Rest * rotation * door.Rest.inverse();
-        for ( const auto &rest : door.Subtree ) {
-            model.setNodeTransform( rest.first, delta * rest.second );
-        }
-        bApplied = true;
     }
-    // The bumpers: sag from ~12000 on their end, dangling at ~48000 (pitched about the top
-    // edge on the car side, dropped and pushed out).
     const float ends[2] = { front, rear };
     for ( int32_t end = 0; end < 2; end++ ) {
-        const float hang = Clamp( ( ends[end] - 12000.0f ) / 36000.0f, 0.0f, 1.0f );
-        if ( bumpers[end].Nodes.empty() || hang <= 0.0f ) {
-            continue;
+        if ( !( ( lost >> ( BumperF + end ) ) & 1u ) ) {
+            poseBumper( end, ends[end], poses );
         }
-        const float pitch = ( end == 0 ? 1.0f : -1.0f ) * 0.9f * hang;
-        const Vector3f pivot = bumpers[end].Pivot;
-        const Matrix4x4f about = Matrix4x4f::Translation( pivot ) *
-                                 Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), pitch ) ) *
-                                 Matrix4x4f::Translation( -pivot );
-        const Matrix4x4f drop = Matrix4x4f::Translation( Vector3f( 0.0f, -0.3f * hang, ( end == 0 ? 0.25f : -0.25f ) * hang ) );
-        for ( const auto &node : bumpers[end].Nodes ) {
-            model.setNodeTransform( node.first, drop * about * node.second );
+        if ( !( ( lost >> ( HoodF + end ) ) & 1u ) ) {
+            poseHood( end, ends[end], poses );
         }
-        bApplied = true;
     }
-    // The bonnet and the boot lid pop up about their cabin-side edge from ~20000 on their end,
-    // up to ~0.55 rad (latched ajar, not flung open) [INF].
-    for ( int32_t end = 0; end < 2; end++ ) {
-        const float pop = 0.55f * Clamp( ( ends[end] - 20000.0f ) / 20000.0f, 0.0f, 1.0f );
-        if ( hoods[end].Nodes.empty() || pop <= 0.0f ) {
+    // A part that has come off is not drawn on the car (its nodes collapse to a point; the debris
+    // system draws it flying and lying in the world).
+    const Matrix4x4f gone = Matrix4x4f::Scale( Vector3f( 0.0001f, 0.0001f, 0.0001f ) );
+    for ( int32_t part = 0; part < NumParts; part++ ) {
+        if ( !( ( lost >> part ) & 1u ) ) {
             continue;
         }
-        // The bonnet's free edge is at +z: raising it is a negative pitch; the boot's is at -z: positive.
-        const float pitch = end == 0 ? -pop : pop;
-        const Vector3f pivot = hoods[end].Pivot;
-        const Matrix4x4f about = Matrix4x4f::Translation( pivot ) *
-                                 Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), pitch ) ) *
-                                 Matrix4x4f::Translation( -pivot );
-        for ( const auto &node : hoods[end].Nodes ) {
-            model.setNodeTransform( node.first, about * node.second );
+        const std::vector<std::pair<int32_t, Matrix4x4f>> &nodes =
+            part <= BumperR ? bumpers[part].Nodes : part <= HoodR ? hoods[part - HoodF].Nodes : doors[part - DoorL].Subtree;
+        for ( const auto &node : nodes ) {
+            poses.emplace_back( node.first, gone );
         }
+    }
+    for ( const auto &pose : poses ) {
+        model.setNodeTransform( pose.first, pose.second );
+    }
+    if ( !poses.empty() ) {
         bApplied = true;
     }
 }

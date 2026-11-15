@@ -3219,11 +3219,13 @@ void CinematicCar::applyPartDamage( float front, float rear, float left, float r
     // The bumpers and the bonnet / boot lid (quantised: the nodes are only rewritten when the pose moves).
     const int32_t keyFront = static_cast<int32_t>( 40.0f * Clamp( front / 65535.0f, 0.0f, 1.0f ) );
     const int32_t keyRear = static_cast<int32_t>( 40.0f * Clamp( rear / 65535.0f, 0.0f, 1.0f ) );
-    if ( keyFront == appliedPartKey[0] && keyRear == appliedPartKey[1] ) {
+    const int32_t keyLost = static_cast<int32_t>( partRig.lostMask( front, rear, left, right, false ) );
+    if ( keyFront == appliedPartKey[0] && keyRear == appliedPartKey[1] && keyLost == appliedPartKey[2] ) {
         return;
     }
     appliedPartKey[0] = keyFront;
     appliedPartKey[1] = keyRear;
+    appliedPartKey[2] = keyLost;
     partRig.restore( car );
     partRig.apply( car, front, rear, left, right, false );
 }

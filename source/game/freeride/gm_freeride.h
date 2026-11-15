@@ -41,6 +41,7 @@
 #include "game/freeride/traffic.h"
 #include "game/freeride/weather_cycle.h"
 #include "game/freeride/car_dirt.h"
+#include "game/freeride/car_debris.h"
 #include "game/gm_base.h"
 #include "game/spots/mod_props.h"
 #include "game/spots/spot_exteriors.h"
@@ -251,6 +252,13 @@ private:
     // frame) already handed to `collision`: bank path + frame index.
     std::unordered_set<std::string> spotCollisionsAdded;
     void addSpotExteriorCollisions();
+    // Parts that came off the cars (bumpers, bonnet, boot, doors): docs/re/damage_spec.md 3e.
+    CarDebris debris;
+    uint32_t lostParts = 0;
+    bool bLostPartsInit = false;
+    float prevZone[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    float smokeClock = 0.0f;
+    void updateLostParts( const Vector3f &velocity, float deltaTime );
     void scanWashBlockage(); // -scanwash
     bool bSpotExteriors = true; // -noexteriors
     // Our own buildings (docs/re/modding.md): OBJ + MTL + PNG meshes placed from

@@ -387,3 +387,49 @@ it here; a positional `.cin` voice of another scene would be the test. `-logcins
   -fixedtimestep -autoplay "120:press=validate;800:press=validate" -exitframe 3800`.
 - `c_washing_02`'s real parenting (10.3); the retail fee prompt (none readable); `C_INTRO_E_2`,
   `C_OUTRO_FERRARI`; the tunnel `icw_a`.
+
+## 11. Placements and the blocking-roads question (2026-11-15, `glm`)
+
+The owner: *"can this say where the car washes are placed? I have a few blocking roads and
+it's not accurate."* There are exactly **8 car washes in the game** — all `ECW_A` spots.bin
+records (category 8), 3 on Ibiza / 5 on Hawai, none on the casino island. These are the
+retail placements (spots.bin `+0x10` position, `+0x20` heading; T(pos) R_y(hdg)):
+
+| # | Island | Position (x, y, z) | Heading | Road through the front band (wash-local z 24..32) | `-scanwash` verdict (fresh build) |
+|---|---|---|---|---|---|
+| 1 | Ibiza | (8128.7, 146.5, 26222.3) | 12.9° | yes — road 1216 / link 1177, full width | 85 road samples, **0 blocked** |
+| 2 | Ibiza | (19122.7, 139.9, 18162.4) | 154.9° | yes — road 9 | 0 blocked (commit 93d8cda) |
+| 3 | Ibiza | (27062.5, 69.8, 11642.2) | -86.0° | yes — road 934 | 0 blocked (commit 93d8cda) |
+| 4 | Hawai | (13546.3, 68.2, 29901.9) | 177.8° | yes — road 672 / link 657 | 137 samples, 0 wash blocks (1 hit is a 6 cm terrain step **45 m away** at (13504, 29917), normal up — not the wash) |
+| 5 | Hawai | (17825.9, 25.5, 17506.5) | 68.7° | no (nearest road 37 m) | 76 samples, **0 blocked** |
+| 6 | Hawai | (23221.7, 8.1, 46191.8) | -34.3° | yes — road 816 / link 801, full width | 86 samples, **0 blocked** |
+| 7 | Hawai | (52769.5, 41.4, 40230.2) | 39.7° | no (nearest road 36 m) | 135 samples, **0 blocked** |
+| 8 | Hawai | (53046.5, 2.5, 50360.1) | 176.6° | yes — road 1978 / link 1955 | 142 samples, **0 blocked** |
+
+**The port's placement frames are retail-accurate.** Three independent checks [DATA]:
+- Every spot's **Y equals the road-surface height** at the crossing to 0.1-0.3 m
+  (wash 1: spot 146.5 vs road curve 146.3-146.4; wash 3: 69.8 vs 69.9; wash 6: 8.1 vs
+  8.0-8.2) — neither floated nor sunk.
+- All six road crossings land in the **same local band (z 24..32)** across the front
+  face, at every heading — headings are coherent, nothing rotated.
+- The bank file is byte-identical between this package and retail (dev_build_survey.md §1),
+  and the port draws at the same spot frame — there is nothing to "fix" in placement.
+
+**The road through the wash front is retail geometry, on purpose**: the curve belongs to
+the nav graph and runs across the forecourt band (the drive-in). In retail, cars drive
+over that strip; the wash never blocks it. The port's visible fault was the bank's own
+**0.4 m forecourt plate drawn over the road** (hidden since commit 0177afb,
+`-keepwashplate` restores) — the collision scan says the road was never physically blocked.
+
+So "a few blocking roads, not accurate": if a road still looks cut or blocked after
+0177afb, the washes are not the cause. Candidates next:
+- Other **exterior banks with big flat plates** over a road — the plate-hiding only
+  matches `/ecw_` banks (`spot_exterior.cpp`); dealers / houses (`ecd_*` / `eph_*`) have
+  the same kind of ground plates (the `-logspotitems` dump above shows ecd_bri2 items
+  spanning 55 x 90 m). A `-scanplate`-style sweep over all spot banks vs the road graph
+  would list every plate-over-road case.
+- The two washes with no road crossing (5, 7) sit off-road; if the user's blocked roads
+  are near those, look at their sector content instead.
+
+Tag reminder: placement [DATA], scan [CODE], "retail drew the road differently" [INF]
+until a recomp screenshot of a wash front is compared.

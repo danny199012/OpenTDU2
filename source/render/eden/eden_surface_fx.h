@@ -130,6 +130,10 @@ public:
     // carries the brake pads (torque, slide) and the disc pose: the disc heats
     // up with the braking power and cools in the air flow here too.
     void emitWheel( uint32_t wheelIndex, const WheelContact &contact, float deltaTime );
+    // One free particle (damage: sparks, engine smoke, the dust of a part that came off). gravity is
+    // m/s^2 downwards (negative rises), drag the velocity loss per second, size the half extent.
+    void emitBurst( const Vector3f &position, const Vector3f &velocity, const Vector4f &color, float size, float life,
+                    float gravity, float drag );
 
     // Rain falling on the car: small splash particles on the body's upper
     // surfaces (boundsMin/Max: the body's world AABB). The rate follows the
