@@ -26,6 +26,11 @@ Owner (screenshot, Ibiza 11395 / 12.22 / 15474, heading 294): "graffiti on build
 ### Follow-up: `-notags`
 - `-notags` drops every `tags*` texture at material load (graffiti atlases; the wall takes the permutation without DETAIL2). Verified at the same spot: tags gone, rest of the frame identical (mean diff 2.69 over the whole frame, all in the wall crop). Default stays **off** (PC data carries the tags); say so if parity with the 360 should be the default.
 
+### Follow-up 2 (owner: "could it be similar to the airport issue?" - yes, a sampler address): the tags now clamp
+- `-logaddress` (new) prints each slot's raw 2DM address codes. `tagsa_c` is **(U2,V2)** and `AddressIndex` read 2 as *mirror*; the tag UV set leaves [0,1] (`-edenwrapall` painted whole walls with tags), so mirror repeated the atlas across the wall and roof. As **clamp** it reads the atlas's blank edge: the wall is clean with the layer still on, like the 360 (`-notags` no longer needed for parity).
+- `eden_renderer.cpp` `setupMaterial`: `tags*` textures sample clamp/clamp (`-tagsmirror` = the old mirror). Clamping **every** (2,2) texture was tried and **rejected**: the terrain ground detail flattened to a smear (27021,14752). So (2,2) is not clamp in general - it is per family, like the airport's code 3 [INF]; the real mapping is in the encrypted loader.
+- Verified: wall at 11395,15474 clean; 27021,14752 and 10490,15732 identical to before (diff 0.0). **Not verified: the roof tags from the owner's photo-mode shot** (needs an elevated camera; the same material family, so expected fixed) and other SB_* walls elsewhere.
+
 ### Not done / next
 - Progression / XP / quests (owner: "start doing progression stuff"): nothing started; see the dev-build survey 3.1 (`GSPlayerProgress`, `DBPlayerLevel`, `DBRewardXP`, story-step enter/leave cases) - first step is `docs/re/progression_spec.md` from `TestDrive2DEV.exe`.
 

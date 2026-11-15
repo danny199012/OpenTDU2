@@ -629,8 +629,24 @@ void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMat
         outMaterial.bNormalSlot[i] =
             ToUpper( IdentifierToString( desc.AllTextures[i].SlotType ) ).find( "NORMAL" ) != std::string::npos;
         // Slot addressing (2DM slot +0x18 / +0x19).
-        const uint32_t addressU = AddressIndex( desc.AllTextures[i].AddressU );
+        if ( CmdLine::HasArg( "-logaddress" ) ) {
+            OTDU_LOG_INFO( "addr %s slot %zu %s U%u V%u\n", desc.Name.c_str(), i,
+                           IdentifierToString( desc.AllTextures[i].TextureHashcode ).c_str(), desc.AllTextures[i].AddressU,
+                           desc.AllTextures[i].AddressV );
+        }
+        uint32_t addressU = AddressIndex( desc.AllTextures[i].AddressU );
         uint32_t addressV = AddressIndex( desc.AllTextures[i].AddressV );
+        // The graffiti atlases (tagsa_c, the DETAIL2 layer of the SB_*_wall materials, 2DM (2,2))
+        // ride on a UV set that leaves [0,1]: as mirror they painted whole walls and roofs with
+        // tags (owner 2026-11-15; the 360 shows them almost clean), as clamp they read the atlas's
+        // blank edge like the 360. Only this family: clamping every (2,2) texture flattened the
+        // terrain ground detail (A/B on the road shoulder at 27021,14752). -tagsmirror = old.
+        static const bool bTagsMirror = CmdLine::HasArg( "-tagsmirror" );
+        if ( !bTagsMirror && textureHash != 0 &&
+             ToUpper( IdentifierToString( textureHash ) ).rfind( "TAGS", 0 ) == 0 ) {
+            addressU = 2;
+            addressV = 2;
+        }
         // The hairline cards of the avatars (hair_implant_front_nuque, the
         // 'implant_front' / 'Implant_front_n' TD_Hair shells) carry V up to
         // 1.26 with a V = mirror slot byte: the mirrored rows 0.74..1.0 hold
