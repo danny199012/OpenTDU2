@@ -234,6 +234,11 @@ private:
         int32_t IndicatorSide = 0;  // -1 left, 1 right, 0 none
         float IndicatorPhase = 0.0f;
         float IndicatorHold = 0.0f; // seconds the blinker stays on after the turn
+        // Overtaking: LaneShift is the current lateral move to the left (0 = own lane, kOvertakeShift =
+        // the oncoming lane), Overtaking the state (a slower car ahead, an empty oncoming lane).
+        float LaneShift = 0.0f;
+        bool bOvertaking = false;
+        float OvertakeTime = 0.0f;
         Vector3f Position;
         Matrix4x4f World;
     };

@@ -52,6 +52,7 @@ constexpr float kSpawnBehindMin = 40.0f;
 // beyond the despawn radius and never while it is drawn.
 constexpr float kViewRadius = 620.0f, kDespawnRadius = 820.0f;
 constexpr float kNearViewRadius = 190.0f, kNearDespawnRadius = 280.0f;
+constexpr float kOvertakeShift = 3.8f; // own lane -> the oncoming lane [INF: 2 x the lane offset]
 constexpr float kLaneOffset = 1.9f; // right-hand traffic: the driver's right lane [INF: lane width]
 // Steering (the smooth turn): the cars are driven by a pure-pursuit target
 // along the lane, with a lateral acceleration budget and a yaw rate limit.
@@ -873,7 +874,8 @@ void Traffic::pathAhead( const Agent &agent, float ahead, Vector3f &outPoint, fl
     // Right of the direction of travel: forward x up = ( -tz, tx ) in this
     // right-handed camera frame (screen right is -X at yaw 0). The lane is
     // the driver's right, i.e. the right-hand lane of a two-way road.
-    outPoint = Vector3f( x - tz * kLaneOffset, agent.LastY, z + tx * kLaneOffset );
+    const float lane = kLaneOffset - agent.LaneShift;
+    outPoint = Vector3f( x - tz * lane, agent.LastY, z + tx * lane );
     outYaw = std::atan2( tx, tz );
     const float remaining = shape.Length - agent.Distance;
     if ( ahead <= remaining || agent.NextEdge < 0 ) {
@@ -902,7 +904,8 @@ void Traffic::pathAhead( const Agent &agent, float ahead, Vector3f &outPoint, fl
         dirX = 0.0f;
         dirZ = 1.0f;
     }
-    outPoint = Vector3f( nx - dirZ * kLaneOffset, agent.LastY, nz + dirX * kLaneOffset );
+    const float nextLane = kLaneOffset - agent.LaneShift * ( 1.0f - blend );
+    outPoint = Vector3f( nx - dirZ * nextLane, agent.LastY, nz + dirX * nextLane );
     outYaw = std::atan2( dirX, dirZ );
 }
 
@@ -1202,6 +1205,72 @@ void Traffic::tick( float deltaTime, const Vector3f &player, const CinematicCar:
         float limit = agent.Stun > 0.0f ? 0.0f : agent.CruiseSpeed;
         agent.Stun = Max( 0.0f, agent.Stun - deltaTime );
         agent.NearMissCooldown = Max( 0.0f, agent.NearMissCooldown - deltaTime );
+        // Overtaking (traffic_spec "Lane changes"): a car stuck behind a much slower moving car on a
+        // long clear stretch indicates left, takes the oncoming lane while nobody comes the other way
+        // (the player included), and comes back once the slow car is behind it. It aborts when an
+        // oncoming car shows up or a junction is near. -notrafficovertake = off.
+        {
+            static const bool bNoOvertake = CmdLine::HasArg( "-notrafficovertake" );
+            const float edgeLeft = shapes[static_cast<size_t>( agent.Edge )].Length - agent.Distance;
+            const float afx = std::sin( agent.Yaw ), afz = std::cos( agent.Yaw );
+            float blockerAhead = -1.0f, blockerSpeed = 0.0f;
+            bool bOncoming = false;
+            auto scan = [&]( const Vector3f &p, float otherYaw, float otherSpeed, bool bIsPlayer ) {
+                const float rx = p.x - agent.Position.x, rz = p.z - agent.Position.z;
+                const float ahead = rx * afx + rz * afz;
+                const float side = std::fabs( rx * afz - rz * afx );
+                if ( ahead > 0.0f && ahead < 30.0f && side < 2.4f && !bIsPlayer && otherSpeed > 1.5f &&
+                    std::cos( otherYaw - agent.Yaw ) > 0.7f && ( blockerAhead < 0.0f || ahead < blockerAhead ) ) {
+                    blockerAhead = ahead;
+                    blockerSpeed = otherSpeed;
+                }
+                // the oncoming lane (about 3.8 m to the left) within 110 m, heading towards us
+                if ( ahead > -10.0f && ahead < 110.0f && side < 6.0f && side > ( bIsPlayer ? 0.0f : 1.0f ) &&
+                    ( bIsPlayer || std::cos( otherYaw - agent.Yaw ) < -0.3f ) ) {
+                    bOncoming = true;
+                }
+            };
+            if ( !bNoOvertake ) {
+                for ( size_t j = 0; j < agents.size(); j++ ) {
+                    if ( j != i ) {
+                        scan( agents[j].Position, agents[j].Yaw, agents[j].Speed, false );
+                    }
+                }
+                // the player counts as oncoming traffic only when driving towards this car
+                scan( player, playerHeading.x != 0.0f || playerHeading.z != 0.0f
+                                  ? std::atan2( playerHeading.x, playerHeading.z ) : agent.Yaw + 3.14159f, 0.0f, true );
+            }
+            if ( agent.bOvertaking ) {
+                agent.OvertakeTime += deltaTime;
+                // done when the slow car is behind (nothing ahead in our lane), or abort
+                const bool bPassed = blockerAhead < 0.0f && agent.OvertakeTime > 2.0f;
+                if ( bNoOvertake || bPassed || bOncoming || edgeLeft < 80.0f || agent.OvertakeTime > 20.0f ||
+                     agent.NextEdge >= 0 && agent.NextTurnAngle > 0.22f ) {
+                    agent.bOvertaking = false;
+                    if ( agent.NextEdge < 0 ) {
+                        agent.IndicatorSide = 1;
+                        agent.IndicatorHold = 1.5f;
+                    }
+                }
+            } else if ( !bNoOvertake && agent.LaneShift < 0.05f && blockerAhead > 0.0f && !bOncoming && edgeLeft > 140.0f &&
+                        agent.NextEdge < 0 && agent.Stun <= 0.0f && blockerSpeed < agent.CruiseSpeed - 3.5f &&
+                        blockerSpeed < 0.7f * agent.CruiseSpeed && agent.IndicatorSide == 0 ) {
+                agent.bOvertaking = true;
+                agent.OvertakeTime = 0.0f;
+                OTDU_LOG_INFO( "Traffic: overtake starts (blocker %.1f m ahead at %.1f m/s, own cruise %.1f, edge left %.0f m)\n",
+                               blockerAhead, blockerSpeed, agent.CruiseSpeed, edgeLeft );
+                agent.IndicatorSide = -1;
+                agent.IndicatorHold = 99.0f;
+                agent.IndicatorPhase = 0.0f;
+            }
+            const float shiftTarget = agent.bOvertaking ? kOvertakeShift : 0.0f;
+            const float step = 2.0f * deltaTime;
+            agent.LaneShift += Clamp( shiftTarget - agent.LaneShift, -step, step );
+            if ( agent.bOvertaking ) {
+                // the car goes faster than the slow one while it passes
+                limit = Max( limit, agent.CruiseSpeed );
+            }
+        }
         // The steering target: a point of the right-hand lane ahead on the
         // path, and the direction the car actually drives (agent.Yaw).
         const float look = Clamp( kLookAheadBase + kLookAheadPerSpeed * agent.Speed, kLookAheadMin, kLookAheadMax );
@@ -1229,7 +1298,9 @@ void Traffic::tick( float deltaTime, const Vector3f &player, const CinematicCar:
                 // 3.2 m of lateral reach covers the cars in the same lane that
                 // are swinging through a corner; the oncoming lane sits 3.8 m
                 // away, so it is still not braked for.
-                brakeFor( other.Position, types[static_cast<size_t>( other.Type )].Length, 3.2f );
+                // while passing, the car being passed is no longer 'in the lane' once we have moved over
+                const float sideReach = agent.bOvertaking ? Max( 1.2f, 3.2f - agent.LaneShift ) : 3.2f;
+                brakeFor( other.Position, types[static_cast<size_t>( other.Type )].Length, sideReach );
             }
         }
         brakeFor( player, 4.5f, 2.8f );
@@ -1835,7 +1906,9 @@ void Traffic::draw( EdenRenderer &renderer, const WeatherPreset *pWeather ) {
             // The front wheels (FL, FR) steer by the path curvature, as the rivals' wheels do
             // (yaw rate over speed x a 2.7 m wheelbase [INF]); -notrafficsteer = the old straight wheels.
             static const bool bNoSteer = CmdLine::HasArg( "-notrafficsteer" );
-            const float steer = ( w < 2 && !bNoSteer )
+            static const int32_t forcedSteerDeg = CmdLine::GetArgInt( "-trafficsteer", 0 );
+            const float steer = forcedSteerDeg != 0 ? ( w < 2 ? static_cast<float>( forcedSteerDeg ) * kDegToRad : 0.0f )
+                                : ( w < 2 && !bNoSteer )
                                     ? Clamp( std::atan( 2.7f * agent.YawRate / Max( agent.Speed, 2.0f ) ), -0.6f, 0.6f )
                                     : 0.0f;
             const Matrix4x4f spin = Matrix4x4f::Translation( hub ) *

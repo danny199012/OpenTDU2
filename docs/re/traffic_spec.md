@@ -210,3 +210,14 @@ windshield grey 78.4 / 53.2. Screenshots: `docs/images/traffic-town-s61.webp`,
   angle (the front wheels do not turn with the yaw rate), a per-car damage state for the glass, and the
   real `aiconfig` zone lookup.
 
+## Lane changes / overtaking (main, 2026-11-15) `[INF]`
+No retail lane-change data was read; this is a port-native rule. A car stuck behind a moving car much slower than its
+own cruise (blocker < 0.7 x cruise and 3.5 m/s slower, within 30 m, same direction, same lane), with > 140 m of
+link left, no chosen next link and nothing coming the other way within 110 m (the player counts), indicates left
+and moves 3.8 m (`kOvertakeShift`, the oncoming lane) at 2 m/s. It comes back when the slow car is behind it, aborts
+when an oncoming car appears, when < 80 m of link remain, on a real turn or after 20 s, and blinks right on return.
+While passing, the car being passed is out of the braking lane. `-notrafficovertake` = off.
+Front wheels: WLR_FL/FR steer by atan(2.7 x yawRate / speed); `-notrafficsteer` = off, `-trafficsteer <deg>` forces
+an angle for a test shot (`-trafficpark`): 25 deg visibly turns the parked vans' front wheels.
+Measured (Hawai, 6000 frames, player driving): 48 overtakes, 0 contacts, 0 off-road removals, 0 VUIDs. Not seen on
+screen yet (the three shot runs had no overtaking car in frame).

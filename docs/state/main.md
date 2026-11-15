@@ -8,6 +8,13 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 29): traffic front-wheel steer verified; traffic overtakes slow cars (owner: "both")
+
+- Steer verified: `-trafficpark -trafficparkface 1 -trafficsteer 25` vs `0` - the vans' front wheels visibly turn (crop in `_sp_crop.png`, scratch). Sign follows the rivals' law, not checked against a real turn.
+- New: overtaking (`traffic.cpp`, `traffic.h` Agent::LaneShift / bOvertaking; spec "Lane changes / overtaking"). Hawai 6000-frame run: 48 overtakes, 0 contacts, 0 off-road removals, 0 VUIDs. `-notrafficovertake` = off.
+- NOT verified: an overtake on screen; behaviour on dual carriageways / one-way roads (the oncoming lane may not exist - watch `off road` removals when driving other areas); 48 in 6000 frames may be too many. Next: a free camera on an overtaking car (log the agent index, chase it), then tune the trigger; then the real zone lookup / signals.
+- Still not done: signal models, zones, Hawai shops / dealers / vegetation survey.
+
 ## Session 2026-11-15 (`main`, 28): Hawai traffic survey + front wheels steer (owner: "Hawaii traffic needs work ... pretty much everything")
 
 - Survey (build 179, `-travelisland hawai`, night, 1500 frames): Hawai traffic spawns and drives (29 cars, red-light stops, 0 VUIDs, ~8 ms/frame), vegetation / buildings render. `-island hawai -gm FREERIDE` alone spawns at Ibiza coordinates (grey plane, "Ibiza Area 1", 0 traffic): use `-travelisland hawai` or F4. Gaps still open per `docs/re/traffic_spec.md` "Not done": lane changes / overtaking, the real zone lookup, signal models, front-wheel steer.
