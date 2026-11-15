@@ -3010,6 +3010,8 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
         const float roll = rnd();
         drop.Radius = roll < 0.85f ? 0.8f + rnd() * 1.6f : 2.2f + rnd() * 2.2f;
         drop.Alpha = 0.05f;
+        drop.RunAt = drop.Radius > 2.2f ? 3.0f + rnd() * 10.0f : ( rnd() < 0.12f ? 6.0f + rnd() * 20.0f : 1e9f );
+        drop.Phase = rnd() * 6.2831853f;
         glassDrops.push_back( drop );
         bGlassDirty = true;
     }
@@ -3019,14 +3021,53 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
         glassDrops.pop_back();
         bGlassDirty = true;
     }
-    for ( GlassDrop &drop : glassDrops ) {
+    // Down the glass: the world's down in the windscreen uv (the fit's y
+    // gradient), so a drop that gets heavy runs along it on its own.
+    float gravityU = -glassFit[0][1], gravityV = -glassFit[1][1];
+    const float gravityLength = std::sqrt( gravityU * gravityU + gravityV * gravityV );
+    if ( gravityLength > 1e-4f ) {
+        gravityU /= gravityLength;
+        gravityV /= gravityLength;
+    } else {
+        gravityU = 0.0f;
+        gravityV = 1.0f;
+    }
+    bool bRunning = false;
+    for ( size_t i = 0; i < glassDrops.size(); ) {
+        GlassDrop &drop = glassDrops[i];
         if ( drop.Alpha < 1.0f ) {
             drop.Alpha = Min( 1.0f, drop.Alpha + deltaTime * 0.8f ); // beads in
             bGlassDirty = true;
         }
-        const float decay = Max( 0.0f, 1.0f - 2.0f * deltaTime );
+        drop.Age += deltaTime;
+        bool bKill = false;
+        if ( drop.Age > drop.RunAt && drop.Alpha >= 1.0f ) {
+            // Running: it speeds up, wobbles a little sideways, leaves a trail
+            // and loses water (it shrinks); a spent drop is gone.
+            drop.Speed = Min( 0.16f, drop.Speed + 0.05f * deltaTime + 0.01f * deltaTime * drop.Radius );
+            const float wobble = std::sin( drop.Phase + drop.Age * 3.0f ) * 0.15f;
+            const float dirU = gravityU - gravityV * wobble, dirV = gravityV + gravityU * wobble;
+            drop.U += dirU * drop.Speed * deltaTime;
+            drop.V += dirV * drop.Speed * deltaTime;
+            drop.TailX -= dirU * drop.Speed * deltaTime * 6.0f;
+            drop.TailY -= dirV * drop.Speed * deltaTime * 6.0f;
+            drop.Radius -= 0.35f * drop.Speed * deltaTime * 10.0f;
+            bRunning = true;
+            bKill = drop.Radius < 0.7f || drop.U < -0.05f || drop.U > 1.05f || drop.V < -0.05f || drop.V > 1.05f;
+        }
+        const float decay = drop.Speed > 0.0f ? 1.0f : Max( 0.0f, 1.0f - 2.0f * deltaTime );
         drop.TailX *= decay;
         drop.TailY *= decay;
+        if ( bKill ) {
+            glassDrops[i] = glassDrops.back();
+            glassDrops.pop_back();
+            bGlassDirty = true;
+        } else {
+            i++;
+        }
+    }
+    if ( bRunning ) {
+        bGlassDirty = true;
     }
     // The blades.
     bool bWiping = false;
@@ -3084,7 +3125,7 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
     if ( !bGlassDirty || dynGlassTimer > 0.0f ) {
         return;
     }
-    dynGlassTimer = bWiping ? 0.033f : 0.33f;
+    dynGlassTimer = bWiping ? 0.033f : ( bRunning ? 0.1f : 0.33f );
     bGlassDirty = false;
     constexpr int32_t kSize = 256;
     GPUTexture *pWanted = nullptr;

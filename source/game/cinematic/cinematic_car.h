@@ -472,6 +472,7 @@ private:
     // slot). glassFit maps car space to the windscreen's uv (least squares).
     struct GlassDrop {
         float U = 0, V = 0, Radius = 2, Alpha = 0, TailX = 0, TailY = 0;
+        float Age = 0, RunAt = 0, Speed = 0, Phase = 0; // a big drop starts to run at RunAt s of age
     };
     std::vector<GlassDrop> glassDrops;
     float glassFit[2][4] = {};

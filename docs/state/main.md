@@ -2,7 +2,18 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-
+
+## Session 2026-11-15 (`main`, 7): drops run down the glass; the accessories icons NOT reproduced
+
+### What changed
+- `cinematic_car.cpp` `updateGlassDrops`: drops now run on their own. Down = the world's down in the windscreen uv (the fit's y gradient). Big drops (and ~12 % of the small ones) start to run after 3..13 s (6..26 s), accelerate to 0.16 uv/s, wobble, leave a trail, shrink and die when spent / off the glass; the overlay re-renders at 10 Hz while any drop runs. [INF all constants]
+- Verified only by build + a 2000-frame rain run (frames differ); the trails are too small to judge at 1280 x 720 - look at the windscreen in a chase / front view.
+
+### The D-pad-left accessories icons (owner: "they look like emotes: horn hand, wave person")
+- **Not reproduced.** `-accleft` in FREERIDE shows roof / windows / indicators correctly at 1280 x 720 and at 3840 x 2160, with the owner's `options.ini` (button_prompts 3, hud_quality 2), the owner's mods (`fuel-system`, `enhanced-damage`, `original-physics`) and a saved profile. The movie script is deterministic [DATA hud.vmf, ig_menu frame 0 `SetIcons`: icon_1..4 `GotoFrame2` the labels hood / clir / wind / clil; icon cells are 46 x 46 atlas cells 1001 / 1003 / 1005 of `page_001`], and the retail art for those cells is the roof / window / car-with-arrow icons.
+- Ruled out: pages (hud.bnk has a single page, `page_001`; page names are owner-scoped), mods (no `flash/` overrides), prompt platform, resolution, a pad (`-nopad` only; DualSense not tried).
+- Suspect: a state that only a longer session reaches (a stale texture / draw-set after leaving walk mode or a shop; CLAUDE.md trap 13 - run `-vk_enable_validation_layer`), or the connected DualSense. Next: reproduce it, then `-dumphud` on `/HUD/ig_menu`.
+
 ## Session 2026-11-15 (`main`, 6): the wipers push the water down the glass (spatial wipe)
 
 ### What changed
