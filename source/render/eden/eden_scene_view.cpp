@@ -19,6 +19,7 @@
 #include "render/shaders/builtin/fsr1_rcas_frag.h"
 #include "render/shaders/builtin/windscreen_frag.h"
 #include "render/shaders/builtin/viewpos_frag.h"
+#include "render/shaders/builtin/volclouds_frag.h"
 #include "system/cmd_line.h"
 #include "debug/coords_overlay.h"
 
@@ -698,7 +699,7 @@ void EdenSceneView::setupScene( EdenSceneParams &params ) {
     }
     // Frame user vectors (Var_Frame_VS). FUN_00d769e0 (per frame, from the
     // weather; night_lighting_spec 2): UserVector1 = (1, outside_street_lightmap,
-    // 1, building_nightwindow_frequency) — y drives the baked street-lamp light
+    // 1, building_nightwindow_frequency) â€” y drives the baked street-lamp light
     // of the sector -s maps (TD_HeightMap / TD_Road / TD_Ground: G * 2 * y, 1.5
     // at night in the data), w gates the TD_Building night windows (slot 6,
     // active at w >= 0.5). UserVector2 = (building_shop_front_back_lighting.xy,
@@ -1811,6 +1812,8 @@ void EdenSceneView::renderOffscreen() {
     if ( !bNoHaze ) {
         postFx.drawHaze( *pRenderer, &pViewPosTarget->Color, pWeather );
     }
+    // Volumetric clouds over the sky pixels (the haze leaves the sky alone).
+    drawVolumetricClouds( params );
     pRenderer->endScene();
     device.endRenderTarget();
     pRenderer->setScreenTexture( nullptr );
@@ -2024,9 +2027,68 @@ bool EdenSceneView::loadClouds( const std::string &islandFolder ) {
     return clouds.load( *pRenderer, cloudsBank, "clouds", nullptr, cloudsBank.getPath().c_str() );
 }
 
+namespace {
+// The cloud layer replaces the billboard clouds of clouds.3dd unless -oldclouds / -novolclouds say otherwise.
+bool UseVolumetricClouds() {
+    static const bool bOn = !CmdLine::HasArg( "-novolclouds" ) && !CmdLine::HasArg( "-noclouds" );
+    return bOn;
+}
+} // namespace
+
+void EdenSceneView::drawVolumetricClouds( const EdenSceneParams &params ) {
+    if ( !UseVolumetricClouds() || bMapView || pViewPosTarget == nullptr || pWeather == nullptr ) {
+        return;
+    }
+    // clouds_cloud3dname Cloud_A / _B / _R: the three cloud sets of the data. [INF] B is the fair weather
+    // cumulus, A a thinner cover, R the rain / storm overcast (heavier, darker, lower).
+    const std::string name = ToUpper( pWeather->getString( "clouds_cloud3dname", "CLOUD_B" ) );
+    const char kind = name.empty() ? 'B' : name.back();
+    float coverage = 0.5f, darkness = 0.0f, base = 1700.0f, top = 2900.0f;
+    if ( kind == 'A' ) {
+        coverage = 0.42f;
+        darkness = 0.15f;
+    } else if ( kind == 'R' ) {
+        coverage = 0.86f;
+        darkness = 1.0f;
+        base = 1100.0f;
+        top = 2400.0f;
+    }
+    static const char *pCover = CmdLine::GetArgValue( "-cloudcover" );
+    if ( pCover != nullptr ) {
+        coverage = Clamp( static_cast<float>( atof( pCover ) ), 0.0f, 1.0f );
+    }
+    const Matrix4x4f cameraWorld = Matrix4x4f::Translation( camera.Position ) *
+                                   EdenRotationFromQuaternion( camera.Rotation ) *
+                                   Matrix4x4f::Scale( Vector3f( -1.0f, 1.0f, -1.0f ) );
+    const Vector3f right = cameraWorld.transformVector( Vector3f( 1.0f, 0.0f, 0.0f ) );
+    const Vector3f up = cameraWorld.transformVector( Vector3f( 0.0f, 1.0f, 0.0f ) );
+    const Vector3f forward = cameraWorld.transformVector( Vector3f( 0.0f, 0.0f, -1.0f ) );
+    const float tanHalf = tanf( effectiveFov * 0.5f );
+    const float aspect = static_cast<float>( pSceneTarget->Width ) / static_cast<float>( pSceneTarget->Height );
+    const Vector3f toSun = ( params.SunDirection * -1.0f ).normalized();
+    const float speed = pWeather->getFloat( "clouds_cloud3dSpeed", 1.0f );
+    const Vector4f tint = pWeather->getVector4( "clouds_cloud3dcolor", Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ) );
+    const Vector3f sunColor( params.SunDiffuse.x * ( 0.6f + 0.4f * tint.x ), params.SunDiffuse.y * ( 0.6f + 0.4f * tint.y ),
+                             params.SunDiffuse.z * ( 0.6f + 0.4f * tint.z ) );
+    float push[32] = {
+        camera.Position.x, camera.Position.y, camera.Position.z, params.Time,
+        right.x * tanHalf * aspect, right.y * tanHalf * aspect, right.z * tanHalf * aspect, coverage,
+        up.x * tanHalf, up.y * tanHalf, up.z * tanHalf, base,
+        forward.x, forward.y, forward.z, top,
+        toSun.x, toSun.y, toSun.z, 1.0f,
+        sunColor.x * 1.15f, sunColor.y * 1.15f, sunColor.z * 1.15f, darkness,
+        params.Ambient.x, params.Ambient.y, params.Ambient.z, 4.0f * Clamp( speed, 0.0f, 4.0f ),
+        params.FogColor.x, params.FogColor.y, params.FogColor.z, 2.0f * Clamp( speed, 0.0f, 4.0f ),
+    };
+    GPUTexture *pViewPos = &pViewPosTarget->Color;
+    fullscreen.draw( gpRender->getDevice(), kSPIRV_volclouds_frag, sizeof( kSPIRV_volclouds_frag ), &pViewPos, 1, push, sizeof( push ),
+                     eBlendMode::BM_PremultipliedAlpha, eSamplerFilter::SF_Point );
+}
+
 void EdenSceneView::drawClouds( EdenRenderer &renderer ) {
     static const bool bNoClouds = CmdLine::HasArg( "-noclouds" ); // A/B
-    if ( bNoClouds || !clouds.isLoaded() ) {
+    static const bool bOldClouds = CmdLine::HasArg( "-oldclouds" );
+    if ( bNoClouds || !clouds.isLoaded() || ( UseVolumetricClouds() && !bOldClouds ) ) {
         return;
     }
     // clouds_cloud3dname "Cloud_X": CLOUD_X (billboard layers) + SKYCLO_X

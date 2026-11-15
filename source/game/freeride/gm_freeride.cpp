@@ -761,6 +761,10 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( !trafficAudio.load() ) {
             OTDU_LOG_WARN( "FREERIDE: no ambient traffic sounds\n" );
         }
+        if ( !collisionAudio.load() ) {
+            OTDU_LOG_WARN( "FREERIDE: no collision sounds\n" );
+        }
+        storm.load( islandFolder );
     }
     // -dsled r,g,b: the idle light-bar colour of the pad (an A/B / taste hook;
     // the chase flash overrides it).
@@ -6313,6 +6317,7 @@ void GMFreeRide::tick( float deltaTime ) {
                 // The pad takes the hit (input/gamepad_output.h), the wheel too.
                 gamepad.pulse( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ), 0.3f );
                 wheelFfb.kick( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ) );
+                collisionAudio.hitCar( vehicle.getPosition() + flatHeading * ( setup.Size.z * 0.5f ), deltaVelocity.length() );
             }
             // The race opponents: the same contact (no violation - racing).
             if ( opponents.isActive() && opponents.resolveCollision( vehicle.getPosition(), flatHeading, vehicle.getVelocity(),
@@ -6320,6 +6325,7 @@ void GMFreeRide::tick( float deltaTime ) {
                 vehicle.addVelocity( deltaVelocity );
                 gamepad.pulse( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ), 0.3f );
                 wheelFfb.kick( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ) );
+                collisionAudio.hitCar( vehicle.getPosition() + flatHeading * ( setup.Size.z * 0.5f ), deltaVelocity.length() );
             }
             riskFrame.DeltaTime = deltaTime;
             riskFrame.SpeedKmh = CmdLine::HasArg( "-riskdemo" ) ? 180.0f : vehicle.getSpeedKmh(); // -riskdemo: HUD check
@@ -7510,7 +7516,14 @@ void GMFreeRide::tick( float deltaTime ) {
                                                           ambient.z + ( Max( ambient.z, lit.z ) - ambient.z ) * t, 1.0f );
             view.setWeather( &caveWeather );
         } else {
-            view.setWeather( pWeather );
+            // Thunder and lightning of the storm weathers: the flash lights a copy of the preset.
+            storm.update( deltaTime, pWeather, view.getRain().getShelter() );
+            if ( pWeather != nullptr && storm.getFlash() > 0.01f ) {
+                LightningStorm::light( stormWeather, *pWeather, storm.getFlash() );
+                view.setWeather( &stormWeather );
+            } else {
+                view.setWeather( pWeather );
+            }
         }
     }
     view.setEnvironmentCenter( carPosition, car.isLoaded() );
@@ -7566,6 +7579,23 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         // The player's horn (CarVSTConfig "Horn" of the car's own sound bank):
         // held while the button is, only while actually driving.
+        // Impacts and scrapes of the chassis against the world (VehicleDynamics::takeHitEvents).
+        {
+            const std::vector<VehicleDynamics::HitEvent> hits = vehicle.takeHitEvents();
+            const float scrape = vehicle.takeScrapeSpeed();
+            if ( state == eState::Drive ) {
+                for ( const VehicleDynamics::HitEvent &hit : hits ) {
+                    if ( hit.bFloor ) {
+                        collisionAudio.hitFloor( hit.Point, hit.Speed );
+                    } else {
+                        collisionAudio.hitWall( hit.Point, hit.Speed );
+                    }
+                }
+                collisionAudio.updateScrape( vehicle.getPosition(), scrape, deltaTime );
+            } else {
+                collisionAudio.updateScrape( vehicle.getPosition(), 0.0f, deltaTime );
+            }
+        }
         vehicleAudio.setHorn( state == eState::Drive && gpInput != nullptr &&
                               gpInput->isDown( eInputAction::IA_CarHorn ) );
         // Ambient traffic engines (the nearest cars) and the horns Traffic
@@ -8217,6 +8247,8 @@ void GMFreeRide::exit() {
     vehicleAudio.unload();
     ambience.unload();
     trafficAudio.unload();
+    collisionAudio.unload();
+    storm.unload();
     gamepad.shutdown();
     wheelFfb.shutdown(); // never leave the wheel torqued
     radio.stop();

@@ -1786,6 +1786,17 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
             const Vector3f arm = contact.Point - com;
             const Vector3f pointVelocity = velocity + angularVelocity.cross( arm );
             const float approach = pointVelocity.dot( contact.Normal );
+            {
+                // Sound feed: a wall that is rubbed along (scrape loop), a hit that arrives (one shot).
+                const bool bFloor = contact.Normal.y > 0.6f;
+                const float slide = ( pointVelocity - contact.Normal * approach ).length();
+                if ( !bFloor ) {
+                    scrapeSpeed = Max( scrapeSpeed, slide );
+                }
+                if ( approach < -1.2f && hitEvents.size() < 32 ) {
+                    hitEvents.push_back( { contact.Point, -approach, slide, bFloor } );
+                }
+            }
             if ( approach >= 0.0f ) {
                 continue;
             }

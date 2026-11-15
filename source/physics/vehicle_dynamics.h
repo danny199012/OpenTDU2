@@ -148,6 +148,26 @@ public:
         Vector3f Direction;
         float Gain = 0.0f;
     };
+    // Every chassis contact with the world, for the collision sounds (GMFreeRide drains them every
+    // frame): contact point, the approach speed along the normal (m/s, > 0), the sliding speed along
+    // the surface (m/s) and whether the surface is a floor (normal mostly up) rather than a wall.
+    struct HitEvent {
+        Vector3f Point;
+        float Speed = 0.0f;
+        float Slide = 0.0f;
+        bool bFloor = false;
+    };
+    inline std::vector<HitEvent> takeHitEvents() {
+        std::vector<HitEvent> out;
+        out.swap( hitEvents );
+        return out;
+    }
+    // The fastest slide of a wall contact since the last call (m/s, 0 = no wall contact): the scrape loop.
+    inline float takeScrapeSpeed() {
+        const float out = scrapeSpeed;
+        scrapeSpeed = 0.0f;
+        return out;
+    }
     inline std::vector<CrumpleEvent> takeCrumpleEvents() {
         std::vector<CrumpleEvent> out;
         out.swap( crumpleEvents );
@@ -283,6 +303,8 @@ private:
     float zoneDamage[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // front, rear, left, right
     bool bTireModel = false;
     std::vector<CrumpleEvent> crumpleEvents;
+    std::vector<HitEvent> hitEvents;
+    float scrapeSpeed = 0.0f;
     std::vector<float> tireWear, tirePressure, tireBaseRadius, tireLeak; // per wheel
     std::vector<int32_t> tirePops;
     uint32_t tireRandom = 0x9e3779b9u;

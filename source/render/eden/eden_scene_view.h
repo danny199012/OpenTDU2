@@ -327,6 +327,8 @@ private:
     void generateViewPos();
     bool loadClouds( const std::string &islandFolder );
     void drawClouds( EdenRenderer &renderer );
+    // Port-native raymarched cloud layer (resources/shaders/volclouds.frag), drawn over the sky after the haze.
+    void drawVolumetricClouds( const EdenSceneParams &params );
     void drawObjects( EdenRenderer &renderer, ePass pass );
     void updateLightmapMaterials();
     // Neon set + AnimValue blink update (FUN_009834d0), called by renderOffscreen.

@@ -3,6 +3,25 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 12): collision sounds, thunder + lightning, volumetric clouds
+
+Owner: "volumetric clouds and maybe thunder and lightning ... more sound effects ... collisions ... I don't think have any sound effects. Mostly car engines, horns, dialog the rest seems missing."
+
+### What changed
+- **Collision sounds**: `source/audio/collision_audio.{h,cpp}` loads the 107 `*_PHYSIC_SFX.wav` of `Euro/Bnk/fx/physicsfxsetup.bnk` [DATA] (carmetal_low/high, carground, carcar, carmetal_loop ...), plays them on bfx client 21 (PhysicSfx, spatial). `VehicleDynamics` now queues `HitEvent`s (every chassis contact closing > 1.2 m/s: point, speed, slide, floor/wall) and a max wall slide speed (`takeHitEvents`, `takeScrapeSpeed`); GMFreeRide feeds them plus the traffic / opponent contacts (`hitCar`). Wall hit = carmetal (low < 6 m/s, high above), floor = carground, car = carcar, rubbing a wall = carmetal_loop01 with gain / pitch from the slide speed. Which sample the retail game plays per material is `[ENC]`/entities.xmb and not used [INF]. Flags `-nocollisionaudio`, `-logcollisionaudio`.
+- **Thunder + lightning**: `game/freeride/lightning_storm.{h,cpp}`; the storm intemperies carry `thunder_off_on`, `thunder_time_spacing_min_max`, `thunder_lightning_duration_min_max`, `thunder_flicker_*` [DATA] and nothing used them. A strike flashes (the preset copy `stormWeather` with ambient / fog / sun / Skydome_sunIntensity lifted, so terrain, sky, clouds flash together) and the island's `eclair_high/mid/low` wavs play after distance / 343 m/s on client 17. Units of the retail keys are not decoded, so durations / intensities are clamped to a believable flash [INF]. `-lightning` forces a storm on any sky, `-nolightning` / `-nothunder`, `-logstorm`.
+- **Volumetric clouds**: `resources/shaders/volclouds.frag` (+ generated `volclouds_frag.h`; recompile with `tools/compile_shaders.py volclouds.frag`, needs the Vulkan SDK `glslangValidator` on PATH). Fullscreen premultiplied-alpha pass in `EdenSceneView::drawVolumetricClouds`, right after the haze; only pixels the gViewPos buffer calls sky; 36-step march through a 1.1-1.2 km slab, fbm value noise, 4-tap sun march, HG phase. Cloud_A / B / R of `clouds_cloud3dname` pick coverage and darkness [INF]. Replaces the billboard clouds (`-oldclouds` brings them back, `-novolclouds` = neither, `-cloudcover 0..1`).
+
+### Verified
+- `-lightning -logstorm -logcollisionaudio`: `CollisionAudio: metal 6/6, ground 6/6, car 4/4, scrape loops 4`, `LightningStorm: 9 thunder clips`, strikes with thunder `eclair_*` at the computed delay, `CollisionAudio: 'carmetal_high03_PHYSIC_SFX'` on a real wall hit.
+- Lightning at night (`-weather 00`): frame luma 47.3 -> 67.1 on the flash frame, then back (blue-white lift visible).
+- Clouds: World Viewer `-island ibiza -campos 35700,80,5600 -campitch 25 -weather 12` shows lit cumulus with grey bases; `-novolclouds` shows a clear sky. Freeride perf unchanged at 120 fps.
+
+### Not verified / next
+- **Nobody has listened**: levels of the collision / thunder sounds are by formula (hit volume 0.35 + v/16, thunder by distance). If hits are too loud or quiet, `collision_audio.cpp` `hitWall/hitFloor/hitCar`.
+- Clouds: not in the environment cube / mirrors; coverage per Cloud_A/B/R is a guess; edges show a faint dither (no temporal accumulation); cloud height 1.1-2.9 km fixed. The old `-intempery 3` storm sky shows overcast only in the drive view - look at it from the World Viewer.
+- The rest of the audio gap: skid / tyre squeal exists (VehicleAudio Skid layers) but wood / fence / stone / leaves impact classes, glass breaking, suspension landing (`carsuspension01..07`) and pedestrian / dialog ambience are not wired. Next: surface class of the contact (needs the Havok material id) and a landing one-shot from the wheel contact.
+
 ### Update (accessories icons, owner's screenshot at spawn, build 146)
 - The wrong icons are **GENERAL.vmf's emote-wheel art** [DATA, `-dumpflashart`]: up = cell 684 (hand + sound waves), down = 678 (waving person), left / right = 2698 / 2695 (the "L / R" eye glyphs); the HUD's own cells for the slots are 1003 (roof), 1005 (windows), 1001 (car + arrow). The title "Accessories", the arrows and the layout are the HUD's `ig_menu`, and the owner's wheel shows NO red lock on the roof slot (the retail-correct wheel for this hardtop Porsche shows one) - so it is not the same clip content.
 - Re-checked and NOT reproduced: `-gm FREERIDE` with / without `-skipcine`, the LOGIN -> FREERIDE continue path, the owner's options.ini (4K, button_prompts 3), mods, profile, a connected DualSense (no `-nopad`), DLSS on. All show roof(locked) / windows / indicators.

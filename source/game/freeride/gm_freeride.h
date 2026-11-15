@@ -4,6 +4,8 @@
 #include <unordered_set>
 #include "game/freeride/birds.h"
 #include "audio/ambience_audio.h"
+#include "audio/collision_audio.h"
+#include "game/freeride/lightning_storm.h"
 #include "audio/traffic_audio.h"
 #include "audio/vehicle_audio.h"
 #include "audio/radio_player.h"
@@ -204,6 +206,9 @@ private:
     // The island's ambient beds (islands/<island>/sound/ambience/ambiences.xmb)
     // and the ambient traffic engines / horns (sound/vehicles/generic_high_high).
     AmbienceAudio ambience;
+    CollisionAudio collisionAudio; // car impacts / scrapes (fx/physicsfxsetup.bnk)
+    LightningStorm storm;          // thunder_* keys of the storm weathers: flash + thunder
+    WeatherPreset stormWeather;    // the current weather lit by a lightning flash
     TrafficAudio trafficAudio;
     std::vector<TrafficAudio::Agent> audioAgents;
     std::vector<Traffic::HornEvent> hornEvents;
