@@ -352,3 +352,11 @@ An instant event (`EV*`, gmth 7) is **not a gated course**: its `.ig2` has 2-3 g
 The titles are the event's **rule** (no accident, smooth driving, tailing a car, a time ...): the family letters of the name (`AD DR CO SH SP TA TI`) are the DBEvent types 1..8. The rules themselves are not enforced by the port.
 **Applied:** `RaceEvents::start` uses the file's destination gate(s) as the checkpoints (was: a random 3.5 km road-graph walk), `CtDw` as a time limit (running out ends the event with no reward: "Time is up"), and shows the rule title as the goal text; `-oldraces` restores the walk. Verified with `-racestart N` (logs `rule '...': n gate(s), x m straight, limit y s`) and a started race at `EVIA1SP1` (countdown, 4 checkpoints, GO).
 **Not done:** the per-kind rules (collision penalty for "No accident!", the tailed car of "Stay in the shadow", the speed-trap scoring of the SP events), the event vehicle (`VMod`), best-time records.
+
+## 14. Smaller dev-build findings (2026-11-15, `main`) [CODE-dev]
+
+- **Challenge type table** (dev data `0x164a880`, records `{id, 0, name*, 0, loc, 0}`, stride 0x18): `race` id 2 (loc 614), `event` 3 (615), `hotspots` 7, `keepYourDistance` 9, `GM_Limit` 0xa, `followTheLeader` 0xb, `speed` 0xc (612); loc 611 "Time", 612 "Speed", 613 "Driving", 614 "Race", 615 "Event" are the challenge editor's five categories. A second table lists `timeAttack`, `speed`, `speedTrap`, `driving`, `hotSpots`, `pursuit`, `race`, `GM_Limit`. This id space is **not** SpotWorld's `gmth` (events are 3 here, 7 there; KYD / follow the leader are 9 / 0xb here, 11 / 12 there): do not map one onto the other.
+- `AiVehPlanShadowed.cpp` (the "Stay in the shadow" tailing event): only debug strings are readable around it ("Min / Max following distance", "Lateral / Longitudinal following", "Behavior: bhv shadowed"); the scoring is not in strings.
+- `min_activation_distance`, `max_detector_range`, `min/max_detector_frequency` are the wreck detector's config (`scenarics/wrecks/wrecks_config`), already read by `discovery_points.cpp`.
+- `HudSpots` (`0xc9e66f`, inside `0xc9e584`) is the name of a render list created by the minimap draw setup, not per-spot logic.
+- Entering a spot sets a global "current spot" id `[0x1722424]` (section 9); the event card's **Type** row source (`/:EventType`) is not in the readable strings.
