@@ -2942,8 +2942,9 @@ void CinematicCar::updateWipers( float deltaTime, float rainAlpha ) {
                                     kIntervalMax - Clamp( rainAlpha / 255.0f, 0.0f, 1.0f ) * ( kIntervalMax - kIntervalMin ) );
         } else {
             wiperAngle = kMaxAngle * sinf( 3.14159265f * -wiperTimer );
-            if ( wiperAngle > 0.8f * kMaxAngle ) {
-                glassWater = 0.0f; // the blades are across the glass: it is clear behind them
+            if ( wiperAngle > 0.5f * kMaxAngle ) {
+                // the blades are across the glass: it clears over the sweep, not at once
+                glassWater = Max( 0.0f, glassWater - 3.0f * deltaTime );
             }
         }
         return;
@@ -3222,19 +3223,31 @@ namespace {
 // an RGBA overlay: base = lerp( base, G_I.rgb, G_I.a ), car_glass_spec.md 2 -
 // the cracked glass swaps there too). Procedural: round beads with a bright
 // lower rim and, on the bigger ones, a short run-off tail. Three densities.
+constexpr int32_t kRainGlassLevels = 12;
 GPUTexture *MakeRainGlassTexture( int32_t level ) {
     constexpr int32_t kSize = 256;
+    constexpr int32_t kDrops = 340;
+    const float wet = static_cast<float>( level ) / kRainGlassLevels;
     std::vector<uint8_t> pixels( static_cast<size_t>( kSize ) * kSize * 4, 0 );
-    uint32_t seed = 0x1badf00du + static_cast<uint32_t>( level ) * 7919u;
+    // The same drops at every level (fixed seed, every random drawn up front):
+    // each one has its own wetness threshold and fades / swells in over 0.2 of
+    // it, so one level step changes the picture only a little (a smooth fade).
+    uint32_t seed = 0x1badf00du;
     auto rnd = [&]() {
         seed = seed * 1664525u + 1013904223u;
         return static_cast<float>( seed >> 8 ) / 16777216.0f;
     };
-    const int32_t count = level == 1 ? 70 : ( level == 2 ? 170 : 320 );
-    for ( int32_t n = 0; n < count; n++ ) {
+    for ( int32_t n = 0; n < kDrops; n++ ) {
         const float cx = rnd() * kSize, cy = rnd() * kSize;
-        const float radius = rnd() < 0.8f ? 1.5f + rnd() * 3.0f : 4.0f + rnd() * 4.5f;
-        const float tail = radius > 4.0f && rnd() < 0.6f ? radius * ( 2.0f + rnd() * 4.0f ) : 0.0f;
+        const float sizeRoll = rnd(), sizeA = rnd(), sizeB = rnd(), tailRoll = rnd(), tailA = rnd();
+        const float threshold = rnd() * 0.85f;
+        const float grow = Clamp( ( wet - threshold ) / 0.2f, 0.0f, 1.0f );
+        if ( grow <= 0.0f ) {
+            continue;
+        }
+        const float fullRadius = sizeRoll < 0.8f ? 1.5f + sizeA * 3.0f : 4.0f + sizeB * 4.5f;
+        const float radius = fullRadius * ( 0.55f + 0.45f * grow );
+        const float tail = fullRadius > 4.0f && tailRoll < 0.6f ? radius * ( 2.0f + tailA * 4.0f ) : 0.0f;
         const int32_t extent = static_cast<int32_t>( radius + tail ) + 2;
         for ( int32_t dy = -static_cast<int32_t>( radius ) - 2; dy <= extent; dy++ ) {
             for ( int32_t dx = -static_cast<int32_t>( radius ) - 2; dx <= static_cast<int32_t>( radius ) + 2; dx++ ) {
@@ -3250,6 +3263,7 @@ GPUTexture *MakeRainGlassTexture( int32_t level ) {
                     alpha = 0.10f * ( 1.0f - dy / tail );
                     shade = 0.8f;
                 }
+                alpha *= grow;
                 if ( alpha <= 0.0f ) {
                     continue;
                 }
@@ -3282,14 +3296,12 @@ void CinematicCar::applyGlassWet( float wet ) {
     if ( bOff || gpRender == nullptr || !car.isLoaded() || appliedDamageState == 1 ) {
         return;
     }
-    const int32_t level = wet < 0.12f ? 0 : ( wet < 0.40f ? 1 : ( wet < 0.70f ? 2 : 3 ) );
-    // A little hysteresis so the level does not flicker at a threshold.
-    if ( level == appliedGlassWet || ( level < appliedGlassWet && wet > 0.0f && level != 0 &&
-                                       wet > ( level == 1 ? 0.10f : ( level == 2 ? 0.38f : 0.68f ) ) &&
-                                       appliedGlassWet == level + 1 ) ) {
+    // 12 steps of the same drops growing in (MakeRainGlassTexture): smooth.
+    const int32_t level = wet < 0.03f ? 0 : Clamp( static_cast<int32_t>( wet * kRainGlassLevels + 0.5f ), 1, kRainGlassLevels );
+    if ( level == appliedGlassWet ) {
         return;
     }
-    static GPUTexture *pRain[4] = {};
+    static GPUTexture *pRain[kRainGlassLevels + 1] = {};
     GPUTexture *pClean = gpRender->getTextureCache().find( "g_i" );
     if ( pClean == nullptr ) {
         return; // common_car.bnk not loaded yet
@@ -3318,7 +3330,7 @@ void CinematicCar::applyGlassWet( float wet ) {
         }
     }
     appliedGlassWet = level;
-    OTDU_LOG_INFO( "CinematicCar: rain on the glass level %d (water %.2f, %u slot(s))\n", level, wet, changed );
+    OTDU_LOG_DEBUG( "CinematicCar: rain on the glass level %d (water %.2f, %u slot(s))\n", level, wet, changed );
 }
 
 void CinematicCar::applyPartDamage( float front, float rear, float left, float right ) {

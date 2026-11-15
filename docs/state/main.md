@@ -2,6 +2,11 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
+
+## Session 2026-11-15 (`main`, 5): the glass droplets fade smoothly
+
+- `cinematic_car.cpp`: the droplet overlay is now 12 levels of the SAME 340 drops (fixed seed), each with its own wetness threshold that fades / swells it in over 0.2 of wetness (`MakeRainGlassTexture`), so a level step changes the glass only a little (was 3 levels, hard swap). The wiper no longer zeroes `glassWater`: it eases down 3/s while the blade is across the glass (about 0.3 s). The level line is DEBUG now. [INF all constants]
+- Verified: `-intempery 3 -wipers on` log: levels 1,2,3,4 on the way up (about 0.08 water each) and 3,2,1,0 down per sweep. Not looked at in 3D. A true per-pixel crossfade would need a shader term; 12 steps at 60 fps with a slow rise reads as a fade [INF].
 
 ## Session 2026-11-15 (`main`, 4): the wipers now clear the outside glass drops (and actually sweep)
 
