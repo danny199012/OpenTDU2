@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render/eden/eden_blade_grass.h"
 #include "filesystem/bank.h"
 #include "render/eden/eden_model.h"
 #include "render/eden/eden_neons.h"
@@ -454,6 +455,8 @@ private:
     // [CODE]); the impostor batches draw with it. Set by EdenSceneView.
     Vector3f impostorAmbient = Vector3f( 0.5f, 0.5f, 0.5f );
     Vector3f impostorAmbient2 = Vector3f( 0.0f, 0.0f, 0.0f );
+    std::vector<BladeVertex> bladeVertices;
+    std::vector<uint32_t> bladeIndices;
     bool bGrassCar = false;
     Vector3f grassCarPosition;
     Vector3f grassCarForward = Vector3f( 0.0f, 0.0f, 1.0f );
@@ -479,6 +482,14 @@ public:
         bGrassCar = true;
     }
     void clearGrassCar() { bGrassCar = false; }
+    // The blade layer built with the grass batch (eden_blade_grass.h), drawn in the effects pass.
+    const std::vector<BladeVertex> &getBladeVertices() const { return bladeVertices; }
+    const std::vector<uint32_t> &getBladeIndices() const { return bladeIndices; }
+    bool hasGrassCar() const { return bGrassCar; }
+    const Vector3f &getGrassCarPosition() const { return grassCarPosition; }
+    const Vector3f &getGrassCarForward() const { return grassCarForward; }
+    float getGrassCarHalfLength() const { return grassCarHalfLength; }
+    float getGrassCarHalfWidth() const { return grassCarHalfWidth; }
     // The road-graph suppression (GRASSASTARMAC, grass_spec.md 3: grass
     // interacts with the path network): the ROAD_MAP / ROAD_DETAIL graph the
     // map screen parses, as an XZ segment hash. The village streets / plazas

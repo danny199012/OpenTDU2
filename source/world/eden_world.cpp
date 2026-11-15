@@ -3451,6 +3451,14 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
         batch.Streams[1].reserve( static_cast<size_t>( GrassMaxCards() ) * 4 * 8 );
     }
     batch.Indices.reserve( static_cast<size_t>( GrassMaxCards() ) * 6 );
+    bladeVertices.clear();
+    bladeIndices.clear();
+    static const bool bNoBlades = CmdLine::HasArg( "-noblades" );
+    static const char *pBladeDist = CmdLine::GetArgValue( "-bladedist" );
+    static const char *pBladeCount = CmdLine::GetArgValue( "-bladecount" );
+    const float bladeDist = pBladeDist != nullptr ? static_cast<float>( atof( pBladeDist ) ) : 24.0f;
+    const int32_t bladeCount = pBladeCount != nullptr ? atoi( pBladeCount ) : 8;
+    static const size_t kMaxBladeVertices = 7 * 24000;
 
     const float dist = GrassDistance();
     const float x0 = cameraPosition.x - dist;
@@ -3793,6 +3801,36 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                         const uint32_t indices[6] = { base, base + 1, base + 2, base + 1, base + 3, base + 2 };
                         batch.Indices.insert( batch.Indices.end(), indices, indices + 6 );
                         batch.NumVertices += 4;
+                    }
+                }
+                // The blade layer: real blades in the cell of every card near the camera, scattered
+                // inside the footprint the road tests above just cleared (eden_blade_grass.h).
+                if ( !bNoBlades && !bGrassTallGrass && bladeVertices.size() < kMaxBladeVertices ) {
+                    const float bdx = px - cameraPosition.x, bdz = pz - cameraPosition.z;
+                    if ( bdx * bdx + bdz * bdz < bladeDist * bladeDist ) {
+                        static const float kTints[9][3] = {
+                            { 0.26f, 0.44f, 0.13f }, { 0.30f, 0.46f, 0.17f }, { 0.60f, 0.54f, 0.24f },
+                            { 0.34f, 0.42f, 0.26f }, { 0.74f, 0.62f, 0.22f }, { 0.28f, 0.42f, 0.28f },
+                            { 0.30f, 0.46f, 0.18f }, { 0.54f, 0.58f, 0.20f }, { 0.28f, 0.47f, 0.16f } };
+                        const float *pTint = kTints[bmp];
+                        const float radius = Min( w * 0.5f, 0.9f );
+                        for ( int32_t blade = 0; blade < bladeCount; blade++ ) {
+                            const uint32_t bh = GrassHash( static_cast<uint32_t>( gx ) * 31u + static_cast<uint32_t>( blade ) * 977u + 5u,
+                                                           static_cast<uint32_t>( gy ) * 17u + static_cast<uint32_t>( blade ) * 131u + 9u );
+                            const float r0 = ( bh & 1023 ) / 1023.0f;
+                            const float r1 = ( ( bh >> 10 ) & 1023 ) / 1023.0f;
+                            const float r2 = ( ( bh >> 20 ) & 1023 ) / 1023.0f;
+                            const float angle = r0 * 6.2831853f;
+                            const float rad = radius * sqrtf( r1 );
+                            const float bx = px + cosf( angle ) * rad, bz = pz + sinf( angle ) * rad;
+                            const float bladeHeight = cardHeight * ( 0.5f + 0.5f * r2 ) * 0.9f;
+                            if ( bladeHeight < 0.05f ) {
+                                continue;
+                            }
+                            AppendBlade( bladeVertices, bladeIndices, Vector3f( bx, y - 0.04f, bz ), bladeHeight,
+                                         r1 * 6.2831853f, r2, r0,
+                                         Vector3f( pTint[0], pTint[1], pTint[2] ), 0.3f + 0.7f * r2 );
+                        }
                     }
                 }
                 cards++;

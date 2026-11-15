@@ -3,6 +3,14 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 13): grass blades with car interaction
+
+Owner: nicer vegetation, "splines of grass", little blades in certain areas, the car interacting; also water / sand / mud (NOT started, see below).
+
+- **What**: `source/render/eden/eden_blade_grass.{h,cpp}` + `resources/shaders/bladegrass.{vert,frag}` (recompile: `tools/compile_shaders.py bladegrass.vert bladegrass.frag`). `EdenWorld::buildGrassBatch` now also scatters real blades (7-vertex tapered ribbons, 3 curvature rows) in the cell of every grass card within 24 m of the camera (8 per card, <= 24000 blades), tint by the card's atlas class, height from the GrassType. Drawn in the Effects pass (GMFreeRide draw callback). The vertex shader bends each blade: its own lean, two travelling wind waves (amplitude from `wind_continuous_grass_amplitude`), and the car - an oriented-box test on the car footprint lays blades flat under the car and pushes the ones beside it away (`setGrassCar`). Placement reuses the .pgr / road-skip tests, so blades only appear where cards do. Flags: `-noblades`, `-bladedist m` (24), `-bladecount n` (8).
+- **Verified**: `-tpin 19584,24960 -weather 12` farm spot: blades vs `-noblades` (`docs/images/grass_blades_ab.png`); driving through it shows the tyre tracks pressed flat behind the car. Cost in that field: draw 14.1 ms -> 15.9 ms (14 blades / 30 m was 21 ms, too dear). No validation errors seen in the log.
+- **Not done / next**: (1) the lingering trail is only the instant footprint - a persistent flatten map (springing back over seconds) would be nicer; (2) blades are unshadowed, flat-lit (ambient + 0.36 sun) with a root-to-tip gradient; (3) blades are rebuilt every frame on the CPU (rebuild-per-frame is the existing card cache rule) - a cheaper static emit + GPU culling is the perf lever; (4) wheels do not part the grass separately from the box; (5) **water / sea / rivers, sand and mud improvements are not started** - suggested order: sand (dune shading + wheel track decals already exist in `eden_surface_fx`), mud (wet dirt darkening), then ocean (`eden_ocean.cpp`, `docs/re/ocean_spec.md`).
+
 ## Session 2026-11-15 (`main`, 12): collision sounds, thunder + lightning, volumetric clouds
 
 Owner: "volumetric clouds and maybe thunder and lightning ... more sound effects ... collisions ... I don't think have any sound effects. Mostly car engines, horns, dialog the rest seems missing."

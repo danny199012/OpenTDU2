@@ -827,6 +827,24 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             if ( gpRender != nullptr ) {
                 gpRender->getSurfaceFx().draw( gpRender->getDevice(), renderer.getViewProjection(),
                                                renderer.getSceneParams() );
+                {
+                    // The grass blades of the world (eden_blade_grass.h): wind from the weather, bent by the car.
+                    const EdenWorld &world = view.getWorld();
+                    const EdenSceneParams &scene = renderer.getSceneParams();
+                    EdenBladeGrass::Frame frame;
+                    frame.Time = scene.Time;
+                    const WeatherPreset *pLit = view.getWeather();
+                    frame.WindAmplitude = pLit != nullptr ? Clamp( pLit->getFloat( "wind_continuous_grass_amplitude", 0.12f ) * 0.8f, 0.04f, 0.5f ) : 0.12f;
+                    frame.bCar = world.hasGrassCar();
+                    frame.CarPosition = world.getGrassCarPosition();
+                    frame.CarForward = world.getGrassCarForward();
+                    frame.CarHalfLength = world.getGrassCarHalfLength();
+                    frame.CarHalfWidth = world.getGrassCarHalfWidth();
+                    frame.Camera = scene.CameraPosition;
+                    frame.Light = scene.Ambient * 0.8f + scene.SunDiffuse * 0.36f;
+                    GetBladeGrass().draw( gpRender->getDevice(), renderer.getViewProjection(), frame, world.getBladeVertices(),
+                                          world.getBladeIndices() );
+                }
                 birds.draw( gpRender->getDevice(), renderer.getViewProjection(), renderer.getSceneParams() );
             }
             return;
@@ -8272,6 +8290,9 @@ void GMFreeRide::exit() {
     trafficAudio.unload();
     collisionAudio.unload();
     storm.unload();
+    if ( gpRender != nullptr ) {
+        GetBladeGrass().destroy( gpRender->getDevice() );
+    }
     gamepad.shutdown();
     wheelFfb.shutdown(); // never leave the wheel torqued
     radio.stop();
