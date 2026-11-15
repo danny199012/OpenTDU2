@@ -3439,9 +3439,11 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
         // below); only the windscreen is hidden. -hidesidewindows = the old
         // all-hidden behaviour.
         static const bool bHideSides = CmdLine::HasArg( "-hidesidewindows" );
+        static const bool bHideWindscreen = CmdLine::HasArg( "-hidewindscreen" );
         const int32_t windscreenNode = car.getScene().findNode( "GLASS_F" );
         for ( int32_t node : glassNodes ) {
-            car.setNodeVisible( node, !bInterior || bKeepGlass || ( node != windscreenNode && !bHideSides ) );
+            const bool bWindscreen = node == windscreenNode;
+            car.setNodeVisible( node, !bInterior || bKeepGlass || ( bWindscreen ? !bHideWindscreen : !bHideSides ) );
         }
     }
     for ( int32_t node : alwaysHiddenNodes[0] ) {

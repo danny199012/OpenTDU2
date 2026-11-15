@@ -322,7 +322,8 @@ private:
     void setupScene( EdenSceneParams &params );
     void ensureTargets();
     void destroyTargets();
-    void renderEnvironment( const EdenSceneParams &mainScene, bool bAllFaces );
+    // faceMask (bit per face) re-renders just those faces (the mirrors' rear faces); 0 = bAllFaces / the rotating face.
+    void renderEnvironment( const EdenSceneParams &mainScene, bool bAllFaces, uint32_t faceMask = 0 );
     void generateViewPos();
     bool loadClouds( const std::string &islandFolder );
     void drawClouds( EdenRenderer &renderer );

@@ -7,6 +7,14 @@ appends its entry at the top of this file**, newest first, in the
 - The wrong icons are **GENERAL.vmf's emote-wheel art** [DATA, `-dumpflashart`]: up = cell 684 (hand + sound waves), down = 678 (waving person), left / right = 2698 / 2695 (the "L / R" eye glyphs); the HUD's own cells for the slots are 1003 (roof), 1005 (windows), 1001 (car + arrow). The title "Accessories", the arrows and the layout are the HUD's `ig_menu`, and the owner's wheel shows NO red lock on the roof slot (the retail-correct wheel for this hardtop Porsche shows one) - so it is not the same clip content.
 - Re-checked and NOT reproduced: `-gm FREERIDE` with / without `-skipcine`, the LOGIN -> FREERIDE continue path, the owner's options.ini (4K, button_prompts 3), mods, profile, a connected DualSense (no `-nopad`), DLSS on. All show roof(locked) / windows / indicators.
 - Open discriminators to ask the owner: numpad 4 (keyboard) vs the pad's D-pad left; before / after the "Enjoy!" popup closes.
+
+## Session 2026-11-15 (`main`, 10): windscreen visible in the inside views, sharper / fresher mirror reflections
+
+Owner (with a 360-recomp reference shot): windshields should be visible inside, tinted, with a dirt arch at the top where the wipers do not reach; enhance mirror reflections.
+
+- `cinematic_car.cpp` draw: the windscreen (GLASS_F) is no longer hidden in the inside views; it takes the retail inside glass (Glass_I, TD_CarGlassDirt, the same swap the side windows use [DATA car_glass_spec.md]), which carries the retail tint and the dirt toward the top. `-hidewindscreen` = old. Verified on the owner's data (`-cameramode 23 -clock 14.00`): tinted glass, darker toward the top. NOT compared to the 360 arch shape pixel for pixel - if the arch is missing, the dirt art is Glass_I's own DETAIL2 and the wipers' reach would have to be baked in.
+- `eden_scene_view.cpp`: the car environment cube (what the mirrors, paint and glass sample) is 512 per face (was 256; `-envsize n`; +0.6 ms offscreen measured) and, while moving, the one or two faces most behind the view are re-rendered about every 70 ms (`renderEnvironment(..., faceMask)`; the full 6-face refresh stays at 5 Hz) so the mirror image does not trail the car. `-norearfaces` = off.
+- A tunnel night shot (cockpit) shows the mirror with the road and a car behind. Not done: a true mirror camera (the retail renders the mirror from a rear camera; the port still samples a cube taken at the car centre, so there is parallax and the mirror's aim can read too far down on a parked car).
 
 ## Session 2026-11-15 (`main`, 9): side windows in the inside views, lamp-based headlights, tunnel traffic
 

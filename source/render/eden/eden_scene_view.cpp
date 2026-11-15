@@ -228,7 +228,12 @@ SceneTimes gSceneTimes;
 } // namespace
 
 namespace {
-constexpr uint32_t kEnvironmentSize = 256;
+// The car environment cube: 512 per face (was 256: the mirrors and the paint reflections were soft); -envsize n.
+static uint32_t EnvironmentSize() {
+    static const uint32_t size = static_cast<uint32_t>( Clamp( CmdLine::GetArgInt( "-envsize", 512 ), 128, 1024 ) );
+    return size;
+}
+#define kEnvironmentSize EnvironmentSize()
 constexpr uint64_t kTD_Building = 0x183157b81c6cff57ull;
 constexpr uint64_t kTD_Furnitures = 0xd5013ed0db79afafull;
 constexpr uint64_t kTD_FurnituresAlt = 0xd5013ed0dcacafafull;
@@ -828,7 +833,7 @@ void EdenSceneView::drawObjects( EdenRenderer &renderer, ePass pass ) {
     }
 }
 
-void EdenSceneView::renderEnvironment( const EdenSceneParams &mainScene, bool bAllFaces ) {
+void EdenSceneView::renderEnvironment( const EdenSceneParams &mainScene, bool bAllFaces, uint32_t faceMask ) {
     // Dynamic environment cube around the car (car_envmap_factor; the static
     // cubemap of common_car.bnk is the fallback). The car shaders sample it
     // with (x, y, -z): the faces are rendered for the z mirrored directions.
@@ -855,8 +860,13 @@ void EdenSceneView::renderEnvironment( const EdenSceneParams &mainScene, bool bA
     auto mirror = []( const Vector3f &v ) { return Vector3f( v.x, v.y, -v.z ); };
     const uint32_t firstFace = bAllFaces ? 0 : environmentFace;
     const uint32_t lastFace = bAllFaces ? 6 : environmentFace + 1;
-    environmentFace = ( environmentFace + 1 ) % 6;
+    if ( faceMask == 0 ) {
+        environmentFace = ( environmentFace + 1 ) % 6;
+    }
     for ( uint32_t face = firstFace; face < lastFace; face++ ) {
+        if ( faceMask != 0 && ( faceMask & ( 1u << face ) ) == 0 ) {
+            continue;
+        }
         const Vector3f forward = mirror( kForward[face] );
         const Vector3f up = mirror( kUp[face] );
         const Vector3f right = mirror( kUp[face].cross( kForward[face] ) );
@@ -888,7 +898,13 @@ void EdenSceneView::renderEnvironment( const EdenSceneParams &mainScene, bool bA
         pRenderer->endScene();
         device.endRenderTarget();
     }
-    if ( pWriteTarget != pEnvironmentTarget ) {
+    if ( pWriteTarget != pEnvironmentTarget && faceMask != 0 ) {
+        for ( uint32_t face = 0; face < 6; face++ ) {
+            if ( faceMask & ( 1u << face ) ) {
+                device.copyTexture( &pWriteTarget->Color, &pEnvironmentTarget->Color, 1, face );
+            }
+        }
+    } else if ( pWriteTarget != pEnvironmentTarget ) {
         device.copyTexture( &pWriteTarget->Color, &pEnvironmentTarget->Color, lastFace - firstFace, firstFace );
         pEnvironmentTarget->InitializedLayers |= pWriteTarget->InitializedLayers;
         pEnvironmentTarget->bInitialized = pEnvironmentTarget->InitializedLayers == ( ( 1u << pEnvironmentTarget->NumLayers ) - 1 );
@@ -1371,6 +1387,8 @@ void EdenSceneView::renderOffscreen() {
         static Vector3f lastCenter( FLT_MAX, FLT_MAX, FLT_MAX );
         static float lastYaw = FLT_MAX;
         static float refreshTimer = 0.0f;
+        static float rearTimer = 0.0f;
+        static const bool bNoRearFaces = CmdLine::HasArg( "-norearfaces" );
         refreshTimer += frameDelta;
         const Vector3f forward =
             EdenRotationFromQuaternion( camera.Rotation ).transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
@@ -1392,6 +1410,36 @@ void EdenSceneView::renderOffscreen() {
             lastYaw = yaw;
             refreshTimer = 0.0f;
             renderEnvironment( params, true );
+            rearTimer = 0.0f;
+        } else if ( !bNoRearFaces && pEnvironmentTarget != nullptr && pEnvironmentTarget->bInitialized &&
+                    ( moved > 0.05f || yawDelta > 1.0f * kDegToRad ) ) {
+            // The mirrors only see what is behind: the one or two faces most
+            // behind the view are re-rendered about every 70 ms while moving,
+            // so the reflection does not trail the car by the 200 ms of the
+            // full refresh (the owner's "update delay"). The other faces keep
+            // the coherent full refresh. -norearfaces = off.
+            rearTimer += frameDelta;
+            if ( rearTimer >= 0.07f ) {
+                rearTimer = 0.0f;
+                const Vector3f rear( -sinf( yaw ), 0.0f, -cosf( yaw ) );
+                static const Vector3f kFaceDirection[6] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+                                                            { 0, -1, 0 }, { 0, 0, -1 }, { 0, 0, 1 } };
+                float best = -2.0f, second = -2.0f;
+                int32_t bestFace = 0, secondFace = 0;
+                for ( int32_t face = 0; face < 6; face++ ) {
+                    const float d = rear.dot( kFaceDirection[face] );
+                    if ( d > best ) {
+                        second = best;
+                        secondFace = bestFace;
+                        best = d;
+                        bestFace = face;
+                    } else if ( d > second ) {
+                        second = d;
+                        secondFace = face;
+                    }
+                }
+                renderEnvironment( params, true, ( 1u << bestFace ) | ( 1u << secondFace ) );
+            }
         }
         environmentFrame++;
     }
