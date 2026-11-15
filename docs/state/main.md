@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 31): Hawai dealer entry from FREERIDE verified; Hawai vegetation looks fine
+
+- Verified: `-gm FREERIDE -island hawai -tp 44452,29811`, `press=validate` at frame 260 -> SHOP "Mercedes-Benz (6564), 6 cars ... free-ride visit, loop C_LIFE_HOSTESS", showroom with the hostess drawn. Hawai HUD badge "Hawaii Area 3" there. Oddity: the parked car at that tp sits under the dealer's overhanging first floor with a floating look - not investigated.
+- Vegetation: daylight (`-weather 18`) shots at (7038,16850), (39380,20085), (31672,4416) show dense palms / forest / parkland trees and hedges. No change made; the earlier 7.7 % vs 12.2 % green figure was a different viewpoint.
+- Not done: buying at a Hawai dealer, clothes / tuning / sticker shops on Hawai, traffic zones / signals, an on-screen overtake.
+
 ## Session 2026-11-15 (`main`, 30): Hawai dealers failed to load - ReadSpot read Ibiza's spots.bin only
 
 - Bug: `IntroCinematic::ReadSpot` (`avatarchoice/intro_cinematic.cpp`) opened `islands/ibiza/level/spots.bin` always; every Hawai dealer / shop spot warned "not in hawai's spots.bin" and fell back to defaults (callers: gm_shop x2, gm_testcar, gm_cine). Now searches ibiza, hawai, casino (ids are hashes of unique names).
