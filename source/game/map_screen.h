@@ -287,6 +287,10 @@ public:
     // The art is <mods>/icons/fuel.png when present, otherwise a built-in glyph;
     // -nofuelicons turns it off.
     void setFuelStations( const std::vector<Vector3f> &positions );
+    // The retail map's /:LackOfPetrol (map.vmf): with an empty tank the map hides its OK menu (Go there /
+    // Target / Bookmark) and shows the plain help bar [DATA, docs/re/fuel_gas_station_spec.md 8].
+    inline void setLackOfPetrol( bool bEmpty ) { bLackOfPetrol = bEmpty; }
+    bool bLackOfPetrol = false;
 
     // The map's points of interest: islands/<island>/level/spots.bin, one icon
     // per spot (clones of the movie's /pack/point). Call before the screen

@@ -715,6 +715,9 @@ void MapScreen::openMenu() {
     if ( roadNodes.empty() || !isCursorValid() ) {
         return; // the cursor shows the "no" sign
     }
+    if ( bLackOfPetrol ) {
+        return; // map.vmf: /:LackOfPetrol hides the OK menu (an empty tank: no Go there / Target / Bookmark)
+    }
     const Vector3f point = cursorWorld();
     menuRows.clear();
     // 1. Go there: only on a road that has been discovered (the retail rule).
@@ -3155,6 +3158,7 @@ void MapScreen::updateMarkers() {
         player.setVariableBool( "/:IsTargetPresent", true );
         player.setVariableBool( "/:IsTargetOK", bValid );
         player.setVariableBool( "/:IsTeleportOK", bTravel );
+        player.setVariableBool( "/:LackOfPetrol", bLackOfPetrol );
         // the reticle's own states (frame labels of /curseur/anim, found with
         // -dumplabelsclip): 'stop' = the "no" sign, 'on' = a valid target
         static int32_t lastCursorState = -1;

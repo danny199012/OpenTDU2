@@ -4793,6 +4793,7 @@ void GMFreeRide::tick( float deltaTime ) {
             dreamWhiteIn = -1.0f;
         }
     }
+    mapScreen.setLackOfPetrol( bFuelEmpty || CmdLine::HasArg( "-lackofpetrol" ) );
     // World map (FrontEnd/HiRes/map.bnk): the retail HUD's MAP action — the
     // pad's back button (Select / Share) and its keyboard equivalent. The world
     // is frozen while it is up, like the pause menu.

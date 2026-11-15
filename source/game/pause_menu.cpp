@@ -678,9 +678,6 @@ bool PauseMenu::load() {
             "PauseMenu: MAIN.vmf (FrontEnd/HiRes/main.bnk) not available\n" );
         return false;
     }
-    if ( CmdLine::HasArg( "-dumpgasclips" ) ) {
-        player.dumpClips( "/gas_station", 8 );
-    }
     player.setVariable( "/:m_Pause", LocStr( kLocPause, "Pause" ) );
     player.setVariable( "/:m_Resume", LocStr( kLocResume, "Resume" ) );
     player.setVariable( "/:m_Options", LocStr( kLocOptions, "Options" ) );
@@ -3013,6 +3010,14 @@ void PauseMenu::close() {
 }
 
 void PauseMenu::tick( float deltaTime ) {
+    {
+        static const bool bDumpGas = CmdLine::HasArg( "-dumpgasclips" );
+        static int32_t dumpFrames = 0;
+        if ( bDumpGas && bOpen && ++dumpFrames == 90 ) {
+            player.dumpClips( "/", 3 );
+            player.dumpClips( "/gas_station", 8 );
+        }
+    }
     if ( !isLoaded() || !bOpen ) {
         return;
     }
