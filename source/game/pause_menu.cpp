@@ -3205,18 +3205,35 @@ void PauseMenu::tick( float deltaTime ) {
         if ( pMenuSq != nullptr && pMenuSq->pInstance != nullptr ) {
             float &ty = pMenuSq->pInstance->Matrix.TY;
             const float liftTwips = kTabRowLift * 20.0f;
-            if ( bTabRowLifted ) {
-                if ( std::abs( ty - ( fTabRowBaseTY - liftTwips ) ) > 1.0f ) {
-                    bTabRowLifted = false;
+            if ( CmdLine::HasArg( "-logpausepos" ) ) {
+                static float lastLoggedTy = -1.0f;
+                static bool bLastPlaying = true;
+                if ( std::abs( ty - lastLoggedTy ) > 0.5f || pMenuSq->bPlaying != bLastPlaying ) {
+                    lastLoggedTy = ty;
+                    bLastPlaying = pMenuSq->bPlaying;
+                    OTDU_LOG_INFO( "PauseMenu: menu_sq TY %.1f (base %.1f, lift %.1f) lifted %d playing %d options %d save notice %.2f\n", ty,
+                                   fTabRowBaseTY, liftTwips, bTabRowLifted ? 1 : 0, pMenuSq->bPlaying ? 1 : 0, bInOptions ? 1 : 0,
+                                   GetSaveNoticeTime() );
                 }
-            } else if ( !bInOptions && !pMenuSq->bPlaying ) {
-                if ( fTabRowBaseTY == 0.0f ) {
-                    fTabRowBaseTY = ty;
-                }
-                if ( std::abs( ty - fTabRowBaseTY ) <= 1.0f ) {
-                    ty -= liftTwips;
+            }
+            // The base is the movie's own y for menu_sq (222.8 px), never read back from the matrix: a pause
+            // that opened while the row still carried the lift of the previous one captured the lifted value
+            // as its "base" and lifted the row a second time (the owner: two pause screens of one run, the
+            // second with a bigger gap above the card).
+            constexpr float kMovieRowTY = 222.8f * 20.0f;
+            fTabRowBaseTY = kMovieRowTY;
+            const float liftedTY = kMovieRowTY - liftTwips;
+            if ( !bInOptions && !pMenuSq->bPlaying ) {
+                if ( std::abs( ty - kMovieRowTY ) <= 1.0f ) {
+                    ty = liftedTY;
                     bTabRowLifted = true;
+                } else if ( std::abs( ty - liftedTY ) <= 1.0f ) {
+                    bTabRowLifted = true; // already at the lifted place: never lift twice
+                } else {
+                    bTabRowLifted = false; // the movie moves the row itself
                 }
+            } else if ( bTabRowLifted && std::abs( ty - liftedTY ) > 1.0f ) {
+                bTabRowLifted = false;
             }
         }
         // -logoptpage: each options page the movie settles on (its sprites are
@@ -3400,6 +3417,13 @@ void PauseMenu::layoutEntries() {
 
 void PauseMenu::refreshEntries() {
     bEntriesShown = true;
+    if ( CmdLine::HasArg( "-logpausepos" ) ) {
+        float rowX = 0.0f, rowY = 0.0f, firstX = 0.0f, firstY = 0.0f;
+        player.getClipStagePosition( "/pause_menu/menu_sq", rowX, rowY );
+        player.getClipStagePosition( "/pause_menu/menu_sq/sq0", firstX, firstY );
+        OTDU_LOG_INFO( "PauseMenu: settled: menu_sq at (%.1f, %.1f), sq0 at (%.1f, %.1f), save notice %.2f s\n", rowX, rowY, firstX, firstY,
+                       GetSaveNoticeTime() );
+    }
     // Island badges of the map (authored art per island: the default frame
     // is Hawaii, this build streams Ibiza).
     player.gotoLabel( "/pause_menu/data_extd/map/island/i1", pIslandBadge1,
