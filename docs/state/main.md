@@ -3,6 +3,14 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 11): travel between islands (F4 panel + the airport pop-up)
+
+Owner: "I tried to teleport to Hawaii; the airport is not wired and F4 has no way to go there" (the secret test cave is supposedly on Hawai).
+- F4 panel: a **travel** row, "Go to hawai / casino / ibiza" (the others than the current island). `GMFreeRide::travelToIsland` writes a `StoryHandoff` (Island + the target island's **EAIR\*** spot road-side entrance read from its `spots.bin`) and restarts FREERIDE there; the profile / car carry over. `-travelisland <name>` = the same, 120 frames in (test hook). Verified: Ibiza -> Hawai lands at (7038.8, 1.6, 16850.8) on the road at the Hawai airport, "Hawaii Area 2".
+- The map's airport pop-up: `/:CurIsland` + `/:AirportFree` make the movie show **"Go to Hawaii"** as its first button; its FSCommand `isld` travels to the other island of the pair (Ibiza <-> Hawai; the casino island stays an F4 / `-island` trip). No level gate or price offline [INF].
+- Side fix: the pop-up's buttons answer a few frames after the key (the movie plays its press animation first), so the map polls for the island trip and for "Go there" every frame; the pop-up's "Go there" is locked when no discovered road is under the spot (`IsTeleportOK` = `getFastTravelPoint`), like the old menu. Before this the pop-up's Go there never teleported (checked: it logged `goin` and nothing else).
+- Not done: the retail airport flow (cutscene, plane, the price "first time") - only the instant trip. The test cave: not located; once on Hawai use F2 / F6 to mark coordinates.
+
 ## Session 2026-11-15 (`main`, 10): road 827 (code 0x604) is a tunnel, not dirt; the owner's "fell through the world"
 
 Owner, build 128 (the depth bias was still on): the map showed black trees and white tracks, the overlay read `road 827 type 604 w1 21 w2 101 class 0 DIRT` at (20471, 197, 6073) and the car ended up inside a diamond-plate structure on top of a tunnel.

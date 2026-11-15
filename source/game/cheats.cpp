@@ -166,6 +166,15 @@ bool Cheats::takeTeleport( Vector3f &outTarget, float &outHeading, bool &outHasH
     return true;
 }
 
+bool Cheats::takeIslandTravel( std::string &outIsland ) {
+    if ( pendingIsland.empty() ) {
+        return false;
+    }
+    outIsland = pendingIsland;
+    pendingIsland.clear();
+    return true;
+}
+
 bool Cheats::takeWeather( int32_t &outIndex ) {
     if ( !bWeather ) {
         return false;
@@ -476,6 +485,24 @@ void Cheats::drawUI( const char *pModeName ) {
             addChips( 100000 );
         }
         ImGui::Separator();
+
+        // ---- Travel to another island (the mode restarts there, at its airport) ----
+        if ( !island.empty() ) {
+            ImGui::Text( "travel - now on %s", island.c_str() );
+            static const char *const kIslands[] = { "ibiza", "hawai", "casino" };
+            for ( const char *pName : kIslands ) {
+                if ( island == pName ) {
+                    continue;
+                }
+                ImGui::SameLine();
+                const std::string label = std::string( "Go to " ) + pName;
+                if ( ImGui::Button( label.c_str() ) ) {
+                    pendingIsland = pName;
+                }
+            }
+            ImGui::TextDisabled( "-island <name> does the same at start-up" );
+            ImGui::Separator();
+        }
 
         // ---- Teleport (a world: the modes without one skip this) ----
         if ( !spots.empty() ) {

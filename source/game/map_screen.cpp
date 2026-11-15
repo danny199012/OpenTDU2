@@ -224,6 +224,14 @@ bool MapScreen::load() {
             cardSpot = -1;
             return;
         }
+        if ( command == "isld" ) {
+            // The airport pop-up's "Go to Hawai / Ibiza" button: the other island of the pair [DATA: map.vmf
+            // CurIsland / m_gotohawai / m_gotoibiza]; the mode restarts there at the airport.
+            islandTravel = roadIsland == "hawai" ? "ibiza" : "hawai";
+            bCardExtended = false;
+            cardSpot = -1;
+            return;
+        }
         if ( command == "targ" ) {
             toggleTarget();
             bCardExtended = false;
@@ -1232,12 +1240,22 @@ void MapScreen::applyCardLocks( const Spot &spot ) {
     OTDU_LOG_INFO( "MapScreen: card locks for '%s'\n", spot.Name.c_str() );
     player.setVariableBool( "/:IsRoadLocked", false );
     player.setVariableBool( "/:IsSpotLocked", false );
-    player.setVariableBool( "/:IsTeleportOK", true );
+    {
+        // Go there only on a discovered road (the retail rule the old menu used): locked otherwise.
+        Vector3f travelPoint;
+        player.setVariableBool( "/:IsTeleportOK", getFastTravelPoint( travelPoint ) );
+    }
     player.setVariableBool( "/:IsTargetOK", true );
     player.setVariableBool( "/:CanAddMySpot", true );
     player.setVariableBool( "/:IsCarOK", true );
     player.setVariableBool( "/:IsLevelOK", true );
     player.setVariableBool( "/:IsSpotFavorite", findBookmarkNear( spot.Position, 40.0f ) >= 0 );
+    if ( spot.pIcon != nullptr && strcmp( spot.pIcon, "airport" ) == 0 ) {
+        // The airport pop-up (setAirport / addMenuButton 'change_island'): CurIsland picks the button text
+        // (IBIZA -> "Go to Hawai"), AirportFree opens it; there is no level gate offline.
+        player.setVariable( "/:CurIsland", roadIsland == "hawai" ? "hawaii" : "IBIZA" );
+        player.setVariableBool( "/:AirportFree", true );
+    }
     player.setVariableBool( "/:IsTargetPresent", bHasTarget && ( target - spot.Position ).length() < 60.0f );
 }
 

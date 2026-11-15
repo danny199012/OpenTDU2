@@ -144,6 +144,38 @@ bool ApplyStoryGrants() {
     return false;
 }
 
+// The first spot of an island whose bank name starts with the prefix ("EAIR" = the airport): its road-side entrance
+// (second point, heading2) or, when unset, its own position.
+bool FindSpotByBankPrefix( const std::string &island, const char *pPrefix, Vector3f &outPosition, float &outHeading ) {
+    std::vector<uint8_t> data;
+    if ( gpFile == nullptr ||
+         !gpFile->loadFile( ( gpFile->getBankFolder() + "islands/" + island + "/level/spots.bin" ).c_str(), data ) ||
+         data.size() < 0x20 || memcmp( data.data() + 0x10, "SPTA", 4 ) != 0 ) {
+        return false;
+    }
+    uint32_t size = 0;
+    memcpy( &size, data.data() + 0x14, 4 );
+    const size_t length = strlen( pPrefix );
+    for ( size_t offset = 0x20; offset + 0x110 <= data.size() && offset < 0x20 + size; offset += 0x110 ) {
+        char name[9] = {};
+        memcpy( name, data.data() + offset + 8, 8 );
+        if ( strncmp( name, pPrefix, length ) != 0 ) {
+            continue;
+        }
+        Vector3f entrance;
+        memcpy( &entrance, data.data() + offset + 0x28, 12 );
+        float heading = 0.0f;
+        memcpy( &heading, data.data() + offset + 0x38, 4 );
+        if ( entrance.x == 0.0f && entrance.z == 0.0f ) {
+            memcpy( &entrance, data.data() + offset + 0x10, 12 );
+        }
+        outPosition = entrance;
+        outHeading = heading;
+        return true;
+    }
+    return false;
+}
+
 bool gSuppressLevelUp = false; // -testlevelup: the forced popup must not be replaced by the real one
 
 // The skills as the level-up popup gauges read them (the numbers of the pause
@@ -4029,6 +4061,24 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
     return false;
 }
 
+void GMFreeRide::travelToIsland( const std::string &island ) {
+    Vector3f entrance;
+    float heading = 0.0f;
+    if ( !FindSpotByBankPrefix( island, "EAIR", entrance, heading ) ) {
+        OTDU_LOG_WARN( "FREERIDE: travel to '%s': no airport spot, staying on '%s'\n", island.c_str(), islandName.c_str() );
+        return;
+    }
+    StoryHandoff &handoff = GetStoryHandoff();
+    handoff = StoryHandoff();
+    handoff.bSet = true;
+    handoff.Position = entrance;
+    handoff.Yaw = heading;
+    handoff.Island = island;
+    OTDU_LOG_INFO( "FREERIDE: travel %s -> %s, the car at its airport (%.1f, %.1f, %.1f)\n", islandName.c_str(), island.c_str(),
+                   entrance.x, entrance.y, entrance.z );
+    pGameInstance->setNextGameMode( eGameMode::GM_FreeRide );
+}
+
 void GMFreeRide::teleportTo( const Vector3f &target, float heading, bool bHasHeading ) {
     // The cheats' teleport (the panel, F5 on the map, -tpin): stream the world
     // at the target, drop the car on the surface under it and reset the
@@ -4101,6 +4151,11 @@ void GMFreeRide::drawUI() {
     bool bHasHeading = false;
     if ( cheats.takeTeleport( target, heading, bHasHeading ) ) {
         teleportTo( target, heading, bHasHeading );
+    }
+    std::string travelIsland;
+    if ( cheats.takeIslandTravel( travelIsland ) ) {
+        travelToIsland( travelIsland );
+        return;
     }
     int32_t weatherIndex = 0;
     if ( cheats.takeWeather( weatherIndex ) ) {
@@ -4868,6 +4923,23 @@ void GMFreeRide::tick( float deltaTime ) {
         mapScreen.tick( deltaTime );
         mapScreen.updateCamera( deltaTime );
         {
+            // The pop-up's buttons answer a few frames after the key (the movie plays its press animation first):
+            // poll for the island trip and the fast travel they request.
+            std::string pendingIsland;
+            if ( mapScreen.takeIslandTravel( pendingIsland ) ) {
+                mapScreen.close();
+                travelToIsland( pendingIsland );
+                return;
+            }
+            Vector3f pendingTravel;
+            if ( mapScreen.takeFastTravel( pendingTravel ) ) {
+                OTDU_LOG_INFO( "FREERIDE: fast travel (Go there) to (%.1f, %.1f, %.1f)\n", pendingTravel.x, pendingTravel.y, pendingTravel.z );
+                mapScreen.close();
+                teleportTo( pendingTravel, 0.0f, false );
+                return;
+            }
+        }
+        {
             const Vector3f fwd = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
             const Vector3f flatFwd = Vector3f( fwd.x, 0.0f, fwd.z ).normalized();
             mapScreen.setPlayer( carWorld.getTranslation(), flatFwd.x, flatFwd.z );
@@ -4895,6 +4967,12 @@ void GMFreeRide::tick( float deltaTime ) {
                 mapScreen.cardMove( 1 );
             } else if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
                 mapScreen.cardAccept();
+                std::string travelIsland;
+                if ( mapScreen.takeIslandTravel( travelIsland ) ) {
+                    mapScreen.close();
+                    travelToIsland( travelIsland );
+                    return;
+                }
                 Vector3f travelPoint;
                 if ( mapScreen.takeFastTravel( travelPoint ) ) {
                     OTDU_LOG_INFO( "FREERIDE: fast travel (Go there) to (%.1f, %.1f, %.1f)\n", travelPoint.x, travelPoint.y, travelPoint.z );
@@ -6724,6 +6802,14 @@ void GMFreeRide::tick( float deltaTime ) {
     }
     {
         static int32_t awardFrames = 0;
+        // test: -travelisland <ibiza|hawai|casino> travels once, 120 frames in (what the F4 panel's button does)
+        if ( const char *pTravel = CmdLine::GetArgValue( "-travelisland" ) ) {
+            static int32_t travelFrames = 0;
+            if ( ++travelFrames == 120 && islandName != pTravel ) {
+                travelToIsland( pTravel );
+                return;
+            }
+        }
         if ( const char *pAward = CmdLine::GetArgValue( "-awardevent" ) ) {
             if ( ++awardFrames == 150 ) {
                 AwardSkillEvent( pAward ); // test: pays a DBRewardXP event now

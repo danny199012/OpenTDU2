@@ -476,6 +476,9 @@ private:
     // surface below it and reset the dynamics / camera (what backOnTrack does
     // for the nearest road). bHasHeading: face that way, else keep the heading.
     void teleportTo( const Vector3f &target, float heading, bool bHasHeading );
+    // Restart the mode on another island ("ibiza" / "hawai" / "casino") at that island's airport (EAIR_*) road-side
+    // entrance - the F4 panel's "Go to <island>" and the airport pop-up use it.
+    void travelToIsland( const std::string &island );
     void updateWheels();
     // Wheel spray / dust and the tyre tracks (eden_surface_fx.h): feeds the
     // wetness of the ground from the weather and the contact of every wheel to

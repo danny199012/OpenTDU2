@@ -215,6 +215,16 @@ public:
     // drive the movie's own buttons by SWF keys, and its FSCommands gotp / targ / mysp do the work.
     inline bool isCardOpen() const { return cardSpot >= 0; }
     inline bool isCardExtended() const { return bCardExtended; }
+    // The airport pop-up's island button (FSCommand isld): the island to travel to, once.
+    bool takeIslandTravel( std::string &outIsland ) {
+        if ( islandTravel.empty() ) {
+            return false;
+        }
+        outIsland = islandTravel;
+        islandTravel.clear();
+        return true;
+    }
+    std::string islandTravel;
     bool cardAccept();     // true when it consumed the OK (opened / pressed a button)
     void cardMove( int32_t step );
     bool cardBack();       // true when the pop-up was open and closed

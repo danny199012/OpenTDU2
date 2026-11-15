@@ -55,6 +55,8 @@ public:
 
     // What the panel asked for; each call clears the request.
     bool takeTeleport( Vector3f &outTarget, float &outHeading, bool &outHasHeading );
+    // Travel to another island ("ibiza" / "hawai" / "casino"): the mode restarts there at the island's airport.
+    bool takeIslandTravel( std::string &outIsland );
     bool takeWeather( int32_t &outIndex );
     bool takeStoryStep( int32_t &outStep );
     bool takeBackOnTrack();
@@ -125,6 +127,7 @@ private:
     std::vector<Spot> spots;
     std::string island;
     std::vector<Destination> destinations;
+    std::string pendingIsland;
     char spotFilter[64] = {};
     int32_t selectedSpot = -1;
     // The one teleport path of the panel: the spot list, the destination row
