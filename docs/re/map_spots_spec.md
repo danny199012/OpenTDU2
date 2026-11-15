@@ -305,3 +305,26 @@ The retail MAP.vmf spot clip (sprite 327, 856 frames, 102 labels; `-dumpmapspot`
 What the art is (`docs/images/map_icon_frames_house_casino.png`: estates, forsale, home, casino / gamblinghall, my_club, club, carrental): `estates` plain white house, **`forsale` white house with a "$" tag**, `home` red tile, `casino` chips / dice, `gamblinghall` "$!", `my_club` red club tile, `club` blue, `carrental` a key.
 **Applied:** the map now draws unowned houses (EPH, category 0) with `forsale` and the seaplane dock (`ELANDCA*`, category 0x0e) with `casino`, as the dev switch (section 5) says; `estates` stays for the realtor (ERE). Only the drawn frame changes: `spot.pIcon` (casino entry, enter prompts, tabs) is untouched. `-oldspoticons` restores the old art; `-mapicon <label>` forces one frame on every icon (test hook). Verified by a before / after screenshot (4 176 pixels differ: the houses and the dock tile).
 Not applied: `my_club` (the port has no club ownership), `carrental` / `auctionhall` (no base-data spot), the card kind for `forsale` (the card still reports `estates`; the dev `WhatSpot` is `forsale` for category 0, not checked against the movie's `SetInfos`).
+
+## 12. `spotworld.bin` decoded: the world index of the challenge files (2026-11-15, `main`) [DATA + CODE-dev]
+
+`euro/bnk/scenarics/spotworld.bin` (921 128 bytes) lists **532 challenges**, one record per `.ig2` file of `euro/bnk/ig2/` (521 of the 532 names have a file here; the 11 others are DLC names `RMIRDLC0..4` / `RMHRDLC0..5`;
+18 files of the folder are not listed: `AMI1DLC1`, `AMZ2DLC1`, `RMHDLCM1..8`, `REPLAYS`, ...). `python tools/dump_spotworld.py [--csv]` dumps it; the port reads it with `SpotWorld` (`source/game/spots/spot_world.{h,cpp}`).
+Layout (the dev writer `0x895890` + the file): `SPTW` v3, `CONT` blocks; each record is `name[8]`, **x y z** (float LE, the challenge's start), u32 id, u32 flags, f32, then a big endian `IGE2` blob whose `MDSC` chunk is a property list `key[4] 03 sub 00 size value` (91 keys: `isla`, `leme`, `gmth`, `nblp`, `cops`, `CpTs`, `fee1`, `rewm`, `mnme`, `DesC`, ...). `mnme` / `DesC` are authoring placeholders ("Mission Honolulu", "OAHU") in almost every record: the real name / description are the DB loc ids `dbna` / `dbd1`.
+**Validated:** for all 25 championships the record's position equals the first gate of the first race's `.ig2` to the metre (0 m, both islands, logged by `gm_freeride.cpp`), and **all 40 DBEvent rows** (`_eventfile`) are found with plausible island positions.
+
+Counts by island (`isla`: 0 ibiza, 1 hawai, 2 casino) and game mode type (`gmth`), with the name families:
+| gmth | n (ibiza / hawai) | name families | what |
+|---|---|---|---|
+| 0 | 38 / 66 (+2 casino) | `RSA#T#` `RSB` `RSC` licence tests, `CHA#A#T` | time-attack style tests (the licence manoeuvres) |
+| 1 | 10 / 19 | `CHA#B#A`, `RMI#ST#`, `RMZ#ST#` | |
+| 3 | 82 / 121 | `RMI#RA#`, `RMZ#RA#`, `CHA#A#R`, `CHA#B#R`, `DUEL*` | races (circuits / point to point) and duels |
+| 7 | 49 / 72 | `EVIA..`, `EVHA#DR# / CO / TI / AD / SH / SP / TA`, `TESSEVEN`, `EVENJANE` | the instant events (drag, ..., 7 kinds) and two story events |
+| 10 | 12 / 19 | `RMI#SP#`, `RMZ#SP#`, `CHA#A#S` | speed challenges |
+| 11 | 10 / 10 | `CMKIB#`, `CMKHA#` | "Know your destination" (`KYD Ibiza Sud`) |
+| 12 | 10 / 12 | `CMFIB#`, `CMFHA#` | "Follow the leader" |
+The `gmth` names are read from the name families, not from a table [INF]; the DBEvent `_eventtype` (1 AD, 2 TI, 3 SH, 4 TA, 6 SP, 7 DR, 8 CO, 11 duel, 12 / 13 story) is the DB's own and is what the port uses.
+
+**Applied:** `RaceEvents::load` now places the free-ride race starts at the real event positions: every DBEvent row of type 1..8 found in SpotWorld for the island (**39 starts on Ibiza, 60 on Hawai**, was 8 invented starts spread over the road graph, `-oldraces` restores that; fallback when an island has no record). Names are the event files (`EVIA1SP1`), rewards the DBEvent rewards.
+Verified (`-island ibiza|hawai` logs the list; `-tp 26576,7069` + OK at `EVIA1SP1` -> `countdown at start 4 'EVIA1SP1', 4 checkpoints, reward $3000`). The routes are still the road-graph walks, not the events' own `.ig2` gates, and every event kind plays as the same point to point race.
+**Not done:** the map's tab 0 ("Single Player Challenges") pins from this table (the movie's `mission_spot` / `event` / `race` / `speed*` / `timeattack*` icon frames exist, section 11); events driven by their `.ig2` gates and per-kind rules (drag, speed trap, ...); the casino island's 2 records.

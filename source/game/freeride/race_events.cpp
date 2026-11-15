@@ -3,6 +3,7 @@
 
 #include "core/xmb.h"
 #include "database/gs_database.h"
+#include "game/spots/spot_world.h"
 #include "system/cmd_line.h"
 
 #include <algorithm>
@@ -34,6 +35,11 @@ bool RaceEvents::load( const std::string &island, const std::vector<Vector3f> &n
     // moneyreward / eventfile columns [DATA], the event files themselves are
     // not readable [ENC]).
     std::vector<int32_t> rewards;
+    // The real event starts: every DBEvent row of the EV* family (_eventtype 1..8) is listed in scenarics/spotworld.bin
+    // with its world start position [DATA, docs/re/map_spots_spec.md section 12]. The duels and the story events
+    // (types >= 10) are not instant challenges.
+    std::vector<RaceStart> realStarts;
+    const int32_t islandIndex = SpotWorld::IslandIndex( island );
     if ( gpDatabase != nullptr ) {
         XmbValue root = gpDatabase->getDocument().getRoot();
         const uint32_t count = root.getArraySize( "DBEvent" );
@@ -48,8 +54,27 @@ bool RaceEvents::load( const std::string &island, const std::vector<Vector3f> &n
                                static_cast<int32_t>( row["_moneyreward"].asInt() ), row["_eventfile"].asString().c_str() );
             }
             rewards.push_back( static_cast<int32_t>( row["_moneyreward"].asInt() ) );
+            const int32_t eventType = static_cast<int32_t>( row["_eventtype"].asInt() );
+            if ( islandIndex >= 0 && eventType >= 1 && eventType <= 8 && !CmdLine::HasArg( "-oldraces" ) ) {
+                if ( const SpotWorldEntry *pEntry = SpotWorld::Find( row["_eventfile"].asString(), islandIndex ) ) {
+                    RaceStart real;
+                    real.Position = pEntry->Position;
+                    real.Reward = static_cast<int32_t>( row["_moneyreward"].asInt() );
+                    real.Name = pEntry->Name;
+                    realStarts.push_back( real );
+                }
+            }
         }
         OTDU_LOG_INFO( "RaceEvents: %u valid DBEvent rows\n", static_cast<unsigned>( rewards.size() ) );
+    }
+    if ( !realStarts.empty() ) {
+        starts = realStarts;
+        OTDU_LOG_INFO( "RaceEvents: %zu real starts on '%s' (scenarics/spotworld.bin)\n", starts.size(), island.c_str() );
+        for ( size_t i = 0; i < starts.size(); i++ ) {
+            OTDU_LOG_INFO( "RaceEvents: start %zu '%s' at (%.0f, %.0f) reward $%d\n", i, starts[i].Name.c_str(), starts[i].Position.x,
+                           starts[i].Position.z, starts[i].Reward );
+        }
+        return true;
     }
     // Starts: greedily spread road nodes (high degree preferred: junctions
     // are plazas [INF]).

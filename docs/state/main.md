@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 24): spotworld.bin decoded - real positions for all 532 challenges; free-ride races use them
+
+- `scenarics/spotworld.bin` = the world index of the `.ig2` challenge files with their start positions (spec section 12). New `source/game/spots/spot_world.{h,cpp}` + `tools/dump_spotworld.py`. Validation: 25 / 25 championship first gates equal the record's position (0 m); 40 / 40 DBEvent rows found.
+- `RaceEvents::load` places the instant-challenge starts at the real EV* event positions (39 Ibiza / 60 Hawai) instead of 8 invented ones; `-oldraces` restores the old behaviour. Verified by log on both islands and a started race at `EVIA1SP1`. The old header claim ("event positions unknown, files [ENC]") was false and is fixed.
+- NOT done / next: map tab-0 pins from the table; running events from their own `.ig2` gates with per-kind rules (drag, speed trap, time attack ...); the minimap / HUD now shows 39 / 60 race markers instead of 8 (owner should look at this; `-oldraces` is the escape hatch).
+
 ## Session 2026-11-15 (`main`, 23): unowned houses draw `forsale`, the seaplane dock draws `casino`
 
 - Retail MAP.vmf's icon clip has a frame for each dev kind string (spec section 11). `_dlc` frames exist only for challenge icons. `map_screen.cpp` buildSpots now draws `forsale` for unowned EPH houses and `casino` for `ELANDCA*` (display frame only; `spot.pIcon` unchanged); `-oldspoticons` restores the old art, `-mapicon <label>` is a test hook.

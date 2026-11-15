@@ -20,6 +20,7 @@
 #include "game/skill_levels.h"
 #include "game/units.h"
 #include "game/spots/mod_props.h"
+#include "game/spots/spot_world.h"
 #include "game/freeride/fuel.h"
 #include "game/freeride/fuel_menu.h"
 #include "game/freeride/sticker_bank.h"
@@ -3199,6 +3200,12 @@ void GMFreeRide::loadChampionshipSpots() {
         ChampionshipSpot spot;
         spot.pChampionship = pChampionship;
         spot.Position = first.getGates()[0].Position;
+        if ( const SpotWorldEntry *pWorld = SpotWorld::Find( pChampionship->Challenges[0], SpotWorld::IslandIndex( islandName ) ) ) {
+            const Vector3f delta( pWorld->Position.x - spot.Position.x, 0.0f, pWorld->Position.z - spot.Position.z );
+            OTDU_LOG_INFO( "FREERIDE: championship '%s' first race %s: spotworld start (%.0f, %.0f), first gate off by %.0f m\n",
+                           pChampionship->Name.c_str(), pChampionship->Challenges[0].c_str(), pWorld->Position.x, pWorld->Position.z,
+                           delta.length() );
+        }
         spot.Family = ChampionshipFamily( *pChampionship );
         championshipSpots.push_back( spot );
         std::string reason;

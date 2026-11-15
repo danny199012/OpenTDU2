@@ -13,11 +13,13 @@
 // finish; the time and the reward show at the end.
 //
 // The retail race events are DBEvent rows (_eventtype / _moneyreward /
-// _eventfile); the rows carry no world position and the event files of the
-// encrypted band are not readable [ENC], so the start positions and the
-// routes here are built from the road graph [INF: 8 starts spread over the
-// island, 3-5 km point to point], with the DBEvent rewards when the rows
-// load.
+// _eventfile). The rows carry no world position, but every EV* event (types
+// 1..8) is listed in scenarics/spotworld.bin with its real start [DATA,
+// game/spots/spot_world.h]; the starts here are those (39 on Ibiza, 60 on
+// Hawai), with the DBEvent rewards. The routes are still built from the road
+// graph [INF: 3-5 km point to point]: the events' own .ig2 gates are not used
+// yet. -oldraces brings back the invented 8 starts (also the fallback when
+// the island has no SpotWorld record).
 class RaceEvents {
 public:
     struct RaceStart {
