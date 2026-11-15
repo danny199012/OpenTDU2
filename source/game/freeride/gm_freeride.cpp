@@ -2826,6 +2826,11 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                 bindStickerShop();
                 hud.closeEnterSpot();
                 hud.closeHint();
+                // The bike showroom (EUC_BD*): the only bike of the data, Default_Bike (id 666, the Ducati Diavel
+                // bank), on every podium [INF: the base game has no bike stock].
+                if ( interiorKind == "bikedealer" ) {
+                    interior.placeDisplayCars( std::vector<int32_t>( 8, 666 ) );
+                }
                 // A dealership shows its stock on the podiums.
                 if ( interiorKind == "cardealer" ) {
                     if ( const CarShop *pShop = findSpotCarShop( nearName, nearSpotId ) ) {

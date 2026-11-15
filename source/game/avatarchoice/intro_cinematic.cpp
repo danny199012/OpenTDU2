@@ -1873,11 +1873,13 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
 bool IntroCinematic::addDisplayCar( const CinematicCar::Desc &desc, const std::string &posCam, int32_t paintIndex ) {
     auto it = entityPlacements.find( posCam );
     if ( it == entityPlacements.end() ) {
+        OTDU_LOG_WARN( "IntroCinematic: display car: no placement named '%s'", posCam.c_str() );
         return false;
     }
     DisplayCar display;
     display.Car = std::make_unique<CinematicCar>();
     if ( !display.Car->load( desc ) ) {
+        OTDU_LOG_WARN( "IntroCinematic: display car '%s' cannot be loaded", desc.FileName.c_str() );
         return false;
     }
     if ( paintIndex >= 0 ) {

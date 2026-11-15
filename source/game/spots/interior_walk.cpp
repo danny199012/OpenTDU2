@@ -92,7 +92,13 @@ size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds ) {
     for ( size_t i = 0; i < carIds.size() && i < posCams.size(); i++ ) {
         CinematicCar::Desc desc;
         if ( posCams[i].empty() || !CinematicCar::DescFromDatabase( carIds[i], desc ) ) {
+            OTDU_LOG_INFO( "InteriorWalk: podium %zu '%s': no description for car %d\n", i, posCams[i].c_str(), carIds[i] );
             continue;
+        }
+        // The one bike row (Default_Bike) wears the Ducati Diavel model (docs/re/bikes_spec.md): its own
+        // bank holds a placeholder car.
+        if ( desc.FileName == "Default_Bike" ) {
+            desc.ModelBank = "diavel";
         }
         // Paint: podium i shows the car's DBCarsAndColors row i (wrapped), so
         // the showroom shows the colour range [INF: the showroom's choice is
@@ -108,6 +114,13 @@ size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds ) {
             OTDU_LOG_WARN( "InteriorWalk: car %d '%s' could not be placed on %s\n", carIds[i], desc.FileName.c_str(),
                            posCams[i].c_str() );
         }
+    }
+    if ( placed == 0 && !carIds.empty() ) {
+        std::string names;
+        for ( const std::string &name : posCams ) {
+            names += " '" + name + "'";
+        }
+        OTDU_LOG_INFO( "InteriorWalk: no display car placed; the shop's podium names:%s\n", names.c_str() );
     }
     OTDU_LOG_INFO( "InteriorWalk: %zu display car(s) of %zu, %zu place(s) in the shop\n", placed, carIds.size(),
                    posCams.size() );
