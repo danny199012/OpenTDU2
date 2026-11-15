@@ -1598,7 +1598,11 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
             for ( size_t k = 0; k + 1 < px.size(); k++ ) {
                 const bool bDriven = pointDriven[k] != 0;
                 const bool bDirt = bDriven && pointDirt[k] != 0;
-                const uint32_t colour = bDirt ? MakeRGBA( 243, 196, 6 ) : ( bDriven ? classColour( cls ) : MakeRGBA( 140, 140, 140 ) );
+                const bool bDirtEdge = i < edgeDirtRecord.size() && edgeDirtRecord[i] != 0;
+                // Retail: a dirt road is thinner, and before it is discovered it is a lighter grey than the tarmac.
+                const uint32_t colour = bDirt ? MakeRGBA( 243, 196, 6 )
+                                              : ( bDriven ? classColour( cls )
+                                                          : ( bDirtEdge ? MakeRGBA( 175, 175, 165 ) : MakeRGBA( 140, 140, 140 ) ) );
                 const size_t bucket = bDriven ? ( bDirt ? 1u : 2u ) : 0u;
                 const float ax = px[k], ay = py[k], bx = px[k + 1], by = py[k + 1];
                 if ( ( ax < -100.0f && bx < -100.0f ) || ( ax > 1380.0f && bx > 1380.0f ) || ( ay < -100.0f && by < -100.0f ) ||
@@ -1610,7 +1614,7 @@ void MapScreen::drawIsland( Renderer2D &renderer ) {
                 if ( length < 0.01f ) {
                     continue;
                 }
-                const float half = 0.5f * width * ( cls == 2 ? 1.33f : 1.0f ); // the retail 4 vs 3 px
+                const float half = 0.5f * width * ( cls == 2 ? 1.33f : 1.0f ) * ( bDirtEdge ? 0.7f : 1.0f ); // the retail 4 vs 3 px; dirt thinner
                 const float ux = dx / length, uy = dy / length;
                 const float nx = -uy * half, ny = ux * half;
                 auto vertex = [&]( float vx, float vy ) {
@@ -2669,6 +2673,14 @@ void MapScreen::loadRoads( const std::string &island ) {
             if ( !bNoStaticDirt && header != detailHeaders.end() ) {
                 const uint32_t code = header->second[4] & 0xffffu;
                 bDirtRecord = code == 0x0u || code == 0x100u || code == 0x400u || code == 0x604u;
+                // The offroad school's tracks (owner's 360 map, 2026-11-15: yellow once discovered, thin grey
+                // before): header word 2 = 0x202, code 0x5, profile word 1 in {13, 14, 17} - ids 1350..1356 /
+                // 1367 / 1368, the ~5 km chain that ends at the school (17164, 18079) [DATA + INF]. Word 1 = 15 is
+                // the same code in the old town (paved), left out.
+                const uint32_t profile = header->second[1];
+                if ( header->second[2] == 0x202u && code == 0x5u && ( profile == 13 || profile == 14 || profile == 17 ) ) {
+                    bDirtRecord = true;
+                }
             }
             edgeDirtRecord.push_back( bDirtRecord ? 1 : 0 );
         }

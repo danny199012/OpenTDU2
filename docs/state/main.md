@@ -3,6 +3,13 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 7): dirt roads anchored on the offroad school (owner's 360 shots)
+
+Owner sent two 360 captures at the offroad racing school (**`ERS_B` at (17164, 18079)**, "Obtain B4 license", the 360 debug overlay read X -29.2 / Z -37.8 at its gate): the dirt roads are **yellow once discovered, thin and lighter grey before**; a short yellow dirt road runs from the school up to the blue main road and on south.
+- Nearest `ROAD_DETAIL` records to the school: **1355 / 1356** (810 / 612 m), header `w1 = 0xe`, `w2 = 0x202`, code `0x5`; the same signature runs through ids **1349..1356, 1367, 1368** - a ~5 km chain from (13000, 16500) to the school and on to (20400, 20400) [DATA]. Rule now: `code 0x5 && w2 == 0x202 && w1 in {13, 14, 17}` (`w1 = 15` is the same code in the old town, paved) plus the earlier 17 rare records [INF].
+- `MapScreen`: dirt edges draw 0.7 x thinner and, undiscovered, `175/175/165` instead of `140` grey (`-nostaticdirt` = off). Built and run headless; **not verified at close zoom** (the island view is too coarse to see the thin lines) - open the map at the school and compare with the 360 shot.
+- The 360 overlay is not world X/Z of the cursor on the map screen (the map shot's X 6.3 / Z -1236 is the map camera); only the in-world shot at the gate is a usable anchor, offset ~ (17193, 18117) [INF, one point].
+
 ## Session 2026-11-15 (`main`, 6): a static dirt-road flag found in ROAD_DETAIL (candidate, owner to compare with the 360 map)
 
 Owner: yellow dirt roads show on the 360 map (and our satnav once driven) but not on our map.
