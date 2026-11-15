@@ -4152,6 +4152,31 @@ void GMFreeRide::drawUI() {
     if ( cheats.takeTeleport( target, heading, bHasHeading ) ) {
         teleportTo( target, heading, bHasHeading );
     }
+    if ( CmdLine::HasArg( "-cavescan" ) && pGameInstance->getFrameIndex() == 90 ) {
+        // Down rays through the Hawai cave box: every triangle hit (the ray goes on after each), to see whether the
+        // cave floor exists as collision at all.
+        collision.streamAround( Vector3f( 39350.0f, 120.0f, 20230.0f ), 2 );
+        for ( float x = 39250.0f; x <= 39500.0f; x += 50.0f ) {
+            for ( float z = 20180.0f; z <= 20300.0f; z += 40.0f ) {
+                std::string line;
+                float y = 220.0f;
+                for ( int32_t k = 0; k < 6; k++ ) {
+                    VehicleWorldCollision::Hit hit;
+                    if ( !collision.raycast( Vector3f( x, y, z ), Vector3f( 0.0f, -1.0f, 0.0f ), 400.0f, hit ) ) {
+                        break;
+                    }
+                    char b[40];
+                    snprintf( b, sizeof( b ), " %.1f%c", hit.Position.y, hit.Surface == VehicleWorldCollision::Hit::eSurface::Terrain ? 'T' : 'S' );
+                    line += b;
+                    y = hit.Position.y - 0.5f;
+                }
+                OTDU_LOG_INFO( "cavescan (%.0f, %.0f):%s\n", x, z, line.c_str() );
+            }
+        }
+    }
+    if ( CmdLine::HasArg( "-cavewalls" ) ) {
+        VehicleWorldCollision::CaveWalls() = true;
+    }
     if ( CmdLine::HasArg( "-ghost" ) ) {
         VehicleWorldCollision::Ghost() = true;
     }
@@ -5825,6 +5850,40 @@ void GMFreeRide::tick( float deltaTime ) {
             input.bHandBrake = false;
         }
         vehicle.step( deltaTime, input, collision );
+        if ( VehicleWorldCollision::Ghost() ) {
+            // No-clip: collision is off (above) and the car hovers - gravity's vertical speed is cancelled every
+            // frame and the height is held, PageUp / PageDown (or Home / End for 10x) move it.
+            static float ghostHeight = 0.0f;
+            static bool bGhostWas = false;
+            Vector3f position = vehicle.getPosition();
+            if ( !bGhostWas ) {
+                ghostHeight = position.y;
+                bGhostWas = true;
+            }
+            const float step = ( gpInput->isKeyDown( SDL_SCANCODE_LSHIFT ) ? 30.0f : 6.0f ) * deltaTime;
+            if ( gpInput->isKeyDown( SDL_SCANCODE_PAGEUP ) ) {
+                ghostHeight += step;
+            }
+            if ( gpInput->isKeyDown( SDL_SCANCODE_PAGEDOWN ) ) {
+                ghostHeight -= step;
+            }
+            position.y = ghostHeight;
+            // Throttle / brake set a fly speed (the wheels have no ground, so the physics would not move the car),
+            // the steering turns it about the vertical axis.
+            static float ghostSpeed = 0.0f;
+            const float maxSpeed = gpInput->isKeyDown( SDL_SCANCODE_LSHIFT ) ? 300.0f : 70.0f;
+            ghostSpeed += ( input.Throttle - input.Brake ) * 60.0f * deltaTime;
+            if ( input.Throttle < 0.05f && input.Brake < 0.05f ) {
+                ghostSpeed *= std::exp( -2.0f * deltaTime );
+            }
+            ghostSpeed = Clamp( ghostSpeed, -maxSpeed * 0.4f, maxSpeed );
+            Quaternionf orientation = vehicle.getOrientation();
+            orientation = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), -input.Steering * 1.2f * deltaTime ) * orientation;
+            Vector3f forward = orientation.rotate( Vector3f( 0.0f, 0.0f, 1.0f ) );
+            forward.y = 0.0f;
+            forward = forward.normalized();
+            vehicle.reset( position, orientation, forward * ghostSpeed );
+        }
         // The pose sync right after the step: everything below (the light
         // cones, pools and lamp glows, the cops, the chase camera) reads the
         // matrix of THIS frame. It used to be re-synced only past the light

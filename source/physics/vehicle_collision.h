@@ -78,6 +78,17 @@ public:
     // Debug "ghost" (the F4 panel / -ghost): the static world and the roads are ignored, so a car can be driven
     // through a rock wall (the TDU2 Hawai test cave sits behind one). The ground pull stays off too: toggle it off
     // again once inside.
+    // Hawai test cave (F4 / -cavewalls): inside a box around the cave (39150..39550, 20100..20350) every static
+    // triangle is ignored. The cave is a rock MESH (walls + roof, ~y 130..200) laid over flat heightfield terrain
+    // (~y 100..121, which is the cave floor: -cavescan shows S hits above T hits), so with the rock off the car drives
+    // on the terrain through the hollow. Hawai only.
+    static bool &CaveWalls() {
+        static bool bCave = false;
+        return bCave;
+    }
+    static bool InCaveBox( const Vector3f &p ) {
+        return p.x > 39150.0f && p.x < 39550.0f && p.z > 20100.0f && p.z < 20350.0f;
+    }
     static bool &Ghost() {
         static bool bGhost = false;
         return bGhost;
@@ -108,6 +119,12 @@ private:
         uint32_t Material = 0;
         bool bRoad;
     };
+    static Vector3f TriangleCentre( const Triangle &t ) { return ( t.A + t.B + t.C ) * ( 1.0f / 3.0f ); }
+    static bool TriangleIsFloor( const Triangle &t ) {
+        const Vector3f n = ( t.B - t.A ).cross( t.C - t.A );
+        const float length = n.length();
+        return length > 1e-9f && std::abs( n.y ) / length > 0.7f;
+    }
     struct Box {
         Matrix4x4f Transform; // centre + orientation
         Matrix4x4f Inverse;

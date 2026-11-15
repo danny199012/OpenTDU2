@@ -487,7 +487,8 @@ void Cheats::drawUI( const char *pModeName ) {
         }
         ImGui::Separator();
 
-        ImGui::Checkbox( "ghost - drive through the world (collision off)", &VehicleWorldCollision::Ghost() );
+        ImGui::Checkbox( "no-clip - fly through the world (throttle/brake = speed, steer = turn, PgUp/PgDn = height, Shift = fast)", &VehicleWorldCollision::Ghost() );
+        ImGui::Checkbox( "Hawai cave - no wall collision around the cave (floors stay)", &VehicleWorldCollision::CaveWalls() );
         ImGui::Separator();
 
         // ---- Travel to another island (the mode restarts there, at its airport) ----

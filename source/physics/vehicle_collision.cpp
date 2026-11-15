@@ -455,6 +455,9 @@ bool VehicleWorldCollision::raycast( const Vector3f &origin, const Vector3f &dir
                     continue;
                 }
                 for ( uint32_t index : it->second ) {
+                    if ( CaveWalls() && InCaveBox( TriangleCentre( triangles[index] ) ) ) {
+                        continue;
+                    }
                     // Moller-Trumbore, two-sided.
                     const Triangle &triangle = triangles[index];
                     const Vector3f e1 = triangle.B - triangle.A, e2 = triangle.C - triangle.A;
@@ -497,7 +500,7 @@ bool VehicleWorldCollision::raycast( const Vector3f &origin, const Vector3f &dir
     // 0.25 m: the carve ground (the tunnel floor meshes of the -o.3dg) and
     // the .shk road triangles are the same surface, and the road keeps the
     // car on tarmac instead of the terrain's grass tyre.
-    if ( heightFunction && std::abs( dir.y ) > 0.7f ) {
+    if ( heightFunction && std::abs( dir.y ) > 0.7f && true ) {
         float height = 0.0f;
         if ( heightFunction( origin.x, origin.z, origin.y, height ) ) {
             float t = ( origin.y - height ) / -dir.y;
@@ -579,6 +582,9 @@ bool VehicleWorldCollision::sphereContact( const Vector3f &center, float radius,
             auto it = triangleCells.find( CellKey( x, z ) );
             if ( it != triangleCells.end() ) {
                 for ( uint32_t index : it->second ) {
+                    if ( CaveWalls() && InCaveBox( TriangleCentre( triangles[index] ) ) ) {
+                        continue;
+                    }
                     if ( !seen.insert( index ).second ) {
                         continue;
                     }
