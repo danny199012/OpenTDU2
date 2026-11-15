@@ -8,6 +8,10 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 26): hover card for the event pins (committed, NOT pushed: the owner asked to push once at the end of the dig)
+
+- `SpotCardKind` knows `event`; `fillSpotCard` sets `WhatSpotType = event`, the name (`dbna` loc), `/:GoldReward`, `/:nb_events(_done)`. Verified by `-mapcardicon event` (screenshot `docs/images/map_event_card.png`). Type row empty (source undecoded); done count is always 0.
+
 ## Session 2026-11-15 (`main`, 25): challenge pins on the world map's first tab
 
 - Tab 0 now shows an `event` pin per real event start (39 Ibiza / 60 Hawai), discovered by proximity like the buildings; `Spot::bChallenge` keeps them out of enter prompts, HUD building markers and the news badge. `RaceEvents::GetRealStarts` is the shared list. `-nochallengepins` removes them. The icon's bar shows the event's `CtDw` time limit as `MM SS` [INF]. `-dumpmapspot` lists the text fields too.

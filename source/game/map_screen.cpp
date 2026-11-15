@@ -1228,7 +1228,7 @@ static const char *SpotCardKind( const char *pIcon ) {
         { "tuning", "tuning" },     { "club", "club" },         { "gamblinghall", "gamblingHall" },
         { "carwash", "carWash" },   { "carpaint", "carPaint" }, { "bikedealer", "bikeDealer" },
         { "rschool", "rschool" },   { "photograph", "photograph" }, { "surgery", "surgery" },
-        { "stolencar", "stolenCar" }, { "hair", "hair" },       { "airport", "airport" },
+        { "stolencar", "stolenCar" }, { "hair", "hair" },       { "airport", "airport" }, { "event", "event" },
     };
     for ( const auto &entry : kKinds ) {
         if ( strcmp( entry.pIcon, pIcon ) == 0 ) {
@@ -1371,6 +1371,25 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
         title = "Stolen cars";
     } else if ( strcmp( pKind, "gamblingHall" ) == 0 ) {
         title = "Casino";
+    } else if ( strcmp( pKind, "event" ) == 0 ) {
+        // An instant challenge pin: the movie's `event` spot type (WhatSpotType values contest / chall_solo /
+        // chall_multi / coop / mission / event / spot / player [DATA: map.bnk]) with the event's localized name.
+        player.setVariable( "/:WhatSpotType", "event" );
+        if ( !spot.Title.empty() ) {
+            title = spot.Title;
+            player.setVariable( "/:ChallengeName", spot.Title );
+        }
+        // The card's rows: Reward (/:GoldReward) and "Events succeeded" (/:AreaEventsDone / /:AreaEventsTotal, the
+        // island's count) [DATA: map.bnk variable names; INF: what each row shows; the done count needs event progress].
+        player.setVariable( "/:GoldReward", "$" + std::to_string( spot.Reward ) );
+        int32_t total = 0;
+        for ( const Spot &other : spots ) {
+            total += other.bChallenge ? 1 : 0;
+        }
+        player.setVariable( "/:AreaEventsDone", "0" );
+        player.setVariable( "/:AreaEventsTotal", std::to_string( total ) );
+        player.setVariable( "/:nb_events_done", "0" );
+        player.setVariable( "/:nb_events", std::to_string( total ) );
     }
     player.setVariable( "/:SpotName", title );
     applyCardLocks( spot );
@@ -1984,6 +2003,8 @@ void MapScreen::loadSpots( const std::string &island ) {
             }
             pin.Id = hash;
             pin.TimeLimitSeconds = event.TimeLimitMs / 1000;
+            pin.Title = event.Title;
+            pin.Reward = event.Reward;
             pin.Position = event.Position;
             pin.pIcon = "event";
             pin.Tab = 0;
