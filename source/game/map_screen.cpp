@@ -2015,6 +2015,7 @@ void MapScreen::buildSpots() {
     // draws a spot's icon only once the car discovered it [INF, see
     // discoverNear] - which is also why the icons are rebuilt on every open.
     bSpotsBuilt = true;
+    spotStatus.assign( spots.size(), 0 );
     int32_t made = 0;
     for ( size_t i = 0; i < spots.size(); i++ ) {
         const Spot &spot = spots[i];
@@ -2065,7 +2066,7 @@ void MapScreen::buildSpots() {
         // -dumpmaplocator: the art of the first spot's fleche / locator
         // children (the GPS-destination dressing hunt): character, labels and
         // the bitmaps of every shape under them.
-        if ( i == 0 && CmdLine::HasArg( "-dumpmaplocator" ) ) {
+        if ( i == 0 && ( CmdLine::HasArg( "-dumpmaplocator" ) || CmdLine::HasArg( "-dumpmapspot" ) ) ) {
             const FlashDefinitions &defs = player.getDefinitions();
             std::function<void( uint16_t, int )> walk = [&]( uint16_t id, int level ) {
                 if ( level > 5 ) {
@@ -2099,7 +2100,10 @@ void MapScreen::buildSpots() {
                     }
                 }
             };
-            for ( const char *pChild : { "/fleche", "/locator" } ) {
+            for ( const char *pChild : { "/fleche", "/locator", "/spot" } ) {
+                if ( strcmp( pChild, "/spot" ) == 0 && !CmdLine::HasArg( "-dumpmapspot" ) ) {
+                    continue; // -dumpmapspot: the icon's status children (target / favorite / news ...)
+                }
                 if ( const FlashPlayer::Clip *pClip = player.findClip( path + pChild ) ) {
                     OTDU_LOG_INFO( "MapScreen: --- %s%s ---\n", path.c_str(), pChild );
                     walk( pClip->pInstance != nullptr ? pClip->pInstance->CharacterId : 0, 0 );
@@ -2219,6 +2223,23 @@ void MapScreen::updateSpots() {
         if ( bShow ) {
             player.setVariableNumber( path + ":_x", x );
             player.setVariableNumber( path + ":_y", y );
+            // The dev game's per-icon status calls [CODE-dev 0xb19f20]: setIconFavorite for a bookmarked spot and
+            // setTargetStatus for the GPS target. The icon's 'favorite' / 'target' children take the labels on / loop.
+            const size_t index = static_cast<size_t>( &spot - spots.data() );
+            if ( index < spotStatus.size() ) {
+                const uint8_t want = static_cast<uint8_t>( ( findBookmarkNear( spot.Position, 40.0f ) >= 0 ? 1 : 0 ) |
+                                                           ( bHasTarget && ( target - spot.Position ).length() < 60.0f ? 2 : 0 ) );
+                if ( want != spotStatus[index] ) {
+                    if ( ( want ^ spotStatus[index] ) & 1 ) {
+                        player.gotoLabel( path + "/spot/favorite", ( want & 1 ) ? "on" : "default", false );
+                    }
+                    if ( ( want ^ spotStatus[index] ) & 2 ) {
+                        player.gotoLabel( path + "/spot/target", ( want & 2 ) ? "loop" : "default", ( want & 2 ) != 0 );
+                    }
+                    OTDU_LOG_INFO( "MapScreen: icon status '%s': favorite=%d target=%d\n", spot.Name.c_str(), want & 1, ( want >> 1 ) & 1 );
+                    spotStatus[index] = want;
+                }
+            }
         }
     }
     // The championship's race pins: the selected one wears the target ring.

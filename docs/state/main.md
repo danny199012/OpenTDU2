@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 19): map icons show favourite / target state (dev build `0xb19f20`)
+
+- `map_screen.cpp` / `.h`: `updateSpots` drives each visible icon's `/spot/favorite` (bookmarked spot) and `/spot/target` (GPS target within 60 m) children through `gotoLabel`, cached in `spotStatus`; new flag `-dumpmapspot` lists the icon's status children and labels.
+- Verified: scratch profile with one bookmark -> log `icon status 'EPH_L3DI': favorite=1` and a green badge on that icon only (pixel diff vs a run without it, `docs/images/map_icon_favorite_badge.png`). NOT verified: the target ring (no headless GPS-target hook), nor on Hawai.
+- Not applied: `news` (needs a visited flag), `_dlc` frame (not checked in MAP.vmf), `rank` / `done` for challenges.
+
 ## Session 2026-11-15 (`main`, 18): map favourites cap 20 -> 32 from the dev build
 
 - `source/game/map_screen.cpp`: `kMaxBookmarks = 32` (the dev popup code `0xb1dc60` tests the favourite count `< 0x20`); the "Bookmarks limit" toast and `/:CanAddMySpot` both use it. Spec: `docs/re/map_spots_spec.md` section 7.

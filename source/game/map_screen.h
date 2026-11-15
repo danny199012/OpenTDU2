@@ -434,6 +434,9 @@ private:
     // An undiscovered spot draws no icon and the cursor does not snap to it.
     std::string spotsIsland;
     std::vector<uint8_t> spotDiscovered;
+    // Per spot, the icon status children last driven (bit 0: favorite 'on', bit 1: target 'loop'); the dev game's
+    // setIconFavorite / setTargetStatus (docs/re/map_spots_spec.md section 8). Zeroed by buildSpots.
+    std::vector<uint8_t> spotStatus;
     // Fuel station icons (setFuelStations / drawFuelIcons): the positions of the
     // `fuel` props and the icon art (nullptr: the built-in glyph).
     std::vector<Vector3f> fuelStations;
