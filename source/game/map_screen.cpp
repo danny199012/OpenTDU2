@@ -2034,6 +2034,16 @@ void MapScreen::buildSpots() {
              IsHouseOwned( spot.Id ) ) {
             pIcon = "home";
             OTDU_LOG_INFO( "MapScreen: '%s' is home: home icon\n", spot.Name.c_str() );
+        } else if ( spot.pIcon != nullptr && strcmp( spot.pIcon, "estates" ) == 0 && spot.Name.compare( 0, 3, "EPH" ) == 0 &&
+                    !CmdLine::HasArg( "-oldspoticons" ) ) {
+            // [CODE-dev 0x970030] category 0 is `home` when owned, `forsale` otherwise; `estates` is the realtor (ERE).
+            pIcon = "forsale";
+        } else if ( spot.pIcon != nullptr && strcmp( spot.pIcon, "gamblinghall" ) == 0 && spot.Name.compare( 0, 7, "ELANDCA" ) == 0 &&
+                    !CmdLine::HasArg( "-oldspoticons" ) ) {
+            pIcon = "casino"; // [CODE-dev] category 0x0e is `casino`; the movie has the frame. Gameplay still keys off spot.pIcon.
+        }
+        if ( const char *pForce = CmdLine::GetArgValue( "-mapicon" ) ) { // test hook: every icon wears this frame label
+            pIcon = pForce;
         }
         player.gotoLabel( path + "/spot", pIcon, false );
         player.gotoLabel( path, "zoom_default", false );

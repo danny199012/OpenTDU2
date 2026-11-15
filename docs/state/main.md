@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 23): unowned houses draw `forsale`, the seaplane dock draws `casino`
+
+- Retail MAP.vmf's icon clip has a frame for each dev kind string (spec section 11). `_dlc` frames exist only for challenge icons. `map_screen.cpp` buildSpots now draws `forsale` for unowned EPH houses and `casino` for `ELANDCA*` (display frame only; `spot.pIcon` unchanged); `-oldspoticons` restores the old art, `-mapicon <label>` is a test hook.
+- Verified: before / after Ibiza map screenshot on the avatar-spots tab (4 176 px differ), frame art sheet in `docs/images/map_icon_frames_house_casino.png`. NOT verified: Hawai, the card text for a for-sale house, and the realtor tile.
+- Photo-studio weather / daypart rule: the helper at `0x96ebd0` is challenge status, not weather; nothing applied (the port has no photo-studio gate).
+
 ## Session 2026-11-15 (`main`, 22): entering a spot marks it seen; lock texts identified
 
 - `MapScreen::markSpotSeenById` + one call in `gm_freeride.cpp`'s enter press (dev base enter method `0xa7ec80`). Verified with `-tp 27560,8303` at the Ferrari dealer (named scratch profile): `seen (1 in the list)`, `seenspots_ibiza` saved.
