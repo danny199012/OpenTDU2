@@ -14,6 +14,9 @@ The `mur_cave` textures in `sector-6-3-6-5` were a decoy. The owner stood at the
 - Ghost = **no-clip** (owner's idea; plain collision-off just dropped the car): the car hovers at a held height, throttle / brake set a fly speed, steering turns, **PgUp / PgDn** change height, **Shift** = fast. F4 checkbox or `-ghost`. Verified headless: from the cave mouth (39255, 118, 20254) the car flew east to x 39453 at 252 km/h, height held at 114.7.
 - `-cavewalls` (static triangles ignored in the cave box 39150..39550 x 20100..20350) is kept as an F4 option, but the car still stopped at x 39272 with it (something else blocks: likely a road-class triangle or the heightfield), so use no-clip.
 
+### Confirmed (owner, build 135): the cave floor is fully drivable with the cave-walls option
+Owner got in by switching the **F4 "Hawai cave" option** on (static rock collision off in the box) with the no-clip off: the floor (the terrain heightfield, y ~119) is fully drivable, shown at (39400, 119, 20152) with a dark cavern, stalactite columns and a lighter ridge. No-clip alone could not get in (spawn near the cave threw the car into the air / dropped it through the floor: the first frames after a ghost toggle reset the velocity with no ground contact). Visible ground surfaces so far: dark rock / cracked mud only; the dev surface patches are not seen. Next: map the cave's extent (F6 marks), look for the dev-test geometry.
+
 ## Session 2026-11-15 (`main`, 12): Hawai test cave - ghost mode to get through the wall
 
 Owner found a video (HSG Automotive "TDU2 : Secret cave location on Hawaii"): the cave is behind a rock wall in the **dark patch just right of the yellow dirt track** north-centre of the Hawai map (the map-glitch gets through on the 360). Their frames: player near the top-middle of the island, a looping dirt track, a lake with cyan roads to the south-east.
