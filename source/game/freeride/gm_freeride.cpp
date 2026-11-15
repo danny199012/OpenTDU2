@@ -2903,6 +2903,8 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
     if ( !bBusy && bSlow && pNearKind != nullptr && !hud.isLevelUpActive() && !risk.isBanking() &&
          gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         const bool bEvent = pNearKind == std::string( "event" );
+        // [CODE-dev 0xa7ec80] entering a spot's mode adds the spot to the seen list (clears its "new" badge).
+        mapScreen.markSpotSeenById( nearSpotId );
         if ( pNearWash != nullptr ) {
             // The car wash (docs/re/car_wash_spec.md): the fee, the retail
             // washing cutscene through GM_CinViewer, FREERIDE again under the

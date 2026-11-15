@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 22): entering a spot marks it seen; lock texts identified
+
+- `MapScreen::markSpotSeenById` + one call in `gm_freeride.cpp`'s enter press (dev base enter method `0xa7ec80`). Verified with `-tp 27560,8303` at the Ferrari dealer (named scratch profile): `seen (1 in the list)`, `seenspots_ibiza` saved.
+- Spec section 10: the lock reasons (loc 6855 no vehicle of the category, 7308 surgery timer, neighbours 6854 / 6856) and which categories lock. Nothing applied: the port has no level / category gate on spots, so there is no lock to show.
+- Open: photo-studio weather / daypart rule, level thresholds, `rank` / `done` / `objective` for challenge spots, the `_dlc` frame.
+
 ## Session 2026-11-15 (`main`, 21): "new" badge on unseen map icons (dev build seen list)
 
 - `PlayerProfile::SeenSpots` (+ save / load `seenspots_<island>`), `MapScreen::isSpotTracked / isSpotSeen / markSpotSeen`: OK on a spot's pop-up marks it seen (450 cap, houses / home never tracked); `updateSpots` drives the icon's `/spot/news` child for discovered, unseen, tracked spots. Also the pop-up bookmark button now honours the 32 cap (it was still 20).

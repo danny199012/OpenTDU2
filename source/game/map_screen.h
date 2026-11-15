@@ -328,6 +328,7 @@ public:
     bool isSpotTracked( size_t index ) const;
     bool isSpotSeen( size_t index ) const;
     void markSpotSeen( size_t index );
+    void markSpotSeenById( uint64_t id ); // entering a spot's mode marks it (dev 0xa7ec80)
     // The dev menu's "ALL SPOTS": every loaded spot counts as discovered.
     void unlockAllSpots();
     // Spots with an icon / how many of them are discovered (the cheats panel's

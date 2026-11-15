@@ -2175,6 +2175,15 @@ void MapScreen::markSpotSeen( size_t index ) {
     SaveProfile( "map: spot seen" );
 }
 
+void MapScreen::markSpotSeenById( uint64_t id ) {
+    for ( size_t i = 0; i < spots.size(); i++ ) {
+        if ( spots[i].Id == id ) {
+            markSpotSeen( i );
+            return;
+        }
+    }
+}
+
 int32_t MapScreen::discoverNear( const Vector3f &position ) {
     if ( spots.empty() || spotsIsland.empty() ) {
         return 0;
