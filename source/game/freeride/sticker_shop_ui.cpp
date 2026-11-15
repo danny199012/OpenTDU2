@@ -1,4 +1,5 @@
 #include "shared.h"
+#include "game/skill_levels.h"
 #include "sticker_shop_ui.h"
 
 #include "config/gs_config.h"
@@ -681,6 +682,7 @@ void StickerShopUi::pay() {
     bCommittedCustom = bPaintCustom;
     paintCommitted = paintWork;
     bPaintChanged = false;
+    AwardCollectionMilestones( "COLLECTION_STICKERS", static_cast<int32_t>( profile.OwnedStickerBanks.size() ) ); // 2, 5, 10 packs [DATA, INF: count = packs]
     SaveProfile( "stickers paid" );
     OTDU_LOG_INFO( "StickerShopUi: paid %d (%zu sticker(s) on car %d%s), money now %d\n", total, working.size(), carId,
                    bPaintCustom ? ", custom paint" : "", profile.Money );

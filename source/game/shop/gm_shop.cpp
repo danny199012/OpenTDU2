@@ -1224,13 +1224,8 @@ bool GMShop::buyOrEvaluate( bool bEvalOnly ) {
         profile.OwnedCarInteriors[car.IdCar] = car.Interior;
         profile.NbCars++;
         profile.DrivenCarId = car.IdCar;
-        // Vehicles bought: DBRewardXP COLLECTION_CARS_DIF_<n> (DealerMenu's table).
-        static const int32_t kThresholds[] = { 1, 3, 6, 10, 15, 20, 25, 30, 40, 50 };
-        for ( const int32_t threshold : kThresholds ) {
-            if ( profile.NbCars >= threshold ) {
-                AwardSkillEvent( ( "COLLECTION_CARS_DIF_" + std::to_string( threshold ) ).c_str() );
-            }
-        }
+        // Vehicles bought: DBRewardXP COLLECTION_CARS_DIF_<n> (1, 3, 6, 10 ... 50 cars) [DATA].
+        AwardCollectionMilestones( "COLLECTION_CARS_DIF", profile.NbCars );
     }
     OwnedCar owned;
     owned.IdCar = car.IdCar;

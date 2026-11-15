@@ -31,6 +31,10 @@ Owner (screenshot, Ibiza 11395 / 12.22 / 15474, heading 294): "graffiti on build
 - `eden_renderer.cpp` `setupMaterial`: `tags*` textures sample clamp/clamp (`-tagsmirror` = the old mirror). Clamping **every** (2,2) texture was tried and **rejected**: the terrain ground detail flattened to a smear (27021,14752). So (2,2) is not clamp in general - it is per family, like the airport's code 3 [INF]; the real mapping is in the encrypted loader.
 - Verified: wall at 11395,15474 clean; 27021,14752 and 10490,15732 identical to before (diff 0.0). **Not verified: the roof tags from the owner's photo-mode shot** (needs an elevated camera; the same material family, so expected fixed) and other SB_* walls elsewhere.
 
+### Progression / XP (owner: "start the progression and xp")
+- The XP / level framework already existed (`skill_levels.*`, `skills_spec.md`, popups); the gap was the **triggers**. Added `AwardCollectionMilestones` and wired houses, clothes, stickers, furniture, licences (RACING_LICENCE_*) and cups; the two car-count loops now use it. Verified: `-awardmilestone COLLECTION_CLOTHES,12` pays 5 + 10 only; a C4 licence completed from a seeded save pays `RACING_LICENCE_C4` +100 racing and saves it. The list of events still dark is in `docs/re/skills_spec.md`.
+- Next: a medal rule for `RACING_CHAMP_*`, the panorama photos, `DBAreaLevel`, then the story steps from the dev exe (`GSPlayerProgress`, the enter/leave cases) - not read yet.
+
 ### Not done / next
 - Progression / XP / quests (owner: "start doing progression stuff"): nothing started; see the dev-build survey 3.1 (`GSPlayerProgress`, `DBPlayerLevel`, `DBRewardXP`, story-step enter/leave cases) - first step is `docs/re/progression_spec.md` from `TestDrive2DEV.exe`.
 

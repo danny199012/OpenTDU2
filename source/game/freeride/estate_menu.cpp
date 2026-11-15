@@ -1,4 +1,5 @@
 #include "shared.h"
+#include "game/skill_levels.h"
 #include "estate_menu.h"
 
 #include "flash/gs_flash.h"
@@ -55,6 +56,7 @@ void EstateMenu::buy( const HouseRow &house ) {
         message = "Bought: " + house.Name;
         OTDU_LOG_INFO( "Estate: bought '%s' (spot '%s') for $%d (money now $%d, %d house(s))\n", house.Name.c_str(),
                        house.SpotName.c_str(), house.BuyPrice, profile.Money, profile.NbHouses );
+        AwardCollectionMilestones( "COLLECTION_HOUSES", profile.NbHouses ); // 1, 3, 6, 10, 15 houses [DATA]
         SaveProfile( "house bought" );
     }
     messageTimer = 3.0f;

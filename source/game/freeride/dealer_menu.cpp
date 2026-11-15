@@ -241,13 +241,8 @@ void DealerMenu::buySelected( int32_t paintIndex ) {
         bPreviewDirty = true;
         OTDU_LOG_INFO( "Dealer: bought '%s' paint %d '%s' for $%d (money now $%d, %d cars)\n", car.FileName.c_str(),
                        paintIndex, colour.c_str(), total, profile.Money, profile.NbCars );
-        // Vehicles bought: DBRewardXP COLLECTION_CARS_DIF_<n> at 1, 3, 6, 10, 15 ... cars [DATA].
-        static const int32_t kThresholds[] = { 1, 3, 6, 10, 15, 20, 25, 30, 40, 50 };
-        for ( const int32_t threshold : kThresholds ) {
-            if ( profile.NbCars >= threshold ) {
-                AwardSkillEvent( ( "COLLECTION_CARS_DIF_" + std::to_string( threshold ) ).c_str() );
-            }
-        }
+        // Vehicles bought: DBRewardXP COLLECTION_CARS_DIF_<n> (1, 3, 6, 10 ... 50 cars) [DATA].
+        AwardCollectionMilestones( "COLLECTION_CARS_DIF", profile.NbCars );
         SaveProfile( "car bought" );
     }
     messageTimer = 3.0f;

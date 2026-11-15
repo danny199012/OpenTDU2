@@ -1,4 +1,5 @@
 #include "shared.h"
+#include "game/skill_levels.h"
 #include "clothes_shop.h"
 
 #include "core/xmb.h"
@@ -158,6 +159,7 @@ void ClothesMenu::buySelected() {
         message = "Bought: " + item.Name;
         OTDU_LOG_INFO( "Clothes: bought '%s' (id %d) for $%d (money now $%d)\n", item.Name.c_str(), item.Id, item.Price,
                        profile.Money );
+        AwardCollectionMilestones( "COLLECTION_CLOTHES", static_cast<int32_t>( profile.OwnedClothes.size() ) ); // 5, 10, 20, 30 [DATA]
         SaveProfile( "clothes bought" );
     }
     messageTimer = 3.0f;

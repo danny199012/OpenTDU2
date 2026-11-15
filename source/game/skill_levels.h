@@ -45,3 +45,7 @@ const RewardXp *FindRewardXp( const char *pEvent );
 using SkillEventCallback = std::function<void( int32_t skill, const std::string &name, int32_t points )>;
 void SetSkillEventCallback( SkillEventCallback callback );
 bool AwardSkillEvent( const char *pEvent );
+// The collection milestones: pays every DBRewardXP event "<family>_<n>" with n <= count
+// (COLLECTION_CARS_DIF / _HOUSES / _FURNITURES / _CLOTHES / _HAIRCUTS / _STICKERS). Each event is
+// once only (_nbtimesallowed), so calling it after every purchase is safe. [DATA]
+void AwardCollectionMilestones( const char *pFamily, int32_t count );

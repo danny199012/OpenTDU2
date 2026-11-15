@@ -3441,6 +3441,13 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
                     prize = pChampionship->Name + " complete!  +$" + std::to_string( pChampionship->RaceMoney + pChampionship->ChampMoney );
                     OTDU_LOG_INFO( "FREERIDE: championship '%s' complete (+$%d)\n", pChampionship->Name.c_str(),
                                    pChampionship->ChampMoney );
+                    // A cup (class 0): DBRewardXP RACING_CUP_<ISLAND><n> (IBIZA1, HAWAI1, HAWAI2) [DATA names,
+                    // INF: n = the row's _order]. The medal rows (RACING_CHAMP_GOLD/SILVER/BRONZE_<class>) wait
+                    // for a medal rule - the port has none.
+                    if ( ChampionshipFamily( *pChampionship ) == "cup" ) {
+                        AwardSkillEvent( ( std::string( "RACING_CUP_" ) + ( pChampionship->Island == 0 ? "IBIZA" : "HAWAI" ) +
+                                           std::to_string( Max( 1, pChampionship->Order ) ) ).c_str() );
+                    }
                 }
                 hud.showHint( prize, 6.0f );
                 OTDU_LOG_INFO( "FREERIDE: race %s won, money now $%d\n", test.c_str(), profile.Money );
@@ -3452,6 +3459,12 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
                      IsLicenseObtained( license ) ) {
                     hud.showHint( "Licence " + LicenseClasses( license ) + " obtained!", 6.0f );
                     OTDU_LOG_INFO( "FREERIDE: licence %s obtained\n", LicenseClasses( license ).c_str() );
+                    // RACING_LICENCE_<classes> ("A7 / A6" -> A7A6) [DATA], once.
+                    std::string classes = LicenseClasses( license );
+                    classes.erase( std::remove_if( classes.begin(), classes.end(),
+                                                   []( char c ) { return c == ' ' || c == '/'; } ),
+                                   classes.end() );
+                    AwardSkillEvent( ( "RACING_LICENCE_" + classes ).c_str() );
                 }
             }
             SaveProfile( "licence test passed" );
@@ -6688,6 +6701,14 @@ void GMFreeRide::tick( float deltaTime ) {
         if ( const char *pAward = CmdLine::GetArgValue( "-awardevent" ) ) {
             if ( ++awardFrames == 150 ) {
                 AwardSkillEvent( pAward ); // test: pays a DBRewardXP event now
+            }
+        }
+        // test: -awardmilestone COLLECTION_CLOTHES,12 pays every <family>_<n> milestone with n <= 12
+        if ( const char *pMilestone = CmdLine::GetArgValue( "-awardmilestone" ) ) {
+            static int32_t milestoneFrames = 0;
+            const char *pComma = strchr( pMilestone, ',' );
+            if ( pComma != nullptr && ++milestoneFrames == 150 ) {
+                AwardCollectionMilestones( std::string( pMilestone, pComma ).c_str(), atoi( pComma + 1 ) );
             }
         }
     }

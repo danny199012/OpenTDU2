@@ -137,6 +137,22 @@ void SetSkillEventCallback( SkillEventCallback callback ) {
     gSkillEventCallback = std::move( callback );
 }
 
+void AwardCollectionMilestones( const char *pFamily, int32_t count ) {
+    const std::string prefix = std::string( pFamily ) + "_";
+    std::vector<std::string> due;
+    for ( const RewardXp &xp : GetRewardXp() ) {
+        if ( xp.Event.size() > prefix.size() && StringCmpI( xp.Event.substr( 0, prefix.size() ).c_str(), prefix.c_str() ) == 0 ) {
+            const int32_t threshold = atoi( xp.Event.c_str() + prefix.size() );
+            if ( threshold > 0 && threshold <= count && std::find( due.begin(), due.end(), xp.Event ) == due.end() ) {
+                due.push_back( xp.Event );
+            }
+        }
+    }
+    for ( const std::string &event : due ) {
+        AwardSkillEvent( event.c_str() );
+    }
+}
+
 bool AwardSkillEvent( const char *pEvent ) {
     const RewardXp *pXp = FindRewardXp( pEvent );
     if ( pXp == nullptr ) {

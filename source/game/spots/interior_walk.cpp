@@ -1,4 +1,5 @@
 #include "shared.h"
+#include "game/skill_levels.h"
 #include "interior_walk.h"
 
 #include "render/gs_render.h"
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <set>
 #include <unordered_map>
 
 namespace {
@@ -1339,6 +1341,18 @@ void InteriorWalk::tickFurnitureEdit() {
             profile.Money -= price;
             for ( const std::string &slot : furnitureEdit.Slots ) {
                 profile.FurnitureChoices[houseSpot + ":" + slot] = bank + "#" + std::to_string( furnitureEdit.Color );
+            }
+            {
+                // Furniture bought: the distinct models placed (COLLECTION_FURNITURES_5 / 10 / 20 / 35 [DATA],
+                // INF: the count is the distinct furniture banks, walls / floors excluded).
+                std::set<std::string> models;
+                for ( const auto &choice : profile.FurnitureChoices ) {
+                    const size_t hash = choice.second.find( '#' );
+                    if ( hash != std::string::npos ) {
+                        models.insert( choice.second.substr( 0, hash ) );
+                    }
+                }
+                AwardCollectionMilestones( "COLLECTION_FURNITURES", static_cast<int32_t>( models.size() ) );
             }
             SaveProfile( "MyTDUHouse furniture" );
             OTDU_LOG_INFO( "InteriorWalk: MyTDUHouse: %zu slot(s) -> %s colour %d for $%d (money %d)\n",
