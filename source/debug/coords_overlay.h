@@ -23,6 +23,9 @@ void Toggle();
 void SetVisible( bool bVisible );
 void WriteMark();
 
+// The road under the car (MapScreen::describeRoad), shown under the coordinates and written with each mark.
+void SetRoadInfo( const char *pText );
+
 // Draws the readout. Call between ImGui beginFrame / endFrame.
 void Draw();
 

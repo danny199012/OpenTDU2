@@ -179,6 +179,8 @@ public:
     inline const std::vector<std::array<float, 4>> &getRoadBoxes() const { return edgeBoxes; }
     inline float getExploredLength() const { return exploredLength; }
     // The road link nearest to a point within maxDistance metres (-1: none).
+    // The road under a point as text for the coordinates overlay: the DAOR id, the ROAD_DETAIL type code, the dirt flag.
+    std::string describeRoad( const Vector3f &position, float radius ) const;
     inline int32_t getRoadLinkNear( const Vector3f &point, float maxDistance ) const { return findRoadNear( point, maxDistance ); }
     // True when that link has been driven (it is drawn in its class colour; an
     // undiscovered link stays grey like the retail, and it refuses fast travel).
@@ -455,6 +457,8 @@ private:
     float markSegments( size_t edge, int32_t segment );
     // The class byte of each link ('DAOR' +12); the map colours the road by it.
     std::vector<uint8_t> edgeClass;
+    std::vector<uint32_t> edgeRoadId;                   // DAOR id of each link
+    std::vector<std::array<uint32_t, 5>> edgeHeader;    // the ROAD_DETAIL first sub-block header (zeros: none)
     std::vector<uint8_t> edgeDirtRecord; // 1: the ROAD_DETAIL header code marks an offroad track
     std::vector<uint16_t> edgePair; // DAOR +12 / +13 (class and its twin byte)
     std::vector<std::vector<Vector3f>> roadShapes;

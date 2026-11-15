@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "gm_freeride.h"
+#include "debug/coords_overlay.h"
 
 #include "audio/gs_audio.h"
 #include "core/crypto/cpr.h"
@@ -6479,6 +6480,11 @@ void GMFreeRide::tick( float deltaTime ) {
                                                      : ( next == CinematicCar::eWiperMode::Fast ? "fast" : "auto" ) );
     }
     car.updateWipers( deltaTime, pWeather != nullptr ? pWeather->getFloat( "rain_alpha", 0.0f ) : 0.0f );
+    // The coordinates overlay (F2) also names the road link under the car - its DAOR id, the ROAD_DETAIL type code and
+    // whether the map treats it as dirt - so the owner can drive the dirt tracks and read / mark (F6) their codes.
+    if ( ( pGameInstance->getFrameIndex() % 6 ) == 0 ) {
+        CoordsOverlay::SetRoadInfo( mapScreen.describeRoad( carWorld.getTranslation(), 25.0f ).c_str() );
+    }
 
     // -logdrive: the drive / wheel telemetry. Logged for every state (the
     // C_FIRST_OUTRO wheels roll from the .sce track speed, not the physics

@@ -1414,6 +1414,19 @@ void MapScreen::updateSpotCard() {
     }
 }
 
+std::string MapScreen::describeRoad( const Vector3f &position, float radius ) const {
+    const int32_t edge = findRoadNear( position, radius );
+    if ( edge < 0 || static_cast<size_t>( edge ) >= edgeHeader.size() ) {
+        return std::string();
+    }
+    const std::array<uint32_t, 5> &h = edgeHeader[static_cast<size_t>( edge )];
+    char text[160];
+    snprintf( text, sizeof( text ), "road %u  type %x  w1 %u w2 %x  class %d%s", edgeRoadId[static_cast<size_t>( edge )],
+              h[4] & 0xffffu, h[1], h[2], static_cast<int32_t>( edgeClass[static_cast<size_t>( edge )] ),
+              edgeDirtRecord[static_cast<size_t>( edge )] != 0 ? "  DIRT" : "" );
+    return text;
+}
+
 bool MapScreen::cardAccept() {
     // The extended pop-up is the default OK on a spot; -nospotpopup brings the old three-row menu back.
     static const bool bPopup = !CmdLine::HasArg( "-nospotpopup" );
@@ -2418,6 +2431,8 @@ void MapScreen::loadRoads( const std::string &island ) {
     edgeExploredLength.clear();
     edgeClass.clear();
     edgeDirtRecord.clear();
+    edgeRoadId.clear();
+    edgeHeader.clear();
     edgePair.clear();
     exploredLength = totalRoadLength = 0.0f;
     roadIsland = island;
@@ -2683,6 +2698,8 @@ void MapScreen::loadRoads( const std::string &island ) {
                 }
             }
             edgeDirtRecord.push_back( bDirtRecord ? 1 : 0 );
+            edgeRoadId.push_back( readU32( offset + 4 ) );
+            edgeHeader.push_back( header != detailHeaders.end() ? header->second : std::array<uint32_t, 5>{} );
         }
         edgePair.push_back( static_cast<uint16_t>( pData[offset + 12] * 256 + pData[offset + 13] ) );
         totalRoadLength += shapeLength;

@@ -3,6 +3,12 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 8): the F2 coordinates overlay names the road under the car (to find dirt roads in our own build)
+
+Owner: "I may be best using our version to find these roads - I have all locations and marks, and can test Hawai".
+- `MapScreen::describeRoad` + `CoordsOverlay::SetRoadInfo`: with the overlay on (**F2**, or `-coords`) a line under "F6 = mark" reads e.g. `road 1356  type 5  w1 14 w2 202  class 0  DIRT` - the DAOR id, the `ROAD_DETAIL` type code (low half of header word 4), word 1 / 2 and the class byte, and `DIRT` when the map already treats the link as dirt. **F6** appends the same text to the mark line in `_marks.txt`. Works on any island (`-island hawai`); the dirt rule itself is the Ibiza-derived one, so on Hawai read the codes of the tracks you know are dirt and send them (or the `_marks.txt` lines) and I will add them.
+- What to do: drive / stand on a known dirt track, note the `type / w1 / w2` and whether it says DIRT; do the same on a tarmac road next to it. A dirt road that does not say DIRT = a code to add; tarmac that says DIRT = a code to remove. Verified headless at the school (`road 1356 ... DIRT`).
+
 ## Session 2026-11-15 (`main`, 7): dirt roads anchored on the offroad school (owner's 360 shots)
 
 Owner sent two 360 captures at the offroad racing school (**`ERS_B` at (17164, 18079)**, "Obtain B4 license", the 360 debug overlay read X -29.2 / Z -37.8 at its gate): the dirt roads are **yellow once discovered, thin and lighter grey before**; a short yellow dirt road runs from the school up to the blue main road and on south.
