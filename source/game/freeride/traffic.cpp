@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "traffic.h"
+#include "game/freeride/fuel.h"
 #include "game/freeride/car_debris.h"
 
 #include "core/crypto/cpr.h"
@@ -1818,6 +1819,7 @@ void Traffic::checkLostParts( Agent &agent ) {
     if ( !type.Model || !type.Rig.hasParts() ) {
         return;
     }
+    // (CarPartRig::lostMask is 0 with the enhanced-damage mod off: nothing comes off.)
     const uint32_t mask = type.Rig.lostMask( agent.Zone[0], agent.Zone[1], agent.Zone[2], agent.Zone[3] );
     const uint32_t fresh = mask & ~agent.LostParts;
     agent.LostParts = mask;
@@ -1853,7 +1855,7 @@ void Traffic::damageAgent( Agent &agent, float nx, float nz, float gain ) {
     for ( int32_t zone = 0; zone < 4; zone++ ) {
         const float share = zone < 2 ? ( zone == ( localZ >= 0.0f ? 0 : 1 ) ? std::fabs( localZ ) / spread : 0.0f )
                                      : ( zone == ( localX >= 0.0f ? 2 : 3 ) ? std::fabs( localX ) / spread : 0.0f );
-        if ( gain * share >= 9000.0f && agent.Zone[zone] >= 30000.0f ) {
+        if ( DamageModEnabled() && gain * share >= 9000.0f && agent.Zone[zone] >= 30000.0f ) {
             agent.Zone[zone] = Max( agent.Zone[zone], zone < 2 ? 52500.0f : 60500.0f );
         }
     }

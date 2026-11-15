@@ -3,6 +3,14 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 2): enhanced damage is an opt-in mod; vanilla repair = going home
+
+Owner: "make sure damage is opt in; vanilla has limited damage and no repair method - going to a house auto-repairs the car".
+
+- New launcher mod `enhanced-damage` (`DamageModEnabled()`, `-damagemod` / `-nodamagemod`). **Off (vanilla)**: only the retail damage (zone damage, cracked glass, hanging doors / bonnet); no lost parts or debris (`CarPartRig::setPartLossEnabled`, also for traffic), no crumple (`bAllowCrumple`), no sparks / smoke, no tyre model (`VehicleDynamics::setTireModelEnabled`: grip 1, no wear / burst / rim). **On**: everything of the damage sessions.
+- Vanilla repair: entering a house interior repairs the car (damage, zones, tyres) when the fuel-system mod is off (with it on, the pump's paid repair is the route).
+- Verified: `-setzone 200,62000,62000 -settire 200,0,0.9,0` : `-nodamagemod` keeps both bumpers and wheels; `-damagemod` loses the bumper and shows debris (screenshots compared). The house auto-repair path was built but not walked in a run.
+
 ## Session 2026-11-15 (`main`): fuel is an opt-in mod; retail-style fuel gauge; pump help bar
 
 Owner: "use the retail help bar states for the pump screen; make the fuel UI look like these (dev-build gauge + segmented bar); turn fueling into an opt-in mod through the launcher so vanilla players are unaffected".

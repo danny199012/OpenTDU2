@@ -127,8 +127,16 @@ float CarPartRig::loseThreshold( int32_t part ) {
     return part <= BumperR ? 52000.0f : 60000.0f;
 }
 
+static bool gPartLossEnabled = false;
+void CarPartRig::setPartLossEnabled( bool bEnabled ) {
+    gPartLossEnabled = bEnabled;
+}
+
 uint32_t CarPartRig::lostMask( float front, float rear, float left, float right, bool bDoors ) const {
     uint32_t mask = 0;
+    if ( !gPartLossEnabled ) {
+        return mask;
+    }
     const float zones[NumParts] = { front, rear, front, rear, left, right };
     for ( int32_t part = 0; part < NumParts; part++ ) {
         const bool bHas = part <= BumperR   ? !bumpers[part].Nodes.empty()

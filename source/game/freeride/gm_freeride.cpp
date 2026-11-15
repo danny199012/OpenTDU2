@@ -580,7 +580,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         carDesc.RimDiameterFront = carDesc.RimDiameterRear = size > 0 ? size : 0;
         OTDU_LOG_INFO( "FREERIDE: -rims %d\"\n", size );
     }
-    carDesc.bAllowCrumple = !CmdLine::HasArg( "-nocrumple" );
+    carDesc.bAllowCrumple = DamageModEnabled() && !CmdLine::HasArg( "-nocrumple" );
     car.load( carDesc );
     applyOwnedPaint();
     applyOwnedStickers();
@@ -4218,7 +4218,7 @@ bool GMFreeRide::switchCar( const CinematicCar::Desc &desc, const Vector3f &posi
     car.unload();
     carDesc = desc;
     ApplyProfileRims( carDesc );
-    carDesc.bAllowCrumple = !CmdLine::HasArg( "-nocrumple" );
+    carDesc.bAllowCrumple = DamageModEnabled() && !CmdLine::HasArg( "-nocrumple" );
     if ( bModel && !car.load( carDesc ) ) {
         OTDU_LOG_WARN( "FREERIDE: '%s' could not be loaded\n", carDesc.FileName.c_str() );
         return false;
@@ -4694,9 +4694,16 @@ void GMFreeRide::tickSurfaceFx( float deltaTime ) {
     applyCarDirt( mudContacts * contactsInv, dirtContacts * contactsInv, carVelocity.length() * 3.6f );
     // Car damage (docs/re/damage_spec.md): the glass cracks from "deformed".
     car.applyDamageState( vehicle.getDamageState() );
-    updateLostParts( carVelocity, deltaTime );
-    updateTireEffects( carVelocity, deltaTime );
-    updateCrumple( deltaTime );
+    {
+        const bool bDamageMod = DamageModEnabled();
+        CarPartRig::setPartLossEnabled( bDamageMod );
+        vehicle.setTireModelEnabled( bDamageMod );
+        if ( bDamageMod ) {
+            updateLostParts( carVelocity, deltaTime );
+            updateTireEffects( carVelocity, deltaTime );
+            updateCrumple( deltaTime );
+        }
+    }
     car.applyPartDamage( vehicle.getZoneDamage( 0 ), vehicle.getZoneDamage( 1 ), vehicle.getZoneDamage( 2 ),
                          vehicle.getZoneDamage( 3 ) );
     if ( CmdLine::HasArg( "-lognodes" ) ) {
@@ -5196,6 +5203,15 @@ void GMFreeRide::tick( float deltaTime ) {
             stickerShop.tick( deltaTime );
         }
         InteriorWalk::eResult interiorResult = interior.tick( deltaTime );
+        // Vanilla repair: going home mends the car (no pump / paid repair without the fuel-system mod).
+        if ( interior.isHouse() && !FuelModEnabled() && ( vehicle.getDamage() > 0.0f || vehicle.getTireWear( 0 ) > 0.0f ) ) {
+            vehicle.resetDamage();
+            vehicle.resetTires();
+            car.applyDamageState( 0 );
+            car.applyPartDamage( 0.0f, 0.0f, 0.0f, 0.0f );
+            lostParts = 0;
+            OTDU_LOG_INFO( "FREERIDE: the car was repaired at home\n" );
+        }
         if ( interior.takeLeaveRequest() ) {
             interiorResult = InteriorWalk::eResult::Leave; // the movie's gofr
         }

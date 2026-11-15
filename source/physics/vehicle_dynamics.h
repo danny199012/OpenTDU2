@@ -157,6 +157,8 @@ public:
     // Tyres (docs/re/damage_spec.md 3f; port-native [INF]): wear 0..1 (grip falls with it, a worn tyre
     // eventually bursts) and pressure 0..1 (a puncture leaks it out; a flat one rides on the rim: less
     // grip, a smaller radius, a drag). Indexed like getWheelDescs().
+    // The tyre model (wear, bursts, the rim) is the enhanced-damage mod: off, tyres stay new.
+    inline void setTireModelEnabled( bool bEnabled ) { bTireModel = bEnabled; }
     inline size_t getNumTires() const { return wheels.size(); }
     float getTireWear( size_t i ) const { return i < tireWear.size() ? tireWear[i] : 0.0f; }
     float getTirePressure( size_t i ) const { return i < tirePressure.size() ? tirePressure[i] : 1.0f; }
@@ -279,6 +281,7 @@ private:
     bool bOnGround = false;
     float damage = 0.0f; // 0..65535 (spec: damage_spec.md)
     float zoneDamage[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // front, rear, left, right
+    bool bTireModel = false;
     std::vector<CrumpleEvent> crumpleEvents;
     std::vector<float> tireWear, tirePressure, tireBaseRadius, tireLeak; // per wheel
     std::vector<int32_t> tirePops;

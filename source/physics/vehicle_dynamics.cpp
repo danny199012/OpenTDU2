@@ -506,6 +506,9 @@ void VehicleDynamics::puncture( size_t i, bool bSudden ) {
 // Grip of a tyre: the tread wears away (down to 68 % at fully worn), a soft one holds the road much
 // worse and a flat one rides on the rim (38 %, less again at the very end) [INF].
 float VehicleDynamics::tireGrip( size_t i ) const {
+    if ( !bTireModel ) {
+        return 1.0f;
+    }
     if ( i >= tireWear.size() ) {
         return 1.0f;
     }
@@ -521,6 +524,9 @@ float VehicleDynamics::tireGrip( size_t i ) const {
 }
 
 void VehicleDynamics::updateTires( float dt ) {
+    if ( !bTireModel ) {
+        return;
+    }
     if ( tireBaseRadius.size() != wheels.size() || dt <= 0.0f ) {
         return;
     }
@@ -1797,7 +1803,7 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
                     crumpleEvents.push_back( { contact.Point, -contact.Normal, impactGain } );
                 }
                 // A hard hit can burst the tyre nearest to it (a kerb, a wall, a car) [INF].
-                if ( impactGain > 4500.0f && !rayStarts.empty() ) {
+                if ( bTireModel && impactGain > 4500.0f && !rayStarts.empty() ) {
                     tireRandom = tireRandom * 1664525u + 1013904223u;
                     const float roll = static_cast<float>( tireRandom >> 8 ) / 16777216.0f;
                     if ( roll < Min( 0.15f + impactGain / 40000.0f, 0.85f ) ) {

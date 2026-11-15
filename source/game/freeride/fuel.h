@@ -54,6 +54,12 @@ float FuelBill( int32_t grade, float litres );
 // and `-nofuelmod` off, for tests.
 bool FuelModEnabled();
 
+// The enhanced damage is an opt-in mod too: the `enhanced-damage` package (launcher Mods page).
+// On = parts that fall off the cars and tumble as debris, crumpling bodies, sparks / smoke, tyre
+// wear / bursts / riding on the rim. Off = the vanilla damage (zone damage, cracked glass, doors and
+// bonnet hanging) and no tyre model. `-damagemod` / `-nodamagemod` force it for tests.
+bool DamageModEnabled();
+
 // The player's tank (PlayerProfile::FuelLitres / FuelGrade, so it survives a
 // reload: the retail save has no fuel field at all).
 FuelTank &GetFuelTank();

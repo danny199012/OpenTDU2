@@ -6,6 +6,21 @@
 #include "game/player_profile.h"
 #include "system/cmd_line.h"
 
+bool DamageModEnabled() {
+    if ( CmdLine::HasArg( "-nodamagemod" ) ) {
+        return false;
+    }
+    if ( CmdLine::HasArg( "-damagemod" ) ) {
+        return true;
+    }
+    static int32_t cached = -1;
+    if ( cached < 0 ) {
+        cached = ( gpFile != nullptr && gpFile->isModEnabled( "enhanced-damage" ) ) ? 1 : 0;
+        OTDU_LOG_INFO( "Damage: the enhanced-damage mod is %s\n", cached != 0 ? "enabled" : "off (vanilla)" );
+    }
+    return cached != 0;
+}
+
 bool FuelModEnabled() {
     if ( CmdLine::HasArg( "-nofuelmod" ) ) {
         return false;

@@ -35,6 +35,8 @@ public:
     static float loseThreshold( int32_t part );
     // Parts of the model that are gone at these zone values (bit per Part). Doors only count when
     // bDoors (the player car moves its own doors). Stateless: a repair (zone 0) brings them back.
+    // Off (vanilla damage): no part ever counts as lost.
+    static void setPartLossEnabled( bool bEnabled );
     uint32_t lostMask( float front, float rear, float left, float right, bool bDoors = true ) const;
     // A part flying off: its nodes in the hanging pose, the model-space centre of the posed part and a
     // radius for the ground test (false when the model has no such part).

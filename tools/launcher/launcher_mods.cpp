@@ -38,6 +38,17 @@ const char *kFuelSystemJson =
     "Leave it off for the vanilla experience: no fuel, no gauge, no pumps.\"\n"
     "}\n";
 
+const char *kEnhancedDamageJson =
+    "{\n"
+    "  \"name\": \"Enhanced damage (experimental)\",\n"
+    "  \"version\": \"1.0\",\n"
+    "  \"author\": \"OpenTDU2\",\n"
+    "  \"description\": \"Beyond the retail damage: bumpers, bonnets, boots and doors can come off cars (yours and the "
+    "traffic's) and tumble along the road as debris; bodies crumple on impact; sparks and engine smoke; tyres wear, can "
+    "burst and the car can ride on the rim. Leave it off for the vanilla damage: limited damage, and going home repairs the "
+    "car.\"\n"
+    "}\n";
+
 int CountFiles( const fs::path &folder ) {
     int count = 0;
     std::error_code ec;
@@ -74,6 +85,12 @@ void EnsureBundledMods( const std::wstring &userData ) {
     if ( !FileExists( fuelManifest ) ) {
         MakeDirs( fuelFolder );
         WriteTextFile( fuelManifest, kFuelSystemJson );
+    }
+    const std::wstring damageFolder = JoinPath( JoinPath( ModsRoot( userData ), L"packages" ), L"enhanced-damage" );
+    const std::wstring damageManifest = JoinPath( damageFolder, L"mod.json" );
+    if ( !FileExists( damageManifest ) ) {
+        MakeDirs( damageFolder );
+        WriteTextFile( damageManifest, kEnhancedDamageJson );
     }
 }
 
