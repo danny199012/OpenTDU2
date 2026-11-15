@@ -78,21 +78,13 @@ float interleavedGradient( vec2 p ) {
 }
 
 void main() {
-    // Sky only: the view depth of the dome is ~1 (viewpos.frag), anything else is geometry.
-    const vec4 vp = texture( uViewPos, inTexcoord );
-    const float byteB = vp.b * 255.0;
-    const float exponent = floor( vp.b * 31.875 );
-    const float viewZ = exp2( exponent - 15.0 ) * ( ( byteB - 8.0 * exponent ) / 8.0 + vp.a / 8.0 + 1.0 );
-    if ( viewZ > 1.5 ) {
-        outColor = vec4( 0.0 );
-        return;
-    }
-
+    // No sky mask: the pass runs right after the dome, before the world, so geometry draws over it.
+    const vec4 unused = texture( uViewPos, inTexcoord ) * 0.0;
     const vec2 ndc = vec2( inTexcoord.x * 2.0 - 1.0, inTexcoord.y * 2.0 - 1.0 );
     const vec3 dir = normalize( pc.Fwd.xyz + pc.Right.xyz * ndc.x + pc.Up.xyz * ndc.y );
     const float base = pc.Up.w, top = pc.Fwd.w;
     // Only rays that reach the slab from below (the camera lives under the clouds).
-    if ( dir.y < 0.015 || pc.CamPos.y > top ) {
+    if ( dir.y < 0.004 || pc.CamPos.y > top ) {
         outColor = vec4( 0.0 );
         return;
     }
@@ -101,12 +93,12 @@ void main() {
     if ( pc.CamPos.y > base ) {
         tNear = 0.0;
     }
-    const float kMaxDistance = 32000.0;
+    const float kMaxDistance = 60000.0;
     if ( tNear > kMaxDistance ) {
         outColor = vec4( 0.0 );
         return;
     }
-    tFar = min( tFar, tNear + 9000.0 );
+    tFar = min( tFar, tNear + 16000.0 );
     const int kSteps = 36;
     const float stepLength = ( tFar - tNear ) / float( kSteps );
     float t = tNear + stepLength * interleavedGradient( gl_FragCoord.xy );
@@ -145,9 +137,9 @@ void main() {
     }
     float alpha = 1.0 - transmittance;
     // Towards the horizon the layer dissolves into the fog colour, so it never ends as a hard line.
-    const float fade = clamp( ( tNear - 6000.0 ) / ( kMaxDistance - 6000.0 ), 0.0, 1.0 );
+    const float fade = clamp( ( tNear - 16000.0 ) / ( kMaxDistance - 16000.0 ), 0.0, 1.0 );
     light = mix( light, pc.Fog.rgb * alpha, fade );
     alpha *= 1.0 - fade * fade;
     light *= 1.0 - fade * fade;
-    outColor = vec4( light, alpha );
+    outColor = vec4( light + unused.rgb, alpha );
 }

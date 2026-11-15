@@ -3,6 +3,14 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 16): volumetric clouds fixed - no more painting over the cockpit, visible at the horizon
+
+Owner (screenshot): clouds showed through the cockpit roof / bonnet and the car interior, barely visible in the chase view unless aimed up.
+
+- **Cause 1**: the pass ran after the haze and found sky pixels through the gViewPos buffer, which is built from the Z pre-pass - the player's car is not in it, so the cockpit read as sky. **Fix**: `drawVolumetricClouds` now runs right after the sky dome in the opaque pass (where the old billboard clouds drew), with no sky mask; the world, the car and its interior draw over it with their depth like any geometry. The `uViewPos` sampler is kept but unused.
+- **Cause 2**: slab at 1.7-2.9 km and a fade starting at 6 km meant a ray 10 degrees up was already faded. Now 1.0-2.1 km (Cloud_R 0.7-1.8 km), fade 16..60 km, horizon cut-off at 0.004. Chase view shows clouds overhead and toward the horizon (World Viewer shot at pitch 8 shows banks near the skyline).
+- Verified: freeride chase + `-cameramode 23` cockpit at `-weather 12`: no cloud on the roof / dash / buildings. Not verified in the owner's exact bonnet / roof-down case or at night / dusk.
+
 ## Session 2026-11-15 (`main`, 15): soft-ground drag (sand / mud / wet grass slow the car)
 
 Owner: "all please" (sand shading, car effects, ocean / rivers).

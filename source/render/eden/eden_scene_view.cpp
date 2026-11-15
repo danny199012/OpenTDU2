@@ -1740,6 +1740,8 @@ void EdenSceneView::renderOffscreen() {
     if ( !bNoSunFlare && ( !bMapView || bMapKeepSky ) ) {
         sun.drawHalo( *pRenderer, params, pWeather );
     }
+    // Volumetric clouds right after the sky: later geometry (the world, the car and its cockpit) draws over them.
+    drawVolumetricClouds( params );
     drawClouds( *pRenderer );
     // The same cull as the pre-pass (the blended draws are deferred from this
     // traversal, so they follow it).
@@ -1812,8 +1814,6 @@ void EdenSceneView::renderOffscreen() {
     if ( !bNoHaze ) {
         postFx.drawHaze( *pRenderer, &pViewPosTarget->Color, pWeather );
     }
-    // Volumetric clouds over the sky pixels (the haze leaves the sky alone).
-    drawVolumetricClouds( params );
     pRenderer->endScene();
     device.endRenderTarget();
     pRenderer->setScreenTexture( nullptr );
@@ -2043,15 +2043,15 @@ void EdenSceneView::drawVolumetricClouds( const EdenSceneParams &params ) {
     // cumulus, A a thinner cover, R the rain / storm overcast (heavier, darker, lower).
     const std::string name = ToUpper( pWeather->getString( "clouds_cloud3dname", "CLOUD_B" ) );
     const char kind = name.empty() ? 'B' : name.back();
-    float coverage = 0.5f, darkness = 0.0f, base = 1700.0f, top = 2900.0f;
+    float coverage = 0.5f, darkness = 0.0f, base = 1000.0f, top = 2100.0f;
     if ( kind == 'A' ) {
         coverage = 0.42f;
         darkness = 0.15f;
     } else if ( kind == 'R' ) {
         coverage = 0.86f;
         darkness = 1.0f;
-        base = 1100.0f;
-        top = 2400.0f;
+        base = 700.0f;
+        top = 1800.0f;
     }
     static const char *pCover = CmdLine::GetArgValue( "-cloudcover" );
     if ( pCover != nullptr ) {
