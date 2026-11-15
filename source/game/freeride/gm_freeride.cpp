@@ -348,6 +348,8 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         sceneState.Damage = lastDrive.Damage;
         for ( int32_t zone = 0; zone < 4; zone++ ) {
             sceneState.ZoneDamage[zone] = lastDrive.ZoneDamage[zone];
+            sceneState.TireWear[zone] = lastDrive.TireWear[zone];
+            sceneState.TirePressure[zone] = lastDrive.TirePressure[zone];
         }
         OTDU_LOG_INFO( "FREERIDE: the save's drive: %s at (%.1f, %.1f, %.1f), heading %.0f deg, car '%s', damage %.0f\n",
                        islandName.c_str(), lastDrive.X, lastDrive.Y, lastDrive.Z, lastDrive.Yaw * 57.29578f,
@@ -578,6 +580,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         carDesc.RimDiameterFront = carDesc.RimDiameterRear = size > 0 ? size : 0;
         OTDU_LOG_INFO( "FREERIDE: -rims %d\"\n", size );
     }
+    carDesc.bAllowCrumple = !CmdLine::HasArg( "-nocrumple" );
     car.load( carDesc );
     applyOwnedPaint();
     applyOwnedStickers();
@@ -1826,6 +1829,9 @@ void GMFreeRide::startDriving() {
             vehicle.setDamage( damaged.Damage );
             for ( int32_t zone = 0; zone < 4; zone++ ) {
                 vehicle.setZoneDamage( zone, damaged.ZoneDamage[zone] );
+            }
+            for ( size_t tire = 0; tire < 4 && tire < vehicle.getNumTires(); tire++ ) {
+                vehicle.setTire( tire, damaged.TireWear[tire], damaged.TirePressure[tire] );
             }
         }
     }
@@ -4205,6 +4211,7 @@ bool GMFreeRide::switchCar( const CinematicCar::Desc &desc, const Vector3f &posi
     car.unload();
     carDesc = desc;
     ApplyProfileRims( carDesc );
+    carDesc.bAllowCrumple = !CmdLine::HasArg( "-nocrumple" );
     if ( bModel && !car.load( carDesc ) ) {
         OTDU_LOG_WARN( "FREERIDE: '%s' could not be loaded\n", carDesc.FileName.c_str() );
         return false;
@@ -4681,6 +4688,8 @@ void GMFreeRide::tickSurfaceFx( float deltaTime ) {
     // Car damage (docs/re/damage_spec.md): the glass cracks from "deformed".
     car.applyDamageState( vehicle.getDamageState() );
     updateLostParts( carVelocity, deltaTime );
+    updateTireEffects( carVelocity, deltaTime );
+    updateCrumple( deltaTime );
     car.applyPartDamage( vehicle.getZoneDamage( 0 ), vehicle.getZoneDamage( 1 ), vehicle.getZoneDamage( 2 ),
                          vehicle.getZoneDamage( 3 ) );
     if ( CmdLine::HasArg( "-lognodes" ) ) {
@@ -4725,8 +4734,22 @@ void GMFreeRide::updateWheels() {
         const Vector3f lift( 0.0f, vehicle.getWheelOffset( i ), 0.0f );
         model.setNodeTransform( node.RimNode, Matrix4x4f::Translation( node.RimRest.getTranslation() + lift ) * motion *
                                                   WithoutTranslation( node.RimRest ) );
-        model.setNodeTransform( node.RimNode + 1, Matrix4x4f::Translation( node.TireRest.getTranslation() + lift ) * motion *
-                                                      WithoutTranslation( node.TireRest ) );
+        Matrix4x4f tireTransform = Matrix4x4f::Translation( node.TireRest.getTranslation() + lift ) * motion *
+                                   WithoutTranslation( node.TireRest );
+        if ( !bCinematic ) {
+            // A soft tyre sags (squashed about the point it stands on), a flat one is gone: the car rides on the rim.
+            const float pressure = vehicle.getTirePressure( i );
+            if ( pressure < 0.15f ) {
+                tireTransform = Matrix4x4f::Scale( Vector3f( 0.0001f, 0.0001f, 0.0001f ) );
+            } else if ( pressure < 0.95f ) {
+                const float squash = 0.72f + 0.28f * Clamp( ( pressure - 0.15f ) / 0.8f, 0.0f, 1.0f );
+                const Vector3f hub = node.TireRest.getTranslation() + lift;
+                const Vector3f foot( hub.x, hub.y - car.getTireRadius(), hub.z );
+                tireTransform = Matrix4x4f::Translation( foot ) * Matrix4x4f::Scale( Vector3f( 1.0f + 0.08f * ( 1.0f - squash ) / 0.28f, squash, 1.0f ) ) *
+                                Matrix4x4f::Translation( -foot ) * tireTransform;
+            }
+        }
+        model.setNodeTransform( node.RimNode + 1, tireTransform );
     }
 }
 
@@ -4999,6 +5022,7 @@ void GMFreeRide::tick( float deltaTime ) {
         if ( fuelMenu.takeRepair() ) {
             // Paid: a clean car - the damage, the zones (bumpers, bonnet / boot, doors) and the glass.
             vehicle.resetDamage();
+            vehicle.resetTires();
             car.applyDamageState( 0 );
             car.applyPartDamage( 0.0f, 0.0f, 0.0f, 0.0f );
             lostParts = 0;
@@ -6499,6 +6523,10 @@ void GMFreeRide::tick( float deltaTime ) {
             for ( int32_t zone = 0; zone < 4; zone++ ) {
                 drive.ZoneDamage[zone] = vehicle.getZoneDamage( zone );
             }
+            for ( size_t tire = 0; tire < 4; tire++ ) {
+                drive.TireWear[tire] = vehicle.getTireWear( tire );
+                drive.TirePressure[tire] = vehicle.getTirePressure( tire );
+            }
             drive.Mud = carDirt.getMud();
             drive.Dirt = carDirt.getDirt();
             drive.Hardness = carDirt.getMudHardness();
@@ -7246,6 +7274,117 @@ void GMFreeRide::scanWashBlockage() {
     }
 }
 
+void GMFreeRide::updateTireEffects( const Vector3f &velocity, float deltaTime ) {
+    // -settire <frame>,<wheel>,<wear>,<pressure>: test hook (e.g. 200,0,0.95,0.0 = a flat front left).
+    static const char *pSetTire = CmdLine::GetArgValue( "-settire" );
+    static int32_t tireFrames = 0;
+    tireFrames++;
+    if ( pSetTire != nullptr ) {
+        int f = 0, w = 0;
+        float wear = 0.0f, pressure = 1.0f;
+        sscanf( pSetTire, "%d,%d,%f,%f", &f, &w, &wear, &pressure );
+        if ( tireFrames == f && static_cast<size_t>( w ) < vehicle.getNumTires() ) {
+            vehicle.setTire( static_cast<size_t>( w ), wear, pressure );
+            if ( pressure < 0.15f ) {
+                vehicle.puncture( static_cast<size_t>( w ), true ); // (a no-op: already flat) keeps the pop path honest
+            }
+        }
+    }
+    if ( CmdLine::HasArg( "-logtires" ) && ( tireFrames % 60 ) == 0 ) {
+        OTDU_LOG_INFO( "tires: wear %.3f %.3f %.3f %.3f pressure %.2f %.2f %.2f %.2f speed %.1f km/h\n", vehicle.getTireWear( 0 ),
+                       vehicle.getTireWear( 1 ), vehicle.getTireWear( 2 ), vehicle.getTireWear( 3 ), vehicle.getTirePressure( 0 ),
+                       vehicle.getTirePressure( 1 ), vehicle.getTirePressure( 2 ), vehicle.getTirePressure( 3 ), velocity.length() * 3.6f );
+    }
+    EdenSurfaceFx *pFx = gpRender != nullptr ? &gpRender->getSurfaceFx() : nullptr;
+    static std::mt19937 rng( 777u );
+    auto rnd = [&]() { return std::uniform_real_distribution<float>( 0.0f, 1.0f )( rng ); };
+    const std::vector<VehicleDynamics::WheelState> &states = vehicle.getWheels();
+    for ( int32_t wheel : vehicle.takeTirePops() ) {
+        OTDU_LOG_INFO( "FREERIDE: tyre %d burst (wear %.2f)\n", wheel, vehicle.getTireWear( static_cast<size_t>( wheel ) ) );
+        if ( pFx != nullptr && static_cast<size_t>( wheel ) < states.size() ) {
+            const Vector3f at = states[static_cast<size_t>( wheel )].bContact ? states[static_cast<size_t>( wheel )].ContactPoint
+                                                                             : carWorld.getTranslation();
+            for ( int32_t k = 0; k < 22; k++ ) {
+                const float a = 0.3f * static_cast<float>( k );
+                pFx->emitBurst( at + Vector3f( 0.0f, 0.2f, 0.0f ),
+                                velocity * 0.6f + Vector3f( std::cos( a ) * 2.5f, 0.8f + 1.5f * rnd(), std::sin( a ) * 2.5f ),
+                                k < 8 ? Vector4f( 0.15f, 0.15f, 0.15f, 0.55f ) : Vector4f( 0.7f, 0.68f, 0.65f, 0.4f ), 0.14f + 0.14f * rnd(),
+                                0.7f + 0.5f * rnd(), -0.2f, 0.9f );
+            }
+        }
+    }
+    // Riding on the rim: sparks and a trail of rubber smoke from the wheel's contact patch.
+    if ( pFx != nullptr ) {
+        for ( size_t wheel = 0; wheel < states.size() && wheel < vehicle.getNumTires(); wheel++ ) {
+            const float pressure = vehicle.getTirePressure( wheel );
+            const float speed = velocity.length();
+            if ( pressure >= 0.15f || !states[wheel].bContact || speed < 2.0f ) {
+                continue;
+            }
+            const int32_t count = Clamp( static_cast<int32_t>( speed * 0.35f + rnd() * 2.0f ), 1, 6 );
+            for ( int32_t k = 0; k < count; k++ ) {
+                pFx->emitBurst( states[wheel].ContactPoint + Vector3f( 0.0f, 0.03f, 0.0f ),
+                                velocity * 0.5f + Vector3f( ( rnd() - 0.5f ) * 3.0f, 1.0f + rnd() * 2.5f, ( rnd() - 0.5f ) * 3.0f ),
+                                Vector4f( 1.0f, 0.65f + 0.3f * rnd(), 0.2f, 0.95f ), 0.016f + 0.02f * rnd(), 0.2f + 0.25f * rnd(), 9.81f, 0.5f );
+            }
+            if ( rnd() < 6.0f * deltaTime ) {
+                pFx->emitBurst( states[wheel].ContactPoint + Vector3f( 0.0f, 0.1f, 0.0f ), velocity * 0.4f + Vector3f( 0.0f, 0.8f, 0.0f ),
+                                Vector4f( 0.55f, 0.55f, 0.55f, 0.3f ), 0.2f, 0.9f, -0.5f, 1.0f );
+            }
+        }
+    }
+}
+
+void GMFreeRide::updateCrumple( float deltaTime ) {
+    if ( !car.isLoaded() || !car.canCrumple() ) {
+        return;
+    }
+    // -setdent <frame>,<depth> (test hook): a dent in the front, the left side and the rear.
+    static const char *pSetDent = CmdLine::GetArgValue( "-setdent" );
+    static int32_t dentFrames = 0;
+    dentFrames++;
+    if ( pSetDent != nullptr ) {
+        int f = 0;
+        float depth = 0.3f;
+        sscanf( pSetDent, "%d,%f", &f, &depth );
+        if ( dentFrames == f ) {
+            car.addDent( Vector3f( 0.3f, 0.55f, 2.2f ), Vector3f( 0.2f, 0.0f, -1.0f ), depth );
+            car.addDent( Vector3f( 0.95f, 0.6f, 0.4f ), Vector3f( -1.0f, 0.0f, 0.0f ), depth * 0.8f );
+            car.addDent( Vector3f( -0.4f, 0.6f, -2.1f ), Vector3f( -0.1f, 0.0f, 1.0f ), depth * 0.6f );
+        }
+    }
+    // The hits of the physics, in model space: the point on the body and the push into the car; the
+    // depth follows the zone damage the hit added (a 90 km/h wall hit is ~30 cm).
+    const Matrix4x4f toModel = carWorld.inverse();
+    for ( const VehicleDynamics::CrumpleEvent &event : vehicle.takeCrumpleEvents() ) {
+        const Vector3f point = toModel.transformPoint( event.Point );
+        const Vector3f direction = toModel.transformVector( event.Direction );
+        car.addDent( point, direction, Clamp( event.Gain / 30000.0f * 0.3f, 0.02f, 0.3f ) );
+    }
+    // A repair (zones back to zero) hammers the body out; a save that was loaded with damage and no
+    // dents gets the matching ones (front / rear / sides from the zone values).
+    const float total = vehicle.getZoneDamage( 0 ) + vehicle.getZoneDamage( 1 ) + vehicle.getZoneDamage( 2 ) + vehicle.getZoneDamage( 3 );
+    if ( total <= 0.0f && car.getNumDents() > 0 ) {
+        car.clearDents();
+    } else if ( total > 3000.0f && car.getNumDents() == 0 && !bDentsSeeded ) {
+        bDentsSeeded = true;
+        const float depth[4] = { vehicle.getZoneDamage( 0 ), vehicle.getZoneDamage( 1 ), vehicle.getZoneDamage( 2 ), vehicle.getZoneDamage( 3 ) };
+        const Vector3f points[4] = { Vector3f( 0.0f, 0.55f, 2.2f ), Vector3f( 0.0f, 0.6f, -2.1f ), Vector3f( 0.95f, 0.6f, 0.3f ), Vector3f( -0.95f, 0.6f, 0.3f ) };
+        const Vector3f directions[4] = { Vector3f( 0.0f, 0.0f, -1.0f ), Vector3f( 0.0f, 0.0f, 1.0f ), Vector3f( -1.0f, 0.0f, 0.0f ), Vector3f( 1.0f, 0.0f, 0.0f ) };
+        for ( int32_t i = 0; i < 4; i++ ) {
+            if ( depth[i] > 3000.0f ) {
+                car.addDent( points[i], directions[i], 0.32f * Clamp( depth[i] / 65535.0f, 0.0f, 1.0f ) );
+            }
+        }
+    }
+    if ( total > 0.0f ) {
+        bDentsSeeded = true;
+    } else {
+        bDentsSeeded = false;
+    }
+    car.updateCrumple( deltaTime );
+}
+
 void GMFreeRide::updateLostParts( const Vector3f &velocity, float deltaTime ) {
     // A hard single hit on an end that is already well damaged knocks the bumper off (the zone
     // jumps over the threshold; the loss is derived from the zone, so it survives a save) [INF].
@@ -7631,6 +7770,10 @@ void GMFreeRide::exit() {
         state.Damage = vehicle.getDamage();
         for ( int32_t zone = 0; zone < 4; zone++ ) {
             state.ZoneDamage[zone] = vehicle.getZoneDamage( zone );
+            if ( static_cast<size_t>( zone ) < vehicle.getNumTires() ) {
+                state.TireWear[zone] = vehicle.getTireWear( zone );
+                state.TirePressure[zone] = vehicle.getTirePressure( zone );
+            }
         }
         state.AvatarConfig = GetPlayerProfile().AvatarConfig;
     }

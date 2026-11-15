@@ -23,6 +23,7 @@ public:
         Vector3f BoundsMin;
         Vector3f BoundsMax;
         uint32_t NumVertices = 0;          // vertices of the primitive (the tool panels show it)
+        uint32_t NumRawVertices = 0;       // vertices in the raw streams (deformPositions)
         std::vector<uint32_t> BonePalette; // skinned: skeleton bone of each palette entry
         // The primitive's own indices (into the item's vertex range of the
         // shared buffer), kept when setKeepItemIndices(true) was set before
@@ -127,6 +128,15 @@ public:
     // Keeps a CPU copy of the triangles (model space) for height queries
     // (set before load).
     inline void setKeepCollision( bool bKeep ) { bKeepCollision = bKeep; }
+
+    // Crumpling (docs/re/damage_spec.md 3f): keeps the original vertex streams on the CPU (set before
+    // load), and deformPositions rewrites the POSITIONS of every item from them and uploads a new vertex
+    // buffer. The callback gets the node and a position in model space (the node's rest pose applied)
+    // and returns the moved one; a null callback puts the original shape back. Skinned items are moved
+    // in their bind pose. Not for models shared between cars (the traffic types).
+    inline void setKeepVertexData( bool bKeep ) { bKeepVertexData = bKeep; }
+    using DeformFn = std::function<Vector3f( int32_t nodeIndex, const Vector3f &modelPosition )>;
+    bool deformPositions( const DeformFn &fn );
     // Keeps each item's primitive indices (set before load; the animated
     // wipers split the parked wiper prim by them).
     inline void setKeepItemIndices( bool bKeep ) { bKeepItemIndices = bKeep; }
@@ -198,6 +208,8 @@ private:
     std::vector<Item> items;
     std::vector<Matrix4x4f> nodeTransforms;
     std::vector<bool> nodeVisible;
+    bool bKeepVertexData = false;
+    std::vector<uint8_t> keptVertexData;
     std::vector<bool> hiddenItems;
     std::vector<std::pair<uint32_t, uint32_t>> nodeItems; // first item, count
     // The same range per INS. LOD level ([node][lod]); LOD0 == nodeItems.

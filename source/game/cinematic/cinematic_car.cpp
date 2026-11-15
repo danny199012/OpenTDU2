@@ -597,6 +597,10 @@ bool CinematicCar::load( const Desc &requested ) {
     }
     // The wiper split (collectWipers) needs each item's primitive data.
     car.setKeepItemIndices( true );
+    bCanCrumple = requested.bAllowCrumple;
+    dents.clear();
+    bDentsDirty = false;
+    car.setKeepVertexData( requested.bAllowCrumple );
     if ( !car.load( *pRenderer, carBank, modelName.c_str(), nullptr, carOwner.c_str() ) ) {
         return false;
     }
@@ -3228,6 +3232,99 @@ void CinematicCar::applyPartDamage( float front, float rear, float left, float r
     appliedPartKey[2] = keyLost;
     partRig.restore( car );
     partRig.apply( car, front, rear, left, right, false );
+}
+
+void CinematicCar::addDent( const Vector3f &point, const Vector3f &direction, float depth ) {
+    if ( !bCanCrumple || depth <= 0.002f ) {
+        return;
+    }
+    const Vector3f dir = direction.normalized();
+    for ( Dent &dent : dents ) {
+        if ( ( dent.Point - point ).length() < 0.45f ) {
+            // The same place again: it gets deeper (and the point drifts to the new hit).
+            dent.Depth = Min( dent.Depth + depth, 0.5f );
+            dent.Point = dent.Point * 0.6f + point * 0.4f;
+            dent.Direction = ( dent.Direction * 0.6f + dir * 0.4f ).normalized();
+            dent.Radius = Min( 0.55f + dent.Depth * 1.6f, 1.2f );
+            bDentsDirty = true;
+            return;
+        }
+    }
+    if ( dents.size() >= 28 ) {
+        // Full: the new hit deepens the nearest one instead.
+        size_t nearest = 0;
+        float best = 1e30f;
+        for ( size_t i = 0; i < dents.size(); i++ ) {
+            const float d = ( dents[i].Point - point ).length();
+            if ( d < best ) {
+                best = d;
+                nearest = i;
+            }
+        }
+        dents[nearest].Depth = Min( dents[nearest].Depth + depth, 0.5f );
+        bDentsDirty = true;
+        return;
+    }
+    Dent dent;
+    dent.Point = point;
+    dent.Direction = dir;
+    dent.Depth = Min( depth, 0.5f );
+    dent.Radius = Min( 0.55f + dent.Depth * 1.6f, 1.2f );
+    dents.push_back( dent );
+    bDentsDirty = true;
+}
+
+void CinematicCar::clearDents() {
+    if ( dents.empty() ) {
+        return;
+    }
+    dents.clear();
+    bDentsDirty = true;
+    crumpleCooldown = 0.0f;
+}
+
+void CinematicCar::updateCrumple( float deltaTime ) {
+    crumpleCooldown -= deltaTime;
+    if ( !bCanCrumple || !bDentsDirty || crumpleCooldown > 0.0f || !car.isLoaded() ) {
+        return;
+    }
+    bDentsDirty = false;
+    crumpleCooldown = 0.2f;
+    if ( dents.empty() ) {
+        car.deformPositions( nullptr );
+        return;
+    }
+    // The nodes that never move with the body: the wheel placeholders and the shadow boxes.
+    const std::vector<SceneNode> &nodes = car.getScene().getNodes();
+    const std::vector<Dent> list = dents;
+    static const float kNoise = [] { const char *v = CmdLine::GetArgValue( "-crumplenoise" ); return v ? static_cast<float>( atof( v ) ) : 0.5f; }();
+    car.deformPositions( [&]( int32_t node, const Vector3f &p ) {
+        const std::string &name = nodes[static_cast<size_t>( node )].Name;
+        if ( name.find( "RIM" ) != std::string::npos || name.find( "TIRE" ) != std::string::npos ||
+             name.find( "SHADOW" ) != std::string::npos || name.find( "BRAKE" ) != std::string::npos ) {
+            return p;
+        }
+        Vector3f move( 0.0f, 0.0f, 0.0f );
+        for ( const Dent &dent : list ) {
+            const float distance = ( p - dent.Point ).length();
+            if ( distance >= dent.Radius ) {
+                continue;
+            }
+            const float t = distance / dent.Radius;
+            const float falloff = ( 1.0f - t * t ) * ( 1.0f - t * t );
+            // A smooth crumple: the surface wrinkles (ridges across the dent) instead of a clean bowl.
+            const float wrinkle = 1.0f + kNoise * 0.35f * std::sin( p.x * 6.0f + p.y * 4.0f ) * std::cos( p.z * 5.0f - p.y * 3.0f );
+            move = move + dent.Direction * ( dent.Depth * falloff * wrinkle );
+            // The metal buckles sideways a little as it folds.
+            const Vector3f side = dent.Direction.cross( Vector3f( 0.0f, 1.0f, 0.0f ) );
+            move = move + side * ( kNoise * 0.18f * dent.Depth * falloff * std::sin( p.y * 8.0f + p.x * 3.0f ) );
+        }
+        const float length = move.length();
+        if ( length > 0.55f ) {
+            move = move * ( 0.55f / length );
+        }
+        return p + move;
+    } );
 }
 
 void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, float wetness ) {

@@ -6,6 +6,7 @@
 #include "system/cmd_line.h"
 
 #include <cfloat>
+#include <cstring>
 
 namespace {
 // Frustum culling of skinned items: margin (m) around the bind pose bounds.
@@ -31,6 +32,138 @@ VkFormat GetBlasPositionFormat( eVertexAttributeFormat format ) {
     }
 }
 } // namespace
+
+namespace {
+// IEEE half <-> float (the 16-bit position streams).
+float HalfToFloat( uint16_t h ) {
+    const uint32_t sign = ( h & 0x8000u ) << 16;
+    uint32_t exponent = ( h >> 10 ) & 0x1fu;
+    uint32_t mantissa = h & 0x3ffu;
+    uint32_t bits;
+    if ( exponent == 0 ) {
+        if ( mantissa == 0 ) {
+            bits = sign;
+        } else {
+            exponent = 127 - 15 + 1;
+            while ( ( mantissa & 0x400u ) == 0 ) {
+                mantissa <<= 1;
+                exponent--;
+            }
+            mantissa &= 0x3ffu;
+            bits = sign | ( exponent << 23 ) | ( mantissa << 13 );
+        }
+    } else if ( exponent == 31 ) {
+        bits = sign | 0x7f800000u | ( mantissa << 13 );
+    } else {
+        bits = sign | ( ( exponent + 127 - 15 ) << 23 ) | ( mantissa << 13 );
+    }
+    float f;
+    std::memcpy( &f, &bits, 4 );
+    return f;
+}
+
+uint16_t FloatToHalf( float f ) {
+    uint32_t bits;
+    std::memcpy( &bits, &f, 4 );
+    const uint32_t sign = ( bits >> 16 ) & 0x8000u;
+    int32_t exponent = static_cast<int32_t>( ( bits >> 23 ) & 0xffu ) - 127 + 15;
+    uint32_t mantissa = bits & 0x7fffffu;
+    if ( exponent <= 0 ) {
+        if ( exponent < -10 ) {
+            return static_cast<uint16_t>( sign );
+        }
+        mantissa = ( mantissa | 0x800000u ) >> ( 1 - exponent );
+        return static_cast<uint16_t>( sign | ( ( mantissa + 0x1000u ) >> 13 ) );
+    }
+    if ( exponent >= 31 ) {
+        return static_cast<uint16_t>( sign | 0x7bffu );
+    }
+    return static_cast<uint16_t>( sign | ( static_cast<uint32_t>( exponent ) << 10 ) | ( ( mantissa + 0x1000u ) >> 13 ) );
+}
+} // namespace
+
+bool EdenModel::deformPositions( const DeformFn &fn ) {
+    if ( keptVertexData.empty() || gpRender == nullptr || pVertexBuffer == nullptr ) {
+        return false;
+    }
+    std::vector<uint8_t> data = keptVertexData;
+    uint32_t moved = 0;
+    const std::vector<SceneNode> &nodes = scene.getNodes();
+    if ( fn ) {
+        for ( const Item &item : items ) {
+            if ( item.Lod != 0 || ( !item.BonePalette.empty() && CmdLine::HasArg( "-crumplenoskin" ) ) ) {
+                continue;
+            }
+            const RawVertexAttribute *pPosition = nullptr;
+            for ( const RawVertexAttribute &attribute : item.Mesh.Attributes ) {
+                if ( attribute.Usage == kUsagePosition && attribute.UsageIndex == 0 ) {
+                    pPosition = &attribute;
+                    break;
+                }
+            }
+            if ( pPosition == nullptr || pPosition->Stream >= EdenMesh::kMaxStreams ) {
+                continue;
+            }
+            const uint32_t stride = item.Mesh.Strides[pPosition->Stream];
+            const eVertexAttributeFormat format = pPosition->Format;
+            if ( stride == 0 || ( format != VAF_POSITION_R32G32B32_SFLOAT && format != VAF_POSITION_R32G32B32A32_SFLOAT &&
+                                  format != VAF_POSITION_R16G16B16A16_SFLOAT ) ) {
+                continue;
+            }
+            const Matrix4x4f &world = nodes[item.NodeIndex].World;
+            const Matrix4x4f inverse = world.inverse();
+            const size_t base = static_cast<size_t>( item.Mesh.StreamOffsets[pPosition->Stream] ) + pPosition->Offset;
+            for ( uint32_t v = 0; v < item.NumRawVertices; v++ ) {
+                const size_t at = base + static_cast<size_t>( v ) * stride;
+                if ( at + 12 > data.size() ) {
+                    break;
+                }
+                Vector3f local;
+                if ( format == VAF_POSITION_R16G16B16A16_SFLOAT ) {
+                    uint16_t h[3];
+                    std::memcpy( h, &data[at], 6 );
+                    local = Vector3f( HalfToFloat( h[0] ), HalfToFloat( h[1] ), HalfToFloat( h[2] ) );
+                } else {
+                    float f[3];
+                    std::memcpy( f, &data[at], 12 );
+                    local = Vector3f( f[0], f[1], f[2] );
+                }
+                const Vector3f modelPosition = world.transformPoint( local );
+                const Vector3f target = fn( item.NodeIndex, modelPosition );
+                if ( target.x == modelPosition.x && target.y == modelPosition.y && target.z == modelPosition.z ) {
+                    continue;
+                }
+                const Vector3f result = inverse.transformPoint( target );
+                if ( format == VAF_POSITION_R16G16B16A16_SFLOAT ) {
+                    const uint16_t h[3] = { FloatToHalf( result.x ), FloatToHalf( result.y ), FloatToHalf( result.z ) };
+                    std::memcpy( &data[at], h, 6 );
+                } else {
+                    const float f[3] = { result.x, result.y, result.z };
+                    std::memcpy( &data[at], f, 12 );
+                }
+                moved++;
+            }
+        }
+    }
+    RenderDevice &device = gpRender->getDevice();
+    VkBufferUsageFlags vertexUsage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    GPUBuffer *pNew = device.createBuffer( data.size(), vertexUsage, data.data() );
+    if ( pNew == nullptr ) {
+        return false;
+    }
+    GPUBuffer *pOld = pVertexBuffer;
+    pVertexBuffer = pNew;
+    for ( Item &item : items ) {
+        for ( uint32_t stream = 0; stream < item.Mesh.NumStreams; stream++ ) {
+            if ( item.Mesh.pStreamBuffers[stream] == pOld ) {
+                item.Mesh.pStreamBuffers[stream] = pNew;
+            }
+        }
+    }
+    device.destroyBuffer( pOld );
+    OTDU_LOG_INFO( "EdenModel: crumple: %u vertices moved\n", moved );
+    return true;
+}
 
 EdenModel::EdenModel() : pVertexBuffer( nullptr ), pIndexBuffer( nullptr ) {}
 
@@ -192,6 +325,7 @@ bool EdenModel::load( EdenRenderer &renderer, const BankEntry &sceneEntry, const
             mesh.FirstIndex = static_cast<uint32_t>( indexData.size() );
             mesh.IndexCount = static_cast<uint32_t>( primitive.Indices.size() );
             item.NumVertices = static_cast<uint32_t>( primitive.Vertices.size() );
+            item.NumRawVertices = primitive.NumRawVertex;
             mesh.VertexOffset = 0;
             indexData.insert( indexData.end(), primitive.Indices.begin(), primitive.Indices.end() );
             mesh.computeLayoutKey();
@@ -326,6 +460,9 @@ bool EdenModel::load( EdenRenderer &renderer, const BankEntry &sceneEntry, const
         // A bottom level structure reads the mesh through its device address.
         vertexUsage |= RayTracing::getBuildInputUsage();
         indexUsage |= RayTracing::getBuildInputUsage();
+    }
+    if ( bKeepVertexData ) {
+        keptVertexData = vertexData;
     }
     pVertexBuffer = device.createBuffer( vertexData.size(), vertexUsage, vertexData.data() );
     pIndexBuffer = device.createBuffer( indexData.size() * sizeof( uint32_t ), indexUsage, indexData.data() );

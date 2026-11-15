@@ -140,6 +140,37 @@ public:
     // forward). Fed by the chassis contacts; drives the doors and the bumpers of the model.
     inline float getZoneDamage( int32_t zone ) const { return zoneDamage[zone & 3]; }
     inline void setZoneDamage( int32_t zone, float value ) { zoneDamage[zone & 3] = value; }
+
+    // A body hit, for the crumpling of the model (GMFreeRide drains them every frame): world contact
+    // point, the world direction the surface is pushed (into the car) and the zone damage it added.
+    struct CrumpleEvent {
+        Vector3f Point;
+        Vector3f Direction;
+        float Gain = 0.0f;
+    };
+    inline std::vector<CrumpleEvent> takeCrumpleEvents() {
+        std::vector<CrumpleEvent> out;
+        out.swap( crumpleEvents );
+        return out;
+    }
+
+    // Tyres (docs/re/damage_spec.md 3f; port-native [INF]): wear 0..1 (grip falls with it, a worn tyre
+    // eventually bursts) and pressure 0..1 (a puncture leaks it out; a flat one rides on the rim: less
+    // grip, a smaller radius, a drag). Indexed like getWheelDescs().
+    inline size_t getNumTires() const { return wheels.size(); }
+    float getTireWear( size_t i ) const { return i < tireWear.size() ? tireWear[i] : 0.0f; }
+    float getTirePressure( size_t i ) const { return i < tirePressure.size() ? tirePressure[i] : 1.0f; }
+    void setTire( size_t i, float wear, float pressure );
+    // New tyres on every wheel (the repair at a petrol station).
+    void resetTires();
+    // A puncture: sudden = a burst (about a second), otherwise a slow leak (several seconds).
+    void puncture( size_t i, bool bSudden );
+    // Wheels that went flat since the last call (effects).
+    inline std::vector<int32_t> takeTirePops() {
+        std::vector<int32_t> out;
+        out.swap( tirePops );
+        return out;
+    }
     // Adds `gain` of zone damage for a hit from the world direction `towardsObstacle` (a traffic car).
     void addZoneImpact( const Vector3f &towardsObstacle, float gain );
     void setDamage( float value );
@@ -248,6 +279,13 @@ private:
     bool bOnGround = false;
     float damage = 0.0f; // 0..65535 (spec: damage_spec.md)
     float zoneDamage[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // front, rear, left, right
+    std::vector<CrumpleEvent> crumpleEvents;
+    std::vector<float> tireWear, tirePressure, tireBaseRadius, tireLeak; // per wheel
+    std::vector<int32_t> tirePops;
+    uint32_t tireRandom = 0x9e3779b9u;
+    void ensureTires();
+    void updateTires( float dt );
+    float tireGrip( size_t i ) const;
     bool bLogContacts = false;
 
     void tick( float h, const Input &input, const VehicleWorldCollision &collision );

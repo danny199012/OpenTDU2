@@ -589,6 +589,12 @@ void LoadProfile() {
                 for ( size_t zone = 0; zone < 4 && 13 + zone < parts.size(); zone++ ) {
                     drive.ZoneDamage[zone] = static_cast<float>( atof( parts[13 + zone].c_str() ) );
                 }
+                for ( size_t tire = 0; tire < 4 && 17 + tire < parts.size(); tire++ ) {
+                    drive.TireWear[tire] = static_cast<float>( atof( parts[17 + tire].c_str() ) );
+                }
+                for ( size_t tire = 0; tire < 4 && 21 + tire < parts.size(); tire++ ) {
+                    drive.TirePressure[tire] = static_cast<float>( atof( parts[21 + tire].c_str() ) );
+                }
             }
         } else if ( key.compare( 0, 13, "exploreddirt_" ) == 0 ) {
             std::vector<uint32_t> &list = profile.ExploredDirt[key.substr( 13 )];
@@ -895,8 +901,13 @@ bool SaveProfile( const char *pReason ) {
             char zones[96];
             snprintf( zones, sizeof( zones ), "%.0f|%.0f|%.0f|%.0f", drive.ZoneDamage[0], drive.ZoneDamage[1], drive.ZoneDamage[2],
                       drive.ZoneDamage[3] );
+            char tires[160];
+            snprintf( tires, sizeof( tires ), "%.4f|%.4f|%.4f|%.4f|%.3f|%.3f|%.3f|%.3f", drive.TireWear[0], drive.TireWear[1],
+                      drive.TireWear[2], drive.TireWear[3], drive.TirePressure[0], drive.TirePressure[1], drive.TirePressure[2],
+                      drive.TirePressure[3] );
             file << "last_drive = " << drive.Island << "|" << numbers << "|" << drive.CarFile << "|"
-                 << ( drive.bHardtopOpen ? 1 : 0 ) << "|" << ( drive.bWindowsOpen ? 1 : 0 ) << "|" << state << "|" << zones << "\n";
+                 << ( drive.bHardtopOpen ? 1 : 0 ) << "|" << ( drive.bWindowsOpen ? 1 : 0 ) << "|" << state << "|" << zones << "|"
+                 << tires << "\n";
         }
         for ( const auto &island : profile.ExploredDirt ) {
             if ( island.second.empty() ) {

@@ -210,6 +210,10 @@ int32_t VehicleDynamics::getGear() const {
 }
 
 void VehicleDynamics::setup( const VehicleSetup &newSetup, const std::vector<WheelDesc> &newWheels ) {
+    tireBaseRadius.clear();
+    tireWear.clear();
+    tirePressure.clear();
+    tireLeak.clear();
     params = newSetup;
     wheels = newWheels;
     wheelStates.assign( wheels.size(), WheelState() );
@@ -450,11 +454,111 @@ void VehicleDynamics::step( float deltaTime, const Input &input, const VehicleWo
     if ( wheels.empty() || deltaTime <= 0.0f ) {
         return;
     }
+    ensureTires();
     tickAccumulator = Min( tickAccumulator + deltaTime, 0.25f );
     const float h = 1.0f / kTickRate;
     while ( tickAccumulator >= h * 0.999f ) {
         tick( Min( h, kMaxTickDt ), input, collision );
         tickAccumulator -= h;
+    }
+    updateTires( deltaTime );
+}
+
+void VehicleDynamics::ensureTires() {
+    if ( tireBaseRadius.size() == wheels.size() ) {
+        return;
+    }
+    const size_t n = wheels.size();
+    tireWear.assign( n, 0.0f );
+    tirePressure.assign( n, 1.0f );
+    tireLeak.assign( n, 0.0f );
+    tireBaseRadius.resize( n );
+    for ( size_t i = 0; i < n; i++ ) {
+        tireBaseRadius[i] = wheels[i].Radius;
+    }
+}
+
+void VehicleDynamics::setTire( size_t i, float wear, float pressure ) {
+    ensureTires();
+    if ( i < tireWear.size() ) {
+        tireWear[i] = Clamp( wear, 0.0f, 1.0f );
+        tirePressure[i] = Clamp( pressure, 0.0f, 1.0f );
+        tireLeak[i] = 0.0f;
+    }
+}
+
+void VehicleDynamics::resetTires() {
+    ensureTires();
+    for ( size_t i = 0; i < tireWear.size(); i++ ) {
+        tireWear[i] = 0.0f;
+        tirePressure[i] = 1.0f;
+        tireLeak[i] = 0.0f;
+    }
+}
+
+void VehicleDynamics::puncture( size_t i, bool bSudden ) {
+    ensureTires();
+    if ( i < tireLeak.size() && tirePressure[i] > 0.5f && tireLeak[i] == 0.0f ) {
+        tireLeak[i] = bSudden ? 0.9f : 0.2f;
+    }
+}
+
+// Grip of a tyre: the tread wears away (down to 68 % at fully worn), a soft one holds the road much
+// worse and a flat one rides on the rim (38 %, less again at the very end) [INF].
+float VehicleDynamics::tireGrip( size_t i ) const {
+    if ( i >= tireWear.size() ) {
+        return 1.0f;
+    }
+    const float wear = Clamp( tireWear[i], 0.0f, 1.0f );
+    const float pressure = Clamp( tirePressure[i], 0.0f, 1.0f );
+    const float soft = Clamp( ( pressure - 0.25f ) / 0.75f, 0.0f, 1.0f );
+    const float smooth = soft * soft * ( 3.0f - 2.0f * soft );
+    float grip = ( 1.0f - 0.32f * std::pow( wear, 1.3f ) ) * ( 0.38f + 0.62f * smooth );
+    if ( pressure < 0.1f ) {
+        grip *= 0.85f;
+    }
+    return grip;
+}
+
+void VehicleDynamics::updateTires( float dt ) {
+    if ( tireBaseRadius.size() != wheels.size() || dt <= 0.0f ) {
+        return;
+    }
+    const float staticLoad = mass * 9.81f / static_cast<float>( Max<size_t>( wheels.size(), 1 ) );
+    const float speed = velocity.length();
+    for ( size_t i = 0; i < wheels.size(); i++ ) {
+        const WheelState &state = wheelStates[i];
+        if ( state.bContact && tirePressure[i] > 0.5f ) {
+            // Wear: distance, plus the slide (hard cornering, wheelspin, lockups) scaled by the load.
+            const float slide = speed < 3.0f ? 0.0f
+                                              : Min( Max( 0.0f, std::abs( state.SlipRatio ) - 0.10f ) + Max( 0.0f, std::abs( state.SlipAngle ) - 0.08f ), 1.0f );
+            const float loadRatio = staticLoad > 1.0f ? Clamp( state.Load / staticLoad, 0.0f, 2.0f ) : 1.0f;
+            tireWear[i] = Min( tireWear[i] + speed * dt / 120000.0f + slide * loadRatio * 0.004f * dt, 1.0f );
+            // A tyre past ~85 % wear can burst: the hazard grows to a few % per second when it is gone.
+            if ( tireWear[i] > 0.85f && tireLeak[i] == 0.0f ) {
+                tireRandom = tireRandom * 1664525u + 1013904223u;
+                const float roll = static_cast<float>( tireRandom >> 8 ) / 16777216.0f;
+                const float hazard = ( tireWear[i] - 0.85f ) / 0.15f * 0.03f + ( tireWear[i] >= 1.0f ? 0.12f : 0.0f );
+                if ( roll < hazard * dt ) {
+                    puncture( i, true );
+                }
+            }
+        }
+        if ( tireLeak[i] > 0.0f ) {
+            const float before = tirePressure[i];
+            tirePressure[i] = Max( 0.0f, tirePressure[i] - tireLeak[i] * dt );
+            if ( before > 0.15f && tirePressure[i] <= 0.15f ) {
+                tirePops.push_back( static_cast<int32_t>( i ) );
+            }
+        }
+        // The wheel the car rides on: the full tyre down to half pressure, then the rim (74 % of the radius).
+        const float pressure = Clamp( tirePressure[i], 0.0f, 1.0f );
+        const float radius = tireBaseRadius[i] * ( 0.74f + 0.26f * Clamp( pressure / 0.5f, 0.0f, 1.0f ) );
+        if ( std::abs( radius - wheels[i].Radius ) > 1e-4f ) {
+            // The rim turns faster for the same road speed.
+            wheelStates[i].AngularVelocity *= wheels[i].Radius / Max( radius, 0.05f );
+            wheels[i].Radius = radius;
+        }
     }
 }
 
@@ -1356,6 +1460,7 @@ void VehicleDynamics::tick( float h, const Input &input, const VehicleWorldColli
             const char *pValue = CmdLine::GetArgValue( "-tyreloadsens" );
             return pValue ? static_cast<float>( std::atof( pValue ) ) : 0.0f;
         }();
+        frame.FrictionScale *= tireGrip( i );
         if ( kLoadSensitivity != 0.0f && staticShare > 1.0f ) {
             frame.FrictionScale *= Clamp( 1.0f - kLoadSensitivity * ( state.Load / staticShare - 1.0f ), 0.5f, 1.25f );
         }
@@ -1431,6 +1536,13 @@ void VehicleDynamics::tick( float h, const Input &input, const VehicleWorldColli
         const Vector3f longForce = frame.Longitudinal * ( longImpulse / h );
         const Vector3f latForce = frame.Lateral * ( latImpulse / h );
         force += longForce + latForce;
+        // A soft or flat tyre drags (rolling resistance, the rim on the road) [INF].
+        if ( i < tirePressure.size() && tirePressure[i] < 0.95f && std::abs( frame.LongVelocity ) > 0.5f ) {
+            const float drag = ( 1.0f - Clamp( tirePressure[i], 0.0f, 1.0f ) ) * 0.2f * state.Load;
+            const Vector3f dragForce = frame.Longitudinal * ( -Sign( frame.LongVelocity ) * drag );
+            force += dragForce;
+            torque += ( frame.Point - com ).cross( dragForce );
+        }
         // EXPERIMENT (-devhubforce, default off): in the Apr 2012 dev build the wheel is its
         // own rigid body (state +0x150); the tyre impulses act on it at hub - n x LoadedRadius
         // (0xfff970 / 0x1002dd0) and reach the chassis through the suspension joint, so the
@@ -1681,6 +1793,26 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
             // fixed object here (traffic / other cars do not reach this path).
             const float impactGain = addImpactDamage( j / Max( dt, 1e-4f ), 1 );
             if ( impactGain > 0.0f ) {
+                if ( crumpleEvents.size() < 48 ) {
+                    crumpleEvents.push_back( { contact.Point, -contact.Normal, impactGain } );
+                }
+                // A hard hit can burst the tyre nearest to it (a kerb, a wall, a car) [INF].
+                if ( impactGain > 4500.0f && !rayStarts.empty() ) {
+                    tireRandom = tireRandom * 1664525u + 1013904223u;
+                    const float roll = static_cast<float>( tireRandom >> 8 ) / 16777216.0f;
+                    if ( roll < Min( 0.15f + impactGain / 40000.0f, 0.85f ) ) {
+                        size_t nearest = 0;
+                        float best = 1e30f;
+                        for ( size_t w = 0; w < rayStarts.size(); w++ ) {
+                            const float dx = rayStarts[w].x - local.x, dz = rayStarts[w].z - local.z;
+                            if ( dx * dx + dz * dz < best ) {
+                                best = dx * dx + dz * dz;
+                                nearest = w;
+                            }
+                        }
+                        puncture( nearest, true );
+                    }
+                }
                 // The zone of the hit from the sphere's place on the body (+X left, +Z forward):
                 // a corner hit loads both of its sides.
                 const float spread = std::abs( local.x ) + std::abs( local.z ) + 1e-3f;
@@ -1727,6 +1859,11 @@ void VehicleDynamics::addZoneImpact( const Vector3f &towardsObstacle, float gain
         return;
     }
     const Vector3f local = InverseRotate( orientation, towardsObstacle ); // +X left, +Z forward
+    if ( crumpleEvents.size() < 48 ) {
+        // A traffic hit: the surface nearest the other car, pushed back towards the middle.
+        crumpleEvents.push_back( { position + towardsObstacle.normalized() * 1.6f + Vector3f( 0.0f, 0.5f, 0.0f ),
+                                   -towardsObstacle.normalized(), gain } );
+    }
     const float spread = std::abs( local.x ) + std::abs( local.z ) + 1e-3f;
     float &endZone = zoneDamage[local.z >= 0.0f ? 0 : 1];
     float &sideZone = zoneDamage[local.x >= 0.0f ? 2 : 3];

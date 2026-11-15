@@ -95,6 +95,21 @@ the hood and the boot are part of `BODY_HR`, so they cannot hinge as nodes here.
 - Test hook: `-setzone <frame>,<front>,<rear>` writes the player's end zones once. Verified: parked car, `-setzone 250,60000,60000` (`-tp 27037,11610`): two pieces thrown, tumbling next to the car in frame 262, rear bumper gone from the car at frame 400; cockpit view with the front bumper gone.
 - NOT verified visually: the sparks and the smoke particles (nothing readable in the cockpit shots; log shows no errors), the landing of a piece at ground level (it left the chase camera's view), traffic debris in play, a door leaving a traffic car.
 
+## 3f. Crumpling and tyres (2026-11-15, `main`)
+- **Crumple** (port-native [INF]; the retail uses `TD_CarDeform_TS` + a damage map, not decoded): the driven car keeps its vertex streams (`Desc::bAllowCrumple`, `EdenModel::setKeepVertexData`).
+  `VehicleDynamics` records every chassis contact (and traffic hit) as a `CrumpleEvent` (world point, push direction, zone gain); `GMFreeRide::updateCrumple` turns it into a dent in model space
+  (`CinematicCar::addDent`: depth = gain / 30000 x 0.3 m, merged within 0.45 m, capped at 0.5 m, 28 dents) and `updateCrumple` calls `EdenModel::deformPositions` (positions of every item, skinned ones included, moved by
+  the sum of the dents' smooth falloffs with mild wrinkles, capped at 0.55 m per vertex; a new vertex buffer is uploaded at most every 0.2 s; wheels / shadow nodes stay). A repair (zones 0) or a clean car restores the shape; a save
+  that loads with zone damage and no dents gets matching ones. NOT for traffic (their model is shared). `-nocrumple`, `-crumplenoise <k>` (default 0.5; the first try at 1.0 with a high frequency made spikes on the coarse mesh), `-crumplenoskin`, `-setdent <frame>,<depth>` (test).
+  Not done: normals are not recomputed (the shading of a dent is the old shading), ray-tracing BLAS are stale.
+- **Tyres**: `VehicleDynamics::tireWear / tirePressure` per wheel (`ensureTires`, `updateTires`, `tireGrip`). Wear grows with distance (120 km to full) and with slide (slip ratio > 0.10, slip angle > 0.08, scaled by load; 0.004 / s at full slide);
+  grip falls to 68 % at full wear; past 85 % wear a tyre can burst (hazard up to 3 % / s, 15 % / s at 100 %); a hard hit (zone gain > 4500) can burst the nearest tyre (15 % + gain / 40000). A burst leaks in ~1 s (a slow leak 5 s).
+  Pressure scales grip (38 % flat, a further 15 % off below 0.1) and the wheel radius (to 74 % on the rim: the car sits lower on that corner), adds a drag (0.2 x load) and the wheel stops being drawn: a squashed tyre from 0.95, none below 0.15, the rim shows
+  (`GMFreeRide::updateWheels`). A burst puffs rubber smoke; riding on a rim throws sparks and smoke from the contact patch (`updateTireEffects`). Saved in `last_drive` (+8 fields) and in the scene state; a repair at a petrol station fits new tyres (free [INF]).
+  Debug: `-logtires`, `-settire <frame>,<wheel>,<wear>,<pressure>`.
+- Verified: `-setdent 255,0.25` (front, left side and rear dents, screenshots checked by eye); `-settire 245,0,0.5,0.0` (front left: rim shown without the tyre); a 96 km/h crash: dents, two tyres burst by the impact, the car on rims; no log errors.
+  NOT verified: wear over a long drive (the rates are guesses), the satnav / save round trip of the tyre fields, rim sparks seen on screen, the grip feel (nobody drove it).
+
 ## 4. Next
 1. Exercise the traffic feed in play; the lateral rule for side hits; AI-vs-AI impacts.
 2. Remaining visuals: `DamageMap` render target + `TD_damagemap` splat + `TD_CarDeform_TS` on the car body (scratches at state 1, deformation at 2, the wreck look at 3), `CrushedSuspensionFX`. The glass crack is done.

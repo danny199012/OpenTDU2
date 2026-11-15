@@ -19,6 +19,8 @@ class CinematicCar {
 public:
     struct Desc {
         std::string FileName = "California";
+        // The driven car: keeps the body's vertex data so it can crumple (addDent / updateCrumple).
+        bool bAllowCrumple = false;
         // The bank the model is loaded from when it is not the physics row's
         // own bank. Empty = FileName. Used by the bike prototype (-bike: the
         // cut Ducati Diavel model with the Default_Bike physics row), whose
@@ -54,6 +56,16 @@ public:
     void unload();
     inline bool isLoaded() const { return car.isLoaded(); }
     inline float getTireRadius() const { return tireRadius; }
+
+    // Crumpling (docs/re/damage_spec.md 3f): a dent pushes the body surface around a model-space point
+    // along a model-space direction by depth metres (merged with a nearby one, capped); updateCrumple
+    // rewrites the vertices at most every 0.2 s while dents changed. clearDents puts the body back.
+    // Only a car loaded with Desc::bAllowCrumple.
+    void addDent( const Vector3f &modelPoint, const Vector3f &modelDirection, float depth );
+    void clearDents();
+    void updateCrumple( float deltaTime );
+    inline size_t getNumDents() const { return dents.size(); }
+    inline bool canCrumple() const { return bCanCrumple; }
     // How far the model's wheel hubs sit under the tire radius (tire radius -
     // the D_RIM_ node height, the mean of the wheels): the model's origin is
     // the underside of its body, and its wheels are authored at their resting
@@ -458,6 +470,16 @@ private:
     // applyPartDamage: the bumpers and the bonnet / boot lid of the model (the doors are moved here, with the
     // interior panels); the key is the last pose written.
     CarPartRig partRig;
+    struct Dent {
+        Vector3f Point;
+        Vector3f Direction; // unit, into the car
+        float Depth = 0.0f; // m
+        float Radius = 0.5f;
+    };
+    std::vector<Dent> dents;
+    bool bCanCrumple = false;
+    bool bDentsDirty = false;
+    float crumpleCooldown = 0.0f;
     bool bPartsGathered = false;
     int32_t appliedPartKey[4] = { -1, -1, -1, -1 };
     void applyGlassSwap( bool bInside );

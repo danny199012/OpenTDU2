@@ -91,6 +91,8 @@ struct VehicleSceneState {
     float Mud = 0.0f, Dirt = 0.0f, Hardness = 0.0f, Wetness = 0.0f; // CarDirt
     float Damage = 0.0f; // VehicleDynamics::getDamage (0..65535)
     float ZoneDamage[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // front, rear, left, right
+    float TireWear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    float TirePressure[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     std::string AvatarConfig; // PlayerProfile::AvatarConfig at the time
 };
 VehicleSceneState &GetVehicleSceneState();

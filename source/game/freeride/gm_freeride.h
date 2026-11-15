@@ -259,6 +259,9 @@ private:
     float prevZone[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     float smokeClock = 0.0f;
     void updateLostParts( const Vector3f &velocity, float deltaTime );
+    void updateTireEffects( const Vector3f &velocity, float deltaTime );
+    void updateCrumple( float deltaTime );
+    bool bDentsSeeded = false;
     void scanWashBlockage(); // -scanwash
     bool bSpotExteriors = true; // -noexteriors
     // Our own buildings (docs/re/modding.md): OBJ + MTL + PNG meshes placed from
