@@ -4174,6 +4174,11 @@ void GMFreeRide::drawUI() {
             }
         }
     }
+    if ( islandName == "hawai" && !CmdLine::HasArg( "-nocavewalls" ) ) {
+        VehicleWorldCollision::CaveWalls() = true; // the easter egg: the cave is open by default on Hawai
+    } else if ( islandName != "hawai" ) {
+        VehicleWorldCollision::CaveWalls() = false;
+    }
     if ( CmdLine::HasArg( "-cavewalls" ) ) {
         VehicleWorldCollision::CaveWalls() = true;
     }
@@ -7251,7 +7256,25 @@ void GMFreeRide::tick( float deltaTime ) {
 
     view.setMapView( false );
     view.setCamera( camera );
-    view.setWeather( pWeather );
+    {
+        // The Hawai test cave (the easter egg): its rock roof shades the sun out, so inside it the weather's ambient
+        // is lifted to a dim cool glow, fading in over the last 120 m of the approach. -nocavelight = off.
+        const Vector3f camPos = camera.Position;
+        const float dx = camPos.x - 39350.0f, dz = camPos.z - 20230.0f;
+        const float d = std::sqrt( dx * dx + dz * dz );
+        if ( pWeather != nullptr && islandName == "hawai" && d < 260.0f && !CmdLine::HasArg( "-nocavelight" ) ) {
+            const float t = Clamp( ( 260.0f - d ) / 120.0f, 0.0f, 1.0f );
+            caveWeather = *pWeather;
+            const Vector3f ambient = pWeather->getVector3( "sun_ambient", Vector3f( 0.3f, 0.3f, 0.3f ) );
+            const Vector3f lit( 1.10f, 1.18f, 1.35f );
+            caveWeather.Values["sun_ambient"] = Vector4f( ambient.x + ( Max( ambient.x, lit.x ) - ambient.x ) * t,
+                                                          ambient.y + ( Max( ambient.y, lit.y ) - ambient.y ) * t,
+                                                          ambient.z + ( Max( ambient.z, lit.z ) - ambient.z ) * t, 1.0f );
+            view.setWeather( &caveWeather );
+        } else {
+            view.setWeather( pWeather );
+        }
+    }
     view.setEnvironmentCenter( carPosition, car.isLoaded() );
     if ( bDriverSeated ) {
         driver.computeLighting( pWeather, view.getSceneParams() );

@@ -116,6 +116,7 @@ private:
     // -intempery <n>: the picked preset with that intempery's block resolved
     // over its base (a copy, since the presets vector stays read-only).
     WeatherPreset intemperyWeather;
+    WeatherPreset caveWeather; // the Hawai cave's lit copy of the current weather
     void applyForcedIntempery();
     FirstOutro outro;
     FadeFreeride wakeup;

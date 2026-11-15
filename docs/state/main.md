@@ -17,6 +17,11 @@ The `mur_cave` textures in `sector-6-3-6-5` were a decoy. The owner stood at the
 ### Confirmed (owner, build 135): the cave floor is fully drivable with the cave-walls option
 Owner got in by switching the **F4 "Hawai cave" option** on (static rock collision off in the box) with the no-clip off: the floor (the terrain heightfield, y ~119) is fully drivable, shown at (39400, 119, 20152) with a dark cavern, stalactite columns and a lighter ridge. No-clip alone could not get in (spawn near the cave threw the car into the air / dropped it through the floor: the first frames after a ghost toggle reset the velocity with no ground contact). Visible ground surfaces so far: dark rock / cracked mud only; the dev surface patches are not seen. Next: map the cave's extent (F6 marks), look for the dev-test geometry.
 
+### Cave easter egg: open by default on Hawai + cave lighting (owner: "keep it automatic ... add lighting inside")
+- The cave-walls option is now **on by default on Hawai** (`-nocavewalls` = the sealed rock again; it is off on the other islands). 
+- **Cave light**: within 260 m of the cave centre (39350, 20230) the weather's `sun_ambient` is lifted toward a cool (1.10, 1.18, 1.35) glow, fading in over the last 120 m (`caveWeather` copy in `gm_freeride.cpp`; `-nocavelight` = off). Night (-clock 2.00) inside: mean brightness readable instead of near black; by day it adds a warm lift. The values are [INF] by eye, one night / one day capture; the owner plays with the gamma down, so tune with the F4 weather presets if it is still dark.
+- Idea parked: hide something in the cave (a car, a collectible) - needs a spawn point inside; the floor spans roughly x 39250..39500, z 20150..20300 at y ~118..121.
+
 ## Session 2026-11-15 (`main`, 12): Hawai test cave - ghost mode to get through the wall
 
 Owner found a video (HSG Automotive "TDU2 : Secret cave location on Hawaii"): the cave is behind a rock wall in the **dark patch just right of the yellow dirt track** north-centre of the Hawai map (the map-glitch gets through on the 360). Their frames: player near the top-middle of the island, a looping dirt track, a lake with cyan roads to the south-east.
