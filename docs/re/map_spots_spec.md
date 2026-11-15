@@ -141,3 +141,50 @@ and only it, draws; the save round-trips — a later run reloads `3 discovered`)
   "Bookmark it" (3314) / "Remove bookmark" (3914). Up / Down, OK runs the row, Back closes only the menu. Bookmarks are saved per island (`bookmarks_<island> = x:z,...`, at most 20 [INF]; loc 6853 "Bookmarks limit number reached",
   4059 "New favorite place added in this tab") and drawn as a yellow diamond. The retail movie has a bookmarks tab (`m_MapHsysTab5`, `m_Bookmarks_`) that is not driven; the GPS target logic is the old `toggleTarget`. `-locfind <word>` finds loc ids.
 - Verified headless (rendering on): the menu rows, a bookmark added (saved + diamond on the map) and removed, a target set. NOT verified: "Go there" in a real session (it needs a discovered road).
+
+## 5. The dev build's spot-kind code (2026-11-15, `main`) [CODE-dev]
+
+`TestDrive2DEV.exe` (Apr 2012, `.text` not encrypted; `Spots.cpp`) holds the readable twin of the code that turns a spot into a map marker. Retail's copy is `[ENC]`.
+Addresses are the dev exe's. Reproduce with `python tools/devbuild_disasm.py --dis 0x970030 40` (no `-I`: it needs the user-site pefile / capstone).
+
+**Category byte -> kind name** (`0x970030`, `movzx eax, [spot+0x79]`, `cmp 0x19`, jump table `0x970158`). The 0..0x19 range is the `spots.bin` +0x100 category byte, and every row the port had decoded matches:
+
+| cat | dev kind string | note |
+|---|---|---|
+| 0x00 | `home` / `forsale` | `home` if the player owns it, else `forsale` (calls `0x402261` on the owner lookup) |
+| 0x01 | `carDealer` | |
+| 0x02 | `bikeDealer` | the DLC hook (matches the `EUC_BD*` sites above) |
+| 0x03 | `clothes` | |
+| 0x04 | `tuning` | |
+| 0x05 | `my_club` / `club` | `my_club` if it is the player's own club (a `0x636c616e` "clan" lookup), else `club`; `ECH_` prefix is also tested (`0x970000` region) |
+| 0x06 | `gamblingHall` | |
+| 0x08 | sub-kind on a second byte `[spot+0x78]`, table `0x9701c0` (below) | |
+| 0x09 | `rschool` | |
+| 0x0a / 0x0c / 0x0d | `mission_spot` | single-player challenge pins |
+| 0x0b | `photograph` | |
+| 0x0e | `casino` | the port's `ELANDCAA` seaplane dock |
+| 0x10 | `surgery` | |
+| 0x11 | `stolenCar` | |
+| 0x12 | `gasStation` | no record in the base `spots.bin`; no icon in MAP.vmf |
+| 0x13 | `hair` | |
+| 0x14 | `race` | no base record |
+| 0x16 | `airport` | |
+| 0x17 | `ORC` | no base record |
+| 0x18 | `auctionHall` | no base record |
+| 0x19 | `hotel` | the port draws it with the `home` icon |
+| 0x07 / 0x0f / 0x15 | default (`0x148a4fc`) | unused values |
+
+Category 0x08 sub-kind (`[spot+0x78]`, 0..4): 0 `carWash`, 1 `carPaint`, 2 and 3 `carRental`, 4 `estates`. The port maps `ENC_*` under 0x08 to `club`; the dev table says that sub-kind is
+**`carRental`** (title string "Car Rental"). Not applied: the +0x78 byte is a field of the in-memory spot, not proven to be a `spots.bin` offset, so the bank-name rule stays until it is checked.
+
+**Kind -> tooltip title** (`0xca7350`): the map movie reports the highlighted pin in the Flash variable `/:WhatSpot`; this function string-compares it with `bikeDealer`, `carDealer`, `carRental`, `carWash`, `estates`, ... and picks the title and the tab: "Bike Dealer", "Car Dealer", "Car Rental", "Car Wash", "Realtor", "goodies".
+The `f_*` movie labels (`f_carDealer`, `f_carDealerClassic`, `f_bikeDealer`, ...) are separate frame names.
+
+**What `SpotWorld.bin` is** (`euro/bnk/scenarics/spotworld.bin`, 921 128 bytes; the writer is `0x895890`, which opens `SpotWorld.bin` with `"wb"` and also writes a big-endian Xenon copy, logging to `SpotWorldErrors.log`): it is the **challenge** table, not the shop pins.
+Header `SPTW` v3, then 33 `CONT` v1 blocks (one `LICE` position + `IGE2` records each); 532 records in all. Each record: a name (`RSC4T01`, ...), a world position (3 floats), an id, and a big-endian `IGE2`/`MDSC` property block
+(91 keys, `key[4] 03 sub 00 size value`): `isla`/`leme` island and level, `mnme` mission name ("Mission Honolulu"), `DesC` ("OAHU"), `nblp` laps, `cops`, `Gmin`/`Gmax`, `FiMi`/`FiMa` (finish bounds), `CarB`/`CarM` car brand/model,
+`CpTs` checkpoint array, `fee1` entry fee, `rewm` reward money. It feeds the tab-0 "Single Player Challenges" pins (`mission_spot`); a `spots.bin` record with cat 0x0a/0x0c/0x0d points at it. Only the first record was decoded by hand; no loader in the port yet.
+
+**Ruled out:** the five readers of the `Level/%s/spots` string (`0x99f36c`, `0xa8bd90`, `0xac68d0`, `0xb099b1`, `0xbe17ee`) are cutscene / resource-bank loaders (`C_FIRST_OUTRO`, `C_OUTRO`, `C_TRUCK`), not marker placement.
+
+**Still open:** the code that reads `spots.bin` itself into the +0x78 / +0x79 / +0x10 fields (the loader, then the discovery test), and the pin drawing in `HudMap` (`0xc9e584`..). The `SPTA` string at `0x96b084` is a start.
