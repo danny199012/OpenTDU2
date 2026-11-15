@@ -3,6 +3,15 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 6): a static dirt-road flag found in ROAD_DETAIL (candidate, owner to compare with the 360 map)
+
+Owner: yellow dirt roads show on the 360 map (and our satnav once driven) but not on our map.
+
+- **Finding [DATA + INF]**: the road *type* is in the `ROAD_DETAIL.IA` `ATED` header, **low 16 bits of word 4** of the first sub-block (the `DAOR +12` class byte is not it). Ibiza census: `0x203` 703 roads, `0x204` 222, `0x302` 217 (the ordinary roads), **`0x104` 92 roads = the long trunk roads** (drawn as the red lines in the scratch plot: the highways, AIRL 0), `0x3/0x4/0x5/0x200` = the old town; and **17 rare records `0x0 / 0x100 / 0x400 / 0x604`** (~7 km): the caravan track (ids 1389-1391 at 36037,5769 - the owner's confirmed dirt link), a small closed rally loop at (27300-27800, 11000-11660) and two short coastal tracks. Header word 1 / 2 are cross-section profile ids (0x24..0x2a on the loop).
+- `source/game/map_screen.cpp`: `edgeDirtRecord` marks those links; `segDirt` starts all-set for them, so a discovered one draws the retail offroad yellow without having to be driven (`-nostaticdirt` = the old driven-only behaviour). Verified headless with a fully explored profile: yellow on the coast track and the loop; the satnav shares `segDirt`.
+- **Not verified / open**: the 360 screenshot's long winding yellow road is not among these 7 km, so either the retail rule is wider (other codes, e.g. the rural `0x104`-adjacent ones, or terrain paint) or that road is on a part of the map I have not matched. Next: ask the owner for the 360 map at a known place (a spot name) and compare; Hawai uses a different code set (not scanned).
+- Scratch: `-logroadclass` link numbers are NOT `DAOR` indices (the "links 1023 / 1347" of the earlier notes are 20 km from where they were read), so the older ground-truth lines in `roads_spec.md` are suspect.
+
 ## Session 2026-11-15 (`main`, 5): the retail map hover cards (MAP.vmf /tool_tip) on every spot kind
 
 Owner: "add the hover cards and menus" (360 captures: Fearless / Racing School / Audi cards and pop-ups).

@@ -455,6 +455,7 @@ private:
     float markSegments( size_t edge, int32_t segment );
     // The class byte of each link ('DAOR' +12); the map colours the road by it.
     std::vector<uint8_t> edgeClass;
+    std::vector<uint8_t> edgeDirtRecord; // 1: the ROAD_DETAIL header code marks an offroad track
     std::vector<uint16_t> edgePair; // DAOR +12 / +13 (class and its twin byte)
     std::vector<std::vector<Vector3f>> roadShapes;
     std::vector<float> edgeLengths;

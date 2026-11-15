@@ -2413,6 +2413,7 @@ void MapScreen::loadRoads( const std::string &island ) {
     segLength.clear();
     edgeExploredLength.clear();
     edgeClass.clear();
+    edgeDirtRecord.clear();
     edgePair.clear();
     exploredLength = totalRoadLength = 0.0f;
     roadIsland = island;
@@ -2657,6 +2658,20 @@ void MapScreen::loadRoads( const std::string &island ) {
         // The road's class (the byte at 'DAOR' +12): the map colours a road by
         // it [DATA: 0..4 on Ibiza, 0..11 on Hawai; docs/re/roads_spec.md].
         edgeClass.push_back( pData[offset + 12] );
+        // The road TYPE lives in the ROAD_DETAIL 'ATED' record: the low half of header word 4 (a 2-byte code
+        // like 0x203 / 0x204 / 0x302 for the normal roads, 0x104 for the highways) is 0 / 0x100 / 0x400 / 0x604
+        // on 17 rare records on Ibiza, among them the caravan track the owner confirmed as dirt and the small
+        // closed rally loop [DATA; INF: the code = the AIRL type, these = offroad]. -nostaticdirt = off.
+        {
+            static const bool bNoStaticDirt = CmdLine::HasArg( "-nostaticdirt" );
+            const auto header = detailHeaders.find( readU32( offset + 4 ) );
+            bool bDirtRecord = false;
+            if ( !bNoStaticDirt && header != detailHeaders.end() ) {
+                const uint32_t code = header->second[4] & 0xffffu;
+                bDirtRecord = code == 0x0u || code == 0x100u || code == 0x400u || code == 0x604u;
+            }
+            edgeDirtRecord.push_back( bDirtRecord ? 1 : 0 );
+        }
         edgePair.push_back( static_cast<uint16_t>( pData[offset + 12] * 256 + pData[offset + 13] ) );
         totalRoadLength += shapeLength;
         links++;
@@ -2671,7 +2686,7 @@ void MapScreen::loadRoads( const std::string &island ) {
         const std::vector<Vector3f> &shape = roadShapes[e];
         const size_t segments = shape.size() > 1 ? shape.size() - 1 : 0;
         segExplored[e].assign( segments, 0 );
-        segDirt[e].assign( segments, 0 );
+        segDirt[e].assign( segments, e < edgeDirtRecord.size() && edgeDirtRecord[e] != 0 ? 1 : 0 );
         segLength[e].assign( segments, 0.0f );
         float sum = 0.0f;
         for ( size_t k = 0; k < segments; k++ ) {
