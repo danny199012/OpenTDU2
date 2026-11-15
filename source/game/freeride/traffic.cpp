@@ -276,6 +276,8 @@ bool Traffic::load( const std::string &island, const std::vector<Vector3f> &road
             OTDU_LOG_WARN( "Traffic: vehicle %d: model '%s' cannot be loaded\n", entry.first, name.c_str() );
             continue;
         }
+        type.Rig.gather( *type.Model );
+        OTDU_LOG_INFO( "Traffic: '%s' damage parts: %s\n", name.c_str(), type.Rig.summary().c_str() );
         if ( bLogModels ) {
             // Model space bounds (the draw places the pivot on the road) and
             // the node tree (which nodes carry the lamp planes).
@@ -1001,6 +1003,13 @@ bool Traffic::spawn( const Vector3f &player, const CinematicCar::SurfaceFunction
         agent.LastY = ground;
         agent.Yaw = yaw;
         agent.Position = Vector3f( flat.x, ground, flat.z );
+        // -trafficdamage <n>: spawn the traffic pre-damaged (a test shot of the bumpers, the doors and the glass):
+        // n on the front and the rear, n / 2 on the sides.
+        static const int32_t kForcedDamage = CmdLine::GetArgInt( "-trafficdamage", 0 );
+        if ( kForcedDamage > 0 ) {
+            agent.Zone[0] = agent.Zone[1] = static_cast<float>( kForcedDamage );
+            agent.Zone[2] = agent.Zone[3] = 0.5f * static_cast<float>( kForcedDamage );
+        }
         agents.push_back( agent );
         if ( ++spawned % 5 == 1 ) {
             OTDU_LOG_INFO( "Traffic: spawned %d (short %d, range %d, off ring %d, no ground %d, crowded %d, off "
@@ -1504,6 +1513,9 @@ void Traffic::resolveAgentCollisions() {
                 // Both brake: the bump is visible through the stop lamps.
                 a.BrakeHold = 0.6f;
                 b.BrakeHold = 0.6f;
+                // Both are damaged on the sides that faced each other.
+                damageAgent( a, nx, nz, 0.9f * impulse );
+                damageAgent( b, -nx, -nz, 0.9f * impulse );
             }
         }
     }
@@ -1699,7 +1711,7 @@ void Traffic::draw( EdenRenderer &renderer, const WeatherPreset *pWeather ) {
             continue;
         }
         params.ForceHiddenNodes.clear();
-        const Type &type = types[agent.Type];
+        Type &type = types[agent.Type];
         const bool bBraking = agent.BrakeHold > 0.0f;
         if ( type.Rival ) {
             // A rival: the real car on its four tires.
@@ -1764,12 +1776,73 @@ void Traffic::draw( EdenRenderer &renderer, const WeatherPreset *pWeather ) {
                                     Matrix4x4f::Translation( Vector3f( -hub.x, -hub.y, -hub.z ) );
             type.Model->setNodeTransform( node, spin * base );
         }
+        // Damage: the bumpers sag, the doors come loose and the glass cracks on this agent only
+        // (the model is shared by every agent of the type, so it is written before the draw and
+        // put back after it).
+        static const bool bNoTrafficDamage = CmdLine::HasArg( "-notrafficdamage" );
+        const float zoneTotal = agent.Zone[0] + agent.Zone[1] + agent.Zone[2] + agent.Zone[3];
+        const bool bPartsHit = !bNoTrafficDamage && zoneTotal > 6000.0f && type.Rig.hasParts();
+        const bool bGlassHit = !bNoTrafficDamage && zoneTotal > 40000.0f;
+        if ( bPartsHit ) {
+            type.Rig.apply( *type.Model, agent.Zone[0], agent.Zone[1], agent.Zone[2], agent.Zone[3] );
+        }
+        if ( bGlassHit ) {
+            setGlassCracked( type, true );
+        }
         type.Model->draw( renderer, world, &params );
+        if ( bPartsHit ) {
+            type.Rig.restore( *type.Model );
+        }
+        if ( bGlassHit ) {
+            setGlassCracked( type, false );
+        }
         // Restore the authored node transforms (the parked car of the debug
         // shot and the other agents of the type draw from the same model).
         for ( int32_t w = 0; w < 4; w++ ) {
             if ( type.WheelNodes[w] >= 0 ) {
                 type.Model->setNodeTransform( type.WheelNodes[w], type.WheelBase[w] );
+            }
+        }
+    }
+}
+
+void Traffic::damageAgent( Agent &agent, float nx, float nz, float gain ) {
+    if ( gain <= 0.0f ) {
+        return;
+    }
+    // The hit direction in the agent's frame (+X left, +Z forward), split over its end and its side.
+    const float fx = std::sin( agent.Yaw ), fz = std::cos( agent.Yaw );
+    const float localZ = nx * fx + nz * fz;
+    const float localX = nx * fz - nz * fx; // the left axis of the car is (fz, -fx)
+    const float spread = std::fabs( localZ ) + std::fabs( localX ) + 1e-3f;
+    agent.Zone[localZ >= 0.0f ? 0 : 1] =
+        Min( agent.Zone[localZ >= 0.0f ? 0 : 1] + gain * std::fabs( localZ ) / spread, 65535.0f );
+    agent.Zone[localX >= 0.0f ? 2 : 3] =
+        Min( agent.Zone[localX >= 0.0f ? 2 : 3] + gain * std::fabs( localX ) / spread, 65535.0f );
+}
+
+void Traffic::setGlassCracked( Type &type, bool bCracked ) {
+    static const bool bAuthored = CmdLine::HasArg( "-trafficglassart" );
+    if ( bAuthored || gpRender == nullptr || !type.Model ) {
+        return;
+    }
+    static const uint64_t kClean = GetIdentifier64bit( "G_I" );
+    static const uint64_t kCracked = GetIdentifier64bit( "GLASS_B" );
+    static const uint64_t kDetail2 = GetIdentifier64bit( "DETAIL2" );
+    static const uint64_t kCarPaint = 0x183157b81c6c7357ull;
+    GPUTexture *pClean = gpRender->getTextureCache().find( "g_i" );
+    GPUTexture *pCracked = gpRender->getTextureCache().find( "glass_b" );
+    if ( pClean == nullptr || pCracked == nullptr ) {
+        return;
+    }
+    for ( EdenMaterial &material : type.Model->getMaterials() ) {
+        if ( material.ShaderSetGUID != kCarPaint || material.Name.compare( 0, 5, "Glass" ) != 0 ) {
+            continue;
+        }
+        for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
+            if ( material.SlotTypes[i] == kDetail2 ) {
+                material.pTextures[i] = bCracked ? pCracked : pClean;
+                material.TextureHashes[i] = bCracked ? kCracked : kClean;
             }
         }
     }
@@ -1827,6 +1900,10 @@ bool Traffic::resolveCollision( const Vector3f &position, const Vector3f &forwar
         outDeltaVelocity.x += nx * Min( deepest, 1.0f ) * 3.0f;
         outDeltaVelocity.z += nz * Min( deepest, 1.0f ) * 3.0f;
         agent.Speed = Max( 0.0f, agent.Speed + ( -nx * afx - nz * afz ) * impulse / agentMass );
+        if ( impulse > 0.0f ) {
+            // The traffic car takes the hit on the side that faces the player (n points from it to the player).
+            damageAgent( agent, nx, nz, 0.9f * impulse );
+        }
         if ( agent.Stun <= 0.0f ) {
             OTDU_LOG_INFO( "Traffic: contact with %s: closing %.1f m/s, impulse %.0f\n", "a car", -relative, impulse );
         }

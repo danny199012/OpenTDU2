@@ -4,6 +4,7 @@
 #include "render/eden/eden_animation.h"
 #include "render/eden/eden_headlights.h"
 #include "render/eden/eden_model.h"
+#include "game/freeride/car_part_rig.h"
 
 #include <functional>
 
@@ -451,12 +452,9 @@ private:
     bool bGlassSwapped = false;
     bool bGlassGathered = false;
     int32_t appliedDamageState = -1;
-    // applyPartDamage: the bumper nodes with their rest transforms and the hinge line of each end.
-    struct BumperNodes {
-        std::vector<std::pair<int32_t, Matrix4x4f>> Nodes;
-        Vector3f Pivot;
-    };
-    BumperNodes bumpers[2]; // [0] front, [1] rear
+    // applyPartDamage: the bumpers and the bonnet / boot lid of the model (the doors are moved here, with the
+    // interior panels); the key is the last pose written.
+    CarPartRig partRig;
     bool bPartsGathered = false;
     int32_t appliedPartKey[4] = { -1, -1, -1, -1 };
     void applyGlassSwap( bool bInside );

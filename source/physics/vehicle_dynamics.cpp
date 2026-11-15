@@ -1722,6 +1722,18 @@ std::string VehicleDynamics::getDebugState() const {
     return buffer;
 }
 
+void VehicleDynamics::addZoneImpact( const Vector3f &towardsObstacle, float gain ) {
+    if ( gain <= 0.0f ) {
+        return;
+    }
+    const Vector3f local = InverseRotate( orientation, towardsObstacle ); // +X left, +Z forward
+    const float spread = std::abs( local.x ) + std::abs( local.z ) + 1e-3f;
+    float &endZone = zoneDamage[local.z >= 0.0f ? 0 : 1];
+    float &sideZone = zoneDamage[local.x >= 0.0f ? 2 : 3];
+    endZone = Min( endZone + gain * std::abs( local.z ) / spread, 65535.0f );
+    sideZone = Min( sideZone + gain * std::abs( local.x ) / spread, 65535.0f );
+}
+
 void VehicleDynamics::setDamage( float value ) {
     damage = Max( 0.0f, Min( value, 65535.0f ) );
 }

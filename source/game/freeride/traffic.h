@@ -3,6 +3,7 @@
 #include "audio/traffic_audio.h"
 #include "filesystem/bank.h"
 #include "game/freeride/ai_drivers.h"
+#include "game/freeride/car_part_rig.h"
 #include "game/cinematic/cinematic_car.h"
 #include "game/freeride/police_light_bar.h"
 #include "render/eden/eden_headlights.h"
@@ -193,6 +194,8 @@ private:
         bool bPolice = false;
         std::unique_ptr<Bank> VehicleBank;
         std::unique_ptr<EdenModel> Model;
+        // The bumpers and doors that come loose with the damage of an agent of this type.
+        CarPartRig Rig;
         // A rival (no traffic bank, Weight 0: never picked by pickType): the
         // real car of a story driver, one agent at a time.
         std::unique_ptr<AiCar> Rival;
@@ -210,6 +213,9 @@ private:
         float YawRate = 0.0f;  // rad/s the steering asked for this frame (-logtraffic)
         float WheelSpin = 0.0f; // wheel rotation of the type's wheel nodes (rad)
         float Stun = 0.0f; // stopped after a collision (s)
+        // Damage by zone (0..65535): front, rear, left, right. Drives the bumpers, the doors and the
+        // cracked glass of this car's draw (docs/re/damage_spec.md 3c).
+        float Zone[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         float NearMissCooldown = 0.0f;
         float BrakeHold = 0.0f; // the brake lamps stay lit this long after a decel (s)
         uint32_t AudioId = 0;   // stable id of the engine voice (TrafficAudio)
@@ -259,6 +265,10 @@ private:
     // Bound to the black glass base G_I the player car's own glass uses, the
     // base lerp lands on the clean dark glass of the retail look.
     void neutraliseGlassArt();
+    // A hit on an agent: direction (nx, nz) from the agent towards what hit it, gain in damage units.
+    void damageAgent( Agent &agent, float nx, float nz, float gain );
+    // Binds the cracked (glass_b) or the clean (g_i) art in the DETAIL2 slot of the type's glass for one draw.
+    void setGlassCracked( Type &type, bool bCracked );
 
     // Chooses the link the car takes at the end of its current one (stored on
     // the agent). Called once per approach: prefers the straightest option,

@@ -5773,6 +5773,7 @@ void GMFreeRide::tick( float deltaTime ) {
             }
         }
         bool bTrafficCrash = false; // the police chase reads it below
+        static Vector3f trafficHitDirection( 0.0f, 0.0f, 1.0f ); // from the player towards the car it hit
         {
             // Traffic: contact impulse on the player car (the traffic car stops).
             const Vector3f heading = vehicle.getWorldMatrix().transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
@@ -5784,6 +5785,9 @@ void GMFreeRide::tick( float deltaTime ) {
                 vehicle.addVelocity( deltaVelocity );
                 riskFrame.bCrash = true;
                 bTrafficCrash = true;
+                if ( deltaVelocity.length() > 1e-3f ) {
+                    trafficHitDirection = deltaVelocity * ( -1.0f / deltaVelocity.length() );
+                }
                 // The pad takes the hit (input/gamepad_output.h), the wheel too.
                 gamepad.pulse( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ), 0.3f );
                 wheelFfb.kick( Clamp( deltaVelocity.length() / 12.0f, 0.35f, 1.0f ) );
@@ -5880,7 +5884,8 @@ void GMFreeRide::tick( float deltaTime ) {
                 // magnitude is the contact force an equal-mass head-on at the recent speed would
                 // give, impulse / dt with a reduced mass of m / 2 and restitution 0.3 [INF].
                 const float closing = Max( prevCrashSpeed, speedNow );
-                vehicle.addImpactDamage( 0.5f * vehicle.getMass() * 1.3f * closing / Max( deltaTime, 1e-3f ), 0 );
+                const float trafficGain = vehicle.addImpactDamage( 0.5f * vehicle.getMass() * 1.3f * closing / Max( deltaTime, 1e-3f ), 0 );
+                vehicle.addZoneImpact( trafficHitDirection, trafficGain ); // the side that took it
 
                 // A violation needs a witness: a police car among the traffic
                 // within sight (160 m [INF]) makes a hit count in full (three

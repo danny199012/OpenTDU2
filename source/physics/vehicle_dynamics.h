@@ -140,6 +140,8 @@ public:
     // forward). Fed by the chassis contacts; drives the doors and the bumpers of the model.
     inline float getZoneDamage( int32_t zone ) const { return zoneDamage[zone & 3]; }
     inline void setZoneDamage( int32_t zone, float value ) { zoneDamage[zone & 3] = value; }
+    // Adds `gain` of zone damage for a hit from the world direction `towardsObstacle` (a traffic car).
+    void addZoneImpact( const Vector3f &towardsObstacle, float gain );
     void setDamage( float value );
     float addImpactDamage( float magnitude, int32_t kind );
     // Hub offset along the car up axis from its modelled place (drawing):

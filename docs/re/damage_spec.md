@@ -75,6 +75,17 @@ the hood and the boot are part of `BODY_HR`, so they cannot hinge as nodes here.
 - Not done: the bonnet / boot popping (needs the `.dhk` hinge bodies mapped onto the model, or a model with those nodes), the bumper falling off completely with `break_parts` debris, traffic cars (their damage is not fed), the lateral rule,
   the real record magnitude (still the impulse scale of section 3, which saturates after one crash sequence).
 
+## 3d. Traffic damage and the bonnet / boot (2026-11-15, `main`)
+- The traffic models carry `BUMP_F`, `BUMP_R`, `HOOD_F` (bonnet) and `HOOD_R` (boot lid) nodes (`-logtraffic` lists them; the vans / police / offroad / bus have bumpers only); the player's starter car has `BUMP_F_*` /
+  `BUMP_R_*` and the doors, no separate bonnet or boot. My first match needed `UMP_F_` and missed `BUMP_F`; it is `UMP_F` now.
+- `source/game/freeride/car_part_rig.{h,cpp}` (`CarPartRig`) is the shared part mover: bumpers sag from ~12000 and dangle at ~48000, the bonnet / boot lid pop up about their cabin-side edge from ~20000 up to 0.55 rad, the
+  doors (when the model has them) come loose from ~6000. A model shared by many agents gets the pose written before one agent's draw and restored after it. The player's `CinematicCar::applyPartDamage` uses it too (doors stay its own).
+- Traffic: `Traffic::Agent::Zone[4]` is fed by the player-vs-traffic contact (`resolveCollision`: gain 0.9 x impulse on the side that faces the player) and by traffic-vs-traffic contacts (both cars); above 40000 total the
+  agent's glass binds the cracked `glass_b` art for its own draw. The player car now takes its zone from the traffic hit direction (`VehicleDynamics::addZoneImpact`). `-notrafficdamage` turns it off, `-trafficdamage <n>` spawns the traffic pre-damaged
+  (test shot with `-trafficnear -trafficpark`, `-clock 12.00`).
+- Verified: parked pre-damaged traffic: smashed bus windscreen, hanging rear bumpers and a popped boot lid on the cars (screenshot checked by eye, not committed). NOT verified: a real player-vs-traffic crash end to end, the player car's bonnet (no node).
+- The gain scale (0.9 x impulse) is a guess; the retail record magnitude is still not decoded (section 4).
+
 ## 4. Next
 1. Exercise the traffic feed in play; the lateral rule for side hits; AI-vs-AI impacts.
 2. Remaining visuals: `DamageMap` render target + `TD_damagemap` splat + `TD_CarDeform_TS` on the car body (scratches at state 1, deformation at 2, the wreck look at 3), `CrushedSuspensionFX`. The glass crack is done.
