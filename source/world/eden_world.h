@@ -124,6 +124,8 @@ public:
     // of the TD_Road materials (S_USERTYPE9 = 1, slots 6 ripples, 7 the
     // dynamic environment cube, 8 PUDDLES) and RainSpecs / RainRippleSpecs
     // from the weather. pEnvironmentCube nullptr or no wet weather: dry.
+    // Terrain wetness 0..1 (smoothed rain soak): the heightfield draws darker and less sun-lit while wet.
+    float terrainWet = 0.0f;
     void updateWetGround( EdenRenderer &renderer, const struct WeatherPreset *pWeather, GPUTexture *pEnvironmentCube,
                           float deltaTime );
     // World neon set + the .pmi blink states (FUN_009834d0): the shared /

@@ -3,6 +3,15 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 14): wet terrain (rain darkens dirt / sand / mud ground)
+
+Owner: "sand and mud" (nicer, interacting with the cars).
+
+- **What**: `surface_effects_spec.md` 5.1 said the terrain shader never sees the wetness. `EdenWorld::terrainWet` (rain_ground_global_intensity, soaks over ~3 s, dries over ~15 s) now scales the heightfield's own light constants per draw (`__DirLight_Diffuse_0` x (1 - 0.45 wet), `__AmbLight_Ambient_0` x (1 - 0.30 wet)) through `EdenDrawParams` - TD_HeightMap honours those overrides. Island terrain, areas and sectors all go through `BuildWetTerrainParams` (eden_world.cpp). `-nowetterrain` = off.
+- **Verified**: `-weather 12 -intempery 3 -tpin 19584,24960 -noblades`, 2100 frames: frame luma 59.8 -> 55.3, dirt track and grass visibly darker (`docs/images/wet_terrain_ab.png`). It darkens everything on the terrain sheet equally (no gloss, no per-material difference between sand, dirt and grass).
+- **Already there (earlier sessions, unchanged)**: wheel spray / dust particles by ground material, dirt vs mud (wet dirt) splash, tyre-track decals with a mud tread, puddles, mud on the car.
+- **Not done**: gloss / sheen on wet ground (needs a spec term the terrain shader lacks), sand-specific shading (dunes, ripples), tracks that deepen with speed or sink the car, mud that slows the car (physics), sand throw onto the car body, and the beach test is still a height heuristic (`ClassifyGround` in gm_freeride.cpp). Water / ocean / rivers: not started.
+
 ## Session 2026-11-15 (`main`, 13): grass blades with car interaction
 
 Owner: nicer vegetation, "splines of grass", little blades in certain areas, the car interacting; also water / sand / mud (NOT started, see below).

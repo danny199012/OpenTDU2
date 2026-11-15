@@ -20,6 +20,10 @@
 #include "render/eden/eden_weather.h"
 
 namespace {
+bool BuildWetTerrainParams( EdenDrawParams &params, const EdenSceneParams &scene, float wet );
+} // namespace
+
+namespace {
 constexpr uint32_t kGridQuads = EdenWorld::kHeightfieldSize - 1;
 // TD_backwash (shore foam) shader set; EdenRenderer sampler heap index of
 // linear + mirrored repeat (eSamplerHeapIndex SH_LinearMirror).
@@ -2893,7 +2897,9 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
             EdenMesh mesh = islandTerrain.Mesh;
             mesh.pIndexBuffer = pIslandIndexBuffer;
             mesh.IndexCount = numIslandIndices;
-            renderer.draw( mesh, islandTerrain.Materials[0], Matrix4x4f::Identity() );
+            EdenDrawParams wetParams;
+            renderer.draw( mesh, islandTerrain.Materials[0], Matrix4x4f::Identity(),
+                           BuildWetTerrainParams( wetParams, renderer.getSceneParams(), terrainWet ) ? &wetParams : nullptr );
         }
     }
     for ( auto &pArea : areas ) {
@@ -2910,7 +2916,9 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
             mesh.IndexCount = area.NumIndices;
             // The area permutation (S_USERTYPE4 = 1) uses a 24 m grid.
             const Matrix4x4f world = Matrix4x4f::Translation( area.Origin );
-            renderer.draw( mesh, area.Terrain.Materials[0], world );
+            EdenDrawParams wetParams;
+            renderer.draw( mesh, area.Terrain.Materials[0], world,
+                           BuildWetTerrainParams( wetParams, renderer.getSceneParams(), terrainWet ) ? &wetParams : nullptr );
         }
     }
     // Area objects (area-local -o: the 768 m ocean tile of each sector cell
@@ -2959,7 +2967,9 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
                                                                         : sector.Terrain.Mesh.pIndexBuffer;
             mesh.IndexCount = sector.Terrain.pSplitIndices != nullptr ? sector.Terrain.NumSplitIndices
                                                                       : sector.Terrain.Mesh.IndexCount;
-            renderer.draw( mesh, sector.Terrain.Materials[0], world, nullptr );
+            EdenDrawParams wetParams;
+            renderer.draw( mesh, sector.Terrain.Materials[0], world,
+                           BuildWetTerrainParams( wetParams, renderer.getSceneParams(), terrainWet ) ? &wetParams : nullptr );
         }
         if ( sector.Objects.isLoaded() && !bNoObjects ) {
             // The sea rises by seaLevelOffset; the foam strip travels up the
@@ -4134,6 +4144,22 @@ bool EdenWorld::SampleSectorHeight( const Sector &sectorRef, float x, float z, f
     }
 }
 
+namespace {
+// The wet terrain: the heightfield's own light constants scaled down (TD_HeightMap has no rain constants,
+// weather_effects_spec.md 5), so rain visibly darkens the ground like the retail roads. -nowetterrain = off.
+bool BuildWetTerrainParams( EdenDrawParams &params, const EdenSceneParams &scene, float wet ) {
+    static const bool bOff = CmdLine::HasArg( "-nowetterrain" );
+    if ( bOff || wet < 0.02f ) {
+        return false;
+    }
+    const float diffuse = 1.0f - 0.45f * wet;
+    const float ambient = 1.0f - 0.30f * wet;
+    params.Vectors["__DirLight_Diffuse_0"] = Vector4f( scene.SunDiffuse.x * diffuse, scene.SunDiffuse.y * diffuse, scene.SunDiffuse.z * diffuse, 1.0f );
+    params.Vectors["__AmbLight_Ambient_0"] = Vector4f( scene.Ambient.x * ambient, scene.Ambient.y * ambient, scene.Ambient.z * ambient, 1.0f );
+    return true;
+}
+} // namespace
+
 void EdenWorld::updateWetGround( EdenRenderer &renderer, const WeatherPreset *pWeather, GPUTexture *pEnvironmentCube,
                                  float deltaTime ) {
     const float intensity = pWeather != nullptr ? pWeather->getFloat( "rain_ground_global_intensity", 0.0f ) : 0.0f;
@@ -4152,6 +4178,11 @@ void EdenWorld::updateWetGround( EdenRenderer &renderer, const WeatherPreset *pW
         rippleTimer = 0.025f;
     } else {
         rippleTimer -= deltaTime;
+    }
+    {
+        // Soak fast, dry slowly (the roads switch in one frame, the terrain has a memory).
+        const float target = Clamp( intensity, 0.0f, 1.0f );
+        terrainWet += ( target - terrainWet ) * Clamp( deltaTime * ( target > terrainWet ? 0.35f : 0.06f ), 0.0f, 1.0f );
     }
     const bool bEnable = intensity > 0.0f && pEnvironmentCube != nullptr && pPuddles != nullptr;
     // The rain switch is silent otherwise: one line the first time it comes on
