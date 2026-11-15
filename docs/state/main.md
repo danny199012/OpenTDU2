@@ -8,6 +8,13 @@ appends its entry at the top of this file**, newest first, in the
 - Re-checked and NOT reproduced: `-gm FREERIDE` with / without `-skipcine`, the LOGIN -> FREERIDE continue path, the owner's options.ini (4K, button_prompts 3), mods, profile, a connected DualSense (no `-nopad`), DLSS on. All show roof(locked) / windows / indicators.
 - Open discriminators to ask the owner: numpad 4 (keyboard) vs the pad's D-pad left; before / after the "Enjoy!" popup closes.
 
+## Session 2026-11-15 (`main`, 8): accessories icons FIXED - the owner's data is a newer HUD.vmf with a bike icon set
+
+- **Cause** [DATA]: the owner plays from `C:\Users\cuz_c\Pictures\TDU 2 Unpacked` (launcher.ini of `E:\opentdu2-windows`), whose `hud.bnk` (4,132,864 bytes) is NOT the `C:\TDU2-Gamedata` one (4,046,848) I had been testing with. Its `ig_menu` `SetIcons` tests `_root.IsBike == False`: with the variable never set the comparison fails and the wheel takes the BIKE branch (labels `taun` horn, `clbr`, `hell` wave, `clbl` = the horn hand, wave person and L / R eye glyphs that look like emotes). The valid_icon popup uses the car labels, so it showed the right icon.
+- **Fix**: `FreeRideHud::showCarMenu(..., bIsBike)` sets `/:IsBike` (false for cars, true with `-bike`) before opening. Verified with `-game "C:\Users\cuz_c\Pictures\TDU 2 Unpacked" -accleft`: roof (locked on the hardtop) / windows / indicators.
+- Lesson: test against the owner's launcher.ini `game_folder`; two data sets exist on this machine. Other variables the newer HUD / GENERAL read may also be unset (compare the `ConstantPool`s of both bnk versions).
+- The bike wheel's up / down entries (horn, wave) have no actions in the port yet.
+
 ## Session 2026-11-15 (`main`, 7): drops run down the glass; the accessories icons NOT reproduced
 
 ### What changed
