@@ -6920,12 +6920,30 @@ void GMFreeRide::tick( float deltaTime ) {
     }
     {
         static int32_t awardFrames = 0;
-        // test: -travelisland <ibiza|hawai|casino> travels once, 120 frames in (what the F4 panel's button does)
+        // test: -travelisland <a>[,<b>...] travels to each island in turn, 120 frames after arriving on the last
+        // (what the F4 panel's button does; the chain reproduces the owner's Ibiza -> Hawai -> Ibiza)
         if ( const char *pTravel = CmdLine::GetArgValue( "-travelisland" ) ) {
-            static int32_t travelFrames = 0;
-            if ( ++travelFrames == 120 && islandName != pTravel ) {
-                travelToIsland( pTravel );
-                return;
+            static std::string lastIsland;
+            static int32_t travelFrames = 0, travelStep = 0;
+            if ( lastIsland != islandName ) {
+                lastIsland = islandName;
+                travelFrames = 0;
+            }
+            if ( ++travelFrames == 120 ) {
+                std::vector<std::string> chain;
+                std::string all = pTravel;
+                for ( size_t at = 0; at <= all.size(); ) {
+                    const size_t comma = std::min( all.find( ',', at ), all.size() );
+                    chain.push_back( all.substr( at, comma - at ) );
+                    at = comma + 1;
+                }
+                if ( travelStep < static_cast<int32_t>( chain.size() ) ) {
+                    const std::string next = chain[static_cast<size_t>( travelStep++ )];
+                    if ( next != islandName ) {
+                        travelToIsland( next );
+                        return;
+                    }
+                }
             }
         }
         if ( const char *pAward = CmdLine::GetArgValue( "-awardevent" ) ) {

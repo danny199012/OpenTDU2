@@ -490,9 +490,36 @@ void TextureCache::releaseOwner( const char *pOwner ) {
     }
 }
 
+// The island folder of a bank path ("islands/ibiza/level/..." -> "ibiza"); "" for banks outside islands/.
+static std::string IslandOfOwner( const std::string &owner ) {
+    std::string lower = ToLower( owner );
+    for ( char &c : lower ) {
+        if ( c == '\\' ) {
+            c = '/';
+        }
+    }
+    const size_t at = lower.find( "islands/" );
+    if ( at == std::string::npos ) {
+        return std::string();
+    }
+    const size_t from = at + 8;
+    return lower.substr( from, lower.find( '/', from ) - from );
+}
+
 GPUTexture *TextureCache::findForOwner( const char *pBorrower, uint64_t hashcode ) {
     const std::string borrower = pBorrower != nullptr ? pBorrower : "";
+    // A texture the borrower's own bank lacks is borrowed from the newest owner that has it - but the OTHER island's
+    // banks carry same-named textures with different art (the road marks atlas 'r_m_00' of Hawai has circuit kerbs),
+    // and after an island trip both islands' owners are alive for a moment. So the borrower's own island is searched
+    // first (owner report 2026-11-15: red / white kerb stripes down the Ibiza roads after Ibiza -> Hawai -> Ibiza).
+    // -noislandborrow = the old newest-first search.
+    static const bool bOldSearch = CmdLine::HasArg( "-noislandborrow" );
+    const std::string borrowerIsland = bOldSearch ? std::string() : IslandOfOwner( borrower );
+    for ( int32_t pass = borrowerIsland.empty() ? 1 : 0; pass < 2; pass++ ) {
     for ( auto it = owners.rbegin(); it != owners.rend(); ++it ) {
+        if ( pass == 0 && IslandOfOwner( it->Owner ) != borrowerIsland ) {
+            continue;
+        }
         auto texture = it->Textures.find( hashcode );
         GPUTexture *pTexture = texture != it->Textures.end() ? texture->second : nullptr;
         if ( pTexture == nullptr ) {
@@ -510,6 +537,7 @@ GPUTexture *TextureCache::findForOwner( const char *pBorrower, uint64_t hashcode
             }
         }
         return pTexture;
+    }
     }
     return nullptr;
 }
