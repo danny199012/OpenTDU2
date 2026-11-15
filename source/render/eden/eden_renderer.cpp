@@ -585,6 +585,17 @@ void EdenRenderer::destroy() {
     bReady = false;
 }
 
+// -notags: the graffiti atlases ("tagsa_c" ... the DETAIL2 layer of the SB_*_wall materials)
+// are dropped at load, so those walls take the permutation without the layer. The 360 build
+// shows the old-town walls clean (owner comparison 2026-11-15); the PC data carries the tags.
+static bool IsTagTexture( uint64_t textureHash ) {
+    static const bool bNoTags = CmdLine::HasArg( "-notags" );
+    if ( !bNoTags || textureHash == 0 ) {
+        return false;
+    }
+    return ToUpper( IdentifierToString( textureHash ) ).rfind( "TAGS", 0 ) == 0;
+}
+
 void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMaterial, const char *pTextureOwner ) {
     outMaterial.Name = desc.Name;
     outMaterial.Hashcode = desc.Hashcode;
@@ -614,7 +625,7 @@ void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMat
         outMaterial.SamplerIndex[i] = SH_LinearWrap;
     }
     for ( size_t i = 0; i < desc.AllTextures.size() && i < 16; i++ ) {
-        const uint64_t textureHash = desc.AllTextures[i].TextureHashcode;
+        const uint64_t textureHash = IsTagTexture( desc.AllTextures[i].TextureHashcode ) ? 0 : desc.AllTextures[i].TextureHashcode;
         outMaterial.bNormalSlot[i] =
             ToUpper( IdentifierToString( desc.AllTextures[i].SlotType ) ).find( "NORMAL" ) != std::string::npos;
         // Slot addressing (2DM slot +0x18 / +0x19).
@@ -658,7 +669,9 @@ void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMat
         }
     }
     for ( size_t i = 0; i < 16; i++ ) {
-        outMaterial.TextureHashes[i] = i < desc.AllTextures.size() ? desc.AllTextures[i].TextureHashcode : 0;
+        outMaterial.TextureHashes[i] = i < desc.AllTextures.size() && !IsTagTexture( desc.AllTextures[i].TextureHashcode )
+                                           ? desc.AllTextures[i].TextureHashcode
+                                           : 0;
         outMaterial.SlotTypes[i] = i < desc.AllTextures.size() ? desc.AllTextures[i].SlotType : 0;
     }
     outMaterial.NumSlots = static_cast<uint32_t>( Min<size_t>( desc.AllTextures.size(), 16 ) );

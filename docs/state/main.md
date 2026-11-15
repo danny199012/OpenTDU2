@@ -23,6 +23,9 @@ Owner (screenshot, Ibiza 11395 / 12.22 / 15474, heading 294): "graffiti on build
 - `-hidematerial` bisect: the wall is **`SB_ai_wall`** (TD_Building ps16): `COLOR=sb_ai_c DETAIL=chaux_d DETAIL2=tagsa_c`. `tagsa_c` (512x512 DXT1, `commonworld.bnk`) is a graffiti atlas; ps16 samples it with Texcoord1.zw and multiplies it into the wall. The `dirt*_d` textures are plain stain gradients, not graffiti. The port renders what the data says (zoomed crop looks like real tags).
 - The 360 build shows that wall clean. Either the 360 build drops the tag layer or the PC retail does too; not decided. To test: `-hidematerial SB_ai_wall` hides the whole wall; a `-notags` A/B (DETAIL2 -> white for `tagsa_*`) is the next step if the owner wants parity with the 360.
 
+### Follow-up: `-notags`
+- `-notags` drops every `tags*` texture at material load (graffiti atlases; the wall takes the permutation without DETAIL2). Verified at the same spot: tags gone, rest of the frame identical (mean diff 2.69 over the whole frame, all in the wall crop). Default stays **off** (PC data carries the tags); say so if parity with the 360 should be the default.
+
 ### Not done / next
 - Progression / XP / quests (owner: "start doing progression stuff"): nothing started; see the dev-build survey 3.1 (`GSPlayerProgress`, `DBPlayerLevel`, `DBRewardXP`, story-step enter/leave cases) - first step is `docs/re/progression_spec.md` from `TestDrive2DEV.exe`.
 
