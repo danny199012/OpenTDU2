@@ -5913,7 +5913,7 @@ void GMFreeRide::tick( float deltaTime ) {
             static bool bGhostWas = false;
             Vector3f position = vehicle.getPosition();
             if ( !bGhostWas ) {
-                ghostHeight = position.y;
+                ghostHeight = position.y + static_cast<float>( CmdLine::GetArgInt( "-ghostlift", 0 ) );
                 bGhostWas = true;
             }
             const float step = ( gpInput->isKeyDown( SDL_SCANCODE_LSHIFT ) ? 30.0f : 6.0f ) * deltaTime;
