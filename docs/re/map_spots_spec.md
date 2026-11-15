@@ -335,3 +335,20 @@ The event names are the record's `dbna` loc ids (`EVIA1SP1` "Extreme speed", `EV
 **Not done:** a hover card / OK menu for the pins; the other challenge kinds (licence tests, championship races, speed challenges, KYD, follow the leader) because the port cannot play them from the free ride; the `rank` / `done` / `objective` states.
 
 **Event pin card (2026-11-15):** the pins now open the movie's tool_tip with `WhatSpot` / `WhatSpotType` = `event` [DATA: map.bnk's WhatSpotType values are `contest chall_solo chall_multi coop mission event spot player`; `WhatSpot` knows `event duel ftl kyd noSpot ...`]. Variables: `/:SpotName` and `/:ChallengeName` = the record's `dbna` loc ("Fearless"), `/:GoldReward` = the DBEvent reward, `/:nb_events_done` / `/:nb_events` = 0 / the island's pin count (`/:AreaEvents*` did not drive the row). Screenshot `docs/images/map_event_card.png`. The **Type** row (`/:EventType`) is left empty: its text source is not decoded (the DBEvent type name columns are in the encrypted database part; guessing the type -> loc mapping was not safe). The done count needs event progress, which the port does not keep.
+
+## 13. The events' own `.ig2` files (2026-11-15, `main`) [DATA]
+
+An instant event (`EV*`, gmth 7) is **not a gated course**: its `.ig2` has 2-3 gates, gate 0 the start and the others the **real destination(s)**, plus the header props (`CtDw` time limit, `VMod`, `dbna` name, ...). Loaded through `Ig2Challenge` (the licence-test loader; `LicenseTest` itself refuses the speed mode):
+| file | title (rule) | gates | straight route | limit |
+|---|---|---|---|---|
+| EVIA1SH1 | "Smoothly" | 1 | 2 566 m | 240 s |
+| EVIA1TI1 | "Fast driver" | 1 | 3 236 m | 230 s |
+| EVIA2SH1 | "Relax" | 1 | 6 433 m | 240 s |
+| EVIA2TA1 | "Novice detective" | 1 | 3 380 m | 240 s |
+| EVIA2SH2 | "A ride without hitches" | 1 | 5 656 m | 240 s |
+| EVIA1SH2 | "Impress me!" | 1 | 2 584 m | 240 s |
+| EVIA1CO1 / EVIA1DR1 / EVIA1TA1 | "No accident!" / "Gentleman driver" / "Stay in the shadow" | 1 / 1 / 2 | | 240 s |
+| EVIA1SP1 | speed event, 4 gates (speed traps along a road) | 4 | | 100 s |
+The titles are the event's **rule** (no accident, smooth driving, tailing a car, a time ...): the family letters of the name (`AD DR CO SH SP TA TI`) are the DBEvent types 1..8. The rules themselves are not enforced by the port.
+**Applied:** `RaceEvents::start` uses the file's destination gate(s) as the checkpoints (was: a random 3.5 km road-graph walk), `CtDw` as a time limit (running out ends the event with no reward: "Time is up"), and shows the rule title as the goal text; `-oldraces` restores the walk. Verified with `-racestart N` (logs `rule '...': n gate(s), x m straight, limit y s`) and a started race at `EVIA1SP1` (countdown, 4 checkpoints, GO).
+**Not done:** the per-kind rules (collision penalty for "No accident!", the tailed car of "Stay in the shadow", the speed-trap scoring of the SP events), the event vehicle (`VMod`), best-time records.

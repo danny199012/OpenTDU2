@@ -2994,6 +2994,9 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
         } else {
             raceEvents.start( nearRace );
             hud.closeHint();
+            if ( !raceEvents.getRule().empty() ) {
+                hud.showGoal( raceEvents.getRule() ); // the event's rule, its .ig2 title
+            }
         }
     }
 }
@@ -6698,8 +6701,12 @@ void GMFreeRide::tick( float deltaTime ) {
                 profile.Points[0] += raceReward / 10; // the racing skill [INF share]
                 SaveProfile( "race won" );
                 char text[128];
-                snprintf( text, sizeof( text ), "Finished in %d.%02d s  (+$%d)", static_cast<int32_t>( raceTime ),
-                          static_cast<int32_t>( raceTime * 100.0f ) % 100, raceReward );
+                if ( bRaceSuccess ) {
+                    snprintf( text, sizeof( text ), "Finished in %d.%02d s  (+$%d)", static_cast<int32_t>( raceTime ),
+                              static_cast<int32_t>( raceTime * 100.0f ) % 100, raceReward );
+                } else {
+                    snprintf( text, sizeof( text ), "Time is up (%d s)", static_cast<int32_t>( raceTime ) );
+                }
                 hud.showGoal( text );
             }
         }

@@ -68,6 +68,8 @@ public:
     // One shot: the race finished (outTime = the seconds, outReward = paid).
     bool takeFinished( float &outTime, int32_t &outReward, bool &outSuccess );
     void abandon();
+    // The rule title of the running event (its .ig2 name: "No accident!"), empty for a road-graph race.
+    inline const std::string &getRule() const { return rule; }
 
 private:
     void buildRoute( int32_t startNode );
@@ -83,4 +85,7 @@ private:
     int32_t nextCheckpoint = 0;
     float finishTime = 0.0f;
     bool bFinishEvent = false;
+    float limitSeconds = 0.0f; // CtDw of the event file (0: none)
+    bool bFailed = false;      // the limit ran out
+    std::string rule;
 };

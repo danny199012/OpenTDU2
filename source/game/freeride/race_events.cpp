@@ -4,6 +4,7 @@
 #include "core/xmb.h"
 #include "database/gs_database.h"
 #include "game/spots/spot_world.h"
+#include "ig2_challenge.h"
 #include "system/cmd_line.h"
 
 #include <algorithm>
@@ -217,7 +218,32 @@ bool RaceEvents::start( int32_t startIndex ) {
         }
     }
     activeStart = startIndex;
-    buildRoute( bestNode );
+    // The event's own file: gate 0 is the start, the others the real destination [DATA: EV* .ig2 have 2-3 gates];
+    // the file's CtDw is the time limit and its title the rule ("No accident!", "Smoothly", ...). Road-graph walk
+    // otherwise (-oldraces, or no readable file).
+    checkpoints.clear();
+    nextCheckpoint = 0;
+    limitSeconds = 0.0f;
+    bFailed = false;
+    rule.clear();
+    Ig2Challenge file;
+    if ( !CmdLine::HasArg( "-oldraces" ) && file.load( starts[startIndex].Name ) && file.getGates().size() >= 2 ) {
+        for ( size_t i = 1; i < file.getGates().size(); i++ ) {
+            checkpoints.push_back( file.getGates()[i].Position );
+        }
+        limitSeconds = static_cast<float>( file.getLimitMs() ) / 1000.0f;
+        rule = file.getTitle();
+        float length = 0.0f;
+        Vector3f previous = starts[startIndex].Position;
+        for ( const Vector3f &point : checkpoints ) {
+            length += Vector3f( point.x - previous.x, 0.0f, point.z - previous.z ).length();
+            previous = point;
+        }
+        OTDU_LOG_INFO( "RaceEvents: '%s' rule '%s': %zu gate(s), %.0f m straight, limit %.0f s\n", starts[startIndex].Name.c_str(),
+                       rule.c_str(), checkpoints.size(), length, limitSeconds );
+    } else {
+        buildRoute( bestNode );
+    }
     stage = eStage::Countdown;
     countdownTime = 0.0f;
     raceTime = 0.0f;
@@ -257,6 +283,14 @@ void RaceEvents::tick( float deltaTime, const Vector3f &carPosition ) {
         return;
     }
     raceTime += deltaTime;
+    if ( limitSeconds > 0.0f && raceTime > limitSeconds ) {
+        stage = eStage::Finished;
+        finishTime = raceTime;
+        bFailed = true;
+        bFinishEvent = true;
+        OTDU_LOG_INFO( "RaceEvents: time limit %.0f s reached\n", limitSeconds );
+        return;
+    }
     if ( nextCheckpoint < static_cast<int32_t>( checkpoints.size() ) ) {
         const Vector3f d = checkpoints[nextCheckpoint] - carPosition;
         if ( std::sqrt( d.x * d.x + d.z * d.z ) < kCheckpointRadius ) {
@@ -288,9 +322,9 @@ bool RaceEvents::takeFinished( float &outTime, int32_t &outReward, bool &outSucc
     }
     bFinishEvent = false;
     outTime = finishTime;
-    outReward = activeStart >= 0 ? starts[activeStart].Reward : 0;
-    outSuccess = true;
-    if ( activeStart >= 0 ) {
+    outSuccess = !bFailed;
+    outReward = activeStart >= 0 && outSuccess ? starts[activeStart].Reward : 0;
+    if ( activeStart >= 0 && outSuccess ) {
         starts[activeStart].bUsed = true;
     }
     stage = eStage::Idle;

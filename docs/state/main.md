@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 27): events run to their real destination, with the real time limit and rule title (committed, not pushed)
+
+- `RaceEvents::start` loads the event's `.ig2` (gate 0 = start, others = real destination), `CtDw` = time limit (expiry -> "Time is up", no reward, `takeFinished` now reports failure), title = rule shown as the goal. Spec section 13. `-oldraces` restores the random walk.
+- Verified: `-racestart N` logs for 6 events (2.5-6.4 km straight, limits 230-240 s); `-tp` + OK at `EVIA1SP1` starts with its 4 gates. NOT verified: finishing a whole event, the HUD route line to the real finish, Hawai.
+- Not done: per-kind rules (collisions, tailing, speed traps), `VMod` cars.
+
 ## Session 2026-11-15 (`main`, 26): hover card for the event pins (committed, NOT pushed: the owner asked to push once at the end of the dig)
 
 - `SpotCardKind` knows `event`; `fillSpotCard` sets `WhatSpotType = event`, the name (`dbna` loc), `/:GoldReward`, `/:nb_events(_done)`. Verified by `-mapcardicon event` (screenshot `docs/images/map_event_card.png`). Type row empty (source undecoded); done count is always 0.
