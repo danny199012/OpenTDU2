@@ -977,6 +977,7 @@ void EdenRenderer::draw( const EdenMesh &mesh, const EdenMaterial &material, con
         if ( loggedMaterials.emplace( materialKey, 1 ).second ) {
             std::string textures;
             for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
+                textures += IdentifierToString( material.SlotTypes[i] ) + "=";
                 textures += material.pTextures[i] != nullptr ? material.pTextures[i]->Name : "NONE";
                 if ( material.SamplerIndex[i] != SH_LinearWrap ) {
                     // the slot's sampler (SH_LinearUV + 3 * u + v: 0 wrap, 1 mirror, 2 clamp)
@@ -1294,6 +1295,20 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
         rasterizer.cullMode = bSwapCull ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_FRONT_BIT;
     }
     rasterizer.lineWidth = 1.0f;
+    // The heightfield terrain (TD_HeightMap, sector 3 m / area 24 m grids) is pushed back in
+    // depth so the paved ground meshes laid over it (TD_Ground Set_Pavement* cobbles, plaza
+    // slabs, road shoulders) win the depth test. Without it the terrain's rocky / cracked
+    // ground showed through the old-town cobbles as "rubble" piles (owner report 2026-11-15,
+    // Ibiza 11395,12.2,15474; the 360 build is clean there; -noterrain gave clean cobbles).
+    // 500000 constant-factor units + slope 2: 400000 already matches 2000000 pixel for pixel
+    // (mean difference 0.6 of 255) and 100000 does not clear it. -terrainbias <n> overrides,
+    // -terrainbias 0 / -noterrainbias restores the old depth (A/B).
+    static const int32_t terrainBias = CmdLine::HasArg( "-noterrainbias" ) ? 0 : CmdLine::GetArgInt( "-terrainbias", 500000 );
+    if ( terrainBias != 0 && pProgram->Name.find( "TD_HeightMap" ) != std::string::npos ) {
+        rasterizer.depthBiasEnable = VK_TRUE;
+        rasterizer.depthBiasConstantFactor = static_cast<float>( terrainBias );
+        rasterizer.depthBiasSlopeFactor = terrainBias > 0 ? 2.0f : -2.0f;
+    }
 
     VkPipelineMultisampleStateCreateInfo multisample = {};
     multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;

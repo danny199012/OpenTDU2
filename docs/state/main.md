@@ -3,6 +3,29 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 3): "rubble" on the old-town pavement fixed (terrain depth bias); the graffiti is authored data
+
+Owner (screenshot, Ibiza 11395 / 12.22 / 15474, heading 294): "graffiti on building and odd piles of rubble on some pavement I don't think should be there"; the 360 build at the same spot: "no rubble or graffiti".
+
+**Reproduced**
+    build-mainin\opentdu2-main.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata C:	emp\otdu2-win-userdata -gm FREERIDE -skipcine -nopad -fixedtimestep -tp 11395,12.22,15474.08 -heading 294.4 -clock 14.00 -autoplay "300:shot=C:/OpenTDU2/_x.ppm" -exitframe 320
+(`-clock 14.00` freezes the clock - without it every run differs by the sun and A/B diffs are meaningless.)
+
+### What changed
+- `source/render/eden/eden_renderer.cpp` (`getPipeline`): the **TD_HeightMap** programs (sector 3 m and area 24 m heightfields) get a rasterizer depth bias (constant 500000, slope 2, pushed back) so the paved `TD_Ground` meshes laid over them (`Set_PavementB` cobbles, `SA_CityMeshMate`, plaza slabs) win the depth test. `-terrainbias <n>` overrides, `-noterrainbias` / `-terrainbias 0` = old behaviour. [INF: the retail depth state is not readable; the effect matches the 360 reference.]
+- `-logmaterials` now prints each slot's type (`COLOR= DETAIL= DETAIL2= ...`).
+
+### Verified
+- `-noterrain` gave clean cobbles (mean frame diff 3.45); `-nocarve/-noroadskip/-noprunecarve/-noprojectors/-nowet/-noareaobjects` = 0.0 diff. A bias on the `TD_Ground` programs made it worse (it moved the cobbles too); on `TD_HeightMap` it clears the rubble: 20000 / 100000 do not, 400000 = 2000000 (diff 0.6). `docs/images/terrain_rubble_before_after.webp` (before | after).
+- Two other spots (21449,24598 and 27021,14752, on vs `-noterrainbias`): no visible regression; a kerb strip that was buried now shows. Not run under the validation layer.
+
+### Graffiti - not a bug in the port (probably)
+- `-hidematerial` bisect: the wall is **`SB_ai_wall`** (TD_Building ps16): `COLOR=sb_ai_c DETAIL=chaux_d DETAIL2=tagsa_c`. `tagsa_c` (512x512 DXT1, `commonworld.bnk`) is a graffiti atlas; ps16 samples it with Texcoord1.zw and multiplies it into the wall. The `dirt*_d` textures are plain stain gradients, not graffiti. The port renders what the data says (zoomed crop looks like real tags).
+- The 360 build shows that wall clean. Either the 360 build drops the tag layer or the PC retail does too; not decided. To test: `-hidematerial SB_ai_wall` hides the whole wall; a `-notags` A/B (DETAIL2 -> white for `tagsa_*`) is the next step if the owner wants parity with the 360.
+
+### Not done / next
+- Progression / XP / quests (owner: "start doing progression stuff"): nothing started; see the dev-build survey 3.1 (`GSPlayerProgress`, `DBPlayerLevel`, `DBRewardXP`, story-step enter/leave cases) - first step is `docs/re/progression_spec.md` from `TestDrive2DEV.exe`.
+
 ## Session 2026-11-15 (`main`, 2): enhanced damage is an opt-in mod; vanilla repair = going home
 
 Owner: "make sure damage is opt in; vanilla has limited damage and no repair method - going to a house auto-repairs the car".
