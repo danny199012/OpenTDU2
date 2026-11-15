@@ -3,6 +3,13 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 9): the terrain depth bias is reverted (it caused the blue line / see-through look)
+
+Owner (screenshot at 17308 / 125.6 / 17970.9, build 128): "a weird blue line and it makes things look kind of transparent".
+- **Cause: my own session-3 change.** The `TD_HeightMap` depth bias (constant 500000 units on a D32F depth buffer = ~0.03 of depth = metres of world distance at 20-300 m, since depth is ~`1 - near/d`) pushed the far terrain behind the ocean plane / the far sheets, so a bright sliver ran along distant ridges and objects looked see-through. Measured with `-noocean` (sky shows through the gap): **1835 sliver px with the bias, 81 without**; `-nocarve / -noareas / -nolodgeometry` do not change it.
+- `eden_renderer.cpp`: `-terrainbias` now defaults to **0** (opt-in). Small values (3000..50000) leave the sliver alone but do not clear the old-town rubble either (mean diff vs the 2M reference 6.6 .. 5.7, none = 6.76), so **the rubble is not a few cm of depth**: it is open again. Lead: the heightfield materials carry States `05 06` (SRCALPHA / INVSRCALPHA blend), i.e. the retail terrain is alpha-masked by its colour map where paved meshes lie; compare the port's TD_HeightMap alpha path. `-logstates` (new) prints each material's raw States bytes.
+- Lesson recorded: a constant depth bias on a float depth buffer is a distance-dependent push; judge any such change at far range too, not only at the spot that prompted it.
+
 ## Session 2026-11-15 (`main`, 8): the F2 coordinates overlay names the road under the car (to find dirt roads in our own build)
 
 Owner: "I may be best using our version to find these roads - I have all locations and marks, and can test Hawai".

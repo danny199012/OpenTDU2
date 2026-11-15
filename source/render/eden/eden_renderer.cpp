@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "eden_renderer.h"
 
+#include <set>
 #include <cfloat>
 #include <chrono>
 #include <functional>
@@ -691,6 +692,18 @@ void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMat
         outMaterial.SlotTypes[i] = i < desc.AllTextures.size() ? desc.AllTextures[i].SlotType : 0;
     }
     outMaterial.NumSlots = static_cast<uint32_t>( Min<size_t>( desc.AllTextures.size(), 16 ) );
+    if ( CmdLine::HasArg( "-logstates" ) ) {
+        static std::set<std::string> seen;
+        if ( seen.insert( desc.Name ).second ) {
+            std::string hex;
+            for ( int32_t i = 0; i < 16; i++ ) {
+                char b[8];
+                snprintf( b, sizeof( b ), "%02x ", outMaterial.States[i] );
+                hex += b;
+            }
+            OTDU_LOG_INFO( "states %s: %s\n", desc.Name.c_str(), hex.c_str() );
+        }
+    }
 
     // Load time preparation of the original renderer (GUID / switches /
     // render states rewritten by the shader family handler).
@@ -1324,15 +1337,14 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
         rasterizer.cullMode = bSwapCull ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_FRONT_BIT;
     }
     rasterizer.lineWidth = 1.0f;
-    // The heightfield terrain (TD_HeightMap, sector 3 m / area 24 m grids) is pushed back in
-    // depth so the paved ground meshes laid over it (TD_Ground Set_Pavement* cobbles, plaza
-    // slabs, road shoulders) win the depth test. Without it the terrain's rocky / cracked
-    // ground showed through the old-town cobbles as "rubble" piles (owner report 2026-11-15,
-    // Ibiza 11395,12.2,15474; the 360 build is clean there; -noterrain gave clean cobbles).
-    // 500000 constant-factor units + slope 2: 400000 already matches 2000000 pixel for pixel
-    // (mean difference 0.6 of 255) and 100000 does not clear it. -terrainbias <n> overrides,
-    // -terrainbias 0 / -noterrainbias restores the old depth (A/B).
-    static const int32_t terrainBias = CmdLine::HasArg( "-noterrainbias" ) ? 0 : CmdLine::GetArgInt( "-terrainbias", 500000 );
+    // OPT-IN experiment (-terrainbias <n>, default 0 = off): pushes the TD_HeightMap heightfields back in depth.
+    // It cleared the old-town "rubble" over the cobbles (11395, 12, 15474) only at ~500000 units, which is ~0.03
+    // of depth = metres of world distance, and then the far terrain loses to the ocean plane: a thin bright blue
+    // line along distant ridges and a see-through look (owner report 2026-11-15 at 17308, 125, 17970; -noocean
+    // shows the sliver: 1835 px with the bias, 81 without). Small values (3000..50000) do not clear the rubble, so
+    // the rubble is not a few cm of depth: look at the terrain's alpha / colour-map mask (the heightfield
+    // materials blend SRCALPHA / INVSRCALPHA, States 05 06) instead.
+    static const int32_t terrainBias = CmdLine::HasArg( "-noterrainbias" ) ? 0 : CmdLine::GetArgInt( "-terrainbias", 0 );
     if ( terrainBias != 0 && pProgram->Name.find( "TD_HeightMap" ) != std::string::npos ) {
         rasterizer.depthBiasEnable = VK_TRUE;
         rasterizer.depthBiasConstantFactor = static_cast<float>( terrainBias );
