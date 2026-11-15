@@ -38,6 +38,13 @@ struct EdenHeadlightCone {
 // rear cones (brake / reverse) ride the same registry (Position is the rear
 // of the car, Direction points backwards).
 std::vector<EdenHeadlightCone> &EdenHeadlightFrameCones();
+// One car's low beams as three cones from the real lamp positions: a pool per
+// lamp (starting at the lens, not at a point 2 m ahead of the car origin,
+// which floated away from short and long cars alike) and a long faint spill
+// between them. `forward` is the car's levelled heading, `intensity` the
+// weather's headlight strength. (-oldheadlights: the callers keep the old single cone.)
+void EdenAppendHeadBeams( std::vector<EdenHeadlightCone> &cones, const Vector3f &leftLamp, const Vector3f &rightLamp,
+                          const Vector3f &forward, float intensity );
 std::vector<EdenHeadlightCone> &EdenRearLightFrameCones();
 
 // The glow of a lit car lamp (port-native [INF], car_lights_spec.md 8): a

@@ -178,6 +178,8 @@ public:
     // one soft additive quad per lit lamp, in world space (the car drawn at
     // `world`), appended to `out` (EdenLampGlowFrame). Uses the state the
     // last applyLights() wrote.
+    // The world positions of the left / right headlamp lenses (the 'L' glow anchors); false when the car has none.
+    bool getHeadlampPositions( const Matrix4x4f &world, Vector3f &outLeft, Vector3f &outRight ) const;
     void appendLampGlows( const Matrix4x4f &world, std::vector<EdenLampGlow> &out ) const;
     // Night dashboard / interior lighting (TD_DashBoard reads IlumParam /
     // IlumColor / HeadlightsIntensity): the material ships

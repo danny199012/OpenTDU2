@@ -8,6 +8,16 @@ appends its entry at the top of this file**, newest first, in the
 - Re-checked and NOT reproduced: `-gm FREERIDE` with / without `-skipcine`, the LOGIN -> FREERIDE continue path, the owner's options.ini (4K, button_prompts 3), mods, profile, a connected DualSense (no `-nopad`), DLSS on. All show roof(locked) / windows / indicators.
 - Open discriminators to ask the owner: numpad 4 (keyboard) vs the pad's D-pad left; before / after the "Enjoy!" popup closes.
 
+## Session 2026-11-15 (`main`, 9): side windows in the inside views, lamp-based headlights, tunnel traffic
+
+### What changed
+- **Side windows (cockpit / bonnet)**: `cinematic_car.cpp` draw: the inside views hid every glass node (GLASS_F, WND_L1, WND_R1); now only the windscreen is hidden, the side windows stay and take the inside Glass_I material (a light tint with a reflection - closed glass shows a faint lighter patch, wound down it is clear). `-hidesidewindows` = old. Verified with `-cameramode 23 -accdown` and `look=-1,0` on the owner's data: closed glass visible, open clear, `-hidesidewindows` shows none.
+- **Headlights**: the ground pool was ONE 13 x 9 m quad centred 9.5 m ahead of the car's ORIGIN (2 m ahead of the origin + 7.5), whatever the car's length -> it floated off short / long cars. New `EdenAppendHeadBeams` (eden_headlights.cpp): a pool per lamp starting at the real lens ('L' glow anchors: `CinematicCar::getHeadlampPositions`, traffic `type.LampGlows`) plus a long faint spill; traffic brings 3 beams per car (`maxCones` now counts cars). `-oldheadlights` = old. Cars with no 'L' anchors keep the old cone. [INF: pool sizes / intensities, by eye]
+- **Traffic in the tunnel**: `traffic.cpp`: the ground ray started 6 m above the car's last height and hit the tunnel roof / hill (a bridge deck overhead likewise), so cars rose onto the hill and "drove through" it. Now 1.6 m above (3 m fallback; spawn from player.y + 2.5). `-oldtrafficground` = old; `-logtrafficy` logs the worst height gap to the player per second. Verified at the tunnel (`-tp 35942,5866 -heading 12.5`, 2400 frames): worst gap 7.9..11.6 m old, 0.1..0.3 m new.
+
+### Not done / next
+- Headlights were judged on one night frame only; the pool shapes want a drive at night (traffic and own car). The headlamp lens glow quads are unchanged.
+
 ## Session 2026-11-15 (`main`, 8): accessories icons FIXED - the owner's data is a newer HUD.vmf with a bike icon set
 
 - **Cause** [DATA]: the owner plays from `C:\Users\cuz_c\Pictures\TDU 2 Unpacked` (launcher.ini of `E:\opentdu2-windows`), whose `hud.bnk` (4,132,864 bytes) is NOT the `C:\TDU2-Gamedata` one (4,046,848) I had been testing with. Its `ig_menu` `SetIcons` tests `_root.IsBike == False`: with the variable never set the comparison fails and the wheel takes the BIKE branch (labels `taun` horn, `clbr`, `hell` wave, `clbl` = the horn hand, wave person and L / R eye glyphs that look like emotes). The valid_icon popup uses the car labels, so it showed the right icon.

@@ -1853,6 +1853,26 @@ void CinematicCar::collectLampAnchors() {
     }
 }
 
+bool CinematicCar::getHeadlampPositions( const Matrix4x4f &world, Vector3f &outLeft, Vector3f &outRight ) const {
+    Vector3f sum[2];
+    int32_t count[2] = { 0, 0 };
+    for ( const LampAnchor &anchor : lampAnchors ) {
+        if ( anchor.Function != 'L' || !anchor.bFront ) {
+            continue;
+        }
+        const Matrix4x4f node = anchor.Node >= 0 ? world * car.getNodeTransform( anchor.Node ) : world;
+        const int32_t side = anchor.bLeft ? 0 : 1;
+        sum[side] = sum[side] + node.transformPoint( anchor.Local );
+        count[side]++;
+    }
+    if ( count[0] == 0 || count[1] == 0 ) {
+        return false;
+    }
+    outLeft = sum[0] * ( 1.0f / count[0] );
+    outRight = sum[1] * ( 1.0f / count[1] );
+    return true;
+}
+
 void CinematicCar::appendLampGlows( const Matrix4x4f &world, std::vector<EdenLampGlow> &out ) const {
     if ( !car.isLoaded() ) {
         return;
@@ -3414,8 +3434,14 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     // is what makes the view hard to see out of; hide it there only.
     {
         static const bool bKeepGlass = CmdLine::HasArg( "-keepglass" );
+        // The side windows (WND_L1 / R1) stay in the inside views: the driver
+        // sees them wind up and down (they take the inside Glass_I material
+        // below); only the windscreen is hidden. -hidesidewindows = the old
+        // all-hidden behaviour.
+        static const bool bHideSides = CmdLine::HasArg( "-hidesidewindows" );
+        const int32_t windscreenNode = car.getScene().findNode( "GLASS_F" );
         for ( int32_t node : glassNodes ) {
-            car.setNodeVisible( node, !bInterior || bKeepGlass );
+            car.setNodeVisible( node, !bInterior || bKeepGlass || ( node != windscreenNode && !bHideSides ) );
         }
     }
     for ( int32_t node : alwaysHiddenNodes[0] ) {

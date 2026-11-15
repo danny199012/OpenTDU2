@@ -424,8 +424,8 @@ void Traffic::appendHeadlightCones( std::vector<EdenHeadlightCone> &cones, const
         return;
     }
     struct Candidate {
-        EdenHeadlightCone cone;
-        float distanceSquared;
+        std::vector<EdenHeadlightCone> cones; // one car's beams
+        float distanceSquared = 0.0f;
     };
     std::vector<Candidate> candidates;
     for ( const Agent &agent : agents ) {
@@ -438,20 +438,46 @@ void Traffic::appendHeadlightCones( std::vector<EdenHeadlightCone> &cones, const
             continue;
         }
         forward = forward.normalized();
-        EdenHeadlightCone cone;
-        cone.Position = agent.World.getTranslation() + forward * 2.0f + Vector3f( 0.0f, 0.62f, 0.0f );
-        cone.Direction = forward;
-        cone.Intensity = 1.0f;
-        const Vector3f delta = cone.Position - cameraPosition;
-        candidates.push_back( { cone, delta.dot( delta ) } );
+        Candidate candidate;
+        // The real lamp lenses of the model (the 'L' glow anchors) when it has
+        // them, else the old point 2 m ahead of the origin.
+        const Type &type = types[static_cast<size_t>( agent.Type )];
+        Vector3f sum[2];
+        int32_t count[2] = { 0, 0 };
+        Matrix4x4f world = agent.World;
+        world.m[3][1] += type.GroundLift;
+        for ( const EdenLampAnchor &anchor : type.LampGlows ) {
+            if ( anchor.Function != 0 || anchor.Normal.z <= 0.0f ) {
+                continue;
+            }
+            const int32_t side = anchor.bLeft ? 0 : 1;
+            sum[side] = sum[side] + world.transformPoint( anchor.Local );
+            count[side]++;
+        }
+        static const bool bOld = CmdLine::HasArg( "-oldheadlights" );
+        if ( !bOld && count[0] > 0 && count[1] > 0 ) {
+            EdenAppendHeadBeams( candidate.cones, sum[0] * ( 1.0f / count[0] ), sum[1] * ( 1.0f / count[1] ), forward,
+                                 0.9f );
+        } else {
+            EdenHeadlightCone cone;
+            cone.Position = agent.World.getTranslation() + forward * 2.0f + Vector3f( 0.0f, 0.62f, 0.0f );
+            cone.Direction = forward;
+            cone.Intensity = 1.0f;
+            candidate.cones.push_back( cone );
+        }
+        const Vector3f delta = agent.World.getTranslation() - cameraPosition;
+        candidate.distanceSquared = delta.dot( delta );
+        candidates.push_back( std::move( candidate ) );
     }
     std::sort( candidates.begin(), candidates.end(),
                []( const Candidate &a, const Candidate &b ) { return a.distanceSquared < b.distanceSquared; } );
+    // maxCones counts cars (each brings its three beams).
+    size_t cars = 0;
     for ( const Candidate &candidate : candidates ) {
-        if ( cones.size() >= maxCones ) {
+        if ( cars++ >= maxCones ) {
             break;
         }
-        cones.push_back( candidate.cone );
+        cones.insert( cones.end(), candidate.cones.begin(), candidate.cones.end() );
     }
 }
 
@@ -1098,7 +1124,7 @@ void Traffic::tick( float deltaTime, const Vector3f &player, const CinematicCar:
             agent.IndicatorHold = 0.0f;
             const Vector3f at = player + fwd * 12.0f + right * lateral;
             float ground = 0.0f;
-            const bool bGround = surface( at.x, at.z, agent.LastY + 6.0f, ground ) || surface( at.x, at.z, player.y + 6.0f, ground );
+            const bool bGround = surface( at.x, at.z, player.y + 2.5f, ground ) || surface( at.x, at.z, player.y + 6.0f, ground );
             agent.Position = Vector3f( at.x, bGround ? ground : player.y, at.z );
             agent.LastY = agent.Position.y;
             agent.Yaw = yaw;
@@ -1338,7 +1364,16 @@ void Traffic::tick( float deltaTime, const Vector3f &player, const CinematicCar:
         }
         // Ground under the car; lose it for 2 s -> remove.
         float ground = 0.0f;
-        const bool bGround = surface( agent.Position.x, agent.Position.z, agent.LastY + 6.0f, ground );
+        // The ray starts a little above the last ground (a car moves a few
+        // centimetres a frame): from 6 m it caught the roof of a tunnel (the
+        // Ibiza bore at 35942 / 5866) or the deck of a bridge overhead, and the
+        // car rose onto the hill - the owner's "traffic shoots up and drives
+        // through the hill". The old 6 m ray stays as the fallback for a
+        // sudden drop. -oldtrafficground restores it.
+        static const bool bOldGround = CmdLine::HasArg( "-oldtrafficground" );
+        const float rayHeight = bOldGround ? 6.0f : 1.6f;
+        const bool bGround = surface( agent.Position.x, agent.Position.z, agent.LastY + rayHeight, ground ) ||
+                             ( !bOldGround && surface( agent.Position.x, agent.Position.z, agent.LastY + 3.0f, ground ) );
         if ( bGround ) {
             agent.LastY = ground;
             agent.LostGround = 0.0f;
@@ -1381,7 +1416,7 @@ void Traffic::tick( float deltaTime, const Vector3f &player, const CinematicCar:
             const float rx = hfz, rz = -hfx;
             auto sample = [&]( float x, float z, float fallback ) {
                 float height = 0.0f;
-                return surface( x, z, agent.Position.y + 3.0f, height ) ? height : fallback;
+                return surface( x, z, agent.Position.y + ( bOldGround ? 3.0f : 1.6f ), height ) ? height : fallback;
             };
             const float y = agent.Position.y;
             const Vector3f front( agent.Position.x + hfx * half, sample( agent.Position.x + hfx * half, agent.Position.z + hfz * half, y ), agent.Position.z + hfz * half );
@@ -1407,6 +1442,25 @@ void Traffic::tick( float deltaTime, const Vector3f &player, const CinematicCar:
             agent.World = world;
         }
         i++;
+    }
+    // -logtrafficy: the largest height gap between the player and a traffic car
+    // within 120 m, once a second (the tunnel check: a car climbing the hill).
+    if ( CmdLine::HasArg( "-logtrafficy" ) ) {
+        static float yTimer = 0.0f;
+        yTimer += deltaTime;
+        if ( yTimer >= 1.0f ) {
+            yTimer = 0.0f;
+            float worst = 0.0f;
+            int32_t near = 0;
+            for ( const Agent &agent : agents ) {
+                const float dx = agent.Position.x - player.x, dz = agent.Position.z - player.z;
+                if ( dx * dx + dz * dz < 120.0f * 120.0f ) {
+                    near++;
+                    worst = Max( worst, std::fabs( agent.Position.y - player.y ) );
+                }
+            }
+            OTDU_LOG_INFO( "TrafficY: %d cars within 120 m, worst height gap to the player %.1f m\n", near, worst );
+        }
     }
     // The traffic cars keep each other apart (no clipping through one another).
     resolveAgentCollisions();

@@ -79,3 +79,33 @@ void EdenCollectLampAnchors( EdenModel &model, std::vector<EdenLampAnchor> &out 
         out.push_back( anchor );
     }
 }
+
+void EdenAppendHeadBeams( std::vector<EdenHeadlightCone> &cones, const Vector3f &leftLamp, const Vector3f &rightLamp,
+                          const Vector3f &forward, float intensity ) {
+    const Vector3f side( forward.z, 0.0f, -forward.x ); // the driver's left
+    const Vector3f middle = ( leftLamp + rightLamp ) * 0.5f;
+    // The two dipped beams: a pool each, beginning at the lens, splayed a hair
+    // outward so they do not stack into one blob.
+    const Vector3f lamps[2] = { leftLamp, rightLamp };
+    for ( int32_t i = 0; i < 2; i++ ) {
+        EdenHeadlightCone cone;
+        cone.Position = lamps[i];
+        const float splay = i == 0 ? 0.03f : -0.03f;
+        const Vector3f direction = forward + side * splay;
+        cone.Direction = direction.normalized();
+        cone.Intensity = intensity * 0.62f;
+        cone.PoolAhead = 6.5f; // 0.5 .. 12.5 m ahead of the lamp
+        cone.PoolAlong = 6.0f;
+        cone.PoolAcross = 2.9f;
+        cones.push_back( cone );
+    }
+    // The long throw: a faint narrow pool reaching 5 .. 31 m.
+    EdenHeadlightCone spill;
+    spill.Position = middle;
+    spill.Direction = forward;
+    spill.Intensity = intensity * 0.42f;
+    spill.PoolAhead = 18.0f;
+    spill.PoolAlong = 13.0f;
+    spill.PoolAcross = 3.4f;
+    cones.push_back( spill );
+}

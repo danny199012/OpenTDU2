@@ -6115,13 +6115,20 @@ void GMFreeRide::tick( float deltaTime ) {
                     forward.y *= 0.25f; // levelled, a slight down aim
                     if ( forward.dot( forward ) > 1e-6f ) {
                         forward = forward.normalized();
-                        EdenHeadlightCone cone;
-                        cone.Position =
-                            carWorld.getTranslation() + forward * 2.0f + Vector3f( 0.0f, 0.62f, 0.0f );
-                        cone.Direction = forward;
-                        cone.Intensity =
+                        const float intensity =
                             pWeather != nullptr ? pWeather->getFloat( "car_headlights_intensity", 1.2f ) : 1.2f;
-                        cones.push_back( cone );
+                        Vector3f leftLamp, rightLamp;
+                        static const bool bOldHeadlights = CmdLine::HasArg( "-oldheadlights" );
+                        if ( !bOldHeadlights && car.getHeadlampPositions( carWorld, leftLamp, rightLamp ) ) {
+                            EdenAppendHeadBeams( cones, leftLamp, rightLamp, forward, intensity );
+                        } else {
+                            EdenHeadlightCone cone;
+                            cone.Position =
+                                carWorld.getTranslation() + forward * 2.0f + Vector3f( 0.0f, 0.62f, 0.0f );
+                            cone.Direction = forward;
+                            cone.Intensity = intensity;
+                            cones.push_back( cone );
+                        }
                     }
                 }
                 // (The traffic's cones are appended after traffic.tick below:
