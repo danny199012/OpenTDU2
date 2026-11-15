@@ -136,6 +136,10 @@ private:
     bool bCaveCarTried = false;
     Matrix4x4f caveCarWorld;
     void updateCaveCar( float deltaTime );
+    // The Back-to-the-Future gate: the cave's rock is solid until the car reaches it at 88 mph.
+    bool bCaveGateOpen = false;
+    float caveGateFlash = 0.0f; // white flash 1 -> 0 when the gate opens
+    void updateCaveGate( float deltaTime );
     CinematicCar::Desc carDesc;
     // The driver (and, in the story, Tess as passenger) seated in the car:
     // avatarsdriver.bnk base clips + the car's seat IK (docs/re/driver_seat_spec.md).

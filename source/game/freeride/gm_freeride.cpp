@@ -4128,6 +4128,55 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
 // The Hawai cave's hidden club car. DBClubRewardCars lists 4 club-only prizes (280 MF3 Roadster, 400 2-Eleven,
 // 365 Apollo Sport, 436 Ferrari FXX Evoluzione [DATA]); the cave holds one. Park next to it (< 6 m, under 25 km/h)
 // and it is yours: it is added to the garage with the car's default paint, the HUD says so, and it is gone.
+// "Roads? Where we're going, we don't need roads": the Hawai cave's rock is solid. Reach the cave area doing 88 mph
+// (141.6 km/h) and the rock lets the car through - a white flash, a hint, and the walls stay open until the car has left
+// the cave box again (then the gate closes). -nocavegate: always open (the old easter egg), -cavewalls / F4 also open it.
+void GMFreeRide::updateCaveGate( float deltaTime ) {
+    caveGateFlash = Max( 0.0f, caveGateFlash - deltaTime * 2.2f );
+    static const bool bDisabled = CmdLine::HasArg( "-nocavegate" ) || CmdLine::HasArg( "-nocavewalls" ) ||
+                                  CmdLine::HasArg( "-cavewalls" );
+    if ( islandName != "hawai" || bDisabled || state != eState::Drive ) {
+        return;
+    }
+    const Vector3f p = carWorld.getTranslation();
+    // A car that starts inside the cave box (a save made in the cave) finds the gate open: it would be inside solid rock.
+    static bool bGateInit = false;
+    if ( !bGateInit ) {
+        bGateInit = true;
+        if ( p.x > 39150.0f && p.x < 39550.0f && p.z > 20100.0f && p.z < 20350.0f ) {
+            bCaveGateOpen = true;
+            VehicleWorldCollision::CaveWalls() = true;
+        }
+    }
+    // The cave box (VehicleWorldCollision::InCaveBox, 39150..39550 x 20100..20350) with a margin, and the area
+    // around the cave itself (39265..39465 x 20200..20270, the owner's photo shots) where the 88 mph counts.
+    const bool bInBox = p.x > 39110.0f && p.x < 39590.0f && p.z > 20060.0f && p.z < 20390.0f;
+    if ( CmdLine::HasArg( "-logcavegate" ) ) {
+        static float logTimer = 0.0f;
+        logTimer += deltaTime;
+        if ( logTimer >= 1.0f ) {
+            logTimer = 0.0f;
+            OTDU_LOG_INFO( "CaveGate: (%.0f, %.0f) %.0f km/h, gate %s\n", p.x, p.z, vehicle.getSpeedKmh(),
+                           bCaveGateOpen ? "open" : "closed" );
+        }
+    }
+    const bool bAtCave = p.x > 39205.0f && p.x < 39525.0f && p.z > 20140.0f && p.z < 20330.0f;
+    if ( !bCaveGateOpen ) {
+        static const float kGateSpeed = static_cast<float>( CmdLine::GetArgInt( "-cavegatespeed", 142 ) ); // 88 mph = 141.6 km/h
+        if ( bAtCave && vehicle.getSpeedKmh() >= kGateSpeed - 0.4f ) {
+            bCaveGateOpen = true;
+            VehicleWorldCollision::CaveWalls() = true;
+            caveGateFlash = 1.0f;
+            hud.showHint( "88 mph! The rock lets you through...", 5.0f );
+            OTDU_LOG_INFO( "FREERIDE: the cave gate opened at %.0f km/h (%.0f, %.0f)\n", vehicle.getSpeedKmh(), p.x, p.z );
+        }
+    } else if ( !bInBox ) {
+        bCaveGateOpen = false;
+        VehicleWorldCollision::CaveWalls() = false;
+        OTDU_LOG_INFO( "FREERIDE: the cave gate closed\n" );
+    }
+}
+
 void GMFreeRide::updateCaveCar( float deltaTime ) {
     (void)deltaTime;
     static const int32_t kCaveCarId = 436;
@@ -4286,9 +4335,13 @@ void GMFreeRide::drawUI() {
             }
         }
     }
-    if ( islandName == "hawai" && !CmdLine::HasArg( "-nocavewalls" ) ) {
+    // The cave is a gate now (updateCaveGate): the rock is solid until the car reaches it at 88 mph. -nocavegate
+    // keeps the older "always open" easter egg; -nocavewalls keeps it closed for good.
+    // (This runs every frame: the gate's own state is only touched by updateCaveGate.)
+    if ( islandName == "hawai" && !CmdLine::HasArg( "-nocavewalls" ) && CmdLine::HasArg( "-nocavegate" ) ) {
         VehicleWorldCollision::CaveWalls() = true; // the easter egg: the cave is open by default on Hawai
     } else if ( islandName != "hawai" ) {
+        bCaveGateOpen = false;
         VehicleWorldCollision::CaveWalls() = false;
     }
     if ( CmdLine::HasArg( "-cavewalls" ) ) {
@@ -7422,6 +7475,7 @@ void GMFreeRide::tick( float deltaTime ) {
     car.updateWindows( deltaTime );
 
     updateCaveCar( deltaTime );
+    updateCaveGate( deltaTime );
     view.setMapView( false );
     view.setCamera( camera );
     {
@@ -8103,6 +8157,13 @@ void GMFreeRide::draw() {
             renderer.drawRect( Rect2D( -10000.0f, -10000.0f, 20000.0f, 20000.0f ), 0x00ffffffu | ( flash << 24 ) );
             renderer.end();
         }
+    }
+    if ( caveGateFlash > 0.0f ) {
+        // The 88 mph flash of the cave gate.
+        const uint32_t flash = static_cast<uint32_t>( Clamp( caveGateFlash, 0.0f, 1.0f ) * 255.0f );
+        renderer.begin();
+        renderer.drawRect( Rect2D( -10000.0f, -10000.0f, 20000.0f, 20000.0f ), 0x00ffffffu | ( flash << 24 ) );
+        renderer.end();
     }
     if ( pauseMenu.isOpen() || mapScreen.isOpen() ) {
         hud.drawSavingLogo( renderer );

@@ -7,7 +7,15 @@ appends its entry at the top of this file**, newest first, in the
 - The wrong icons are **GENERAL.vmf's emote-wheel art** [DATA, `-dumpflashart`]: up = cell 684 (hand + sound waves), down = 678 (waving person), left / right = 2698 / 2695 (the "L / R" eye glyphs); the HUD's own cells for the slots are 1003 (roof), 1005 (windows), 1001 (car + arrow). The title "Accessories", the arrows and the layout are the HUD's `ig_menu`, and the owner's wheel shows NO red lock on the roof slot (the retail-correct wheel for this hardtop Porsche shows one) - so it is not the same clip content.
 - Re-checked and NOT reproduced: `-gm FREERIDE` with / without `-skipcine`, the LOGIN -> FREERIDE continue path, the owner's options.ini (4K, button_prompts 3), mods, profile, a connected DualSense (no `-nopad`), DLSS on. All show roof(locked) / windows / indicators.
 - Open discriminators to ask the owner: numpad 4 (keyboard) vs the pad's D-pad left; before / after the "Enjoy!" popup closes.
-
+
+## Session 2026-11-15 (`main`, 11): the Hawai cave is an 88 mph gate (Back to the Future)
+
+Owner's idea: the cave's rock only lets the car in if it hits it at 88 mph.
+
+- `gm_freeride.cpp` `updateCaveGate`: on Hawai the cave rock (`VehicleWorldCollision::CaveWalls()`, static triangles ignored inside the cave box 39150..39550 x 20100..20350) is now SOLID by default. Reaching the cave area (39205..39525 x 20140..20330, the owner's photo-shot extent plus a margin) at >= 88 mph (141.6 km/h) opens it: white flash (`caveGateFlash`, drawn like the photo flash), hint "88 mph! The rock lets you through...", log `the cave gate opened`. It stays open while the car is inside the box (+40 m margin) and closes again once it leaves (`the cave gate closed`). A car that starts / loads inside the box finds it open (a save made in the cave). `-nocavegate` = the old always-open easter egg; `-nocavewalls` / `-cavewalls` / the F4 option still force closed / open; `-cavegatespeed km/h` (default 142) and `-logcavegate` (position / speed / state each second) for tests. The per-frame block that used to set CaveWalls on Hawai no longer touches the gate state.
+- Verified (state machine only): `-island hawai -tp 39380,20085 -heading 180 ...` logs closed -> `opened at 142 km/h (39344, 20149)` -> open through the cave -> `closed` after leaving the box; with `-cavegatespeed 999` it stays closed. heading 0 faces -z, 180 faces +z.
+- NOT verified: that the rock really stops a car below 88 mph. The headless runs reach 300+ km/h (or the sim flips the car) so they tunnel the rock; the owner's earlier note says the car stopped at x ~39272 with walls on. Also unknown where exactly the "wall" is (the 88 mph test counts anywhere in the cave area, not at one wall face). Next: drive it by hand, then tighten the trigger to the real wall.
+
 ## Session 2026-11-15 (`main`, 10): windscreen visible in the inside views, sharper / fresher mirror reflections
 
 Owner (with a 360-recomp reference shot): windshields should be visible inside, tinted, with a dirt arch at the top where the wipers do not reach; enhance mirror reflections.
