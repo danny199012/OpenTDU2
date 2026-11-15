@@ -3,6 +3,13 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 15): soft-ground drag (sand / mud / wet grass slow the car)
+
+Owner: "all please" (sand shading, car effects, ocean / rivers).
+
+- **Done**: `GMFreeRide::tickSurfaceFx` now bleeds horizontal speed exponentially by the share of wheels on soft ground, by `ClassifyGround` material: sand 0.16/s (x1.35 wet), dirt 0.03 + 0.22 x (dirt wetness - 0.3) (mud drags most), grass 0.035 + 0.08 x wetness; tarmac none. [INF: the retail tyre sets have no sand / mud rows.] `-nosoftdrag` = off. Verified headless: farm field, full throttle, frame 420: 55 km/h with it vs 61.7 without (the first, stronger rates cost 37% of the distance and left the car stuck, so they were halved).
+- **NOT done**: sand shading (dunes / ripples / wet-sand sheen), sand thrown onto the body, the ocean and rivers. The ocean (`eden_ocean.cpp`) already has reflection, drift, clarity and tide; improving it needs eyes on the water and a shader-side change (whitecaps / foam, depth tint) - I could not find a convenient viewpoint of open sea in the headless World Viewer (my Hawai test spot looked at the beach / cave rock), so I did not change it blind. Next step: pick a coastal `-tp` spot (use `-logambience` to find a shore) and A/B `-waterclear`, `-wavespeed` first.
+
 ## Session 2026-11-15 (`main`, 14): wet terrain (rain darkens dirt / sand / mud ground)
 
 Owner: "sand and mud" (nicer, interacting with the cars).

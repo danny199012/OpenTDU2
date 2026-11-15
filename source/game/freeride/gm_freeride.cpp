@@ -4787,6 +4787,43 @@ void GMFreeRide::tickSurfaceFx( float deltaTime ) {
     if ( gpRender == nullptr ) {
         return;
     }
+    // Soft ground (sand, mud, wet grass) drags at the car: the share of the wheels on each material times a
+    // per-material rate [INF: the retail tyre sets have no sand / mud rows], wet dirt = mud drags most.
+    // Speed bleeds off exponentially, so a fast car loses a little and a slow one stops sinking in.
+    {
+        static const bool bNoDrag = CmdLine::HasArg( "-nosoftdrag" );
+        if ( !bNoDrag && state == eState::Drive && gpRender != nullptr ) {
+            const GroundWetness &wet = gpRender->getSurfaceFx().getWetness();
+            float rate = 0.0f;
+            int32_t wheelCount = 0;
+            for ( const VehicleDynamics::WheelState &wheel : vehicle.getWheels() ) {
+                wheelCount++;
+                if ( !wheel.bContact ) {
+                    continue;
+                }
+                switch ( ClassifyGround( wheel ) ) {
+                case eGroundMaterial::Sand:
+                    rate += 0.16f * ( 1.0f + 0.35f * wet.get( eGroundMaterial::Sand ) );
+                    break;
+                case eGroundMaterial::Dirt:
+                    rate += 0.03f + 0.22f * Clamp( wet.get( eGroundMaterial::Dirt ) - 0.3f, 0.0f, 0.7f );
+                    break;
+                case eGroundMaterial::Grass:
+                    rate += 0.035f + 0.08f * wet.get( eGroundMaterial::Grass );
+                    break;
+                default:
+                    break;
+                }
+            }
+            rate /= static_cast<float>( Max( wheelCount, 1 ) );
+            const float speed = vehicle.getVelocity().length();
+            if ( rate > 0.0f && speed > 1.0f ) {
+                const float keep = expf( -rate * deltaTime );
+                const Vector3f v = vehicle.getVelocity();
+                vehicle.addVelocity( Vector3f( v.x * ( keep - 1.0f ), 0.0f, v.z * ( keep - 1.0f ) ) );
+            }
+        }
+    }
     EdenSurfaceFx &fx = gpRender->getSurfaceFx();
     static const bool bDisabled = CmdLine::HasArg( "-nosurfacefx" );
     static const float scale = static_cast<float>( CmdLine::GetArgInt( "-surfacefxscale", 1 ) );
