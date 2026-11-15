@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 20): dev build KnownSpots decoded - it is the "seen" list, not a discovery gate
+
+- Spec `docs/re/map_spots_spec.md` section 9: the class layout (450 ids + count + club flag), `add` / `isKnown` / `isTrackable`, and the only two live adders (`0xb0d3a0` map select, `0xa7ec80` mode enter). `isKnown` is read only by the icon updater, where `!isKnown` = the `news` bubble. No proximity test exists in this code.
+- Code unchanged. The port's proximity-discovery rule is the owner's description of retail and stays; the dev build cannot confirm or refute it (3 months older, or retail hides spots another way).
+- Next, if wanted: a separate "visited" list in the profile so the `news` badge can be driven (selected / entered clears it), and the 450 cap.
+
 ## Session 2026-11-15 (`main`, 19): map icons show favourite / target state (dev build `0xb19f20`)
 
 - `map_screen.cpp` / `.h`: `updateSpots` drives each visible icon's `/spot/favorite` (bookmarked spot) and `/spot/target` (GPS target within 60 m) children through `gotoLabel`, cached in `spotStatus`; new flag `-dumpmapspot` lists the icon's status children and labels.

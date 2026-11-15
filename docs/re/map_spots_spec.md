@@ -262,3 +262,23 @@ Then the icon alpha is set to 1.0 and the cached colour slots (`+0xa8` / `+0xac`
  (`buildSpots`) and sets no per-icon status. Cheap parity items: the `_dlc` frame (the retail movie's label list has 26 labels; whether a `_dlc` variant exists there is **not checked** - run `-dumplabels` on MAP.vmf),
 `setTargetStatus` on the targeted spot's icon (the port already tracks `bHasTarget` / `target`), and `setIconFavorite` on bookmarked spots. `setIconNews` needs a visited flag the port does not keep.
 **Still not found:** the discovery distance test and the writer that appends to `KnownSpots`.
+
+## 9. What `KnownSpots` really is in the dev build (2026-11-15, `main`) [CODE-dev]
+
+The save component is a small class (0xE18 bytes: **450 u64 ids at +0, count at +0xe10, club flag byte at +0xe14**; the player-data accessor is `0x418d59`). Its methods (the ctor `0xa398b0` clears everything):
+
+| fn | what it does |
+|---|---|
+| `0xa39950` | `add(id)`: skip if already listed, append while count `< 0x1c2`, otherwise **silently drop** |
+| `0xa398e0` | set the club flag (all clubs become "known" at once; called from `0xa8ab10`, a club-mode init that also pushes three DB values) |
+| `0xa398f0` | `isTrackable(spot)`: the base spot type (vtable slot 4 = 1) is trackable only if its category byte is non-zero, i.e. **houses (cat 0) are never listed**; type 0 uses `[spot+0x110] != 0`; type 2 is always trackable |
+| `0xa39a40` | `isKnown(spot)`: null spot -> true; not trackable -> true; **category 5 (clubs) -> the club flag**; otherwise a linear search of the id list |
+| `0xa39b00` | `add(Spot*)` = `isTrackable` then `add(id)` |
+| `0xa39b40` / `0xa39ac0` | the by-id twins (`add` / `isKnown` through the spot DB `0x1721e70`); **no caller exists** in the exe (dead code) |
+
+**Who adds a spot** (the only two live callers of `add(Spot*)`): `0xb0d3a0`, in the map class (`[this+0x58]` is the selected spot): it stores the spot id in the global `[0x1722424]` (the current spot), marks the spot (`byte [x+0x38] = 1`) and adds it; and `0xa7ec80`, a mode-enter handler: it looks the spot at `[0x1722424]` up and adds it.
+So in the dev build a spot becomes known when it is **selected on the map / entered**, not when the car drives past it. The only reader of `isKnown` besides its by-id twin is the icon updater `0xb19f20` (section 8), where `!isKnown` turns on `setIconNews`: **KnownSpots is the "seen / visited" list that drives the "new" bubble**, not a "hidden until discovered" gate.
+
+**Consequence for the port** [INF]: the port's `KnownSpots` means "discovered by proximity, hidden until then" (`map_screen.cpp` `discoverNear`, 150 m, from the owner's report of retail behaviour). The dev code has no proximity test in this class, so either retail hides spots through another mechanism the dev build does not show, or retail changed this in the 3 months between the builds.
+Do not replace the proximity rule from this evidence alone. What the dev code does support, and the port lacks: a second "visited" notion for the `news` bubble (selected / entered), the 450 cap (silent drop), houses never tracked, and clubs as one flag.
+**Not found:** any proximity / discovery distance test anywhere near the spot code (searched: every caller of `add`, `isKnown`, `isTrackable`).
