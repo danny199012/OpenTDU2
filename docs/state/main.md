@@ -3,6 +3,9 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+### Update: the cave sector is `sector-6-3-6-5` (Hawai), centre about (42240, 22656)
+The bank scan found **`mur_cave.2db` / `mur_cave_n.2db`** ("cave wall") in `islands/hawai/level/area-6/area-6-3/sector-6-3-6-5.bnk` - the only cave-named assets in Hawai. Sector origin = (6*8+6, odd row +half) * 768 = (41856, 22272), size 768 m, centre (42240, 22656). The island map's marker for a car there sits at 0.60 / 0.38 of the island image, the same spot as the player in the owner's video frame (0.60 / 0.35) - so this is the dark patch [INF, two independent hints agree]. `-island hawai -tp 42240,0,22656` lands there (Y 285). Not yet explored in 3D.
+
 ## Session 2026-11-15 (`main`, 12): Hawai test cave - ghost mode to get through the wall
 
 Owner found a video (HSG Automotive "TDU2 : Secret cave location on Hawaii"): the cave is behind a rock wall in the **dark patch just right of the yellow dirt track** north-centre of the Hawai map (the map-glitch gets through on the 360). Their frames: player near the top-middle of the island, a looping dirt track, a lake with cyan roads to the south-east.
