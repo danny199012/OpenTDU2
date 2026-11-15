@@ -216,6 +216,18 @@ void FuelMenu::draw( Renderer2D &renderer ) {
     if ( !message.empty() && messageTimer > 0.0f ) {
         renderer.drawText( pFont, message.c_str(), x0 + 24.0f, y0 + h - 84.0f, 18.0f, Rgba( 255, 230, 140 ) );
     }
-    renderer.drawText( pFont, "Up / Down: choose    Enter / A: fill / repair    Esc / B: leave", x0 + 24.0f, y0 + h - 40.0f,
-                       18.0f, Rgba( 150, 160, 170 ) );
+    // The help bar, in the states of the retail `help` clip (MAIN.vmf, frames 561 /
+    // 572 / 583 [DATA]): `gas` and `vpower` show the grade's help text (loc 1638 /
+    // 1639), `fill_up` the fill prompt. The repair row has none of them: its prompt
+    // is the repair button.
+    const char *pHelp = selected == 0 ? LocStr( 1638, "Select basic gasoline" )
+                                      : selected == 1 ? LocStr( 1639, "Select special V-POWER gasoline for better performances!" )
+                                                      : LocStr( 1865, "Car repair" );
+    renderer.drawRect( Rect2D( x0, y0 + h - 52.0f, w, 52.0f ), Rgba( 0, 0, 0, 120 ) );
+    renderer.drawText( pFont, pHelp, x0 + 24.0f, y0 + h - 44.0f, 16.0f, Rgba( 225, 225, 225 ) );
+    // The button row: the validate button (A / Enter) says what it does, back leaves.
+    renderer.drawText( pFont, selected == 2 ? "A / Enter: repair" : "A / Enter: fill up", x0 + 24.0f, y0 + h - 22.0f, 14.0f,
+                       Rgba( 150, 200, 255 ) );
+    renderer.drawText( pFont, "Up / Down: choose    Esc / B: leave", x0 + w - 24.0f, y0 + h - 22.0f, 14.0f, Rgba( 150, 160, 170 ),
+                       eTextAlign::TA_Right );
 }

@@ -47,6 +47,13 @@ float FuelPricePerLitre( int32_t grade );
 // The bill for `litres` at a grade, to the cent.
 float FuelBill( int32_t grade, float litres );
 
+// The fuel system is an opt-in mod (owner request 2026-11-15): the retail game
+// has no fuel, so a vanilla run burns nothing, shows no gauge, no pump prompts,
+// no map stations. It is on when the launcher's Mods page enabled the
+// `fuel-system` package (<userdata>/mods/enabled.txt); `-fuelmod` forces it on
+// and `-nofuelmod` off, for tests.
+bool FuelModEnabled();
+
 // The player's tank (PlayerProfile::FuelLitres / FuelGrade, so it survives a
 // reload: the retail save has no fuel field at all).
 FuelTank &GetFuelTank();

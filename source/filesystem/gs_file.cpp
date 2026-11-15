@@ -171,6 +171,18 @@ bool GSFile::initialize( TestDriveGameInstance *pInstance ) {
     return true;
 }
 
+bool GSFile::isModEnabled( const char *pId ) const {
+    if ( pId == nullptr ) {
+        return false;
+    }
+    for ( const std::filesystem::path &folder : modPackages ) {
+        if ( folder.filename().string() == pId ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void GSFile::terminate() {
     stopPrefetch();
     resolvedPathCache.clear();

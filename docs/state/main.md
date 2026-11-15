@@ -3,6 +3,22 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`): fuel is an opt-in mod; retail-style fuel gauge; pump help bar
+
+Owner: "use the retail help bar states for the pump screen; make the fuel UI look like these (dev-build gauge + segmented bar); turn fueling into an opt-in mod through the launcher so vanilla players are unaffected".
+
+### What changed
+- **Opt-in mod `fuel-system`**: the launcher's Mods page creates it (`launcher_mods.cpp`, mod.json only, no files). `GSFile::isModEnabled` + `FuelModEnabled()` (`fuel.cpp`; `-fuelmod` / `-nofuelmod` override). Off = vanilla: no burn, no Breakdown, no gauge, no pump prompts (stations, house garage), no map pump icons, no LackOfPetrol. Note: the pump screen also carries Car repair, so with the mod off the station / garage repair is gone too [INF].
+- **Fuel HUD** (`freeride_hud.cpp drawFuel`): round dial (arc of 11 ticks E..F, red zone at E, pump glyph, red needle on a grey hub, E / F, litres + range) after the dev-build dial; `-fuelbar` = the segmented digital bar (pump, E, ten cells, F; red when low). All procedural (Renderer2D triangles), no art needed; AlexVII's sheet could replace the glyph later.
+- **Pump screen help bar** (`fuel_menu.cpp`): the retail `help` states `gas` / `vpower` / `fill_up` as text: loc 1638 / 1639 for the selected grade, "A / Enter: fill up" button row.
+- `-openpump <frame>` test hook.
+
+### Verified
+- `-fuelmod -fuel 55`: dial needle at 70 %; `-fuelbar -fuel 14`: 2 red cells; `-nofuelmod`: no gauge. `-openpump 200` screenshots show both help texts. `enabled.txt` with `fuel-system` -> log "fuel-system mod is enabled"; without -> "off (vanilla)". Launcher builds; the Mods page itself not viewed on screen.
+
+### Not done / next
+- Real tank burn over a long drive not re-run; the pump icon is procedural (AlexVII's sheet would replace `drawPump`).
+
 ## Session 2026-11-14 (`main`, 17th): phone calls playable (owner: "build calls now")
 
 ### What changed

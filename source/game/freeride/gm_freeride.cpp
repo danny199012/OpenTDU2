@@ -2418,8 +2418,15 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
     // the HUD's one-line bar, so it cannot fight the enter-spot element above.
     {
         std::string stationPrompt;
-        const ModProps::Prop *pStation = bRaceUp ? nullptr : modProps.findFuelStation( vehicle.getPosition(), 35.0f );
-        const ServiceStations::Station *pService = bRaceUp ? nullptr : serviceStations.findNear( vehicle.getPosition(), 35.0f );
+        const bool bFuelMod = FuelModEnabled();
+        // -openpump <frame>: opens the pump screen for a test (the station is not needed).
+        static const char *pOpenPump = CmdLine::GetArgValue( "-openpump" );
+        static int32_t pumpFrames = 0;
+        if ( pOpenPump != nullptr && bFuelMod && ++pumpFrames == atoi( pOpenPump ) ) {
+            fuelMenu.open( "test" );
+        }
+        const ModProps::Prop *pStation = bRaceUp || !bFuelMod ? nullptr : modProps.findFuelStation( vehicle.getPosition(), 35.0f );
+        const ServiceStations::Station *pService = bRaceUp || !bFuelMod ? nullptr : serviceStations.findNear( vehicle.getPosition(), 35.0f );
         if ( pStation == nullptr && pService != nullptr && !fuelMenu.isOpen() ) {
             // A listed petrol station: pump + repair, the same stop-and-validate rule.
             stationPrompt = std::string( LocStr( 1642, "Fill" ) ) + " / " + LocStr( 1865, "Car repair" ) + ": " + pService->Name;
@@ -4769,13 +4776,15 @@ void GMFreeRide::ensureModPropsLoaded() {
     modProps.load( *pEdenRenderer, islandName );
     std::vector<Vector3f> stations;
     for ( const ModProps::Prop &prop : modProps.getProps() ) {
-        if ( prop.bFuelStation ) {
+        if ( prop.bFuelStation && FuelModEnabled() ) {
             stations.push_back( prop.Position );
         }
     }
     serviceStations.load( islandName );
     for ( const ServiceStations::Station &station : serviceStations.getAll() ) {
-        stations.push_back( station.Position );
+        if ( FuelModEnabled() ) {
+            stations.push_back( station.Position );
+        }
     }
     mapScreen.setFuelStations( stations );
 }
@@ -5268,7 +5277,7 @@ void GMFreeRide::tick( float deltaTime ) {
                     OTDU_LOG_INFO( "FREERIDE: garage: driven car -> %d '%s'\n", nearCarId,
                                    FindCarDisplayName( nearCarId ).c_str() );
                 }
-            } else {
+            } else if ( FuelModEnabled() ) {
                 hud.setPrompt( std::string( "A / Enter: " ) + LocStr( 1642, "Fill" ) );
                 if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
                     hud.setPrompt( "" );
@@ -5699,7 +5708,7 @@ void GMFreeRide::tick( float deltaTime ) {
             const float odometer = vehicle.getOdometer();
             const float distanceKm = Max( 0.0f, odometer - fuelOdometer ) / 1000.0f;
             fuelOdometer = odometer;
-            if ( distanceKm > 0.0f && !fuelMenu.isOpen() && !bFuelEmpty ) {
+            if ( FuelModEnabled() && distanceKm > 0.0f && !fuelMenu.isOpen() && !bFuelEmpty ) {
                 if ( BurnFuel( setup.Db, distanceKm, vehicle.getSpeedKmh() ) ) {
                     OTDU_LOG_INFO( "Fuel: tank empty after %.0f m - Breakdown\n", odometer );
                 }
@@ -6455,7 +6464,8 @@ void GMFreeRide::tick( float deltaTime ) {
     // fuel needle of its own and the movie no fuel element, so the port draws one.
     {
         const FuelTank &tank = GetFuelTank();
-        hud.setFuel( tank.Litres, tank.Capacity, tank.RangeKm, tank.Grade );
+        // Vanilla (the fuel-system mod off): capacity 0 hides the gauge.
+        hud.setFuel( tank.Litres, FuelModEnabled() ? tank.Capacity : 0.0f, tank.RangeKm, tank.Grade );
     }
     hudState.RedLine = setup.Db.RedLine;
     hudState.RpmMax = setup.Db.RPMMax;

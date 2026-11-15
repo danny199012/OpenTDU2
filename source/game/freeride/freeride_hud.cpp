@@ -2813,28 +2813,126 @@ void FreeRideHud::drawFuel( Renderer2D &renderer ) {
         return;
     }
     const Font *pFont = gpFlash->getTitleFont();
-    // Centred on the odometer box (its centre is x 1102.5).
-    const float x0 = 1030.0f, y0 = 686.0f, w = 145.0f, h = 26.0f;
-    renderer.drawRect( Rect2D( x0, y0, w, h ), Rgba( 0, 0, 0, 150 ) );
-    const float fraction = Clamp( fuelLitres / fuelCapacity, 0.0f, 1.0f );
-    const uint32_t fill = fraction <= 0.001f ? Rgba( 220, 40, 40 )
-                                               : fraction < 0.1f ? Rgba( 235, 110, 30 )
-                                                                 : fraction < 0.25f ? Rgba( 235, 200, 40 )
-                                                                                    : Rgba( 90, 200, 90 );
-    const float barX = x0 + 6.0f, barY = y0 + 9.0f, barW = 54.0f, barH = 9.0f;
-    if ( fraction > 0.0f ) {
-        renderer.drawRect( Rect2D( barX, barY, barW * fraction, barH ), fill );
+    const float tankFraction = Clamp( fuelLitres / fuelCapacity, 0.0f, 1.0f );
+
+    // A white pump glyph (the icon of the dev-build fuel gauges): body with a
+    // window, the hose and the nozzle on the right, a base.
+    const auto drawPump = [&]( float cx, float cy, float s, uint32_t color ) {
+        renderer.drawRect( Rect2D( cx - 0.30f * s, cy - 0.50f * s, 0.46f * s, 0.92f * s ), color );
+        renderer.drawRect( Rect2D( cx - 0.22f * s, cy - 0.42f * s, 0.30f * s, 0.26f * s ), Rgba( 20, 20, 24, 255 ) );
+        renderer.drawRect( Rect2D( cx + 0.20f * s, cy - 0.30f * s, 0.07f * s, 0.55f * s ), color );
+        renderer.drawRect( Rect2D( cx + 0.16f * s, cy - 0.34f * s, 0.18f * s, 0.07f * s ), color );
+        renderer.drawRect( Rect2D( cx + 0.30f * s, cy + 0.10f * s, 0.07f * s, 0.30f * s ), color );
+        renderer.drawRect( Rect2D( cx - 0.38f * s, cy + 0.42f * s, 0.62f * s, 0.08f * s ), color );
+    };
+
+    if ( CmdLine::HasArg( "-fuelbar" ) ) {
+        // The digital-dash version: pump, E, ten segments, F. Filled segments
+        // are white, red when the tank is low; the rest are empty slots.
+        const float x0 = 960.0f, y0 = 688.0f;
+        const bool bLow = tankFraction < 0.25f;
+        drawPump( x0 + 10.0f, y0 + 10.0f, 18.0f, Rgba( 235, 235, 235, 255 ) );
+        renderer.drawText( pFont, "E", x0 + 26.0f, y0 + 2.0f, 16.0f, Rgba( 235, 235, 235, 255 ) );
+        const int32_t lit = tankFraction <= 0.001f ? 0 : Clamp( static_cast<int32_t>( std::ceil( tankFraction * 10.0f ) ), 1, 10 );
+        for ( int32_t i = 0; i < 10; i++ ) {
+            const Rect2D cell( x0 + 42.0f + 12.0f * static_cast<float>( i ), y0 + 2.0f, 10.0f, 18.0f );
+            renderer.drawRect( cell, i < lit ? ( bLow ? Rgba( 225, 30, 30, 255 ) : Rgba( 235, 235, 235, 255 ) ) : Rgba( 60, 60, 66, 200 ) );
+        }
+        renderer.drawRectOutline( Rect2D( x0 + 40.0f, y0, 124.0f, 22.0f ), 1.0f, Rgba( 235, 235, 235, 255 ) );
+        renderer.drawText( pFont, "F", x0 + 170.0f, y0 + 2.0f, 16.0f, Rgba( 235, 235, 235, 255 ) );
+        return;
     }
-    renderer.drawRectOutline( Rect2D( barX, barY, barW, barH ), 1.0f, Rgba( 200, 200, 200 ) );
-    char text[48];
-    snprintf( text, sizeof( text ), "%s %.0f L", LocStr( 5821, "Fuel" ), fuelLitres );
-    renderer.drawText( pFont, text, x0 + 66.0f, y0 + 2.0f, 12.0f, Rgba( 235, 235, 235 ) );
-    // The range is 0 until the first burn sets the consumption: "--" then.
-    char range[32] = "--";
-    if ( fuelRangeKm > 0.0f ) {
-        FormatDistance( range, sizeof( range ), fuelRangeKm * 1000.0f );
+
+    // The round gauge (the dev-build fuel dial): an arc of ticks from E to F, the
+    // red zone at E, the pump in the middle, a red needle on a grey hub.
+    {
+        const float cx = 955.0f, cy = 690.0f, radius = 52.0f;
+        const float kPi = 3.14159265f;
+        const float startAngle = -50.0f * kPi / 180.0f, endAngle = 50.0f * kPi / 180.0f;
+        const auto point = [&]( float angle, float r, float &x, float &y ) {
+            x = cx + std::sin( angle ) * r;
+            y = cy - std::cos( angle ) * r;
+        };
+        const auto line = [&]( float x0, float y0, float x1, float y1, float thick, uint32_t color ) {
+            float dx = x1 - x0, dy = y1 - y0;
+            const float length = std::sqrt( dx * dx + dy * dy );
+            if ( length < 0.001f ) {
+                return;
+            }
+            const float nx = -dy / length * thick * 0.5f, ny = dx / length * thick * 0.5f;
+            const Vertex2D quad[6] = { { x0 + nx, y0 + ny, 0, 0, color }, { x0 - nx, y0 - ny, 0, 0, color }, { x1 + nx, y1 + ny, 0, 0, color },
+                                       { x1 + nx, y1 + ny, 0, 0, color }, { x0 - nx, y0 - ny, 0, 0, color }, { x1 - nx, y1 - ny, 0, 0, color } };
+            renderer.drawTriangles( nullptr, quad, 6 );
+        };
+        const uint32_t white = Rgba( 240, 240, 240, 255 ), red = Rgba( 225, 35, 35, 255 );
+        // A dark disc behind, so the dial reads over any road.
+        {
+            Vertex2D fan[48 * 3];
+            const uint32_t shade = Rgba( 0, 0, 0, 90 );
+            for ( int32_t i = 0; i < 48; i++ ) {
+                const float a0 = startAngle - 0.12f + ( endAngle - startAngle + 0.24f ) * static_cast<float>( i ) / 48.0f;
+                const float a1 = startAngle - 0.12f + ( endAngle - startAngle + 0.24f ) * static_cast<float>( i + 1 ) / 48.0f;
+                float x0, y0, x1, y1;
+                point( a0, radius + 6.0f, x0, y0 );
+                point( a1, radius + 6.0f, x1, y1 );
+                fan[i * 3 + 0] = { cx, cy, 0, 0, shade };
+                fan[i * 3 + 1] = { x0, y0, 0, 0, shade };
+                fan[i * 3 + 2] = { x1, y1, 0, 0, shade };
+            }
+            renderer.drawTriangles( nullptr, fan, 48 * 3 );
+        }
+        // The arc, thin, with the E end red.
+        for ( int32_t i = 0; i < 40; i++ ) {
+            const float t0 = static_cast<float>( i ) / 40.0f, t1 = static_cast<float>( i + 1 ) / 40.0f;
+            float x0, y0, x1, y1;
+            point( startAngle + ( endAngle - startAngle ) * t0, radius, x0, y0 );
+            point( startAngle + ( endAngle - startAngle ) * t1, radius, x1, y1 );
+            line( x0, y0, x1, y1, t1 <= 0.13f ? 3.0f : 1.6f, t1 <= 0.13f ? red : white );
+        }
+        // Eleven ticks: long at E, half and F.
+        for ( int32_t i = 0; i <= 10; i++ ) {
+            const float t = static_cast<float>( i ) / 10.0f;
+            const float angle = startAngle + ( endAngle - startAngle ) * t;
+            const bool bMajor = i == 0 || i == 5 || i == 10;
+            float x0, y0, x1, y1;
+            point( angle, radius - ( bMajor ? 11.0f : 7.0f ), x0, y0 );
+            point( angle, radius, x1, y1 );
+            line( x0, y0, x1, y1, bMajor ? 2.4f : 1.6f, i <= 1 ? red : white );
+        }
+        // E and F in white italics at the ends.
+        {
+            float ex, ey, fx, fy;
+            point( startAngle, radius + 8.0f, ex, ey );
+            point( endAngle, radius + 8.0f, fx, fy );
+            renderer.drawText( pFont, "E", ex - 10.0f, ey - 8.0f, 16.0f, white, eTextAlign::TA_Center );
+            renderer.drawText( pFont, "F", fx + 10.0f, fy - 8.0f, 16.0f, white, eTextAlign::TA_Center );
+        }
+        drawPump( cx, cy - radius * 0.52f, 20.0f, white );
+        // The needle: red, from the hub to just inside the ticks; the hub grey.
+        {
+            const float angle = startAngle + ( endAngle - startAngle ) * tankFraction;
+            float tx, ty;
+            point( angle, radius - 4.0f, tx, ty );
+            line( cx, cy, tx, ty, 3.0f, red );
+            Vertex2D hub[16 * 3];
+            const uint32_t grey = Rgba( 190, 190, 195, 255 );
+            for ( int32_t i = 0; i < 16; i++ ) {
+                const float a0 = 2.0f * kPi * static_cast<float>( i ) / 16.0f, a1 = 2.0f * kPi * static_cast<float>( i + 1 ) / 16.0f;
+                hub[i * 3 + 0] = { cx, cy, 0, 0, grey };
+                hub[i * 3 + 1] = { cx + std::cos( a0 ) * 6.0f, cy + std::sin( a0 ) * 6.0f, 0, 0, grey };
+                hub[i * 3 + 2] = { cx + std::cos( a1 ) * 6.0f, cy + std::sin( a1 ) * 6.0f, 0, 0, grey };
+            }
+            renderer.drawTriangles( nullptr, hub, 16 * 3 );
+        }
+        char text[48];
+        char range[32] = "--";
+        if ( fuelRangeKm > 0.0f ) {
+            FormatDistance( range, sizeof( range ), fuelRangeKm * 1000.0f );
+        }
+        snprintf( text, sizeof( text ), "%.0f L   %s", fuelLitres, range );
+        renderer.drawText( pFont, text, cx, cy + 9.0f, 12.0f, Rgba( 235, 235, 235, 255 ), eTextAlign::TA_Center );
+        return;
     }
-    renderer.drawText( pFont, range, x0 + 66.0f, y0 + 14.0f, 11.0f, Rgba( 200, 210, 220 ) );
 }
 
 void FreeRideHud::drawZone( Renderer2D &renderer ) {

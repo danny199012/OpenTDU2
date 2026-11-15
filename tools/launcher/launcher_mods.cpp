@@ -26,6 +26,18 @@ const char *kOriginalPhysicsJson =
     "  \"import\": [ \"Physics.cpr\" ]\n"
     "}\n";
 
+// A behaviour mod: no files, only the switch the game reads (GSFile::isModEnabled).
+const char *kFuelSystemJson =
+    "{\n"
+    "  \"name\": \"Fuel system (experimental)\",\n"
+    "  \"version\": \"1.0\",\n"
+    "  \"author\": \"OpenTDU2\",\n"
+    "  \"description\": \"Adds fuel to the game. The retail game ships with the feature cut. With this on, the tank "
+    "burns with the distance you drive (each car's own consumption), a fuel gauge shows on the HUD, you can run dry "
+    "(Breakdown), and you fill up at your house garage pump and at petrol stations (pump icons on the world map). "
+    "Leave it off for the vanilla experience: no fuel, no gauge, no pumps.\"\n"
+    "}\n";
+
 int CountFiles( const fs::path &folder ) {
     int count = 0;
     std::error_code ec;
@@ -56,6 +68,12 @@ void EnsureBundledMods( const std::wstring &userData ) {
     if ( !FileExists( manifest ) ) {
         MakeDirs( folder );
         WriteTextFile( manifest, kOriginalPhysicsJson );
+    }
+    const std::wstring fuelFolder = JoinPath( JoinPath( ModsRoot( userData ), L"packages" ), L"fuel-system" );
+    const std::wstring fuelManifest = JoinPath( fuelFolder, L"mod.json" );
+    if ( !FileExists( fuelManifest ) ) {
+        MakeDirs( fuelFolder );
+        WriteTextFile( fuelManifest, kFuelSystemJson );
     }
 }
 

@@ -2,8 +2,25 @@
 #include "fuel.h"
 
 #include "database/gs_database.h"
+#include "filesystem/gs_file.h"
 #include "game/player_profile.h"
 #include "system/cmd_line.h"
+
+bool FuelModEnabled() {
+    if ( CmdLine::HasArg( "-nofuelmod" ) ) {
+        return false;
+    }
+    if ( CmdLine::HasArg( "-fuelmod" ) ) {
+        return true;
+    }
+    // The package list is fixed at start; looked up once.
+    static int32_t cached = -1;
+    if ( cached < 0 ) {
+        cached = ( gpFile != nullptr && gpFile->isModEnabled( "fuel-system" ) ) ? 1 : 0;
+        OTDU_LOG_INFO( "Fuel: the fuel-system mod is %s\n", cached != 0 ? "enabled" : "off (vanilla)" );
+    }
+    return cached != 0;
+}
 
 namespace {
 // The two grades of the retail pump screen (loc 1636 / 1637).

@@ -42,6 +42,9 @@ public:
     inline const std::vector<std::filesystem::path> &getModPackages() const {
         return modPackages;
     }
+    // True when the launcher's Mods page enabled the package folder `id`
+    // (behaviour mods such as `fuel-system` ship no files, only a mod.json).
+    bool isModEnabled( const char *pId ) const;
 
     // Root of the bank folder ("Euro/Bnk/"), as used by the format strings of
     // the original executable (e.g. "%sVehicules/High/%s.bnk").
