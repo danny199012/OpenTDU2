@@ -3,6 +3,19 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 3): rain on the car's glass from outside, cars get wetter over time
+
+### What changed
+- `cinematic_car.cpp` `applyGlassWet` (called from `applySurfaceState`): the exterior glass materials' DETAIL2 slot (the RGBA overlay `base = lerp(base, G_I.rgb, G_I.a)`, car_glass_spec.md 2 [SHADER]; the cracked glass swaps there too) gets a procedural droplet overlay (`MakeRainGlassTexture`, 3 densities, 256^2) as the water film passes 0.12 / 0.40 / 0.70. A cracked window keeps its crack texture. `-norainglass` disables.
+- `car_dirt.cpp`: `kRainSoak` 0.35 -> 0.06 (about 17 s of rain to soak, was 3 s) so the car visibly gets wetter over time; the paint darkens up to 30 % (was 22 %) and the body reflection gain is 1 + 0.7 wet (was 0.45). [INF all rates]
+
+### Verified
+- `-intempery 3 -cameramode 20`, 1500 frames: log shows glass level 1 (water 0.12) -> 2 (0.40) -> 3 (0.70) on 5 glass slots; the wet glossy paint shows in the screenshot. The droplets themselves on the glass were NOT seen (the California's rear window is too small at chase distance): check a coupe from the chase view and the pause-less photo camera up close.
+
+### Not done / next
+- Drops are a static overlay (they do not run or evaporate individually); the three levels swap with the water film. The wipers do not clear the outside glass overlay (only the inside screen-space drops).
+- The overlay UV is the glass's own: a windscreen with unusual UVs may show stretched beads.
+
 ## Session 2026-11-15 (`main`, 2): spec card off, photo-mode head, weather blend, lens droplets
 
 Owner: remove the bottom-right car stats card (predates the dealership UI); headless driver in photo mode; blend weather / day-night better (rain starting slow); droplets and wipers in other views.

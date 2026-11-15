@@ -3000,6 +3000,7 @@ void CinematicCar::applyGlassSwap( bool bInside ) {
     // was repaired by switching to the chase camera). applyDamageState is idempotent, so
     // forget what it applied.
     appliedDamageState = -1;
+    appliedGlassWet = 0;
 }
 
 void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const WeatherPreset *pWeather,
@@ -3026,7 +3027,7 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     // reflection, a wet one gains a little (the water film acts as a mirror on
     // the clean paint). The body carries stainVisual / wetVisual; the rims and
     // the tires keep the weather values.
-    const float gloss = ( 1.0f - 0.85f * stainVisual ) * ( 1.0f + 0.45f * wetVisual );
+    const float gloss = ( 1.0f - 0.85f * stainVisual ) * ( 1.0f + 0.7f * wetVisual );
     Vector4f bodyEnvCoeff = envCoeff;
     bodyEnvCoeff.x = envCoeff.x * gloss;
     static const uint64_t kEnvCoeff = GetIdentifier64bit( "ENVCOEFF" );
@@ -3202,6 +3203,110 @@ void CinematicCar::applyDamageState( int32_t state ) {
     OTDU_LOG_INFO( "CinematicCar: damage state %d -> %s glass (%u slot(s))\n", state, bCracked ? "cracked" : "clean", changed );
 }
 
+namespace {
+// A droplet overlay for the exterior glass (the glass shader's DETAIL2 slot is
+// an RGBA overlay: base = lerp( base, G_I.rgb, G_I.a ), car_glass_spec.md 2 -
+// the cracked glass swaps there too). Procedural: round beads with a bright
+// lower rim and, on the bigger ones, a short run-off tail. Three densities.
+GPUTexture *MakeRainGlassTexture( int32_t level ) {
+    constexpr int32_t kSize = 256;
+    std::vector<uint8_t> pixels( static_cast<size_t>( kSize ) * kSize * 4, 0 );
+    uint32_t seed = 0x1badf00du + static_cast<uint32_t>( level ) * 7919u;
+    auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<float>( seed >> 8 ) / 16777216.0f;
+    };
+    const int32_t count = level == 1 ? 70 : ( level == 2 ? 170 : 320 );
+    for ( int32_t n = 0; n < count; n++ ) {
+        const float cx = rnd() * kSize, cy = rnd() * kSize;
+        const float radius = rnd() < 0.8f ? 1.5f + rnd() * 3.0f : 4.0f + rnd() * 4.5f;
+        const float tail = radius > 4.0f && rnd() < 0.6f ? radius * ( 2.0f + rnd() * 4.0f ) : 0.0f;
+        const int32_t extent = static_cast<int32_t>( radius + tail ) + 2;
+        for ( int32_t dy = -static_cast<int32_t>( radius ) - 2; dy <= extent; dy++ ) {
+            for ( int32_t dx = -static_cast<int32_t>( radius ) - 2; dx <= static_cast<int32_t>( radius ) + 2; dx++ ) {
+                float alpha = 0.0f, shade = 0.0f;
+                const float d = std::sqrt( static_cast<float>( dx * dx + dy * dy ) );
+                if ( d <= radius ) {
+                    alpha = 0.20f + 0.18f * ( d / radius );
+                    // bright rim on the lower left, a dark core: a lens
+                    const float side = ( -dx * 0.5f + dy * 0.8f ) / Max( radius, 1.0f );
+                    shade = 0.55f + 0.45f * Clamp( side, 0.0f, 1.0f );
+                    alpha += 0.35f * Clamp( side, 0.0f, 1.0f );
+                } else if ( dy > 0 && dy < tail && std::abs( dx ) <= 1 ) {
+                    alpha = 0.10f * ( 1.0f - dy / tail );
+                    shade = 0.8f;
+                }
+                if ( alpha <= 0.0f ) {
+                    continue;
+                }
+                const int32_t x = ( ( static_cast<int32_t>( cx ) + dx ) % kSize + kSize ) % kSize;
+                const int32_t y = ( ( static_cast<int32_t>( cy ) + dy ) % kSize + kSize ) % kSize;
+                uint8_t *px = &pixels[( static_cast<size_t>( y ) * kSize + x ) * 4];
+                const float a = Max( alpha, px[3] / 255.0f );
+                const float c = Clamp( 0.60f + 0.40f * shade, 0.0f, 1.0f );
+                px[0] = static_cast<uint8_t>( 205.0f * c );
+                px[1] = static_cast<uint8_t>( 222.0f * c );
+                px[2] = static_cast<uint8_t>( 240.0f * c );
+                px[3] = static_cast<uint8_t>( Clamp( a, 0.0f, 1.0f ) * 255.0f );
+            }
+        }
+    }
+    const void *pData = pixels.data();
+    const uint32_t size = static_cast<uint32_t>( pixels.size() );
+    char name[32];
+    snprintf( name, sizeof( name ), "rain_glass_%d", level );
+    return gpRender->getDevice().createTexture2D( kSize, kSize, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, name );
+}
+} // namespace
+
+// Rain on the car's windows from outside: the wetter the car (CarDirt water
+// film, which now builds over ~20 s of rain), the denser the droplet overlay in
+// the glass materials' DETAIL2 slot. -norainglass leaves the glass alone.
+void CinematicCar::applyGlassWet( float wet ) {
+    static const bool bOff = CmdLine::HasArg( "-norainglass" );
+    // A cracked window keeps its crack texture (applyDamageState owns the slot).
+    if ( bOff || gpRender == nullptr || !car.isLoaded() || appliedDamageState == 1 ) {
+        return;
+    }
+    const int32_t level = wet < 0.12f ? 0 : ( wet < 0.40f ? 1 : ( wet < 0.70f ? 2 : 3 ) );
+    // A little hysteresis so the level does not flicker at a threshold.
+    if ( level == appliedGlassWet || ( level < appliedGlassWet && wet > 0.0f && level != 0 &&
+                                       wet > ( level == 1 ? 0.10f : ( level == 2 ? 0.38f : 0.68f ) ) &&
+                                       appliedGlassWet == level + 1 ) ) {
+        return;
+    }
+    static GPUTexture *pRain[4] = {};
+    GPUTexture *pClean = gpRender->getTextureCache().find( "g_i" );
+    if ( pClean == nullptr ) {
+        return; // common_car.bnk not loaded yet
+    }
+    if ( level > 0 && pRain[level] == nullptr ) {
+        pRain[level] = MakeRainGlassTexture( level );
+        if ( pRain[level] == nullptr ) {
+            return;
+        }
+    }
+    GPUTexture *pWanted = level == 0 ? pClean : pRain[level];
+    const uint64_t wanted = level == 0 ? GetIdentifier64bit( "G_I" ) : GetIdentifier64bit( pRain[level]->Name.c_str() );
+    static const uint64_t kDetail2 = GetIdentifier64bit( "DETAIL2" );
+    static const uint64_t kCarPaint = 0x183157b81c6c7357ull;
+    uint32_t changed = 0;
+    for ( EdenMaterial &material : car.getMaterials() ) {
+        if ( material.ShaderSetGUID != kCarPaint || material.Name.compare( 0, 5, "Glass" ) != 0 ) {
+            continue;
+        }
+        for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
+            if ( material.SlotTypes[i] == kDetail2 && material.TextureHashes[i] != wanted ) {
+                material.pTextures[i] = pWanted;
+                material.TextureHashes[i] = wanted;
+                changed++;
+            }
+        }
+    }
+    appliedGlassWet = level;
+    OTDU_LOG_INFO( "CinematicCar: rain on the glass level %d (water %.2f, %u slot(s))\n", level, wet, changed );
+}
+
 void CinematicCar::applyPartDamage( float front, float rear, float left, float right ) {
     if ( !car.isLoaded() ) {
         return;
@@ -3343,6 +3448,7 @@ void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, flo
     }
     stainVisual = stain;
     wetVisual = wet;
+    applyGlassWet( wet );
     static const uint64_t kRampClr1 = GetIdentifier64bit( "RAMPCLR1" );
     static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
     const auto isPaint = []( const std::string &name ) {
@@ -3384,7 +3490,7 @@ void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, flo
     const Vector4f dustTint( 0.46f, 0.41f, 0.34f, 1.0f );
     const float mudShare = stain > 0.001f ? Clamp( mud / stain, 0.0f, 1.0f ) : 0.0f;
     const float blend = Clamp( stain * 0.85f, 0.0f, 0.88f );
-    const float darkness = 1.0f - 0.22f * wet; // a soaked body reads darker
+    const float darkness = 1.0f - 0.30f * wet; // a soaked body reads darker
     const Vector4f tint( Lerp1( dustTint.x, mudTint.x, mudShare ), Lerp1( dustTint.y, mudTint.y, mudShare ),
                          Lerp1( dustTint.z, mudTint.z, mudShare ), 1.0f );
     std::vector<EdenMaterial> &materials = car.getMaterials();

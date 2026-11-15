@@ -8,7 +8,7 @@ namespace {
 // encrypted range and the save only carries the resulting per-car bytes.
 constexpr float kMudRate = 0.13f;      // mud thrown on the body, 1/s at full mud contact and 60 km/h
 constexpr float kDirtRate = 0.07f;     // dry dirt dusting, 1/s at full dirt contact and 60 km/h
-constexpr float kRainSoak = 0.35f;     // water film, 1/s at full rain
+constexpr float kRainSoak = 0.06f;     // water film, 1/s at full rain (~17 s to soak: the car gets wet over time)
 constexpr float kRainWash = 0.055f;    // mud washed off, 1/s at full rain on runny mud
 constexpr float kSoakSoftening = 0.05f;// the baked crust softens under the rain, 1/s at full rain
 constexpr float kSunDry = 0.040f;      // mud sets into a crust, 1/s at full sun
