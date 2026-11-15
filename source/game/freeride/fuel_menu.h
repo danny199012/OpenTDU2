@@ -23,12 +23,25 @@ public:
     // Keys: up / down pick the grade, validate fills (pays the bill), back closes.
     void tick( float deltaTime );
     void draw( Renderer2D &renderer );
+    // The car repair row (loc 1865 "Car repair", the retail text of a cut feature): the game tells the
+    // menu how damaged the car is and what the repair costs; a paid repair is handed back through
+    // takeRepair() and the game restores the car (damage, parts, glass).
+    struct RepairInfo {
+        float Damage = 0.0f;                          // 0..65535, the whole car
+        float Zone[4] = { 0.0f, 0.0f, 0.0f, 0.0f };   // front, rear, left, right
+        int32_t Price = 0;                            // dollars
+    };
+    inline void setRepair( const RepairInfo &info ) { repair = info; }
+    // True once when the player paid for the repair this frame.
+    bool takeRepair();
     // The line the caller shows while the menu is closed ("Fill" / "Breakdown").
     const std::string &getHint() const { return hint; }
 
 private:
     bool bOpen = false;
-    int32_t selected = 0; // 0 Shell basic, 1 Shell v-power
+    int32_t selected = 0; // 0 Shell basic, 1 Shell v-power, 2 car repair
+    RepairInfo repair;
+    bool bRepairPaid = false;
     bool bConfirmReplace = false;
     std::string where;
     std::string hint;
@@ -37,4 +50,5 @@ private:
     float lastBill = 0.0f;
 
     void fill();
+    void payRepair();
 };

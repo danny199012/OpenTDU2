@@ -218,3 +218,10 @@ Not done: no HUD gauge (no `/:` global exists for one), the grades have no
 performance effect yet (v-power only burns 3 % leaner), and the prices are the
 port's own.
 
+## 7. Service stations: repairs and a station list (2026-11-15, `main`)
+- The retail text has a repair concept too: loc **1865 "Car repair"**, 1888 "Go to the garage", 72 / 761 "Damage" (`-locfind <word>` lists the ids whose text contains a word). The recomp's stations show REPAIR bays.
+- `FuelMenu` has a third row, **Car repair**: four bars (front, rear, left, right) from `VehicleDynamics::getZoneDamage`, the whole-car damage in % and the bill. The price is 3 % of the car's price at full damage, at least $50, nothing under 1500 damage [INF: the retail prices
+  of the cut feature are not in the data]. Paying takes the money, then `GMFreeRide` resets the damage, the zones (bumpers, bonnet / boot, doors) and the cracked glass (`FREERIDE: the car was repaired`).
+- Stations: the shipped world registers none, so `ServiceStations` (`source/game/freeride/service_stations.*`) reads `<mods>/stations.txt` (`island name x z`; the F6 mark of the debug overlay prints a position); a listed station
+  shows the prompt "Fill / Car repair: <name>" within 35 m, validate while slow opens the pump screen, and it gets the map pump icon. A `fuel` mod prop is the other way (a model of our own). No station is listed by default yet: the positions of the world's petrol stations are needed.
+- Verified headless: a profile with 42000 damage (zones 52000 / 3000 / 9000 / 20000) and $9000 at a listed station: the row showed $4,870, paying left $4,130 and 0 % damage. NOT done: tyres, the fuel stations' own art, a proper Flash window (the screen is the native panel).

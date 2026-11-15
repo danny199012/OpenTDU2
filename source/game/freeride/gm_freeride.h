@@ -23,6 +23,7 @@
 #include "game/freeride/fade_freeride.h"
 #include "game/freeride/first_outro.h"
 #include "game/freeride/fuel_menu.h"
+#include "game/freeride/service_stations.h"
 #include "game/freeride/freeride_hud.h"
 #include "game/freeride/gps_guidance.h"
 #include "game/freeride/photo_camera.h"
@@ -264,6 +265,7 @@ private:
     // garage - where the only gas pump model of the game is - and at a station
     // placed from the mods overlay (a `fuel` prop).
     FuelMenu fuelMenu;
+    ServiceStations serviceStations; // the petrol stations of the island (<mods>/stations.txt)
     float fuelOdometer = 0.0f;
     bool bFuelEmpty = false;
     // The car washes of the island (docs/re/car_wash_spec.md): the ECW_* spots;

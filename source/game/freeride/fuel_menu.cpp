@@ -61,12 +61,16 @@ void FuelMenu::tick( float deltaTime ) {
         return;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
-        selected = ( selected + 1 ) % 2;
+        selected = ( selected + 2 ) % 3;
         bConfirmReplace = false;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
-        selected = ( selected + 1 ) % 2;
+        selected = ( selected + 1 ) % 3;
         bConfirmReplace = false;
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) && selected == 2 ) {
+        payRepair();
+        return;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         const FuelTank &tank = GetFuelTank();
@@ -81,6 +85,32 @@ void FuelMenu::tick( float deltaTime ) {
         }
         fill();
     }
+}
+
+bool FuelMenu::takeRepair() {
+    const bool bPaid = bRepairPaid;
+    bRepairPaid = false;
+    return bPaid;
+}
+
+void FuelMenu::payRepair() {
+    PlayerProfile &profile = GetPlayerProfile();
+    if ( repair.Damage < 1500.0f ) {
+        message = "Nothing to repair: the car is in good shape.";
+        messageTimer = 4.0f;
+        return;
+    }
+    if ( profile.Money < repair.Price ) {
+        message = std::string( LocStr( 1865, "Car repair" ) ) + ": you need " + FormatMoney( repair.Price ) + ".";
+        messageTimer = 5.0f;
+        return;
+    }
+    profile.Money -= repair.Price;
+    bRepairPaid = true;
+    message = std::string( LocStr( 1643, "Bill" ) ) + ": " + FormatMoney( repair.Price ) + "  (" + LocStr( 1865, "Car repair" ) + ")";
+    messageTimer = 5.0f;
+    SaveProfile( "repair" );
+    OTDU_LOG_INFO( "Repair: car repaired for $%d (damage %.0f, money %d)\n", repair.Price, repair.Damage, profile.Money );
 }
 
 void FuelMenu::fill() {
@@ -124,7 +154,7 @@ void FuelMenu::draw( Renderer2D &renderer ) {
     const Font *pFont = gpFlash->getTitleFont();
     renderer.begin( 1280.0f, 720.0f );
     renderer.drawRect( Rect2D( 0.0f, 0.0f, 1280.0f, 720.0f ), Rgba( 0, 0, 0, 140 ) );
-    const float x0 = 300.0f, y0 = 150.0f, w = 680.0f, h = 420.0f;
+    const float x0 = 300.0f, y0 = 150.0f, w = 680.0f, h = 470.0f;
     renderer.drawRect( Rect2D( x0, y0, w, h ), Rgba( 18, 22, 28, 240 ) );
     renderer.drawRectOutline( Rect2D( x0, y0, w, h ), 2.0f, Rgba( 200, 200, 200 ) );
     renderer.drawRect( Rect2D( x0, y0, w, 56.0f ), Rgba( 20, 40, 52 ) );
@@ -140,8 +170,21 @@ void FuelMenu::draw( Renderer2D &renderer ) {
 
     const float litres = FuelLitresToFill();
     float y = y0 + 150.0f;
-    for ( int32_t grade = 0; grade < 2; grade++ ) {
+    for ( int32_t grade = 0; grade < 3; grade++ ) {
         const bool bSelected = grade == selected;
+        if ( grade == 2 ) {
+            // The car repair row: the retail title (loc 1865) and the bill.
+            if ( bSelected ) {
+                renderer.drawRect( Rect2D( x0 + 16.0f, y - 6.0f, w - 32.0f, 46.0f ), Rgba( 40, 60, 80 ) );
+            }
+            renderer.drawText( pFont, LocStr( 1865, "Car repair" ), x0 + 32.0f, y, 22.0f,
+                               bSelected ? Rgba( 255, 255, 255 ) : Rgba( 180, 190, 200 ) );
+            const std::string repairBill = repair.Damage < 1500.0f ? std::string( "-" ) : FormatMoney( repair.Price );
+            renderer.drawText( pFont, repairBill.c_str(), x0 + w - 32.0f, y, 22.0f, Rgba( 200, 220, 200 ), eTextAlign::TA_Right );
+            y += 54.0f;
+            continue;
+        }
+
         if ( bSelected ) {
             renderer.drawRect( Rect2D( x0 + 16.0f, y - 6.0f, w - 32.0f, 46.0f ), Rgba( 40, 60, 80 ) );
         }
@@ -152,12 +195,27 @@ void FuelMenu::draw( Renderer2D &renderer ) {
         renderer.drawText( pFont, bill.c_str(), x0 + w - 32.0f, y, 22.0f, Rgba( 200, 220, 200 ), eTextAlign::TA_Right );
         y += 54.0f;
     }
-    snprintf( line, sizeof( line ), "%s: %.1f L", LocStr( 1642, "Fill" ), litres );
-    renderer.drawText( pFont, line, x0 + 24.0f, y + 10.0f, 20.0f, Rgba( 220, 220, 220 ) );
+    if ( selected == 2 ) {
+        // The damage by zone: four bars (front, rear, left, right) and the whole car.
+        static const char *const kZones[4] = { "Front", "Rear", "Left", "Right" };
+        for ( int32_t zone = 0; zone < 4; zone++ ) {
+            const float bx = x0 + 24.0f + 150.0f * static_cast<float>( zone );
+            const float fraction = Clamp( repair.Zone[zone] / 65535.0f, 0.0f, 1.0f );
+            renderer.drawText( pFont, kZones[zone], bx, y + 6.0f, 16.0f, Rgba( 170, 180, 190 ) );
+            renderer.drawRect( Rect2D( bx, y + 28.0f, 130.0f, 10.0f ), Rgba( 50, 56, 64 ) );
+            renderer.drawRect( Rect2D( bx, y + 28.0f, 130.0f * fraction, 10.0f ),
+                               Rgba( static_cast<uint32_t>( 80.0f + 175.0f * fraction ), static_cast<uint32_t>( 220.0f - 160.0f * fraction ), 60 ) );
+        }
+        snprintf( line, sizeof( line ), "%s %.0f %%", LocStr( 72, "Damage" ), 100.0f * Clamp( repair.Damage / 65535.0f, 0.0f, 1.0f ) );
+        renderer.drawText( pFont, line, x0 + 24.0f, y + 50.0f, 20.0f, Rgba( 220, 220, 220 ) );
+    } else {
+        snprintf( line, sizeof( line ), "%s: %.1f L", LocStr( 1642, "Fill" ), litres );
+        renderer.drawText( pFont, line, x0 + 24.0f, y + 10.0f, 20.0f, Rgba( 220, 220, 220 ) );
+    }
 
     if ( !message.empty() && messageTimer > 0.0f ) {
         renderer.drawText( pFont, message.c_str(), x0 + 24.0f, y0 + h - 84.0f, 18.0f, Rgba( 255, 230, 140 ) );
     }
-    renderer.drawText( pFont, "Up / Down: grade    Enter / A: fill    Esc / B: leave", x0 + 24.0f, y0 + h - 40.0f,
+    renderer.drawText( pFont, "Up / Down: choose    Enter / A: fill / repair    Esc / B: leave", x0 + 24.0f, y0 + h - 40.0f,
                        18.0f, Rgba( 150, 160, 170 ) );
 }

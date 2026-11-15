@@ -273,6 +273,23 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     if ( islandName == "hawaii" || islandName == "oahu" ) {
         islandName = "hawai";
     }
+    if ( const char *pFind = CmdLine::GetArgValue( "-locfind" ) ) {
+        // Research: every localization id whose text contains the word (case-insensitive).
+        std::string word = pFind;
+        for ( char &c : word ) {
+            c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+        }
+        for ( int32_t id = 0; id < 9000; id++ ) {
+            std::string text = LocStr( id, "" );
+            std::string lower = text;
+            for ( char &c : lower ) {
+                c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+            }
+            if ( !text.empty() && lower.find( word ) != std::string::npos ) {
+                OTDU_LOG_INFO( "locfind %d: %s\n", id, text.substr( 0, 120 ).c_str() );
+            }
+        }
+    }
     // A loaded save drives on where it was saved (-newdrive: the old start).
     const PlayerProfile::LastDriveState &lastDrive = GetPlayerProfile().LastDrive;
     if ( pIslandArg == nullptr && lastDrive.bValid && !CmdLine::HasArg( "-newdrive" ) ) {
@@ -2371,6 +2388,14 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
     {
         std::string stationPrompt;
         const ModProps::Prop *pStation = bRaceUp ? nullptr : modProps.findFuelStation( vehicle.getPosition(), 35.0f );
+        const ServiceStations::Station *pService = bRaceUp ? nullptr : serviceStations.findNear( vehicle.getPosition(), 35.0f );
+        if ( pStation == nullptr && pService != nullptr && !fuelMenu.isOpen() ) {
+            // A listed petrol station: pump + repair, the same stop-and-validate rule.
+            stationPrompt = std::string( LocStr( 1642, "Fill" ) ) + " / " + LocStr( 1865, "Car repair" ) + ": " + pService->Name;
+            if ( bSlow && gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+                fuelMenu.open( pService->Name );
+            }
+        }
         if ( pStation != nullptr && !fuelMenu.isOpen() ) {
             // The pump is a stop, like the shops: rolling past at speed does not
             // open the screen (the prompt still names the station so the player
@@ -4692,6 +4717,10 @@ void GMFreeRide::ensureModPropsLoaded() {
             stations.push_back( prop.Position );
         }
     }
+    serviceStations.load( islandName );
+    for ( const ServiceStations::Station &station : serviceStations.getAll() ) {
+        stations.push_back( station.Position );
+    }
     mapScreen.setFuelStations( stations );
 }
 
@@ -4898,7 +4927,27 @@ void GMFreeRide::tick( float deltaTime ) {
     }
     // The pump screen (fuel_menu): its own little screen, the world keeps living.
     if ( fuelMenu.isOpen() ) {
+        {
+            // The repair row: how damaged the car is and what a repair costs (3 % of the car's price at full
+            // damage, at least $50) [INF: the retail numbers of the cut feature are not in the data].
+            FuelMenu::RepairInfo info;
+            info.Damage = vehicle.getDamage();
+            for ( int32_t zone = 0; zone < 4; zone++ ) {
+                info.Zone[zone] = vehicle.getZoneDamage( zone );
+            }
+            const SpecCardData *pCard = CachedSpecCard( car.getIdCar() );
+            const float carPrice = pCard != nullptr ? static_cast<float>( pCard->Price ) : 60000.0f;
+            info.Price = info.Damage < 1500.0f ? 0 : Max( 50, static_cast<int32_t>( 0.03f * carPrice * Clamp( info.Damage / 65535.0f, 0.0f, 1.0f ) ) );
+            fuelMenu.setRepair( info );
+        }
         fuelMenu.tick( deltaTime );
+        if ( fuelMenu.takeRepair() ) {
+            // Paid: a clean car - the damage, the zones (bumpers, bonnet / boot, doors) and the glass.
+            vehicle.resetDamage();
+            car.applyDamageState( 0 );
+            car.applyPartDamage( 0.0f, 0.0f, 0.0f, 0.0f );
+            OTDU_LOG_INFO( "FREERIDE: the car was repaired\n" );
+        }
         interior.tickBackground( deltaTime );
         return;
     }
