@@ -10,6 +10,8 @@
 #include "filesystem/bank.h"
 #include "filesystem/gs_file.h"
 #include "game/car_shop.h"
+#include "game/clothes_shop.h"
+#include "game/licenses.h"
 #include "game/freeride/chase_camera.h"
 #include "game/freeride/cruising_zones.h"
 #include "game/game_options.h"
@@ -188,6 +190,9 @@ bool MapScreen::load() {
     numRouteBars = 0;
     player.setFSCommandCallback( [this]( const std::string &command, const std::string &args ) {
         OTDU_LOG_INFO( "MapScreen: FSCommand '%s' '%s'\n", command.c_str(), args.c_str() );
+        if ( command == "bmap:ttip:info" && cardFilling >= 0 && static_cast<size_t>( cardFilling ) < spots.size() ) {
+            applyCardLocks( spots[static_cast<size_t>( cardFilling )] ); // answers SetInfos' query
+        }
         if ( command == "sbdd" ) {
             ApplyFlashLocalization( player );
             return;
@@ -205,6 +210,39 @@ bool MapScreen::load() {
         }
         if ( command == "cred:open" ) {
             buildCredits();
+            return;
+        }
+        // The extended pop-up's buttons (ValidMenu): gotp = Go there, targ = the GPS target, mysp = the
+        // bookmark (add / remove) [DATA: map.vmf].
+        if ( command == "gotp" || ( command == "goin" && cardSpot >= 0 ) ) {
+            Vector3f travelPoint;
+            if ( getFastTravelPoint( travelPoint ) ) {
+                fastTravelPoint = travelPoint;
+                bFastTravelPending = true;
+            }
+            bCardExtended = false;
+            return;
+        }
+        if ( command == "targ" ) {
+            toggleTarget();
+            bCardExtended = false;
+            return;
+        }
+        if ( command.compare( 0, 4, "mysp" ) == 0 && cardSpot >= 0 ) {
+            std::vector<float> &list = GetPlayerProfile().Bookmarks[roadIsland];
+            const Vector3f point = spots[static_cast<size_t>( cardSpot )].Position;
+            const int32_t existing = findBookmarkNear( point, 40.0f );
+            if ( existing >= 0 ) {
+                list.erase( list.begin() + existing * 2, list.begin() + existing * 2 + 2 );
+                toastText = LocStr( 3914, "Remove bookmark" );
+            } else if ( list.size() < 40 ) {
+                list.push_back( point.x );
+                list.push_back( point.z );
+                toastText = LocStr( 4059, "New favorite place added in this tab" );
+            }
+            toastTimer = 3.0f;
+            SaveProfile( "bookmark" );
+            bCardExtended = false;
             return;
         }
         if ( command == "cred:close" ) {
@@ -608,6 +646,7 @@ void MapScreen::tick( float deltaTime ) {
     }
     if ( bSpotsBuilt ) {
         updateSnap(); // the reticle sticks to a shop / road before the markers are placed
+        updateSpotCard();
         updateMarkers();
         updateSpots();
     }
@@ -1163,6 +1202,244 @@ void MapScreen::updateSnap() {
     snapPoint = point;
     snapX = sx;
     snapY = StageToCanvasY( sy );
+}
+
+// The root WhatSpot string of a spot's icon label (SetInfos switches on it; the icon labels are
+// lower case, the card kinds are camel case) [DATA: map.vmf].
+static const char *SpotCardKind( const char *pIcon ) {
+    static const struct { const char *pIcon; const char *pKind; } kKinds[] = {
+        { "estates", "estates" },   { "home", "home" },         { "cardealer", "carDealer" }, { "clothes", "clothes" },
+        { "tuning", "tuning" },     { "club", "club" },         { "gamblinghall", "gamblingHall" },
+        { "carwash", "carWash" },   { "carpaint", "carPaint" }, { "bikedealer", "bikeDealer" },
+        { "rschool", "rschool" },   { "photograph", "photograph" }, { "surgery", "surgery" },
+        { "stolencar", "stolenCar" }, { "hair", "hair" },       { "airport", "airport" },
+    };
+    for ( const auto &entry : kKinds ) {
+        if ( strcmp( entry.pIcon, pIcon ) == 0 ) {
+            return entry.pKind;
+        }
+    }
+    return nullptr;
+}
+
+// The pop-up's button locks (addMenuButton / getLockState read them off the root; SetInfos resets them to its
+// defaults and then asks the game with FSCommand bmap:ttip:info, which is where they are answered): Go there,
+// the GPS target and the bookmark are open offline [DATA: map.vmf].
+void MapScreen::applyCardLocks( const Spot &spot ) {
+    OTDU_LOG_INFO( "MapScreen: card locks for '%s'\n", spot.Name.c_str() );
+    player.setVariableBool( "/:IsRoadLocked", false );
+    player.setVariableBool( "/:IsSpotLocked", false );
+    player.setVariableBool( "/:IsTeleportOK", true );
+    player.setVariableBool( "/:IsTargetOK", true );
+    player.setVariableBool( "/:CanAddMySpot", true );
+    player.setVariableBool( "/:IsCarOK", true );
+    player.setVariableBool( "/:IsLevelOK", true );
+    player.setVariableBool( "/:IsSpotFavorite", findBookmarkNear( spot.Position, 40.0f ) >= 0 );
+    player.setVariableBool( "/:IsTargetPresent", bHasTarget && ( target - spot.Position ).length() < 60.0f );
+}
+
+bool MapScreen::fillSpotCard( const Spot &spot ) {
+    const char *pKind = spot.pIcon != nullptr ? SpotCardKind( spot.pIcon ) : nullptr;
+    if ( pKind == nullptr ) {
+        return false;
+    }
+    player.setVariable( "/:WhatSpot", pKind );
+    player.setVariable( "/:WhatSpotType", "spot" );
+    std::string title = spot.Name;
+    PlayerProfile &profile = GetPlayerProfile();
+    if ( strcmp( pKind, "carDealer" ) == 0 || strcmp( pKind, "bikeDealer" ) == 0 ) {
+        // CarsList( false ): /:nb_cars, /:car<N>_gp (the class), _car_name, _state (owned); the
+        // header counts are /:nb_cars_bought of /:nb_cars ("Vehicles bought 1/7") [DATA: map.vmf].
+        if ( const CarShop *pShop = FindShopBySpotId( spot.Id ) ) {
+            if ( !pShop->Name.empty() ) {
+                title = pShop->Name;
+            }
+            int32_t count = 0, bought = 0;
+            for ( const ShopCar &car : pShop->Cars ) {
+                if ( !car.bBuyable ) {
+                    continue;
+                }
+                const bool bOwned = std::find( profile.OwnedCars.begin(), profile.OwnedCars.end(), car.CarId ) != profile.OwnedCars.end();
+                const std::string key = "/:car" + std::to_string( count );
+                int32_t category = 0;
+                if ( gpDatabase != nullptr && car.PhysicsRow >= 0 ) {
+                    category = static_cast<int32_t>(
+                        gpDatabase->getDocument().getRoot().getArrayElement( "DBCarPhysicsData", static_cast<uint32_t>( car.PhysicsRow ) )["_vehiclecategory"].asInt() );
+                }
+                const char *pClass = VehicleClassName( category );
+                player.setVariable( key + "_gp", pClass != nullptr && pClass[0] != ' ' ? pClass : "empty" );
+                player.setVariable( key + "_car_name", car.Brand + " " + car.Model );
+                player.setVariable( key + "_state", bOwned ? "true" : "false" );
+                bought += bOwned ? 1 : 0;
+                count++;
+            }
+            player.setVariable( "/:nb_cars", std::to_string( count ) );
+            player.setVariable( "/:nb_cars_bought", std::to_string( bought ) );
+        }
+    } else if ( strcmp( pKind, "rschool" ) == 0 ) {
+        // rschList(): /:nb_licences, /:li<N>_gp1 / _gp2 (the classes) and _state done / current / locked
+        // (the first unfinished one is current) [DATA: map.vmf].
+        title = "Racing School";
+        const char letter = spot.Name.size() > 4 ? spot.Name[4] : 'C';
+        const std::vector<const LicenseInfo *> licences = GetSchoolLicenses( letter, roadIsland == "hawai" ? 1 : 0 );
+        int32_t done = 0;
+        bool bCurrent = false;
+        for ( size_t i = 0; i < licences.size(); i++ ) {
+            const std::string key = "/:li" + std::to_string( i );
+            const char *pFirst = VehicleClassName( licences[i]->VehicleCategory[0] );
+            const char *pSecond = VehicleClassName( licences[i]->VehicleCategory[1] );
+            player.setVariable( key + "_gp1", pFirst != nullptr && pFirst[0] != ' ' ? pFirst : "empty" );
+            player.setVariable( key + "_gp2", pSecond != nullptr && pSecond[0] != ' ' ? pSecond : "empty" );
+            const bool bDone = IsLicenseObtained( *licences[i] );
+            done += bDone ? 1 : 0;
+            player.setVariable( key + "_state", bDone ? "done" : ( !bCurrent ? "current" : "locked" ) );
+            bCurrent = bCurrent || !bDone;
+        }
+        player.setVariable( "/:nb_licences", std::to_string( licences.size() ) );
+        player.setVariable( "/:nb_licences_done", std::to_string( done ) );
+    }
+    // The other kinds: the retail title and the counts the card's labels read (NbHousesBought / NbHouses,
+    // NbClothes / NbClothesMax, NbStickersBoardsBought / Total, NbSurgeriesDone, NbHairs, NbPhotosTaken / Total,
+    // WashingPrice) [DATA: map.vmf edit texts; INF: the English titles - the retail ones are localized strings].
+    if ( strcmp( pKind, "estates" ) == 0 || strcmp( pKind, "home" ) == 0 || strcmp( pKind, "forsale" ) == 0 ) {
+        if ( const HouseRow *pHouse = FindHouseBySpotId( spot.Id ) ) {
+            title = pHouse->Name;
+        } else {
+            title = strcmp( pKind, "home" ) == 0 ? "Home" : "Real estate agency";
+        }
+        player.setVariable( "/:NbHousesBought", std::to_string( profile.OwnedHouses.size() ) );
+        player.setVariable( "/:NbHouses", std::to_string( GetHouses().size() ) );
+    } else if ( strcmp( pKind, "clothes" ) == 0 ) {
+        if ( const CarShop *pShop = FindShopBySpotId( spot.Id ) ) {
+            if ( !pShop->Name.empty() ) {
+                title = pShop->Name;
+            }
+        }
+        player.setVariable( "/:NbClothes", std::to_string( profile.OwnedClothes.size() ) );
+        player.setVariable( "/:NbClothesMax", std::to_string( GetClothes().size() ) );
+    } else if ( strcmp( pKind, "carPaint" ) == 0 ) {
+        title = "Sticker shop";
+        player.setVariable( "/:NbStickersBoardsBought", std::to_string( profile.OwnedStickerBanks.size() ) );
+        player.setVariable( "/:NbStickersBoardsTotal", "28" ); // the DBStickersBanks rows [INF count]
+    } else if ( strcmp( pKind, "tuning" ) == 0 ) {
+        title = "Tuning shop";
+    } else if ( strcmp( pKind, "carWash" ) == 0 ) {
+        title = "Car wash";
+        player.setVariable( "/:WashingPrice", "$10" );
+    } else if ( strcmp( pKind, "surgery" ) == 0 ) {
+        title = "Plastic surgery";
+        player.setVariable( "/:NbSurgeriesDone", "0" );
+    } else if ( strcmp( pKind, "hair" ) == 0 ) {
+        title = "Hairdresser";
+        player.setVariable( "/:NbHairs", "0" );
+    } else if ( strcmp( pKind, "photograph" ) == 0 ) {
+        title = "Photographer";
+        player.setVariable( "/:NbPhotosTaken", "0" );
+        player.setVariable( "/:NbPhotosTotal", "2" );
+    } else if ( strcmp( pKind, "airport" ) == 0 ) {
+        title = "Airport";
+    } else if ( strcmp( pKind, "club" ) == 0 ) {
+        title = "Club house";
+    } else if ( strcmp( pKind, "stolenCar" ) == 0 ) {
+        title = "Stolen cars";
+    } else if ( strcmp( pKind, "gamblingHall" ) == 0 ) {
+        title = "Casino";
+    }
+    player.setVariable( "/:SpotName", title );
+    applyCardLocks( spot );
+    return true;
+}
+
+// The hover card: when the reticle snaps to a spot, fill the root variables the kind's setter reads and open the
+// tool_tip bubble; it closes when the reticle leaves (the retail map does the same on every spot).
+void MapScreen::updateSpotCard() {
+    if ( bContest || !bSpotsBuilt || CmdLine::HasArg( "-nospotcard" ) ) {
+        return;
+    }
+    if ( bMenuOpen ) {
+        // The OK menu (Go there / Target / Bookmark it) draws over the map: the card gives way and comes back after.
+        if ( cardSpot >= 0 ) {
+            player.invokeWithNumbers( "/tool_tip", "Close", { 0.0 } );
+            cardSpot = -1;
+        }
+        return;
+    }
+    // Test hook: -mapcardicon <icon label>[,<n>] behaves as if the reticle were on the n-th spot of that icon.
+    if ( const char *pForce = CmdLine::GetArgValue( "-mapcardicon" ) ) {
+        std::string icon = pForce;
+        int32_t nth = 0;
+        if ( const size_t comma = icon.find( ',' ); comma != std::string::npos ) {
+            nth = atoi( icon.c_str() + comma + 1 );
+            icon.resize( comma );
+        }
+        snapSpot = -1;
+        for ( size_t i = 0; i < spots.size(); i++ ) {
+            if ( spots[i].pIcon != nullptr && StringCmpI( spots[i].pIcon, icon.c_str() ) == 0 && nth-- == 0 ) {
+                snapSpot = static_cast<int32_t>( i );
+                break;
+            }
+        }
+    }
+    if ( bCardExtended ) {
+        snapSpot = cardSpot; // the pop-up keeps its spot while it is open
+        return;
+    }
+    if ( snapSpot == cardSpot ) {
+        return;
+    }
+    if ( cardSpot >= 0 ) {
+        player.invokeWithNumbers( "/tool_tip", "Close", { 0.0 } );
+    }
+    cardSpot = -1;
+    if ( snapSpot >= 0 && static_cast<size_t>( snapSpot ) < spots.size() && fillSpotCard( spots[static_cast<size_t>( snapSpot )] ) ) {
+        cardFilling = snapSpot;
+        player.invoke( "/tool_tip", "SetInfos", {} );
+        player.gotoLabel( "/tool_tip", "open", true );
+        cardFilling = -1;
+        if ( CmdLine::HasArg( "-logcard" ) ) {
+            OTDU_LOG_INFO( "MapScreen: card flags IsTargetOK=%s CanAddMySpot=%s IsTeleportOK=%s IsRoadLocked=%s lastMenuType=%s\n",
+                           player.getVariable( "/:IsTargetOK" ).c_str(), player.getVariable( "/:CanAddMySpot" ).c_str(),
+                           player.getVariable( "/:IsTeleportOK" ).c_str(), player.getVariable( "/:IsRoadLocked" ).c_str(),
+                           player.getVariable( "/tool_tip:lastMenuType" ).c_str() );
+        }
+        cardSpot = snapSpot;
+        if ( CmdLine::HasArg( "-mapcardextend" ) ) {
+            player.invokeWithNumbers( "/tool_tip", "Extend", { 1.0 } ); // test: the extended pop-up straight away
+        }
+        OTDU_LOG_INFO( "MapScreen: hover card for '%s' (%s)\n", spots[static_cast<size_t>( snapSpot )].Name.c_str(),
+                       spots[static_cast<size_t>( snapSpot )].pIcon );
+    }
+}
+
+bool MapScreen::cardAccept() {
+    // WIP: the extended pop-up opens on OK only with -mapspotpopup. Its first button (Go there) works, but Up / Down
+    // (SWF keys 38 / 40) never move the highlight to GPS Target / Bookmark it, so the default stays the OK menu.
+    static const bool bPopup = CmdLine::HasArg( "-mapspotpopup" );
+    if ( !bPopup || cardSpot < 0 ) {
+        return false;
+    }
+    if ( !bCardExtended ) {
+        bCardExtended = true;
+        player.invokeWithNumbers( "/tool_tip", "Extend", { 1.0 } );
+        return true;
+    }
+    player.sendKey( 13 );
+    return true;
+}
+
+void MapScreen::cardMove( int32_t step ) {
+    if ( cardSpot >= 0 && bCardExtended ) {
+        player.sendKey( step < 0 ? 38 : 40 );
+    }
+}
+
+bool MapScreen::cardBack() {
+    if ( cardSpot < 0 || !bCardExtended ) {
+        return false;
+    }
+    bCardExtended = false;
+    player.invokeWithNumbers( "/tool_tip", "Extend", { 0.0 } );
+    return true;
 }
 
 void MapScreen::drawFuelIcons( Renderer2D &renderer ) {

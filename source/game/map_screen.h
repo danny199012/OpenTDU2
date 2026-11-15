@@ -208,6 +208,15 @@ public:
     // The context menu of OK on a position (the retail wording: loc 424 "Go there", 1694 "Target this spot" /
     // 4304 "Remove target", 3314 "Bookmark it" / 3914 "Remove bookmark"): fast travel only on a discovered road.
     inline bool isMenuOpen() const { return bMenuOpen; }
+    // The retail hover card / extended pop-up of the spot under the reticle (MAP.vmf /tool_tip). OK on a
+    // card opens the pop-up (Go there / Target / Bookmark it + the spot's list); Up / Down / OK then
+    // drive the movie's own buttons by SWF keys, and its FSCommands gotp / targ / mysp do the work.
+    inline bool isCardOpen() const { return cardSpot >= 0; }
+    inline bool isCardExtended() const { return bCardExtended; }
+    bool cardAccept();     // true when it consumed the OK (opened / pressed a button)
+    void cardMove( int32_t step );
+    bool cardBack();       // true when the pop-up was open and closed
+    bool bCardExtended = false;
     void openMenu();
     void closeMenu();
     void menuMove( int32_t step );
@@ -402,6 +411,12 @@ private:
         std::string Clip;     // name of the clone under /pack
     };
     std::vector<Spot> spots;
+    // The retail hover card (MAP.vmf /tool_tip, SetInfos): shown for the spot the reticle is on.
+    int32_t cardSpot = -1;
+    void updateSpotCard();
+    bool fillSpotCard( const Spot &spot );
+    void applyCardLocks( const Spot &spot );
+    int32_t cardFilling = -1;
     // The island loadSpots read and, per spot, whether it has been discovered
     // (the profile's KnownSpots + the auto-knowns: owned houses, home spots).
     // An undiscovered spot draws no icon and the cursor does not snap to it.

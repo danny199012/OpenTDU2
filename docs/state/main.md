@@ -3,6 +3,24 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-15 (`main`, 5): the retail map hover cards (MAP.vmf /tool_tip) on every spot kind
+
+Owner: "add the hover cards and menus" (360 captures: Fearless / Racing School / Audi cards and pop-ups).
+
+### What changed
+- `source/game/map_screen.cpp` `updateSpotCard` / `fillSpotCard` / `applyCardLocks`: when the reticle snaps to a spot (`snapSpot`), the root vars of its kind are set (`/:WhatSpot` = carDealer, rschool, estates, home, clothes, tuning, carWash, carPaint, bikeDealer, surgery, hair, photograph, airport, club, gamblingHall, stolenCar; `/:SpotName` title) and `/tool_tip.SetInfos()` + `open` run (the same movie path the championship race bubble uses); the card closes when the reticle leaves or the OK menu opens. `-nospotcard` = off.
+- Data per kind [DATA var names from the movie's edit texts]: **car dealer** (`/:nb_cars`, `/:nb_cars_bought`, `/:car<N>_gp|_car_name|_state` from the DBCarShop stock + the owned cars + `_vehiclecategory`), **Racing School** (`/:nb_licences`, `/:nb_licences_done`, `/:li<N>_gp1|_gp2|_state` from `GetSchoolLicenses`: done / current / locked), **estates / home** (house name, `NbHousesBought` / `NbHouses`), **clothes** (shop name + brand logo, `NbClothes` / `NbClothesMax`), **sticker shop**, **car wash** (price), tuning / surgery / hair / photograph / airport / club titles. Titles other than the dealer / house / clothes names are English [INF]: the retail ones are localized strings.
+- The extended pop-up (picture slot, Go there / GPS Target / Bookmark it, "Cars for sale" / "Licenses" lists with ticks) works behind **`-mapspotpopup`**: OK extends (`tool_tip.Extend(1)`), the movie's FSCommands `goin` (= Go there) / `targ` / `mysp` are handled. **WIP**: Up / Down as SWF keys 38 / 40 never move the highlight off Go there (GPS Target / Bookmark it stay unreachable although the `IsTargetOK` / `CanAddMySpot` flags read true), so the default OK is still the old menu. SetInfos asks the game with `FSCommand bmap:ttip:info`; the answers (locks) are given there.
+- Test hooks: `-mapcardicon <icon>[,n]` (the reticle as if on the n-th spot of that icon), `-mapcardextend`, `-logcard`.
+
+### Verified
+- Headless `-mapcardicon cardealer / rschool / estates / clothes / tuning / carwash / carpaint / surgery / hair / airport / club / photograph`: every card draws its own layout with its data (screenshots read by eye; the default OK menu still opens and closes; exit 0).
+- The extended pop-up for the dealer ("Cars for sale" with the stock) and the school ("Licenses" with the A7/A6 row) look like the owner's 360 captures.
+
+### Not done / next
+- The picture slot is empty (the retail shows the spot's photo; the `picture` clip reads a page texture), the "1/7" slash does not render (only "o 7"), the Adrenalin event cards ("Fearless"; the port has no event spots yet), hotspot / duel / championship-diamond hover kinds, `IsSpotLocked` / road-locked texts.
+- Fix Up / Down in the pop-up (read `addMenuButton` / the Input handler of `/tool_tip` to see which key path moves `num_bt`), then make it the default OK.
+
 ## Session 2026-11-15 (`main`, 4): map accuracy scouting (dirt roads, hover cards, spot pop-ups) - findings only, no code
 
 Owner (retail 360 captures vs ours): yellow dirt roads show on the 360 map and on our satnav but not on our map; the 360 has a hover card per spot ("Fearless / Type Adrenalin / Reward $3,000 / Events succeeded 1/100") and an extended pop-up (picture, Enter / Remove target / Bookmark it, Rules, 1/2 pager; Racing School "Licenses obtained 0/1" + licence list; Audi "Vehicles bought 1/7" + "Cars for sale" list with tick boxes). Ours shows a bare "Target this spot / Bookmark it" menu.

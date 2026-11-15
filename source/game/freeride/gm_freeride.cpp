@@ -4856,6 +4856,9 @@ void GMFreeRide::tick( float deltaTime ) {
             if ( mapScreen.isContest() && mapScreen.contestBack() ) {
                 return; // the extended pop-up closes first
             }
+            if ( mapScreen.cardBack() ) {
+                return; // a spot's pop-up closes first
+            }
             if ( !mapScreen.onBack() ) { // BACK first leaves the credits
                 mapScreen.close();
             }
@@ -4884,9 +4887,26 @@ void GMFreeRide::tick( float deltaTime ) {
                     }
                 }
             }
+        } else if ( mapScreen.isUiShown() && mapScreen.isCardExtended() ) {
+            if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
+                mapScreen.cardMove( -1 );
+            } else if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
+                mapScreen.cardMove( 1 );
+            } else if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+                mapScreen.cardAccept();
+                Vector3f travelPoint;
+                if ( mapScreen.takeFastTravel( travelPoint ) ) {
+                    OTDU_LOG_INFO( "FREERIDE: fast travel (Go there) to (%.1f, %.1f, %.1f)\n", travelPoint.x, travelPoint.y, travelPoint.z );
+                    mapScreen.close();
+                    teleportTo( travelPoint, 0.0f, false );
+                }
+            }
         } else if ( mapScreen.isUiShown() && gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
-            // OK opens the menu at the cursor: go there / target / bookmark (the retail wording)
-            mapScreen.openMenu();
+            // OK on a spot's hover card opens its pop-up; elsewhere it opens the menu at the cursor:
+            // go there / target / bookmark (the retail wording)
+            if ( !mapScreen.cardAccept() ) {
+                mapScreen.openMenu();
+            }
         }
         if ( vehicleAudio.isEngineOn() ) {
             VehicleAudio::Params muted;
