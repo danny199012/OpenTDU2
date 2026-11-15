@@ -14,7 +14,7 @@ Owner: "from dev build is it possible to track down how or where the markers are
 
 - Static read of `TestDrive2DEV.exe` (no run). `0x970030` is the spot category -> kind-name switch (`[spot+0x79]`, 0..0x19); it matches the port's `spots.bin` table and names the rest. `0xca7350` maps the movie's `/:WhatSpot` to the pin title. Full table and addresses: `docs/re/map_spots_spec.md` section 5.
 - `spotworld.bin` is the 532-record **challenge** table (not shops); the writer is `0x895890`. `Level/%s/spots` readers are cutscene loaders (ruled out).
-- Not changed in code. Open: the `spots.bin` loader + discovery test in the dev exe, `HudMap` pin drawing (`0xc9e584`), and whether category 0x08 sub-kind 2/3 (`ENC_*`) is `carRental` rather than `club` (check before changing `map_screen.cpp`). Nothing run, no screenshots.
+- Not changed in code. Followed up the same day: loader `0x96b050`, the 0x110 record layout, the +0x101 sub-kind (ENC/EDI/EUC = 9 -> no kind in the dev code, so the port's `club` for `ENC_*` is unsupported), the 450-entry KnownSpots cap and the 51/122 pin-clip pool are in map_spots_spec.md sections 5-6. Open: the item-list builder (tab filter + discovery distance test). Nothing run, no screenshots.
 
 ## Session 2026-11-15 (`main`, 16): volumetric clouds fixed - no more painting over the cockpit, visible at the horizon
 
