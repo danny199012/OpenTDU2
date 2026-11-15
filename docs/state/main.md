@@ -2,7 +2,20 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-
+
+
+
+
+
+
+## Session 2026-11-15 (`main`, 17): dev build read for the map-marker code - category table decoded, SpotWorld.bin identified
+
+Owner: "from dev build is it possible to track down how or where the markers are placed for shops, dealerships etc?"
+
+- Static read of `TestDrive2DEV.exe` (no run). `0x970030` is the spot category -> kind-name switch (`[spot+0x79]`, 0..0x19); it matches the port's `spots.bin` table and names the rest. `0xca7350` maps the movie's `/:WhatSpot` to the pin title. Full table and addresses: `docs/re/map_spots_spec.md` section 5.
+- `spotworld.bin` is the 532-record **challenge** table (not shops); the writer is `0x895890`. `Level/%s/spots` readers are cutscene loaders (ruled out).
+- Not changed in code. Open: the `spots.bin` loader + discovery test in the dev exe, `HudMap` pin drawing (`0xc9e584`), and whether category 0x08 sub-kind 2/3 (`ENC_*`) is `carRental` rather than `club` (check before changing `map_screen.cpp`). Nothing run, no screenshots.
+
 ## Session 2026-11-15 (`main`, 16): volumetric clouds fixed - no more painting over the cockpit, visible at the horizon
 
 Owner (screenshot): clouds showed through the cockpit roof / bonnet and the car interior, barely visible in the chase view unless aimed up.
@@ -60,7 +73,11 @@ Owner: "volumetric clouds and maybe thunder and lightning ... more sound effects
 - The wrong icons are **GENERAL.vmf's emote-wheel art** [DATA, `-dumpflashart`]: up = cell 684 (hand + sound waves), down = 678 (waving person), left / right = 2698 / 2695 (the "L / R" eye glyphs); the HUD's own cells for the slots are 1003 (roof), 1005 (windows), 1001 (car + arrow). The title "Accessories", the arrows and the layout are the HUD's `ig_menu`, and the owner's wheel shows NO red lock on the roof slot (the retail-correct wheel for this hardtop Porsche shows one) - so it is not the same clip content.
 - Re-checked and NOT reproduced: `-gm FREERIDE` with / without `-skipcine`, the LOGIN -> FREERIDE continue path, the owner's options.ini (4K, button_prompts 3), mods, profile, a connected DualSense (no `-nopad`), DLSS on. All show roof(locked) / windows / indicators.
 - Open discriminators to ask the owner: numpad 4 (keyboard) vs the pad's D-pad left; before / after the "Enjoy!" popup closes.
-
+
+
+
+
+
 
 ### Update (owner tested the gate, "works pretty well"): the cave stays open once the club car is collected
 - `updateCaveGate`: when the profile owns car 436 (`OwnedCars`, saved with the garage) the gate opens and never closes again - the rock collision stays off for good, so anyone who earned the secret can drive in whenever they like. `-cavegatealways` keeps the 88 mph rule even for owners. Verified: with the owner's profile (436 owned) the run logs `the cave stays open (the club car was collected)` at once. A new player still needs the 88 mph run; collecting the car (it is added to `OwnedCars` in `updateCaveCar`) opens it the same frame.
