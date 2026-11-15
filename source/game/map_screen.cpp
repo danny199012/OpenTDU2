@@ -249,7 +249,7 @@ bool MapScreen::load() {
             if ( existing >= 0 ) {
                 list.erase( list.begin() + existing * 2, list.begin() + existing * 2 + 2 );
                 toastText = LocStr( 3914, "Remove bookmark" );
-            } else if ( list.size() < 40 ) {
+            } else if ( list.size() < kMaxBookmarks * 2 ) {
                 list.push_back( point.x );
                 list.push_back( point.z );
                 toastText = LocStr( 4059, "New favorite place added in this tab" );
@@ -1457,6 +1457,7 @@ bool MapScreen::cardAccept() {
         return false;
     }
     if ( !bCardExtended ) {
+        markSpotSeen( static_cast<size_t>( cardSpot ) ); // [CODE-dev 0xb0d3a0] selecting a spot adds it to the list
         bCardExtended = true;
         player.invokeWithNumbers( "/tool_tip", "Extend", { 1.0 } );
         return true;
@@ -2135,6 +2136,45 @@ void MapScreen::buildSpots() {
 // home spots (loadSpots).
 constexpr float kSpotDiscoverRadius = 150.0f;
 
+// Houses (the EPH estates) and the home spots are never listed: the dev build's isTrackable (0xa398f0) skips category 0.
+bool MapScreen::isSpotTracked( size_t index ) const {
+    if ( index >= spots.size() ) {
+        return false;
+    }
+    const Spot &spot = spots[index];
+    if ( spot.pIcon == nullptr || strcmp( spot.pIcon, "home" ) == 0 ) {
+        return false;
+    }
+    return !( strcmp( spot.pIcon, "estates" ) == 0 && spot.Name.compare( 0, 3, "EPH" ) == 0 );
+}
+
+bool MapScreen::isSpotSeen( size_t index ) const {
+    const auto found = GetPlayerProfile().SeenSpots.find( spotsIsland );
+    if ( found == GetPlayerProfile().SeenSpots.end() || index >= spots.size() ) {
+        return false;
+    }
+    for ( uint64_t id : found->second ) {
+        if ( id == spots[index].Id ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// add(id) of the dev class (0xa39950): no duplicates, and past 450 ids the add is silently dropped.
+void MapScreen::markSpotSeen( size_t index ) {
+    if ( !isSpotTracked( index ) || isSpotSeen( index ) ) {
+        return;
+    }
+    std::vector<uint64_t> &seen = GetPlayerProfile().SeenSpots[spotsIsland];
+    if ( seen.size() >= 450 ) {
+        return;
+    }
+    seen.push_back( spots[index].Id );
+    OTDU_LOG_INFO( "MapScreen: '%s' seen (%zu in the list)\n", spots[index].Name.c_str(), seen.size() );
+    SaveProfile( "map: spot seen" );
+}
+
 int32_t MapScreen::discoverNear( const Vector3f &position ) {
     if ( spots.empty() || spotsIsland.empty() ) {
         return 0;
@@ -2227,8 +2267,10 @@ void MapScreen::updateSpots() {
             // setTargetStatus for the GPS target. The icon's 'favorite' / 'target' children take the labels on / loop.
             const size_t index = static_cast<size_t>( &spot - spots.data() );
             if ( index < spotStatus.size() ) {
+                const bool bNew = index < spotDiscovered.size() && spotDiscovered[index] != 0 && isSpotTracked( index ) && !isSpotSeen( index );
                 const uint8_t want = static_cast<uint8_t>( ( findBookmarkNear( spot.Position, 40.0f ) >= 0 ? 1 : 0 ) |
-                                                           ( bHasTarget && ( target - spot.Position ).length() < 60.0f ? 2 : 0 ) );
+                                                           ( bHasTarget && ( target - spot.Position ).length() < 60.0f ? 2 : 0 ) |
+                                                           ( bNew ? 4 : 0 ) );
                 if ( want != spotStatus[index] ) {
                     if ( ( want ^ spotStatus[index] ) & 1 ) {
                         player.gotoLabel( path + "/spot/favorite", ( want & 1 ) ? "on" : "default", false );
@@ -2236,7 +2278,10 @@ void MapScreen::updateSpots() {
                     if ( ( want ^ spotStatus[index] ) & 2 ) {
                         player.gotoLabel( path + "/spot/target", ( want & 2 ) ? "loop" : "default", ( want & 2 ) != 0 );
                     }
-                    OTDU_LOG_INFO( "MapScreen: icon status '%s': favorite=%d target=%d\n", spot.Name.c_str(), want & 1, ( want >> 1 ) & 1 );
+                    OTDU_LOG_INFO( "MapScreen: icon status '%s': favorite=%d target=%d news=%d\n", spot.Name.c_str(), want & 1, ( want >> 1 ) & 1, ( want >> 2 ) & 1 );
+                    if ( ( want ^ spotStatus[index] ) & 4 ) {
+                        player.gotoLabel( path + "/spot/news", ( want & 4 ) ? "on" : "default", false ); // setIconNews
+                    }
                     spotStatus[index] = want;
                 }
             }

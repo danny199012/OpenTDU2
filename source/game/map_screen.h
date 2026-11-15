@@ -323,6 +323,11 @@ public:
     // the car position while driving; returns how many spots it newly
     // discovered (the caller saves the profile when that is > 0).
     int32_t discoverNear( const Vector3f &position );
+    // The dev build's "seen" list (PlayerProfile::SeenSpots): a spot is marked when OK opens its pop-up; a discovered
+    // spot that is not in the list wears the icon's "new" bubble. Houses and home spots are never tracked.
+    bool isSpotTracked( size_t index ) const;
+    bool isSpotSeen( size_t index ) const;
+    void markSpotSeen( size_t index );
     // The dev menu's "ALL SPOTS": every loaded spot counts as discovered.
     void unlockAllSpots();
     // Spots with an icon / how many of them are discovered (the cheats panel's

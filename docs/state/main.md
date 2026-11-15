@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 21): "new" badge on unseen map icons (dev build seen list)
+
+- `PlayerProfile::SeenSpots` (+ save / load `seenspots_<island>`), `MapScreen::isSpotTracked / isSpotSeen / markSpotSeen`: OK on a spot's pop-up marks it seen (450 cap, houses / home never tracked); `updateSpots` drives the icon's `/spot/news` child for discovered, unseen, tracked spots. Also the pop-up bookmark button now honours the 32 cap (it was still 20).
+- Verified headless with a named scratch profile: log `seen (1 in the list)`, badge clears for that id only, `seenspots_ibiza` saved and reloaded; screenshot of the orange "!" badge in `docs/images/map_icon_news_badge.png`. NOT verified: Hawai, other tabs, entering a shop (not hooked), clubs as one flag.
+- Behaviour change to know about: every discovered shop icon now shows the badge until it is selected once, so `-cheat allspots` shows badges everywhere.
+
 ## Session 2026-11-15 (`main`, 20): dev build KnownSpots decoded - it is the "seen" list, not a discovery gate
 
 - Spec `docs/re/map_spots_spec.md` section 9: the class layout (450 ids + count + club flag), `add` / `isKnown` / `isTrackable`, and the only two live adders (`0xb0d3a0` map select, `0xa7ec80` mode enter). `isKnown` is read only by the icon updater, where `!isKnown` = the `news` bubble. No proximity test exists in this code.

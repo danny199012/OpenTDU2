@@ -116,6 +116,10 @@ struct PlayerProfile {
     // once the car drove within discovery range of the building - the retail
     // law (the save's own KnownSpots section, docs/re/savegame_spec.md).
     std::map<std::string, std::vector<uint64_t>> KnownSpots;
+    // The spots the player has selected on the map (OK on the pop-up) per island: the dev build's KnownSpots list
+    // (450 ids at most, houses never listed), whose absence turns on the icon's "new" bubble
+    // (docs/re/map_spots_spec.md section 9).
+    std::map<std::string, std::vector<uint64_t>> SeenSpots;
     // _id_car of the cars bought at a dealer (the starter car is not listed).
     std::vector<int32_t> OwnedCars;
     // The garage (FUN_00abffd0 records, docs/re/story_spec.md 5.2): a full

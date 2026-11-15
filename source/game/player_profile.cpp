@@ -635,6 +635,19 @@ void LoadProfile() {
                 list.push_back( static_cast<uint32_t>( id ) );
                 pText = *pEnd == ',' ? pEnd + 1 : pEnd;
             }
+        } else if ( key.compare( 0, 10, "seenspots_" ) == 0 ) {
+            // seenspots_<island> = u64 record id,u64,... (the spots selected on the map)
+            std::vector<uint64_t> &list = profile.SeenSpots[key.substr( 10 )];
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const unsigned long long id = strtoull( pText, &pEnd, 10 );
+                if ( pEnd == pText ) {
+                    break;
+                }
+                list.push_back( static_cast<uint64_t>( id ) );
+                pText = *pEnd == ',' ? pEnd + 1 : pEnd;
+            }
         } else if ( key.compare( 0, 11, "knownspots_" ) == 0 ) {
             // knownspots_<island> = u64 record id,u64,... (MapScreen Spot::Id)
             std::vector<uint64_t> &list = profile.KnownSpots[key.substr( 11 )];
@@ -914,6 +927,16 @@ bool SaveProfile( const char *pReason ) {
                 continue;
             }
             file << "exploreddirt_" << island.first << " = ";
+            for ( size_t i = 0; i < island.second.size(); i++ ) {
+                file << ( i > 0 ? "," : "" ) << island.second[i];
+            }
+            file << "\n";
+        }
+        for ( const auto &island : profile.SeenSpots ) {
+            if ( island.second.empty() ) {
+                continue;
+            }
+            file << "seenspots_" << island.first << " = ";
             for ( size_t i = 0; i < island.second.size(); i++ ) {
                 file << ( i > 0 ? "," : "" ) << island.second[i];
             }
