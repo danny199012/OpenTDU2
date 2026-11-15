@@ -174,8 +174,9 @@ Addresses are the dev exe's. Reproduce with `python tools/devbuild_disasm.py --d
 | 0x19 | `hotel` | the port draws it with the `home` icon |
 | 0x07 / 0x0f / 0x15 | default (`0x148a4fc`) | unused values |
 
-Category 0x08 sub-kind (`[spot+0x78]`, 0..4): 0 `carWash`, 1 `carPaint`, 2 and 3 `carRental`, 4 `estates`. The port maps `ENC_*` under 0x08 to `club`; the dev table says that sub-kind is
-**`carRental`** (title string "Car Rental"). Not applied: the +0x78 byte is a field of the in-memory spot, not proven to be a `spots.bin` offset, so the bank-name rule stays until it is checked.
+Category 0x08 sub-kind (`[spot+0x78]` = record byte **+0x101**, see section 6): 0 `carWash`, 1 `carPaint`, 2 and 3 `carRental`, 4 `estates`, anything else = no kind. Checked against both islands' `spots.bin`: `ECW_*` = 0, `ESTICK_*` = 1, `ERE_*` = 4,
+and `EDI_*` (diners), `EUC_*` (building sites incl. `EUC_BD*`) and `ENC_*` are all **9** -> no kind in the dev code. No base spot uses 2 / 3 (`carRental` is unused data). So the port's `club` icon for `ENC_*` has no support in the dev code:
+the dev build gives it no pin. [CODE-dev + DATA]; the retail movie was not checked for what it shows there.
 
 **Kind -> tooltip title** (`0xca7350`): the map movie reports the highlighted pin in the Flash variable `/:WhatSpot`; this function string-compares it with `bikeDealer`, `carDealer`, `carRental`, `carWash`, `estates`, ... and picks the title and the tab: "Bike Dealer", "Car Dealer", "Car Rental", "Car Wash", "Realtor", "goodies".
 The `f_*` movie labels (`f_carDealer`, `f_carDealerClassic`, `f_bikeDealer`, ...) are separate frame names.
@@ -188,3 +189,37 @@ Header `SPTW` v3, then 33 `CONT` v1 blocks (one `LICE` position + `IGE2` records
 **Ruled out:** the five readers of the `Level/%s/spots` string (`0x99f36c`, `0xa8bd90`, `0xac68d0`, `0xb099b1`, `0xbe17ee`) are cutscene / resource-bank loaders (`C_FIRST_OUTRO`, `C_OUTRO`, `C_TRUCK`), not marker placement.
 
 **Still open:** the code that reads `spots.bin` itself into the +0x78 / +0x79 / +0x10 fields (the loader, then the discovery test), and the pin drawing in `HudMap` (`0xc9e584`..). The `SPTA` string at `0x96b084` is a start.
+
+## 6. The dev build's spot loader, record layout and pin pool (2026-11-15, `main`) [CODE-dev]
+
+**Loader** `0x96b050`: checks `.SPT` magic, version 2, a flag word (0 or 1), the `SPTA` chunk at +0x10, count = `(chunk size - 0x10) / 0x110`, records from +0x20; each record builds a 0x150-byte Spot object through `0x972880`
+(allocator tag file `Spots.cpp` lines 0x2f3 / 0x309). Objects go in a list at `[mgr+4+i*4]`, count at `[mgr]`, in the file's record order.
+
+**The 0x110-byte record** (`0x972880` copies it into the object):
+
+| rec | -> obj | meaning |
+|---|---|---|
+| +0x00 u64 | +0x10 | spot id (the `GetIdentifier64bit` of the full name; this is what the save's `KnownSpots` holds [INF]) |
+| +0x08 u64 | +0x70 | the 8-char bank name |
+| +0x10..0x18 3 floats | +0x20 | position (w = 1.0 at +0x2c) |
+| +0x1c..0x24 / +0x28..0x30 | +0x44.. / +0x50.. | two more vec3 (orientation / entrance; not decoded) |
+| +0x34..0x37 4 bytes | +0x30 / +0x34 / +0x38 / +0x3c | four byte flags (unknown) |
+| +0x38 float | +0x60 | a radius or scale (unknown) |
+| +0x40 64 bytes | +0x7a | copied as a string but the data is binary (u16 pairs such as `12 01 13 01 23 01 ...` in the `ECD_ASIA` / `EAS_D` records: probably a list of ids) |
+| +0x80..0xff 8 vec4 | +0xc0..0x13f | eight 4-float rows (entrance / parking transforms?; not decoded) |
+| **+0x100 byte** | **+0x79** | **category**, the switch of section 5 |
+| **+0x101 byte** | **+0x78** | **sub-kind**: only read for category 8. For the others it is a stable per-bank class index, identical on both islands (dealers: FERR 0, MERC 1, US2 4, ECDC_EUR 5, US1 6, ECDC_WLD 7, ITAL 9, BRI1 10, ASIA 11, EUR1 12, ECDC_ITA 13, AUDI 14, EUR2 16, BRI2 19; clothes `EAS_A..D` 15..18; tuning `ETUN_A` 0, `D` 1, `F` 5, `B` 6, `G` 7, `I` 8, `H` 17). Probably the join key to a DB row [INF] |
+| +0x102 u16 | +0x40 | unknown |
+| +0x104 byte | +0x42 | unknown |
+| +0x105 byte | +0x141 | boolean (nonzero sets it); seen as 1 on the Ibiza `ECD_MERC` record |
+
+**Discovery store.** The save component holds `KnownSpotsCount` (clamped to **0x1c2 = 450**), the 8-byte ids (`KnownSpotsHashcode`) and a `KnownSpotsClub` flag byte at +0xe14
+(`0xa39ba0`..`0xa39cde`, a (de)serializer; `0x9ffa57` / `0xa0110b` are the same reflection). The port's `KnownSpots` matches that layout; the 450 cap is not enforced by the port.
+The distance test that adds a spot is not found yet (it is game code, not these reflection functions).
+
+**Pin pool** (`0xad94a0`, the map screen's per-frame update; the Flash clip array is at `[this+0x1c71e0]`, stride 8): the map movie has a **fixed pool of `/pack/point%02d` clips**, 0x33 = **51** by default, 0x7a = **122** when the byte `[0x1b1d351]`
+is set. The screen keeps an item list (count `[this+0x1b6bd4]`, items at `[this+0x1b6be0]`, stride 0x80) and item i goes into clip i through `0x43567f` (item, clip, scale; the selected item gets one scale, the others 1.0).
+`/pack/pointcha%02d` clips (`0xb0ce80`) are the challenge pins; `/pack/point%03d` + `pointfinish` (`0xb2c482`) belong to another screen.
+So the dev map shows at most 51 (122) pins at a time, while the port clones every discovered spot. Hawai has 115 icon spots, so the 122 mode is likely the large map [INF: the meaning of `[0x1b1d351]` is not decoded].
+
+**Not found yet:** the code that fills the item list from the spot list (tab filter, discovery distance test, the 450-cap writer) and what `[0x1b1d351]` is.
