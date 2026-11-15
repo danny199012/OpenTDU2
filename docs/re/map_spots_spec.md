@@ -217,12 +217,11 @@ Header `SPTW` v3, then 33 `CONT` v1 blocks (one `LICE` position + `IGE2` records
 (`0xa39ba0`..`0xa39cde`, a (de)serializer; `0x9ffa57` / `0xa0110b` are the same reflection). The port's `KnownSpots` matches that layout; the 450 cap is not enforced by the port.
 The distance test that adds a spot is not found yet (it is game code, not these reflection functions).
 
-**Pin pool** (`0xad94a0`, the map screen's per-frame update; the Flash clip array is at `[this+0x1c71e0]`, stride 8): the map movie has a **fixed pool of `/pack/point%02d` clips**, 0x33 = **51** by default, 0x7a = **122** when the byte `[0x1b1d351]`
-is set. The screen keeps an item list (count `[this+0x1b6bd4]`, items at `[this+0x1b6be0]`, stride 0x80) and item i goes into clip i through `0x43567f` (item, clip, scale; the selected item gets one scale, the others 1.0).
-`/pack/pointcha%02d` clips (`0xb0ce80`) are the challenge pins; `/pack/point%03d` + `pointfinish` (`0xb2c482`) belong to another screen.
-So the dev map shows at most 51 (122) pins at a time, while the port clones every discovered spot. Hawai has 115 icon spots, so the 122 mode is likely the large map [INF: the meaning of `[0x1b1d351]` is not decoded].
+**Pin pool: CORRECTED 2026-11-15 (this paragraph was wrong in the first version).** The 51 / 122 `/pack/point%02d` clips, the 0x80-byte item list (`[this+0x1b6bd4]`, items at `[this+0x1b6be0]`) and `0xad94a0` belong to the **challenge editor**
+(`GM_GMEditor.cpp`, source tag at `0xacec88`): the update pushes `/:NbCheckPointsInt`, `/:MaxCheckPoints`, `/:NbTrapsInt`, `/:MaxTraps`, `initGMEIcon` / `setGMEIcon`, `checkpoint` clips; the neighbours set `/:IsFinishLine`, `/:NbCheckpoints`, `/:NbRadars`, `/:GME_Help`.
+So 51 (0x33) / 122 (0x7a) are the editor's checkpoint-clip counts (max 50 / 121 checkpoints), and it says nothing about how many shop pins the map shows. `[0x1b1d351]` is a game-wide bool that switches that limit.
 
-**Not found yet:** the code that fills the item list from the spot list (tab filter, discovery distance test, the 450-cap writer) and what `[0x1b1d351]` is.
+**Not found yet:** the discovery distance test and the 450-cap writer.
 
 ## 7. The pin popup, "new spot" and favourites (2026-11-15, `main`) [CODE-dev]
 
@@ -242,3 +241,19 @@ then it plays `spot/newspot/anim/bulle` (the "new" bubble) and sets `lightIcon`,
 
 **Global flag `[0x1b1d351]`** (the 51 / 122 pin-pool switch): read from about 60 functions across the exe (input, camera, HUD, map), so it is a game-wide mode bool, not a map option. Not decoded.
 **Still not found:** the map's item-list builder (the code that copies discovered spots into the 0x80-byte items), and the discovery distance test.
+
+## 8. How the dev game drives a spot's icon (2026-11-15, `main`) [CODE-dev]
+
+The dev map does **not** build pins one by one from C++: the `MAP` movie owns the spot icons (container `pack_spots`; `0xb10b90` loads `MAP` and sets `/:MapTabObjective`, `/:MapMode`, `/:numIcFilter`, `/:IsORCInfos`, `/:cur_upgrade`, `/:player_car`, `/:AreasMode`, ...).
+The game only refreshes each icon's state, in `0xb19f20` (`this+0x58` = the Spot, `this+0xa4` = that spot's icon clip). Per spot, in order:
+1. **Frame** - the clip `spot` is told the kind by `sprintf`: `%s` with the kind name (section 5), or `%s_dlc` when the spot's bank string contains `DLC` (so DLC spots wear a separate `_dlc` icon frame). `icLabel` carries the label.
+2. `resetIconStatus` (always).
+3. `setIconFavorite(1)` when the spot's type id is not 3 and its u64 id is in the player's favourites set.
+4. `setIconNews(1)` when the player-data "visited / seen" test for the spot is false and a global byte `[0x1ae973e]` is 0 - the "new" bubble on an unseen spot.
+5. `setTargetStatus(1)` when the spot's id equals the current GPS target id (the two globals `[0x1722700]` / `[0x1722704]`).
+6. `setObjectiveStatus(1)` when a mission lookup on the spot (`0x405286` -> `0x446ac4`) is true; for the spot types 0..4 (jump table `0xb1a8a8`) it also sets `num_contest` and `setRankStatus` (0..3 from `0x411824`): challenge spots carry a rank and a contest count.
+Then the icon alpha is set to 1.0 and the cached colour slots (`+0xa8` / `+0xac`) are reset to -1.
+
+**Port today** (`map_screen.cpp`): it clones the clips itself (`buildSpots`) and sets no per-icon status. Cheap parity items: the `_dlc` frame (the retail movie's label list has 26 labels; whether a `_dlc` variant exists there is **not checked** - run `-dumplabels` on MAP.vmf),
+`setTargetStatus` on the targeted spot's icon (the port already tracks `bHasTarget` / `target`), and `setIconFavorite` on bookmarked spots. `setIconNews` needs a visited flag the port does not keep.
+**Still not found:** the discovery distance test and the writer that appends to `KnownSpots`.
