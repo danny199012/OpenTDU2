@@ -2,7 +2,12 @@
 
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
-
+
+### Update (accessories icons, owner's screenshot at spawn, build 146)
+- The wrong icons are **GENERAL.vmf's emote-wheel art** [DATA, `-dumpflashart`]: up = cell 684 (hand + sound waves), down = 678 (waving person), left / right = 2698 / 2695 (the "L / R" eye glyphs); the HUD's own cells for the slots are 1003 (roof), 1005 (windows), 1001 (car + arrow). The title "Accessories", the arrows and the layout are the HUD's `ig_menu`, and the owner's wheel shows NO red lock on the roof slot (the retail-correct wheel for this hardtop Porsche shows one) - so it is not the same clip content.
+- Re-checked and NOT reproduced: `-gm FREERIDE` with / without `-skipcine`, the LOGIN -> FREERIDE continue path, the owner's options.ini (4K, button_prompts 3), mods, profile, a connected DualSense (no `-nopad`), DLSS on. All show roof(locked) / windows / indicators.
+- Open discriminators to ask the owner: numpad 4 (keyboard) vs the pad's D-pad left; before / after the "Enjoy!" popup closes.
+
 ## Session 2026-11-15 (`main`, 7): drops run down the glass; the accessories icons NOT reproduced
 
 ### What changed
