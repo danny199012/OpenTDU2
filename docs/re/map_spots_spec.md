@@ -238,7 +238,7 @@ then it plays `spot/newspot/anim/bulle` (the "new" bubble) and sets `lightIcon`,
 - A separate function (`0xb18a30`) feeds the vehicle strip (`/:SpotName`, `/:m_MapPlayerVehicle`, `/:MapPlayerVehicleGroup`, `/:MapPlayerVehicleUpg`, `/:IsRoadLocked`).
 
 **Port today**: `map_screen.cpp` already sets `IsSpotLocked`, `IsTeleportOK`, `IsTargetOK`, `CanAddMySpot`, `IsSpotFavorite`, `WhatSpotType`, `IsLevelOK`, `IsCarOK`; it does **not** set `IsNewSpot`, `IsChaLocked`, `SpotLockedText`, `IsWeatherOK`, `IsDayperiodOK`, `isPhotoConditions`.
-Cheap candidates: `IsNewSpot` for race schools (needs the school progress, which the port does not keep), and the 32-bookmark cap (the port uses 20 `[INF]`; the dev cap is 32).
+**Applied 2026-11-15:** the bookmark cap is now 32 (`kMaxBookmarks` in `map_screen.cpp`, was 20 `[INF]`) and `/:CanAddMySpot` is false once the island's list is full. Not applied: `IsNewSpot` (needs race-school progress, which the port does not keep), the type-3 exclusion (what type 3 is is not decoded), and the lock texts.
 
 **Global flag `[0x1b1d351]`** (the 51 / 122 pin-pool switch): read from about 60 functions across the exe (input, camera, HUD, map), so it is a game-wide mode bool, not a map option. Not decoded.
 **Still not found:** the map's item-list builder (the code that copies discovered spots into the 0x80-byte items), and the discovery distance test.

@@ -32,6 +32,10 @@
 #include <queue>
 
 namespace {
+constexpr size_t kMaxBookmarks = 32; // the dev build's "my spots" cap (docs/re/map_spots_spec.md section 7)
+}
+
+namespace {
 constexpr float kMapWidth = 1280.0f; // the flat map is laid out on a 16:9 virtual canvas
 constexpr float kMapHeight = 720.0f;
 constexpr float kStageWidth = 1280.0f; // MAP.vmf's stage (the 16:9 band is y 120..840)
@@ -832,8 +836,8 @@ bool MapScreen::menuAccept() {
         if ( existing >= 0 ) {
             list.erase( list.begin() + existing * 2, list.begin() + existing * 2 + 2 );
             toastText = LocStr( 3914, "Remove bookmark" );
-        } else if ( list.size() >= 40 ) {
-            toastText = LocStr( 6853, "Bookmarks limit number reached" ); // 20 bookmarks [INF]
+        } else if ( list.size() >= kMaxBookmarks * 2 ) {
+            toastText = LocStr( 6853, "Bookmarks limit number reached" ); // 32 "my spots" [CODE-dev: /:CanAddMySpot, count < 0x20]
         } else {
             list.push_back( menuPoint.x );
             list.push_back( menuPoint.z );
@@ -1246,7 +1250,8 @@ void MapScreen::applyCardLocks( const Spot &spot ) {
         player.setVariableBool( "/:IsTeleportOK", getFastTravelPoint( travelPoint ) );
     }
     player.setVariableBool( "/:IsTargetOK", true );
-    player.setVariableBool( "/:CanAddMySpot", true );
+    // [CODE-dev 0xb1dc60] CanAddMySpot = the favourite count is below 0x20 (the port keeps bookmarks per island).
+    player.setVariableBool( "/:CanAddMySpot", GetPlayerProfile().Bookmarks[roadIsland].size() < kMaxBookmarks * 2 );
     player.setVariableBool( "/:IsCarOK", true );
     player.setVariableBool( "/:IsLevelOK", true );
     player.setVariableBool( "/:IsSpotFavorite", findBookmarkNear( spot.Position, 40.0f ) >= 0 );

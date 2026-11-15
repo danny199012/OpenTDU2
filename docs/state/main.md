@@ -8,6 +8,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-15 (`main`, 18): map favourites cap 20 -> 32 from the dev build
+
+- `source/game/map_screen.cpp`: `kMaxBookmarks = 32` (the dev popup code `0xb1dc60` tests the favourite count `< 0x20`); the "Bookmarks limit" toast and `/:CanAddMySpot` both use it. Spec: `docs/re/map_spots_spec.md` section 7.
+- Verified: builds; `-mapcardicon cardealer` opens the card path (`card locks for 'ECD_ITAL'`) with no errors. NOT verified: the cap boundary itself (needs 32 bookmarks added; no hook), no screenshot read by eye.
+- Not applied: `IsNewSpot` (race-school progress), `IsChaLocked`, `SpotLockedText`, weather / daypart photo locks.
+
 ## Session 2026-11-15 (`main`, 17): dev build read for the map-marker code - category table decoded, SpotWorld.bin identified
 
 Owner: "from dev build is it possible to track down how or where the markers are placed for shops, dealerships etc?"
