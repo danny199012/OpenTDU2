@@ -44,6 +44,9 @@ bool CollisionAudio::load() {
     loadPool( bank, carLow, "carcar_low", 1, 4 );
     loadPool( bank, carHigh, "carcar_high", 1, 4 );
     loadPool( bank, scrapeLoop, "carmetal_loop", 1, 4 );
+    loadPool( bank, suspension, "carsuspension", 1, 7 );
+    loadPool( bank, leavesLow, "carleaves_low", 1, 3 );
+    loadPool( bank, leavesHigh, "carleaves_high", 1, 3 );
     OTDU_LOG_INFO( "CollisionAudio: metal %zu/%zu, ground %zu/%zu, car %zu/%zu, scrape loops %zu\n", metalLow.Clips.size(),
                    metalHigh.Clips.size(), groundLow.Clips.size(), groundHigh.Clips.size(), carLow.Clips.size(),
                    carHigh.Clips.size(), scrapeLoop.Clips.size() );
@@ -53,7 +56,7 @@ bool CollisionAudio::load() {
 
 void CollisionAudio::unload() {
     stop();
-    for ( Pool *pool : { &metalLow, &metalHigh, &groundLow, &groundHigh, &carLow, &carHigh, &scrapeLoop } ) {
+    for ( Pool *pool : { &metalLow, &metalHigh, &groundLow, &groundHigh, &carLow, &carHigh, &scrapeLoop, &suspension, &leavesLow, &leavesHigh } ) {
         pool->Clips.clear();
     }
     bLoaded = false;
@@ -117,6 +120,19 @@ void CollisionAudio::hitCar( const Vector3f &position, float speed ) {
     }
     cooldown = 0.2f;
     play( speed < 6.0f ? carLow : carHigh, position, 0.5f + speed / 14.0f, 1.0f );
+}
+
+void CollisionAudio::land( const Vector3f &position, float speed, uint32_t surface ) {
+    if ( !bLoaded || speed < 2.0f ) {
+        return;
+    }
+    const float volume = Clamp( 0.3f + speed / 10.0f, 0.3f, 1.5f );
+    play( suspension, position, volume, 1.0f );
+    if ( surface == 2 ) {
+        play( speed < 5.0f ? leavesLow : leavesHigh, position, volume * 0.8f, 1.0f );
+    } else if ( surface == 1 ) {
+        play( speed < 5.0f ? groundLow : groundHigh, position, volume * 0.7f, 1.0f );
+    }
 }
 
 void CollisionAudio::updateScrape( const Vector3f &position, float slideSpeed, float deltaTime ) {

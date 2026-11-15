@@ -17,6 +17,8 @@ Owner: "volumetric clouds and maybe thunder and lightning ... more sound effects
 - Lightning at night (`-weather 00`): frame luma 47.3 -> 67.1 on the flash frame, then back (blue-white lift visible).
 - Clouds: World Viewer `-island ibiza -campos 35700,80,5600 -campitch 25 -weather 12` shows lit cumulus with grey bases; `-novolclouds` shows a clear sky. Freeride perf unchanged at 120 fps.
 
+- **Landings (follow-up)**: `CollisionAudio::land` - when all wheels leave the ground > 0.18 s and touch down at > 2 m/s vertical, `carsuspension01..07` plays, plus carground (dirt) or carleaves (grass) layered by the wheel surface. Wired next to the horn in `gm_freeride.cpp`. Built and a flat drive runs clean; NO jump was driven, so no landing has been heard or logged yet (`-logcollisionaudio` prints it). Still not wired: wood / fence / stone classes (need a contact material id), glass, dialog.
+
 ### Not verified / next
 - **Nobody has listened**: levels of the collision / thunder sounds are by formula (hit volume 0.35 + v/16, thunder by distance). If hits are too loud or quiet, `collision_audio.cpp` `hitWall/hitFloor/hitCar`.
 - Clouds: not in the environment cube / mirrors; coverage per Cloud_A/B/R is a guess; edges show a faint dither (no temporal accumulation); cloud height 1.1-2.9 km fixed. The old `-intempery 3` storm sky shows overcast only in the drive view - look at it from the World Viewer.

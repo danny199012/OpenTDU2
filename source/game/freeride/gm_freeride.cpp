@@ -7596,6 +7596,29 @@ void GMFreeRide::tick( float deltaTime ) {
                 collisionAudio.updateScrape( vehicle.getPosition(), 0.0f, deltaTime );
             }
         }
+        // Landings: the wheels touch down after being in the air for a moment (carsuspension).
+        {
+            static float airTime = 0.0f, lastVertical = 0.0f;
+            uint32_t surface = 0;
+            int32_t touching = 0;
+            for ( const VehicleDynamics::WheelState &wheel : vehicle.getWheels() ) {
+                if ( wheel.bContact ) {
+                    touching++;
+                    surface = Max( surface, wheel.Surface );
+                }
+            }
+            if ( state == eState::Drive ) {
+                if ( touching == 0 ) {
+                    airTime += deltaTime;
+                    lastVertical = vehicle.getVelocity().y;
+                } else {
+                    if ( airTime > 0.18f && lastVertical < -2.0f ) {
+                        collisionAudio.land( vehicle.getPosition(), -lastVertical, surface );
+                    }
+                    airTime = 0.0f;
+                }
+            }
+        }
         vehicleAudio.setHorn( state == eState::Drive && gpInput != nullptr &&
                               gpInput->isDown( eInputAction::IA_CarHorn ) );
         // Ambient traffic engines (the nearest cars) and the horns Traffic

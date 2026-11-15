@@ -31,6 +31,8 @@ public:
     void hitWall( const Vector3f &position, float speed );
     void hitFloor( const Vector3f &position, float speed );
     void hitCar( const Vector3f &position, float speed );
+    // The wheels touch down after a jump: carsuspension01..07 (surface 0 road, 1 dirt, 2 grass adds the ground / leaves layer).
+    void land( const Vector3f &position, float speed, uint32_t surface );
 
     // Called every frame: slide speed of the fastest wall contact (0 = none) at `position`.
     void updateScrape( const Vector3f &position, float slideSpeed, float deltaTime );
@@ -46,6 +48,7 @@ private:
     void loadPool( Bank &bank, Pool &pool, const char *pPrefix, int32_t first, int32_t last );
     void play( Pool &pool, const Vector3f &position, float volume, float pitch );
 
+    Pool suspension, leavesLow, leavesHigh;
     Pool metalLow, metalHigh, groundLow, groundHigh, carLow, carHigh;
     Pool scrapeLoop;
     GSAudio::VoiceHandle scrapeVoice = GSAudio::kInvalidVoice;
