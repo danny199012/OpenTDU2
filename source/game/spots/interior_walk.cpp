@@ -2,6 +2,7 @@
 #include "game/skill_levels.h"
 #include "interior_walk.h"
 
+#include "audio/frontend_music.h"
 #include "render/gs_render.h"
 #include "filesystem/gs_file.h"
 #include "flash/flash_player.h"
@@ -477,7 +478,32 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     } else {
         startWalk( walkCamera.c_str() );
     }
+    // The place's own music (the retail frontend music of this shop / house).
+    updateMusic();
     return true;
+}
+
+void InteriorWalk::updateMusic() {
+    if ( gpFrontEndMusic == nullptr || !bActive ) {
+        return;
+    }
+    if ( bHouse ) {
+        // The living room plays the house's own track (EPH_L2E_0345I ->
+        // EPH_L2E -> PlayerHouse02.wav). The shipped musics folder has no
+        // garage wav (the table's GARAGE entry has no file), so the living
+        // track keeps playing in the garage instead of cutting to silence.
+        std::string key = houseSpot;
+        const size_t underscore = key.find_last_of( '_' );
+        if ( underscore != std::string::npos && underscore + 1 < key.size() &&
+             isdigit( static_cast<unsigned char>( key[underscore + 1] ) ) ) {
+            key = key.substr( 0, underscore ); // the spot's own name (EPH_L2E)
+        }
+        gpFrontEndMusic->playKey( key, 0.8f ); // music sits under the room
+        return;
+    }
+    // A shop: the table's interior entry (ECD_FERR -> ECD_FERRI), else the
+    // spot's own key.
+    gpFrontEndMusic->playForSpot( spotBank, 1.0f );
 }
 
 bool InteriorWalk::takeLeaveRequest() {
@@ -502,6 +528,10 @@ void InteriorWalk::placeGarageCars() {
 void InteriorWalk::exit() {
     if ( !bActive ) {
         return;
+    }
+    // Out of the place: its music fades away (the kiosk / street is quiet).
+    if ( gpFrontEndMusic != nullptr ) {
+        gpFrontEndMusic->stop();
     }
     scene.setCameraOverride( nullptr );
     walk.setWorldHook( nullptr );

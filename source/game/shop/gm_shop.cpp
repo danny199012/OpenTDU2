@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "gm_shop.h"
 
+#include "audio/frontend_music.h"
 #include "audio/gs_audio.h"
 #include "config/gs_config.h"
 #include "core/xmb.h"
@@ -369,6 +370,18 @@ bool GMShop::enter( TestDriveGameInstance *pInstance ) {
         dealerSpot = shopRequest.Spot;
         dealerIsland = shopRequest.Island.empty() ? std::string( "ibiza" ) : shopRequest.Island;
     }
+    // The dealer's own music, carried over from the walk-in interior (the spot
+    // ECD_FERR_1234I -> the spot bank ECD_FERR -> the SetMusic key ECD_FERRI;
+    // the story dealer ESTOL_B_1275I -> ESTOL_BI). The "SHOP" mix preset keeps
+    // FrontEndMusic at 0.5 against the world's 0 [DATA].
+    if ( gpFrontEndMusic != nullptr ) {
+        std::string bank = dealerSpot;
+        const size_t cut = bank.find_last_of( '_' );
+        if ( cut != std::string::npos ) {
+            bank = bank.substr( 0, cut );
+        }
+        gpFrontEndMusic->playForSpot( bank, 1.0f );
+    }
     // Back from the test drive the story step is still 7 (its enter event
     // ran once): the current car stays the test car (FUN_00a90c70 restores
     // it only at steps 11 / -1) [CODE].
@@ -546,6 +559,9 @@ bool GMShop::enter( TestDriveGameInstance *pInstance ) {
 }
 
 void GMShop::exit() {
+    if ( gpFrontEndMusic != nullptr ) {
+        gpFrontEndMusic->stop(); // the showroom's music, out with the mode
+    }
     if ( pInsetTarget != nullptr && gpRender != nullptr ) {
         gpRender->getDevice().destroyRenderTarget( pInsetTarget );
         pInsetTarget = nullptr;

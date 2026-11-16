@@ -2402,7 +2402,9 @@ dealership etc... is missing"*, later *"maybe it works mirror a camera pointing 
 - **DONE (2026-11-16)**: `source/audio/frontend_audio.*` loads `fe_snd.bnk` + its `sounds.ini`
   (`AddFESound` cues), `FlashPlayer::SetSoundCommandCallback` plays every movie's
   `FSCommand("sndp:<cue>")`, and `PlayFrontEndCue()` covers the native menus. Verified headless.
-- Still open: the `SetMusic` shop wavs on client 8, the seller voice lines, the sticker editor cues.
+- **DONE (2026-11-16, round 2)**: `source/audio/frontend_music.*` plays the `SetMusic` place tracks
+  (`Euro/bnk/sound/musics/*.wav`) on client 8 from the shop / house interiors and the dealer showroom.
+- Still open: the screens' `MAP` / `LOBBY` / `REPLAY` / `EDITOR` / `TDMEDIA` tracks, the seller voice lines.
 - The retail UI bank is `Euro/Bnk/frontend/sounds/fe_snd.bnk` (178 wavs: `valid01/02/04/06`, `back`, `blocked`,
   `toolTip02`, `menuOn01-03/menuOff01`, `shift01`, `move04`, the `Med_*` family — `Med_menu_on_01`,
   `Med_valide_01`, `Med_wrong_02`, `Med_retour_01`, `Med_stop_01`, `Med_cancel_01`... — `in_game_menu_*`, `rd_*`

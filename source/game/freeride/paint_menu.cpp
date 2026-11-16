@@ -193,30 +193,37 @@ void PaintMenu::tickStickers( float deltaTime ) {
             if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_MenuLeft ) ||
                  gpInput->wasPressed( eInputAction::IA_MenuValidate ) || gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
                 page = Page::Paint;
+                PlayFrontEndCue( "back" );
             }
             return;
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
             page = Page::Paint;
+            PlayFrontEndCue( "back" );
             return;
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
             bankSelected = ( bankSelected + soldBanks.size() - 1 ) % soldBanks.size();
+            PlayFrontEndCue( "st_move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
             bankSelected = ( bankSelected + 1 ) % soldBanks.size();
+            PlayFrontEndCue( "st_move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
             StickerBankCatalog &catalog = StickerBankCatalog::get();
             if ( catalog.openBank( soldBanks[bankSelected] ) != nullptr ) {
                 gridSelected = 0;
                 state = StickerState::Grid;
+                PlayFrontEndCue( "valid" );
             } else {
                 message = "This pack is not readable";
                 messageTimer = 3.0f;
+                PlayFrontEndCue( "wrong" );
             }
         } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
             close();
+            PlayFrontEndCue( "back" );
         }
         return;
     }
@@ -230,15 +237,19 @@ void PaintMenu::tickStickers( float deltaTime ) {
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
             gridSelected = static_cast<size_t>( ( static_cast<int32_t>( gridSelected ) + count - kGridColumns ) % count );
+            PlayFrontEndCue( "st_move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
             gridSelected = static_cast<size_t>( ( static_cast<int32_t>( gridSelected ) + kGridColumns ) % count );
+            PlayFrontEndCue( "st_move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
             gridSelected = static_cast<size_t>( ( static_cast<int32_t>( gridSelected ) + count - 1 ) % count );
+            PlayFrontEndCue( "st_move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
             gridSelected = static_cast<size_t>( ( static_cast<int32_t>( gridSelected ) + 1 ) % count );
+            PlayFrontEndCue( "st_move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
             // A new placement, dead centre until the player moves it.
@@ -253,10 +264,13 @@ void PaintMenu::tickStickers( float deltaTime ) {
             tintIndex = 0;
             pushLayoutToCanvas();
             state = StickerState::Place;
+            PlayFrontEndCue( "valid" );
         } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
             state = StickerState::BankList;
+            PlayFrontEndCue( "back" );
         } else if ( gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
             close();
+            PlayFrontEndCue( "back" );
         }
         return;
     }
@@ -277,6 +291,21 @@ void PaintMenu::tickStickers( float deltaTime ) {
         // Move (held): 0.35 canvas/s, a fifth of it with Start (the fine dial).
         static constexpr float kMove = 0.35f, kFine = 0.20f, kScale = 0.30f, kRotate = 140.0f;
         const float moveScale = gpInput->isDown( eInputAction::IA_MenuPause ) ? kFine : 1.0f;
+        // One cue per press (the moves themselves are held): the sticker
+        // editor's own st_* sounds of sounds.ini.
+        if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) || gpInput->wasPressed( eInputAction::IA_MenuRight ) ||
+             gpInput->wasPressed( eInputAction::IA_MenuUp ) || gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
+            PlayFrontEndCue( "st_move" );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_AccessoriesLeft ) ) {
+            PlayFrontEndCue( "st_dscal" );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_AccessoriesRight ) ) {
+            PlayFrontEndCue( "st_uscal" );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_AccessoriesUp ) || gpInput->wasPressed( eInputAction::IA_AccessoriesDown ) ) {
+            PlayFrontEndCue( "st_rotat" );
+        }
         if ( gpInput->isDown( eInputAction::IA_MenuLeft ) ) {
             p.U = Clamp( p.U - kMove * moveScale * deltaTime, 0.02f, 0.98f );
         }
@@ -308,6 +337,7 @@ void PaintMenu::tickStickers( float deltaTime ) {
         if ( gpInput->wasPressed( eInputAction::IA_MenuOption1 ) && pBankInfo != nullptr && pBankInfo->bMonochrome ) {
             tintIndex = ( tintIndex + 1 ) % ( sizeof( kTintPalette ) / sizeof( kTintPalette[0] ) );
             p.Tint = kTintPalette[tintIndex];
+            PlayFrontEndCue( "switch" );
         }
         pushLayoutToCanvas();
         if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
@@ -321,6 +351,7 @@ void PaintMenu::tickStickers( float deltaTime ) {
                     message = "Not enough money";
                     messageTimer = 3.0f;
                     state = StickerState::Placed;
+                    PlayFrontEndCue( "wrong" );
                     return;
                 }
                 profile.Money -= price;
@@ -335,6 +366,7 @@ void PaintMenu::tickStickers( float deltaTime ) {
             editIndex = -1;
             saveStickers( "sticker bought" );
             state = StickerState::Placed;
+            PlayFrontEndCue( "st_apply" );
             return;
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
@@ -347,6 +379,7 @@ void PaintMenu::tickStickers( float deltaTime ) {
             pushLayoutToCanvas();
             editIndex = -1;
             state = StickerState::Placed;
+            PlayFrontEndCue( "back" );
             return;
         }
         return;
@@ -354,19 +387,23 @@ void PaintMenu::tickStickers( float deltaTime ) {
     case StickerState::Placed: {
         if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
             page = Page::Paint;
+            PlayFrontEndCue( "back" );
             return;
         }
         if ( layout.empty() ) {
             if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
                 state = StickerState::BankList;
+                PlayFrontEndCue( "back" );
             }
             return;
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
             placedSelected = ( placedSelected + layout.size() - 1 ) % layout.size();
+            PlayFrontEndCue( "st_move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
             placedSelected = ( placedSelected + 1 ) % layout.size();
+            PlayFrontEndCue( "st_move" );
         }
         placedSelected = Min( placedSelected, layout.size() - 1 );
         if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
@@ -380,6 +417,7 @@ void PaintMenu::tickStickers( float deltaTime ) {
                 }
             }
             state = StickerState::Place;
+            PlayFrontEndCue( "valid" );
         } else if ( gpInput->wasPressed( eInputAction::IA_MenuOption2 ) ) {
             // Remove a placed sticker (no refund; the retail respray rule).
             OTDU_LOG_INFO( "Paint: car %d sticker '%s' #%d removed\n", carId, layout[placedSelected].Bank.c_str(),
@@ -390,8 +428,10 @@ void PaintMenu::tickStickers( float deltaTime ) {
             }
             pushLayoutToCanvas();
             saveStickers( "sticker removed" );
+            PlayFrontEndCue( "pdelete" ); // retail's delete cue (deleteFlag01.wav)
         } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
             state = StickerState::BankList;
+            PlayFrontEndCue( "back" );
         }
         return;
     }

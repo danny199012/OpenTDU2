@@ -124,6 +124,10 @@ private:
     bool loadRoom( const std::string &path, const std::string &houseSpotName, bool bGarageRoom,
                    const char *pWalkCamera = nullptr, const std::string &island = std::string() );
     void placeGarageCars();
+    // The place's frontend music (fe_snd.bnk's SetMusic table -> a wav in
+    // sound/musics, client 8 "FrontEndMusic"): the shop's interior track, the
+    // house's own track in the living room (docs/re/frontend_audio_spec.md 5).
+    void updateMusic();
 
     IntroCinematic scene;
     WalkMode walk;

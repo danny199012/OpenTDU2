@@ -42,10 +42,33 @@ countdown's `three`. The pause menu's own FSCommands (`sndp:mopen`, `sndp:move`,
 Collision audio (already in the tree) was re-verified in the same sweep: `CollisionAudio: metal 6/6,
 ground 6/6, car 4/4, scrape loops 4`, and a wall hit logged `'carmetal_high03_PHYSIC_SFX' volume 1.01`.
 
-**Not done / next** (single next step: shop music): parse the `SetMusic` lines and play
-`Euro/bnk/sound/musics/*.wav` on client 8 ("FrontEndMusic") while an `InteriorWalk` stands in a shop, stop
-on exit. Then the sticker editor's `st_*` cues (`paint_menu.cpp`'s native placement mode) and the seller
-voice lines (still no data - do not invent audio). Detail: `docs/re/frontend_audio_spec.md`.
+**Round 2 (the owner: "I heard the menu sounds you added ... please continue with the other stuff")**:
+the place music and the sticker sounds. `source/audio/frontend_music.{h,cpp}` parses the bank's second
+table - `SetMusic "<place key>" "<wav>"` x113, the wavs loose in `Euro/bnk/sound/musics/` - and plays one
+looping track on the **"FrontEndMusic"** client (8), which `audiosetup.xmb` puts in the **"Music" mixer**
+with the radio (`Menu` 0.2, `SHOP` 0.5, `Freeride` 1). One voice with fade-in 0.5/s / fade-out 1.2/s
+(`update()` from the main loop), the wav decoded on switch and the previous clip dropped (a 1.4 MB track is
+~25 MB of float frames). Key resolution: the shop interiors' `I` entry first (`ECD_FERR` -> `ECD_FERRI`),
+else the spot's own (the clubs / airport / houses have no `I`); a house spot drops its `_<n>` part
+(`EPH_L3DI_5067I` -> `EPH_L3DI`). Hooked at `InteriorWalk::loadRoom` (shops at 1.0, house living rooms at
+0.8; `GARAGE`/`DRESSING` have no shipped wav so the house track stays in the garage), `InteriorWalk::exit`,
+and `GMShop::enter`/`exit` so the retail showroom keeps the dealer's music under the `SHOP` preset. The
+sticker editor's native states in `paint_menu.cpp` now play its own `st_*` family: `st_move` on the pack /
+grid / placed lists and on a placement's move key, `st_uscal` / `st_dscal` on the scale keys, `st_rotat`
+on rotate, `st_apply` on the placement being bought / committed, `pdelete` on a removed sticker, plus
+`switch` on a monochrome recolour and `back`/`valid`/`wrong` on the transitions.
+
+**Verified round 2** (build 199): `FrontEndMusic: ... 113 place tracks, client 8 (FrontEndMusic)`;
+`-interior ECD_FERR` -> `loaded 'CarDealer.wav' (32.0 s)`, `'ECD_FERRI' -> CarDealer.wav (voice 41)`, then
+`'ecd_ferri' at gain 1.00` (the fade landed) and `'ecd_ferri' stopped` on the B that left the room;
+`-interior ECH_IA` -> `'ECH_IA' -> ClubIbiza.wav` (the `ECH_IAI` key does not exist); `-enterhouse
+EPH_L3DI_5067I` -> `'EPH_L3DI' -> PlayerHouse02.wav (0.80)`; `-gm shop -shopspot ECD_FERR` ->
+`'ECD_FERRI' -> CarDealer.wav` in the showroom.
+
+**Not done / next** (single next step: the screens' music): `MAP` / `LOBBY` / `REPLAY` / `EDITOR` /
+`TDMEDIA` have `SetMusic` entries and wavs; wire each screen (the map opens and closes from ~8 places in
+`gm_freeride.cpp`, and a shop interior's track must come back when the map closes). Then the seller voice
+lines (still no data - do not invent audio). Detail: `docs/re/frontend_audio_spec.md`.
 
 
 Owner: "I want to have volumetric clouds but 3 attempts and still haven't really seen a single cloud ... as for the 2nd attempt we had clouds but were static way to big and a bit of an eye sore to look at".

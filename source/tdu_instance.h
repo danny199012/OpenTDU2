@@ -13,6 +13,7 @@ class GSFlash;
 class GSImGui;
 class GSAudio;
 class FrontEndAudio;
+class FrontEndMusic;
 struct SDL_Window;
 
 namespace TestDrive {
@@ -84,6 +85,7 @@ private:
     std::unique_ptr<GSImGui> pImGui;
     std::unique_ptr<GSAudio> pAudio;
     std::unique_ptr<FrontEndAudio> pFrontEndAudio;
+    std::unique_ptr<FrontEndMusic> pFrontEndMusic;
 
 private:
     bool createWindow();

@@ -79,7 +79,10 @@ pipeline has 2 inputs.
    `pause_menu.cpp` (entry column *fallback* path only — the movie-driven
    column fires its own cues; blocked entry), `map_screen.cpp` (the cursor
    menu), `freeride/{dealer,estate,fuel,paint,school,tuning,championship}_menu.cpp`,
-   `game/clothes_shop.cpp`, `game/advanced_graphics.cpp`.
+   `game/clothes_shop.cpp`, `game/advanced_graphics.cpp`. The sticker editor
+   (`paint_menu.cpp`'s own BankList / grid / Place / Placed states) uses its
+   `st_*` family: `st_move`, `st_uscal` / `st_dscal`, `st_rotat`, `st_apply` on
+   the placement, `pdelete` on a removed sticker.
    Movie-driven ones need nothing: `gm_login` / `gm_shop` / the casino / the
    HUD send keys to their movie, which fires `sndp:` itself.
 
@@ -110,16 +113,61 @@ Flags: `-nofrontendaudio` (no bank), `-logfrontendaudio` (every cue, decode and
 unknown cue).
 
 ---------------------------------------------------------------------------
-## 5. Not done / next
+## 5. Place music (`SetMusic`)
 
-- **Shop music** (`SetMusic` entries, `Euro/bnk/sound/musics/*.wav`): play on
-  the `FrontEndMusic` bfx client (8) while an `InteriorWalk` stands in a shop,
-  stop on exit. The `Menu` preset has that client at 0.2, the world presets
-  gate it behind the `Music` mixer.
+`sounds.ini`'s second table maps a **place key** to a wav in
+`Euro/bnk/sound/musics/` (113 entries, the wavs are loose files, 0.6 .. 5 MB):
+
+```
+SetMusic  "ECD_FERRI"  "CarDealer.wav"  1  0
+```
+
+- The key is the spot's bank name: **without** the suffix for the outside record
+  (`ECD_FERR`), **with an `I`** for the interior record (`ECD_FERRI`); the clubs
+  (`ECH_IA`), the airport (`EAIR_A/B`), the houses (`EPH_L2E`) and the screens
+  (`LOGIN`, `MAP`, `LOBBY`, `REPLAY`, `EDITOR`, `TDMEDIA`) have no `I` entry.
+  `FrontEndMusic::playForSpot("ECD_FERR")` tries `ECD_FERRI` then `ECD_FERR`.
+- House spots: `EPH_L3DI_5067I` -> drop the `_<n>` part -> `EPH_L3DI` ->
+  `PlayerHouse02.wav`. The garage / dressing keys (`GARAGE`, `DRESSING`) have
+  **no wav** in the shipped folder, so the house track keeps playing there.
+- Client: `Clients[10] = "FrontEndMusic"` (bfx index 8) on `FrontEndStereo`, in
+  the **"Music" mixer** with the radio (so the player's Music volume drives it)
+  [DATA]. The presets: `Menu` 0.2, `SHOP` **0.5**, `Freeride` 1.
+- Implemented in `source/audio/frontend_music.{h,cpp}`: one looping voice, the
+  wav decoded on switch (a 1.4 MB track is ~25 MB of float frames, so the
+  previous clip is dropped), fade-in 0.5/s / fade-out 1.2/s driven by
+  `FrontEndMusic::update` from the main loop.
+- **Where it starts / stops**:
+  - `InteriorWalk::loadRoom` -> `updateMusic()` (the shop's interior key, the
+    house's own key at 0.8), `InteriorWalk::exit()` -> `stop()`.
+  - `GMShop::enter` (the showroom the dealer door leads to) -> the dealer's key,
+    `GMShop::exit()` -> `stop()`; the `SHOP` preset turns it down to 0.5.
+  - `GMLogin::enter` already played `login.wav` on client 8 before this work.
+
+Verified headless (build 199):
+
+```
+FrontEndMusic: 'Euro/Bnk/frontend/sounds/fe_snd.bnk', 113 place tracks, client 8 (FrontEndMusic)
+FrontEndMusic: loaded 'Euro/Bnk/sound/musics/CarDealer.wav' (32.0 s)        <- -interior ECD_FERR
+FrontEndMusic: 'ECD_FERRI' -> CarDealer.wav (volume 1.00, 32.0 s, voice 41)
+FrontEndMusic: 'ecd_ferri' at gain 1.00 (voice 41)                          <- the fade finished
+... B / leave: InteriorWalk: left 'ECD_FERR' -> FrontEndMusic: 'ecd_ferri' stopped
+FrontEndMusic: 'ECH_IA' -> ClubIbiza.wav   (the ECH_IAI key does not exist: fallback)
+FrontEndMusic: 'EPH_L3DI' -> PlayerHouse02.wav (volume 0.80, 34.8 s)        <- -enterhouse
+SHOP mode: FrontEndMusic: 'ECD_FERRI' -> CarDealer.wav (voice 1)           <- -gm shop -shopspot ECD_FERR
+```
+
+Flags: `-nofrontendmusic` (no table / no music), `-logfrontendaudio` (loads,
+switches, the fade end, stops, missing keys).
+
+---------------------------------------------------------------------------
+## 6. Not done / next
+
+- **The screens' music**: `MAP`, `LOBBY`, `REPLAY`, `EDITOR`, `TDMEDIA` have
+  table entries and wavs; wiring them needs the screen to own the track (the map
+  opens and closes from ~8 places in `gm_freeride.cpp`, and inside a shop the
+  interior's track should come back on close).
 - **Seller voice lines**: still no data (see the STATE note) — do not invent
   audio.
-- **Sticker editor cues** (`st_move` / `st_uscal` / `st_dscal` / `st_rotat` /
-  `st_flip` / `st_apply`): the native placement mode in `paint_menu.cpp` has
-  its own keys and plays nothing yet; the cue names and the wavs are there.
 - The pause menu's first `mopen` arrives **twice** (two players, one frame):
   harmless at 0.3 and probably retail behaviour, but unconfirmed by ear.

@@ -2,6 +2,7 @@
 #include "tdu_instance.h"
 
 #include "audio/frontend_audio.h"
+#include "audio/frontend_music.h"
 #include "audio/gs_audio.h"
 
 #include "config/gs_config.h"
@@ -279,6 +280,13 @@ bool TestDriveGameInstance::initialize() {
             gpFrontEndAudio->play( cue );
         }
     } );
+    // The place music (shops / houses / clubs: fe_snd.bnk's SetMusic table, a
+    // loose wav in sound/musics played on the "FrontEndMusic" client, under the
+    // player's Music volume).
+    pFrontEndMusic = std::make_unique<FrontEndMusic>();
+    if ( !CmdLine::HasArg( "-noaudio" ) ) {
+        pFrontEndMusic->load();
+    }
     LoadProfile();
     // -playername (the launcher's Player tab): the profile's name, applied
     // after the save is loaded so the launcher's field wins over an older save
@@ -593,6 +601,9 @@ void TestDriveGameInstance::mainLoop() {
             pActiveGameMode->tick( deltaTime );
         }
         pAudio->tick();
+        if ( pFrontEndMusic != nullptr ) {
+            pFrontEndMusic->update( deltaTime ); // the place-music fades
+        }
 
         if ( screenshotFrame >= 0 &&
              static_cast<int64_t>( frameIndex ) == screenshotFrame ) {
