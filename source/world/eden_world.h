@@ -340,6 +340,7 @@ private:
         // nothing (the flicker / despawn of 2026-11-16).
         struct InstanceFrameInfo {
             uint32_t VisStamp = 0;    // bMainVisible / bOccluded (with the slot VP)
+            uint32_t VisSerial = 0;   // the slot-VP generation the verdicts were computed under
             uint32_t GroundStamp = 0; // bHasGround
             uint32_t LodStamp = 0;    // Lod (stamp equality is validity: 0 = never filled)
             uint32_t Lod = 0;
@@ -711,4 +712,5 @@ private:
     uint32_t instanceFrameStamp = 0; // 0 = never filled
     Matrix4x4f instanceFrameVp;
     bool instanceFrameVpOwned = false;
+    uint32_t instanceFrameVpSerial = 0; // bumps whenever the slot VP is rewritten
 };

@@ -7,6 +7,26 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 45): the despawn/flicker is FIXED - a shadowed `range` plus the slot-VP reuse
+
+The owner: the perf work caused buildings despawning and trees flickering.
+
+### What changed (`source/world/eden_world.{h,cpp}`, `drawInstances`)
+- **Shadowing bug**: the LOD recompute branch declared `auto range = ...` which shadowed the outer
+  `range` (0,0) - on every frame an instance's LOD was freshly computed (any moving camera) the
+  instance drew NOTHING for that pass. Now assigns the outer `range`. This is the visible
+  despawn/flicker (session 44's per-value stamps only fixed the frozen-LOD half).
+- **Slot-VP reuse (session 44's open item)**: `instanceFrameVpSerial` bumps whenever the slot VP is
+  rewritten; each instance's vis verdict stores `VisSerial` and is reused only when stamp AND serial
+  match, so verdicts written under another pass's VP are never reused while the camera is stationary.
+
+### Verified
+- Stationary A/B (`-tp 21796.3,24188.1 -snaproad 150 -carlod 4 -clock 02.00 -staticcubemap
+  -fixedtimestep`, shot at frame 400): cache on vs `-noinstancecache` mean-diff 0.0 (was ~2 % band);
+  on vs on (A/A) 0.0. Moving drive looks right (trees/buildings present), but a 2400-frame
+  drive A/B is not usable: Hawaii off-road drives diverge on their own (help popup vs tree crash).
+- Not checked: a long paired moving drive by eye.
+
 ## Session 2026-11-16 (`main`, 44): "Wangan Works" - the shop gets its name; F4 walks straight in; the flicker root cause is HALF fixed (handoff below)
 
 Task: the owner picked the garage's final name (the plan's open question), asked which shop the

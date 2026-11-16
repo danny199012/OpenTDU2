@@ -1364,7 +1364,9 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
     if ( bVisWrite && !bVisCache ) {
         instanceFrameVp = vp;
         instanceFrameVpOwned = true;
+        instanceFrameVpSerial++; // verdicts written under an older slot are stale
     }
+    const uint32_t visSerial = instanceFrameVpSerial;
     if ( sector.InstanceFrame.size() != sector.Instances.size() ) {
         sector.InstanceFrame.resize( sector.Instances.size() );
     }
@@ -1391,7 +1393,7 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
         }
         bool bVisible = true;
         bool bOccluded = false;
-        if ( bVisCache && info.VisStamp == stamp ) {
+        if ( bVisCache && info.VisStamp == stamp && info.VisSerial == visSerial ) {
             bVisible = info.bMainVisible;
             bOccluded = info.bOccluded;
         } else {
@@ -1416,6 +1418,7 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
                 info.bMainVisible = bVisible;
                 info.bOccluded = bOccluded;
                 info.VisStamp = stamp;
+                info.VisSerial = visSerial;
             }
         }
         if ( !bVisible || bOccluded ) {
@@ -1507,7 +1510,10 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
                         lod = 2;
                     }
                 }
-                auto range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
+                // Assign the OUTER range (a shadowing `auto range` here left it
+                // (0,0): every instance whose LOD was freshly computed drew
+                // nothing that pass - the despawn / flicker).
+                range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
                 while ( lod > 0 && range.second == 0 ) {
                     lod--;
                     range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
