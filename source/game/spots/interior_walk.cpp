@@ -55,7 +55,17 @@ std::string InteriorWalk::InteriorBankFor( const std::string &spotBank ) {
     // shared bank every tuning shop uses (itun_a), like the bike dealers
     // share ibd_cla.
     if ( spotBank.size() >= 4 && _strnicmp( spotBank.c_str(), "ETNR", 4 ) == 0 ) {
-        const std::string modBank = "interior/itnr_a.bnk";
+        // ETNR_<L>: the room itnr_<l>.bnk of that letter first (the second
+        // shop, ETNR_B, is the used-car-dealer room re-built as a workshop -
+        // make_revyard_interior.py), then the first shop's itnr_a.
+        std::string modBank = "interior/itnr_a.bnk";
+        if ( spotBank.size() >= 6 && spotBank[4] == '_' ) {
+            const std::string letterBank =
+                std::string( "interior/itnr_" ) + static_cast<char>( std::tolower( static_cast<unsigned char>( spotBank[5] ) ) ) + ".bnk";
+            if ( gpFile != nullptr && gpFile->fileExists( ( gpFile->getBankFolder() + letterBank ).c_str() ) ) {
+                modBank = letterBank;
+            }
+        }
         const bool bModThere = gpFile != nullptr && gpFile->fileExists( ( gpFile->getBankFolder() + modBank ).c_str() );
         if ( bModThere ) {
             cache[spotBank] = modBank;
@@ -465,6 +475,14 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
                     break;
                 }
             }
+        }
+    }
+    // ETNR_* rooms are workshops: a re-purposed dealer room's hostess desk
+    // (selectable type 1, the car seller) becomes the tuner seller (23).
+    if ( !bHouse && _strnicmp( houseSpotName.c_str(), "ETNR", 4 ) == 0 ) {
+        const size_t remapped = scene.remapSelectableType( 1, 23 );
+        if ( remapped > 0 ) {
+            OTDU_LOG_INFO( "InteriorWalk: %zu car-seller desk(s) of '%s' serve as the tuner seller\n", remapped, path.c_str() );
         }
     }
     const auto &selectables = scene.getSelectables();

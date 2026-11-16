@@ -185,6 +185,19 @@ public:
     bool getPosCamViewLocal( const std::string &posCamName, Vector3f &outPosition, Quaternionf &outHeading ) const;
     const Volume *findVolume( const std::string &name ) const;
     inline const std::vector<Volume> &getSelectables() const { return selectables; }
+    // Re-types every selectable of type `from` to `to` (a retail dealer room
+    // re-purposed as a workshop: its hostess desk, type 1, becomes the tuner
+    // seller, type 23). Returns how many changed.
+    inline size_t remapSelectableType( int32_t from, int32_t to ) {
+        size_t changed = 0;
+        for ( Volume &volume : selectables ) {
+            if ( volume.SelectableType == from ) {
+                volume.SelectableType = to;
+                changed++;
+            }
+        }
+        return changed;
+    }
     // House collision (intro_lph_l3di_*.shk, house-local frame).
     inline const HavokCollision &getCollision() const { return collision; }
     // Car of the scene (FIRST_WM: the current car, 387 California): rests at

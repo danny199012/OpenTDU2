@@ -86,6 +86,11 @@ def main():
         sys.exit('no spots.bin at %s (check --game)' % src)
     mods = args.mods or r'C:\temp\otdu2-cline-userdata\mods'
     mod_bank = os.path.join(mods, 'Euro', 'Bnk')
+    # Spots stack: start from the overlay's own list when it exists (it already
+    # carries the earlier additions), else from the game's.
+    mod_src = os.path.join(mod_bank, 'islands', args.island, 'level', 'spots.bin')
+    if os.path.isfile(mod_src):
+        src = mod_src
 
     data = bytearray(open(src, 'rb').read())
     if data[:4] != b'.SPT':
