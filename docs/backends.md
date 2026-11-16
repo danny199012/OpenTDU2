@@ -182,10 +182,15 @@ with it `GSFlash` and `Renderer2D`) can be pointed at the D3D12 device.
   **same build on WARP draws the overlay and exits cleanly** (1258 fps, watermark in the
   screenshot), so the command stream is valid; it is the hardware driver that does not
   return. `-noimgui` is the same A/B on the Vulkan side.
-- **A D3D12 run that ends within its first second can stall in `GSAudio`'s teardown**
-  (reproduced at `-exitframe 130` and `4000`, both < 1 s at 3500-5300 fps; `-exitframe 6000`,
-  1.0 s, exits cleanly). It is not the renderer - the frame loop has already stopped and the
-  log's last line is the game mode exit. Use a longer `-exitframe` for automated checks.
+- **A D3D12 run can stall in the process teardown** (after the last frame; the frame loop and
+  every frame are fine). It is flaky, not deterministic: the same 2000-frame command sometimes
+  exits and sometimes stops with an idle CPU, and it reproduces with `-noaudio` (no audio
+  device at all - the front end music is now gated on `GSAudio::isReady()`, which fixed the
+  first version of this) and with `-nolog` (so neither the mixer nor the log mutex is the
+  cause on its own). The watchdog's own lines stop too, so something holds a shared resource.
+  Automation: let it be stopped (`Stop-Process -Name opentdu2-cline`) or rely on the watchdog's
+  kill threshold; nothing in the game is lost. Next step: `TestDriveGameInstance::terminate` -
+  log with `Logger::WriteTagged` (non-blocking) from each step to find the holder.
 - **No build stamp on a D3D12 screenshot** unless `-d3d12-ui` is on (the stamp is an ImGui
   overlay). RULES section 6: quote the log banner (`Run: build N (hash) - branch`) instead.
 - **`Options > Video` still configures the Vulkan object** in a D3D12 run

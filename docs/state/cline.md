@@ -52,7 +52,7 @@ lift the in-game refusal from the first pass, i.e. make `-renderer d3d12` drive 
 - `docs/backends.md` - status matrix, the new flags, the in-game verification recipe, and
   section 6 rewritten around what the two traps actually are.
 
-### Verified (build 217 (2cb9b5f) · cline)
+### Verified (build 217 (39267ed) · cline)
 
 The game on D3D12, no workarounds:
 
@@ -84,15 +84,24 @@ eight colour bars exact.
   succeeds at init and the atlas is already `OK` on the hanging frame (`0 pending textures`).
 - **A second frame's vertex-buffer allocation** - pinning `NumFramesInFlight = 1` changes
   nothing.
-- **The audio teardown** - it is real but separate: the frame loop stops first, and a longer
-  run (`-exitframe 6000`, 1.0 s) exits cleanly; a < 1 s run stalls in `pAudio.reset()`.
+- **The audio teardown** - it was real once: the front end started music on a device opened a
+  moment earlier. `GMLogin::enter` now gates it on `GSAudio::isReady()`. The *remaining* stall
+  is bigger and not audio: see "Not done / next".
 
 ### Not done / next
 
-The D3D12 **draw** path for game content: `Renderer2D` (the Flash login art, all 2D UI) and the
-Eden scene, i.e. SPIR-V -> HLSL (SPIRV-Cross) -> DXIL (`dxc`) plus `TextureCache` on
-`createTexture2D`. That also unblocks the ImGui driver stall investigation (same PSO/heap code
-path) and removes the 3D game-mode refusal.
+Two things, in order:
+
+1. **The process teardown stall on D3D12** (open, flaky): after the last frame the process
+   sometimes stays alive with an idle CPU; it reproduces with `-noaudio` and `-nolog`, and the
+   watchdog's own lines stop with it, so some thread holds a shared resource. Next step:
+   `TestDriveGameInstance::terminate` - one `Logger::WriteTagged` (non-blocking) before each
+   step (waitIdle, the game mode exit, each service, `SDL_DestroyWindow`, `SDL_Quit`) to find
+   the holder. Everything the game itself does is unaffected; automation can `Stop-Process`.
+2. **The D3D12 draw path for game content**: `Renderer2D` (the Flash login art, all 2D UI) and
+   the Eden scene, i.e. SPIR-V -> HLSL (SPIRV-Cross) -> DXIL (`dxc`) plus `TextureCache` on
+   `createTexture2D`. That also unblocks the ImGui driver stall (same PSO/heap code path) and
+   removes the 3D game-mode refusal.
 
 
 
