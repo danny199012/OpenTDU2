@@ -98,6 +98,23 @@ purity check compared frame 400 of a short straight drive - too early to cross L
   round-robin lag (`eden_shadows.cpp`) is a separate, deliberate tradeoff - leave it.
 - Repro of the user report (pre-fix, gone with the fix): drive a while, buildings stay blobs;
   post-fix drives look right, only the stationary-camera band remains.
+- Session 44 follow-up (same day, owner tested and "can't teleport to Wangan - the Tuning shop is
+  stock"): **there are TWO userdata folders on this machine and the mod was only installed in
+  one.** Normal play (the launcher, or any run without `-userdata`) uses the SDL pref path
+  `C:\Users\cuz_c\AppData\Roaming\OpenTDU2\OpenTDU2` (gs_file.cpp: `SDL_GetPrefPath("OpenTDU2",
+  "OpenTDU2")`); the agent test runs pass `-userdata C:\temp\otdu2-win-userdata`. The launcher had
+  enabled `tuner-garage` in the AppData folder's `enabled.txt` and created the package folder with
+  only `mod.json` - no island overlay (no ETNR spots: no Wangan Works destination, the vanilla
+  ETUN_A "Tuning shop" was the only tuner-ish place) and no catalog/bank. Installed there now:
+  `add_spot.py` ETNR_A for ibiza (12560, 10.55, 16700, heading 1.21) and hawai (21160, 6.99,
+  11500, heading 2.59, category 4, `--bank` the win overlay's `etnr_a.bnk`), the `tuner/` catalog
+  copied into the AppData package, and `make_tuner_interior.py --userdata <AppData>` regenerated
+  `itnr_a.bnk`. Verified WITHOUT `-userdata` (the owner's exact path): 9 quick destinations incl.
+  "Wangan Works", `-tpdestination 'wangan works' -> ETNR_A`, the room loads `itnr_a.bnk` from the
+  AppData package, GTR on the lift. **The launcher-side installer (spots append + catalog copy +
+  bank generation) remains the real follow-up** - a fresh machine hits this exact wall. Also note:
+  the vanilla "Tuning shop" F4 row (ETUN_A) is intentionally stock - Wangan Works is its own
+  building next to it in the row.
 
 
 ## Session 2026-11-16 (`main`, 43): the tuner garage gets its own dark / neon / graffiti interior
