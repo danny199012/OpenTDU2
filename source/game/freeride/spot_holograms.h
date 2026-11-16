@@ -29,6 +29,7 @@ public:
         std::unique_ptr<EdenModel> Mesh;
         Matrix4x4f Local;       // the scene root's inverse
         Vector3f BoundsMin, BoundsMax;
+        std::vector<int32_t> ArrowNodes; // every 'Arrow_*' node (hidden from the group draw)
         int32_t ArrowNode = -1; // the 'Arrow_*' material's node (the direction cone)
     };
     struct Placement {

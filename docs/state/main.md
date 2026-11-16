@@ -8,6 +8,22 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 34): buy-window page cameras + live rims / interior preview landed; hologram double arrow fixed
+
+Picked up GLM's uncommitted work (quota ran out) and the owner's report: "2 arrows instead of 1, one side correct, the other flipped".
+
+### What changed
+- `gm_shop.cpp/.h`, `cinematic_car.cpp/.h` (GLM, reviewed + verified here): per-page camera for the buy window (wheels / paint / interior poses around the podium car, re-applied at the end of `tick` because `walk.update` overwrites the camera; the confirm page restores the walk view so C_BUY_CAR_I plays), `CinematicCar::swapRims` (reloads the two rim meshes + diameters on the browsed DBRims row), `CinematicCar::applyInterior` (DBInterior colours onto the `C1_*` / `C2_*` cockpit materials). Poses are port-native [INF] (the dealer banks carry no C_WHEELS_V / C_PAINT_V / C_INTERIOR_V tracks).
+- `spot_holograms.cpp/.h`: the frame scenes carry TWO arrow nodes on the one `Arrow_Blue_01` material (`..ROW_FR` front, `..ROW_SI` side). Only the first was hidden and re-aimed, so the second drew as authored = the flipped extra arrow. All arrow nodes are hidden from the group draw now; the front one is redrawn aimed.
+
+### Verified
+- Buy run (`-gm SHOP -shopspot ECD_AUDI_1276I -shopaim 6`, the Audi key recipe): log `page camera 2/3/4`, `rims swapped to audi/r8_spyder_f_03`, `interior ... on 1 material(s)`, `bought Audi R8 ... car 442`; `docs/images/shop_page_cameras_rims_paint_interior.webp` (wheel close-up before/after swap, paint 3/4, cabin, confirm).
+- Hologram: `-atspot ECD_FERR_3337I -weather 18`, reverse: one arrow leaning at the dealer (`docs/images/spot_hologram_one_arrow.webp`).
+
+### Not done / next
+- Interior preview reads pale grey on a "Black Nappa" row: `applyInterior` lightens the swatch 20 % and the `R8_V10_Int_Noir_01` library lookup may be missing (falls back to grey 0.32) - check `FindLibrarySwatch` and drop the lightening for dark ids. The retail apply (sls_amg_int1/int2 map swap) is still undecoded.
+- Bikes' `C_PAINT_V_BIKE` view not done. Owner to eyeball the camera poses in play.
+
 ## Session 2026-11-16 (`main`, 33): spot holograms rebuilt on the entrance anchor + frame arrow; birds per-island + path flock
 
 The owner (taking over from another vendor): "the 1 thing that really really needs work on both islands is the hologram enter markers for races, shops, dealerships etc... I did try to get claude to really dig in the dev build the data might be there for it." Also: "we need birds and Airplanes flying over I don't think the islands share the same stuff like traffic etc".

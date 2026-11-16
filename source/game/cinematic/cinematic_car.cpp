@@ -2632,6 +2632,115 @@ bool CinematicCar::FindDatabaseDesc( int32_t idCar, uint64_t rimsHashcode, Desc 
     return true;
 }
 
+bool CinematicCar::swapRims( uint64_t rimsHashcode ) {
+    // The buy window's wheels page: the shown car takes the browsed rim row.
+    // Retail rebuilds the slot car on every change (the page chop FUN_009f28a0
+    // writes the index into the shop state and broadcasts 0xacee30 to the 8
+    // slots [CODE]); the port reloads just the two rim meshes (the load()
+    // block for the new DBRims row) - the car / tire / interior stay.
+    if ( gpRender == nullptr || gpRender->getEdenRenderer() == nullptr ) {
+        return false;
+    }
+    if ( rimsHashcode == 0 || rimsHashcode == rimsHashcodeLoaded ) {
+        return rimsHashcode != 0;
+    }
+    Desc desc;
+    if ( !FindDatabaseDesc( getIdCar(), rimsHashcode, desc ) ) {
+        return false;
+    }
+    const std::string folder = gpFile->getBankFolder() + "vehicules/";
+    TextureCache &textures = gpRender->getTextureCache();
+    rim.destroy();
+    rimRear.destroy();
+    for ( Bank *pBank : { &rimBank, &rimRearBank } ) {
+        if ( !pBank->getEntries().empty() ) {
+            gpRender->getTextureCache().releaseOwner( textureOwnerName( *pBank ).c_str() );
+        }
+        pBank->unload();
+    }
+    if ( rimBank.load( ( folder + "rim/" + desc.RimFront + ".bnk" ).c_str() ) ) {
+        const std::string rimOwner = textureOwnerName( rimBank );
+        textures.loadBankTextures( rimBank, rimOwner.c_str() );
+        rim.load( *gpRender->getEdenRenderer(), rimBank, nullptr, nullptr, rimOwner.c_str() );
+        // The rims of several cars (One-77...) are wound the other way round
+        // than their culling state: closed meshes, drawn without culling.
+        for ( EdenMaterial &material : rim.getMaterials() ) {
+            material.CullMode = 1;
+        }
+    }
+    if ( desc.RimRear != desc.RimFront && rimRearBank.load( ( folder + "rim/" + desc.RimRear + ".bnk" ).c_str() ) ) {
+        const std::string rimRearOwner = textureOwnerName( rimRearBank );
+        textures.loadBankTextures( rimRearBank, rimRearOwner.c_str() );
+        rimRear.load( *gpRender->getEdenRenderer(), rimRearBank, nullptr, nullptr, rimRearOwner.c_str() );
+        for ( EdenMaterial &material : rimRear.getMaterials() ) {
+            material.CullMode = 1;
+        }
+    }
+    rimDiameterFront = desc.RimDiameterFront > 0 ? desc.RimDiameterFront : desc.DiameterFront;
+    rimDiameterRear = desc.RimDiameterRear > 0 ? desc.RimDiameterRear : desc.DiameterRear;
+    setRimDiameters( rimDiameterFront, rimDiameterRear );
+    rimsHashcodeLoaded = rimsHashcode;
+    OTDU_LOG_INFO( "CinematicCar: %s: rims swapped to %s (%d\"/%d\")\n", fileName.c_str(), desc.RimFront.c_str(),
+                   rimDiameterFront, rimDiameterRear );
+    return true;
+}
+
+bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
+    // The buy window's interior page: the DBInterior row's colours onto the
+    // cockpit's colourable materials. [DATA] the two colourable materials are
+    // authored 'C1_*' / 'C2_*' (sls_amg_i: C1_LEA / C2_LEA; california:
+    // C1_L.. / C2_L..) and a DBInterior row carries 2-3 colour ids of the
+    // colours.2dm library. [INF] the retail apply is not fully decoded (the
+    // dev build composes 'Interiors/%s_I' mesh paths; the maps swap
+    // sls_amg_int1/int2): the port paints the leather ramps the same way the
+    // body paint does (RAMPCLR2 = the colour, RAMPCLR1 a lighter shade).
+    if ( gpDatabase == nullptr || !interior.isLoaded() || interiorHashcode == 0 ) {
+        return false;
+    }
+    XmbValue root = gpDatabase->getDocument().getRoot();
+    XmbValue row;
+    for ( uint32_t i = 0; i < root.getArraySize( "DBInterior" ); i++ ) {
+        XmbValue candidate = root.getArrayElement( "DBInterior", i );
+        if ( candidate["_hashcode"].asUInt64() == interiorHashcode ) {
+            row = candidate;
+            break;
+        }
+    }
+    if ( !row.isValid() ) {
+        return false;
+    }
+    static const uint64_t kRampClr1 = GetIdentifier64bit( "RAMPCLR1" );
+    static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
+    const auto swatch = [&]( const char *pId ) {
+        float rgb[3] = { 0.32f, 0.32f, 0.32f };
+        FindLibrarySwatch( pId, rgb );
+        const Vector4f colour( rgb[0], rgb[1], rgb[2], 1.0f );
+        return Vector4f( colour.x + ( 1.0f - colour.x ) * 0.2f, colour.y + ( 1.0f - colour.y ) * 0.2f,
+                         colour.z + ( 1.0f - colour.z ) * 0.2f, 1.0f );
+    };
+    const Vector4f colour1 = swatch( row["_interior_color_1"].asString().c_str() );
+    const Vector4f colour2 = swatch( row["_interior_color_2"].asString().c_str() );
+    int32_t painted = 0;
+    for ( EdenMaterial &material : interior.getMaterials() ) {
+        Vector4f colour;
+        if ( material.Name.compare( 0, 3, "C1_" ) == 0 ) {
+            colour = colour1;
+        } else if ( material.Name.compare( 0, 3, "C2_" ) == 0 ) {
+            colour = colour2;
+        } else {
+            continue;
+        }
+        material.Parameters[kRampClr2] = colour;
+        material.Parameters[kRampClr1] = colour; // the leather's two ramps take the trim colour
+        material.Diffuse = Vector4f( colour.x, colour.y, colour.z, material.Diffuse.w );
+        painted++;
+    }
+    OTDU_LOG_INFO( "CinematicCar: %s: interior '%s' (%s / %s) on %d material(s)\n", fileName.c_str(),
+                   row["_interior_name"].asString().c_str(), row["_interior_color_1"].asString().c_str(),
+                   row["_interior_color_2"].asString().c_str(), painted );
+    return painted > 0;
+}
+
 bool CinematicCar::DescFromDatabase( int32_t carId, Desc &outDesc ) {
     if ( gpDatabase == nullptr ) {
         return false;

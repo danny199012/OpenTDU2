@@ -227,6 +227,16 @@ public:
     // The same for a given rims row (the shop slots / the test drive carry
     // their own rims hashcode; 0 = the car's default rims).
     static bool FindDatabaseDesc( int32_t idCar, uint64_t rimsHashcode, Desc &outDesc );
+    // The buy window's live preview: the shown car takes the browsed DBRims
+    // row (the retail slot rebuild on the wheels page, FUN_009f28a0 ->
+    // 0xacee30 broadcast): the two rim meshes + the diameters reload. No-op
+    // when that row is already on. False when the row / renderer is missing.
+    bool swapRims( uint64_t rimsHashcode );
+    // The interior page: the DBInterior row's colours on the cockpit's two
+    // colourable materials (authored 'C1_*' / 'C2_*': sls_amg 'C1_LEA' /
+    // 'C2_LEA', california 'C1_L..' / 'C2_L..' [DATA]). See the .cpp for the
+    // decoded / inferred split.
+    bool applyInterior( uint64_t interiorHashcode );
     // A colour by material id (FUN_00a50ca0 -> FUN_00d8e6a0): the
     // DBCarsAndColors row of the car whose _color_id_1 is that id, painted
     // like applyDatabasePaint. False when the id is not one of the car's
@@ -329,6 +339,7 @@ private:
     EdenModel interior;
     EdenModel rim;
     EdenModel rimRear;
+    uint64_t rimsHashcodeLoaded = 0; // swapRims' no-op key
     EdenModel tire;
     // Retractable roof (docs: /tmp/claude-0/spec_california.md): skeleton
     // <car>.xsb + Hardtop.anm posing the skinned HANIM_S node at

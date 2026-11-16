@@ -917,6 +917,7 @@ void GMShop::closeBuyWindow() {
     car = buyRestore;
     bBuyWindow = false;
     buyOption = 0;
+    restoreWindowView();
     fillCarVariables( car );
 }
 
@@ -945,6 +946,92 @@ void GMShop::stepBuyWindow( bool bNext ) {
     writeBuyPrices();
 }
 
+// The retail per-page camera of the buy window [CODE: FUN_009f2d80 ->
+// 0xa4a670 aims a named view at the shown car; the names are inline strings
+// of TestDrive2.exe: wheels C_WHEELS_V, paint C_PAINT_V (bikes
+// C_PAINT_V_BIKE), interior C_INTERIOR_V]. The dealer banks carry no such
+// tracks (icd_audi: C_LIFE_HOSTESS / C_INTRO_I / C_BUY_CAR_I only), so the
+// views are port-native poses around the podium car [INF]: wheels low at
+// the front-left wheel, paint the front 3/4, interior through the window.
+// The car frame is +X left / +Z forward (the cockpit-camera convention).
+void GMShop::playPageCamera( int32_t option ) {
+    if ( hoveredCar < 0 ) {
+        return;
+    }
+    const ShopCar &car = cars[static_cast<size_t>( hoveredCar )];
+    if ( car.ShowCar < 0 || !scene.getShowCarWorld( static_cast<size_t>( car.ShowCar ), pageCameraCarWorld ) ) {
+        return;
+    }
+    Vector3f eyeLocal, targetLocal;
+    float fov = 0.61f;
+    // (the pose re-applies every tick: the walk camera would win otherwise)
+    switch ( option ) {
+    case 2:
+        eyeLocal = Vector3f( 2.3f, 0.85f, 2.4f );
+        targetLocal = Vector3f( 0.8f, 0.42f, 1.45f );
+        fov = 0.55f;
+        break;
+    case 3:
+        eyeLocal = Vector3f( 2.9f, 1.25f, 4.9f );
+        targetLocal = Vector3f( 0.0f, 0.7f, 0.2f );
+        break;
+    case 4:
+        eyeLocal = Vector3f( 1.7f, 1.4f, 0.5f );
+        targetLocal = Vector3f( 0.45f, 1.0f, 0.35f );
+        fov = 0.7f;
+        break;
+    default:
+        // The confirm page (5) and the drive-out cinematic need the walk
+        // view back: a pose left up would ride into C_BUY_CAR_I.
+        if ( bPageCamera ) {
+            restoreWindowView();
+        }
+        return;
+    }
+    pageEyeLocal = eyeLocal;
+    pageTargetLocal = targetLocal;
+    pageFov = fov;
+    bPageCamera = true;
+    applyPageCameraPose();
+    OTDU_LOG_INFO( "SHOP: page camera %d on %s: %d show cars\n", option, car.Name.c_str(),
+                   static_cast<int32_t>( scene.getShowCarCount() ) );
+}
+
+void GMShop::applyPageCameraPose() {
+    // The walk camera refreshes the scene view every frame: the page pose
+    // re-applies after it (tick) or is gone by the next draw.
+    if ( !bPageCamera ) {
+        return;
+    }
+    const Vector3f eye = pageCameraCarWorld.transformPoint( pageEyeLocal );
+    const Vector3f direction = ( pageCameraCarWorld.transformPoint( pageTargetLocal ) - eye ).normalized();
+    // Eden convention: forward = R(q*) (0, 0, 1), q* = Ry(yaw) Rx(-pitch)
+    // (the garage cockpit camera, GMFirstWalkMode::updateCockpitCamera).
+    const float yaw = std::atan2( direction.x, direction.z );
+    const float pitch = std::asin( Clamp( direction.y, -1.0f, 1.0f ) );
+    const Quaternionf conjugate = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), yaw ) *
+                                  Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), -pitch );
+    // setCameraOverride keeps the POINTER: the pose lives in the member
+    // (a stack local dies at return - the garage cockpit camera only gets
+    // away with a local because it re-applies every frame).
+    pageCamera.Position = eye;
+    pageCamera.Rotation = Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w );
+    pageCamera.Fov = pageFov;
+    pageCamera.Near = 0.05f; // the wheel / cabin views sit close to the body
+    scene.setCameraOverride( &pageCamera );
+}
+
+void GMShop::restoreWindowView() {
+    if ( bPageCamera ) {
+        scene.setCameraOverride( nullptr );
+        bPageCamera = false;
+    }
+    scene.stopMain();
+    if ( !loopCinematic.empty() ) {
+        scene.playBackground( loopCinematic, true );
+    }
+}
+
 void GMShop::setupBuyPage( bool bNext ) {
     FlashPlayer &ui = scene.getUi();
     const ShopCar &car = cars[static_cast<size_t>( hoveredCar )];
@@ -958,6 +1045,7 @@ void GMShop::setupBuyPage( bool bNext ) {
         ui.gotoLabel( "/buy/rewind_buy", "loop", true );
         ui.setVariableNumber( "/:rewind_buy", 1.0 );
         bBuyWindow = false;
+        restoreWindowView();
         break;
     case 2: {
         // Wheels: /:num_option 1, no colour squares, title DB text 0x1df,
@@ -1036,6 +1124,7 @@ void GMShop::setupBuyPage( bool bNext ) {
     // retail edFlash routing is encrypted].
     ui.setClipVisible( "/buy/window_buy/colors", buyOption == 3 || buyOption == 4 );
     writeBuyChoiceFlags();
+    playPageCamera( buyOption );
 }
 
 void GMShop::paintBuySwatches( int32_t option ) {
@@ -1087,9 +1176,15 @@ void GMShop::applyBuyItem( int32_t option ) {
     XmbValue root = gpDatabase->getDocument().getRoot();
     if ( option == 2 ) {
         const std::vector<uint64_t> rims = CarRimsList( car.IdCar );
+        const uint64_t previousRims = car.RimsHashcode;
         if ( item >= 0 && item < static_cast<int32_t>( rims.size() ) ) {
             car.Rims = item;
             car.RimsHashcode = rims[static_cast<size_t>( item )];
+        }
+        // The preview: the shown car takes the browsed rims (the retail slot
+        // rebuild; swapRims no-ops on the same row).
+        if ( car.RimsHashcode != previousRims && car.ShowCar >= 0 ) {
+            scene.getShowCar( static_cast<size_t>( car.ShowCar ) ).swapRims( car.RimsHashcode );
         }
         XmbValue row = FindRow( "DBRims", "_hashcode", static_cast<int64_t>( car.RimsHashcode ) );
         const std::string name = row.isValid() ? row["_displayname"].asString() : std::string( "n/a in DB" );
@@ -1119,6 +1214,12 @@ void GMShop::applyBuyItem( int32_t option ) {
         const std::vector<uint64_t> interiors = ColorInteriors( car.ColorRow );
         if ( item >= 0 && item < static_cast<int32_t>( interiors.size() ) ) {
             car.Interior = item;
+        }
+        // The preview: the cockpit's colourable materials take the row's
+        // colours (see CinematicCar::applyInterior).
+        if ( car.ShowCar >= 0 && !interiors.empty() ) {
+            scene.getShowCar( static_cast<size_t>( car.ShowCar ) )
+                .applyInterior( interiors[static_cast<size_t>( Max( 0, car.Interior ) )] );
         }
         XmbValue row = car.Interior < static_cast<int32_t>( interiors.size() )
                            ? FindRow( "DBInterior", "_hashcode", static_cast<int64_t>( interiors[static_cast<size_t>( car.Interior )] ) )
@@ -1830,6 +1931,11 @@ void GMShop::tick( float deltaTime ) {
         if ( explainEnd > 1.5f ) {
             startExplainFrog();
         }
+    }
+    // Last: the buy window's page pose (walk.update above resets the walk
+    // camera every frame; this is what the player actually sees).
+    if ( bBuyWindow && bPageCamera ) {
+        applyPageCameraPose();
     }
 }
 

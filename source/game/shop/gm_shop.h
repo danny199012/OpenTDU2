@@ -119,6 +119,14 @@ private:
     void stepBuyWindow( bool bNext );
     void applyBuyItem( int32_t option );
     void setupBuyPage( bool bNext );
+    void playPageCamera( int32_t option ); // the buy window's C_WHEELS_V / C_PAINT_V / C_INTERIOR_V views
+    void restoreWindowView(); // back to the walk view + hostess loop
+    Matrix4x4f pageCameraCarWorld; // the podium car's pose at the camera set
+    Vector3f pageEyeLocal, pageTargetLocal; // the page pose in the car frame
+    float pageFov = 0.61f;
+    bool bPageCamera = false; // a page camera override is up
+    void applyPageCameraPose(); // re-applies the page pose (per tick)
+    EdenSceneView::Camera pageCamera; // the override target (kept by pointer)
     void writeBuyChoiceFlags();
     void writeBuyPrices();
     void paintBuySwatches( int32_t option );

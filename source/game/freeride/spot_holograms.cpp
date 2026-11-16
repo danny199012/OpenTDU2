@@ -76,7 +76,7 @@ bool SpotHolograms::load( EdenSceneView &view ) {
                     // The port aims it at the building's door (see draw()).
                     {
                         const std::vector<SceneNode> &nodes = pMesh->getScene().getNodes();
-                        for ( size_t n = 0; n < nodes.size() && model.ArrowNode < 0; n++ ) {
+                        for ( size_t n = 0; n < nodes.size(); n++ ) {
                             bool bArrowNode = false;
                             for ( const uint64_t materialHash : nodes[n].Materials ) {
                                 for ( const EdenMaterial &material : pMesh->getMaterials() ) {
@@ -90,7 +90,16 @@ bool SpotHolograms::load( EdenSceneView &view ) {
                                 }
                             }
                             if ( bArrowNode ) {
-                                model.ArrowNode = static_cast<int32_t>( n );
+                                // The frame carries two arrow nodes sharing
+                                // the one material (..ROW_FR front, ..ROW_SI
+                                // side): the first is the pointer the port
+                                // aims, ALL are hidden from the group draw -
+                                // the unaimed side one was the flipped
+                                // second arrow (owner report).
+                                if ( model.ArrowNode < 0 ) {
+                                    model.ArrowNode = static_cast<int32_t>( n );
+                                }
+                                model.ArrowNodes.push_back( static_cast<int32_t>( n ) );
                             }
                         }
                     }
@@ -172,7 +181,7 @@ void SpotHolograms::draw( EdenRenderer &renderer ) const {
             // about the view axis (drawNode skips the box cull, so this
             // second draw of one node is safe).
             EdenDrawParams params;
-            params.ForceHiddenNodes.push_back( model.ArrowNode );
+            params.ForceHiddenNodes.insert( params.ForceHiddenNodes.end(), model.ArrowNodes.begin(), model.ArrowNodes.end() );
             model.Mesh->draw( renderer, frame * model.Local, &params );
             const Matrix4x4f arrow =
                 Matrix4x4f::Translation( placement.Position ) *
