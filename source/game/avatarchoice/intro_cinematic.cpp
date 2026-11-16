@@ -1635,6 +1635,12 @@ void IntroCinematic::updateView() {
     // -cineweather <preset>: one cinematic_weathers preset for every shot and
     // the walk (A/B of time of day / weather); -listweathers logs the names.
     static const char *pForcedWeather = CmdLine::GetArgValue( "-cineweather" );
+    // A room's own forced preset (setForcedWeather - the tuner garage's ETNR
+    // rooms walk in at night): the same knob -cineweather forces from the
+    // command line, with the room taking precedence when it sets one.
+    if ( pForcedWeather == nullptr && !forcedWeatherName.empty() ) {
+        pForcedWeather = forcedWeatherName.c_str();
+    }
     static bool bListed = false;
     if ( !bListed && CmdLine::HasArg( "-listweathers" ) ) {
         bListed = true;

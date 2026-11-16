@@ -287,6 +287,12 @@ public:
     // A neon blinks bright / dim for `seconds` (a winning combination's pay
     // panel) [INF: the retail win light is the exe's].
     bool flashNeon( uint64_t entityHashcode, float seconds );
+    // Forces a game-weathers preset for this room's shots and walk (the same
+    // knob -cineweather forces from the command line; the name is an island
+    // time of day, "23.20" = night). The tuner garage's ETNR rooms set it so
+    // the room draws its night lightmap with the neon strength up. Empty (the
+    // default): the cinematic's own weather, else none.
+    inline void setForcedWeather( const char *pName ) { forcedWeatherName = pName != nullptr ? pName : ""; }
     inline size_t getNumDisplayCars() const { return displayCars.size(); }
     // A display car's position in the walk frame (scene-local) and its
     // _id_car (the near-car spec card): false past the end.
@@ -714,6 +720,7 @@ private:
     bool bSubtitles = true;         // -subtitles 0|1 (default on when a file exists)
     std::string weatherName;
     std::string modifierName;
+    std::string forcedWeatherName; // setForcedWeather: the ETNR rooms' night
     EdenSceneView::Camera camera;   // last camera
     Vector3f previousListener;
     float lastDeltaTime = 0.0f;

@@ -8,6 +8,50 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 43): the tuner garage gets its own dark / neon / graffiti interior
+
+Task: the owner wants the customization shop "pimped out" - darker, a custom name, neon, graffiti
+on the walls - **without affecting the shops that share the same interior** (the garage walked
+into the shared `interior/itun_a.bnk` every retail ETUN_* tuning shop uses).
+
+### What changed
+- `tools/mod/make_tuner_interior.py` (new) - reads the user's own `itun_a.bnk` and writes the
+  re-skinned **`itnr_a.bnk`** into the enabled tuner-garage package (`<userdata>/mods/packages/
+  tuner-garage/Euro/Bnk/interior/`). 13 texture swaps (art generated with PIL into
+  `resources/mods/packages/tuner-garage/interior/art/`: graffiti walls, the "TUNER GARAGE" neon
+  mural on the poster sheet, neon-lamp recolors, dark roof / floor / display sheets), every
+  room material's Ambient / Diffuse x0.55, the baked lightmaps and the `cubecar` cube map dimmed
+  **in place** (a small DXT1/DXT5 colour-block re-encoder - the structure stays byte-identical:
+  an uncompressed cube rebuild renders the sampler's white fallback). The repo ships only the
+  tool + our art; the game folder is never written [DATA: reads the user's bank].
+- `source/game/spots/interior_walk.cpp` - the ETNR rule prefers `interior/itnr_a.bnk`
+  (fileExists), falling back to `itun_a`; ETNR rooms force the island night game weather
+  ("23.20") so the room draws its night lightmap with the neon strength up.
+- `source/game/avatarchoice/intro_cinematic.{h,cpp}` - `setForcedWeather`: a room-set forced
+  preset feeding the same selection `-cineweather` uses.
+
+### Verified
+- ETNR_A (Ibiza, `-interior ETNR_A`): the dark garage - neon pegboard arch, neon lamps, framed
+  neon art, the neon mural - with the GTR on the lift wearing its wing
+  (`docs/images/tuner_garage_dark.webp`). Buy flow green under the reskin (`car_tuner_parts`
+  moved to `spoiler=wing_ducktail`).
+- **ETUN_A stays vanilla**: still reads `itun_a`, bright orange shop, no neon
+  (`docs/images/tuner_garage_etun_vanilla.webp`).
+- Hawaii ETNR_A through the real enter-prompt path: same re-skin + menu + preview
+  (`docs/images/tuner_garage_hawai_dark.webp`).
+- Lightmap findings: the night lightmap's alpha is uniform 255 (not load-bearing) and the arch
+  frames' retail photos live in the `cubecar` CUBE MAP (reflected by the glass boards) - both
+  now dimmed in place; an uncompressed cube rebuild renders the sampler's white fallback
+  [CODE: pickTexture's view-type mismatch, eden_renderer.cpp].
+
+### Not done / next
+- True TD_NEONDECAL conversion on the poster material (animated / blinking neon needs
+  WeatherEmissive param writes + scene-view registration) - the current glow is the recoloured
+  flare fixtures + the art.
+- DXT compression for the swapped art (uncompressed swaps are why the bank grew 9.3 -> 17.1 MB).
+- A launcher button (or first-run step) to run `make_tuner_interior.py`; per-car offset
+  eyeballing remains a data edit.
+
 ## Session 2026-11-16 (`main`, 42): tuner-garage mod - OBJ materials no longer render flat white
 
 Task: the handoff's one open bug (obj_mesh / mod_props materials flat white).

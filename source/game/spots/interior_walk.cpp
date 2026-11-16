@@ -9,6 +9,7 @@
 #include "game/clothes_shop.h"
 #include "game/house_shop.h"
 #include "game/spots/house_furniture.h"
+#include "game/freeride/tuner.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
 #include "system/cmd_line.h"
@@ -47,10 +48,19 @@ std::string InteriorWalk::InteriorBankFor( const std::string &spotBank ) {
         return cache[spotBank];
     }
     // ETNR_*: the tuner-garage mod's spots (the overlay's spots.bin records,
-    // docs/TUNER_MOD_PLAN.md 4). One interior serves every tuning shop of the
-    // game (itun_a, the ETUN_* walk-in), so the garage reuses it - the same
-    // shared-bank rule as the bike dealers above.
+    // docs/TUNER_MOD_PLAN.md 4). Its own interior when the mod generated one
+    // (make_tuner_interior.py: the dark / neon / graffiti re-skin of the
+    // tuning-shop room, under a NEW name so the shared vanilla bank - which
+    // every retail ETUN_* shop walks into - stays untouched), else the same
+    // shared bank every tuning shop uses (itun_a), like the bike dealers
+    // share ibd_cla.
     if ( spotBank.size() >= 4 && _strnicmp( spotBank.c_str(), "ETNR", 4 ) == 0 ) {
+        const std::string modBank = "interior/itnr_a.bnk";
+        const bool bModThere = gpFile != nullptr && gpFile->fileExists( ( gpFile->getBankFolder() + modBank ).c_str() );
+        if ( bModThere ) {
+            cache[spotBank] = modBank;
+            return cache[spotBank];
+        }
         const std::string tunerBank = "interior/itun_a.bnk";
         const bool bThere = gpFile != nullptr && gpFile->fileExists( ( gpFile->getBankFolder() + tunerBank ).c_str() );
         cache[spotBank] = bThere ? tunerBank : std::string();
@@ -286,6 +296,13 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
         setup.UiMovie = "shopscar";
     }
     setup.HouseIsland = island;
+    // The tuner garage's rooms walk in at NIGHT (the mod's dark / neon /
+    // graffiti re-skin, make_tuner_interior.py): the same forced-preset knob
+    // -cineweather uses - the night game weather dims the room's sun, flips
+    // the baked lightmap to its night half and raises the neon strength.
+    // Every other room resets it (the member is per room, not per mode).
+    scene.setForcedWeather( !bHouse && _strnicmp( houseSpotName.c_str(), "ETNR", 4 ) == 0 &&
+                                    TunerModEnabled() ? "23.20" : "" );
     setup.ExteriorBank.clear();
     setup.ExteriorPrefix.clear();
     setup.bWorld = false;
