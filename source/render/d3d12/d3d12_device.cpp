@@ -448,6 +448,13 @@ void D3D12Device::endFrame() {
 
     present();
 
+    // -d3d12-debug: the debug layer's verdict on the first frames, while the
+    // image is still simple enough for a message to be actionable (a silent
+    // HRESULT in a consumer backend is otherwise a hang with no trace).
+    if ( bDebugLayer && frameNumber <= 5 ) {
+        flushDebugMessages( "frame" );
+    }
+
     // Signal after Present: the slot is free for the CPU once the GPU is done
     // with it.
     const uint64_t value = ++fenceValue;
@@ -538,6 +545,8 @@ void D3D12Device::destroy() {
         SafeRelease( pBackbuffers[i] );
     }
     SafeRelease( pRtvHeap );
+    SafeRelease( pSrvHeap );
+    srvUsed.clear();
     SafeRelease( pSwapchain );
     SafeRelease( pFence );
     SafeRelease( pQueue );
@@ -863,6 +872,64 @@ bool D3D12RunSelfTest() {
 
     OTDU_LOG_INFO( "-renderer-selftest: %s\n", bOk ? "PASSED" : "FAILED" );
     return bOk;
+}
+
+bool D3D12Device::createSrvHeap() {
+    if ( pDevice == nullptr ) {
+        return false;
+    }
+    if ( pSrvHeap != nullptr ) {
+        return true;
+    }
+    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    // Shader visible: it is bound to the command list, not just filled on the
+    // CPU (the RTV heap is the other kind).
+    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    desc.NumDescriptors = kSrvDescriptors;
+    desc.NodeMask = 0;
+    if ( FAILED( pDevice->CreateDescriptorHeap( &desc, IID_PPV_ARGS( &pSrvHeap ) ) ) ) {
+        OTDU_LOG_ERROR( "D3D12: the SRV descriptor heap could not be created\n" );
+        return false;
+    }
+    srvDescriptorSize =
+        pDevice->GetDescriptorHandleIncrementSize( D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
+    srvUsed.assign( kSrvDescriptors, false );
+    return true;
+}
+
+bool D3D12Device::allocateSrv( uintptr_t &cpuHandle, uintptr_t &gpuHandle ) {
+    if ( pSrvHeap == nullptr && !createSrvHeap() ) {
+        return false;
+    }
+    for ( uint32_t index = 0; index < kSrvDescriptors; index++ ) {
+        if ( srvUsed[index] ) {
+            continue;
+        }
+        srvUsed[index] = true;
+        cpuHandle = pSrvHeap->GetCPUDescriptorHandleForHeapStart().ptr +
+                    static_cast<SIZE_T>( index ) * srvDescriptorSize;
+        gpuHandle = pSrvHeap->GetGPUDescriptorHandleForHeapStart().ptr +
+                    static_cast<SIZE_T>( index ) * srvDescriptorSize;
+        return true;
+    }
+    OTDU_LOG_ERROR( "D3D12: the SRV heap (%u descriptors) is full\n", kSrvDescriptors );
+    return false;
+}
+
+void D3D12Device::freeSrv( uintptr_t cpuHandle ) {
+    if ( pSrvHeap == nullptr || cpuHandle == 0 ) {
+        return;
+    }
+    const SIZE_T start = pSrvHeap->GetCPUDescriptorHandleForHeapStart().ptr;
+    if ( cpuHandle < start ) {
+        return;
+    }
+    const uint32_t index =
+        static_cast<uint32_t>( ( cpuHandle - start ) / srvDescriptorSize );
+    if ( index < kSrvDescriptors ) {
+        srvUsed[index] = false;
+    }
 }
 
 #endif // OTDU_D3D12

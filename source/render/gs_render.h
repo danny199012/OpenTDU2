@@ -49,6 +49,28 @@ public:
     // Direct3D backends present the swapchain only for now, so the frame loop
     // asks this before drawing anything (tdu_instance.cpp).
     inline bool canDrawScene() const { return RenderBackend::CanRenderScene( backend ); }
+    // True when the ImGui overlay can draw (the debug UI, the build watermark,
+    // the Options panels): Vulkan through the 2D renderer, D3D12 through
+    // imgui_impl_dx12 - which is opt-in with -d3d12-ui until the driver stall
+    // in docs/backends.md section 6 is understood.
+    inline bool canDrawUI() const {
+        return backend == eRenderBackend::Vulkan ||
+               ( backend == eRenderBackend::D3D12 && bD3D12Ui );
+    }
+    // The D3D12 device, or nullptr on another backend.
+    inline D3D12Device *getD3D12Device() {
+        return backend == eRenderBackend::D3D12 ? &d3d12Device : nullptr;
+    }
+    // The presented size, whichever backend runs: the Flash stage layout and the
+    // ImGui viewport need it (they used to read the Vulkan device directly).
+    inline uint32_t getBackbufferWidth() const {
+        return backend == eRenderBackend::D3D12 ? d3d12Device.getBackbufferWidth()
+                                                : device.getBackbufferWidth();
+    }
+    inline uint32_t getBackbufferHeight() const {
+        return backend == eRenderBackend::D3D12 ? d3d12Device.getBackbufferHeight()
+                                                : device.getBackbufferHeight();
+    }
     // Same question, from a backend pointer that does not know what it drives.
     inline const char *getBackendName() const { return RenderBackend::GetName( backend ); }
 
@@ -80,6 +102,9 @@ public:
 private:
     // Vulkan: the complete renderer. Direct3D: the swapchain only, so far.
     eRenderBackend backend = eRenderBackend::Vulkan;
+    // -d3d12-ui: draw the ImGui overlay on the D3D12 backend (opt-in, see
+    // docs/backends.md section 6).
+    bool bD3D12Ui = false;
     RenderDevice device;
     D3D12Device d3d12Device;
     TextureCache textureCache;

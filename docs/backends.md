@@ -23,7 +23,9 @@ with no shippable step in between. The backends are therefore added
 | Clear + viewport + scissor | done | done | - | - |
 | Screenshot (PPM readback) | done | **done** | - | - |
 | Resize, minimise, device lost | done | done | - | - |
-| Scene, 2D UI, Flash, ImGui | done | not yet (phase 2) | - | - |
+| Game boots (services, Flash logic, login) | done | **done** (3D modes refused, section 6) | - | - |
+| ImGui overlay / build watermark | done | **done, opt-in** `-d3d12-ui` (driver stall, section 6) | - | - |
+| Scene, 2D UI, Flash drawing | done | not yet (phase 3) | - | - |
 
 `eRenderBackend` (`source/render/rhi/render_backend.h`) is the switch,
 `GSRender::createDevice` is the single place that acts on it, and
@@ -42,6 +44,9 @@ device.
 | `OTDU_RENDERER=d3d12` | the same, when no flag is given |
 | `-d3d12-debug` | D3D12 debug layer + DRED (names the operation a GPU fault was running) |
 | `-d3d12-warp` | force WARP, the software adapter (CI / no-GPU machines) |
+| `-d3d12-ui` | draw the ImGui overlay (build watermark, debug panels) on D3D12 - opt-in, section 6 |
+| `-noimgui` | no ImGui overlay at all, on either backend (the A/B for a UI-side stall) |
+| `-notitlescene` | skip the 3D press-start cinematic (applied automatically when the backend cannot draw 3D) |
 | `-renderer-selftest [frames]` | the self test below: no game, no data, exit 0/1 |
 | `-renderer-shot <path.ppm>` | with the self test: write the last frame |
 | `-renderer-window` | with the self test: show the window instead of hiding it |
@@ -53,8 +58,34 @@ warning and falls back to Vulkan - a typo must never stop the game from starting
 
 ## 3. Verifying it
 
-The self test runs **before** `TestDriveGameInstance` exists, so it needs no game
-data (`source/tdu_instance.cpp`, `TestDrive::InitAndRun`) [CODE]:
+### 3.1 The game itself on D3D12
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -game C:\TDU2-Gamedata\TestDrive2 `
+    -userdata E:\Cline\_ud -nopad -exitframe 4000 -autoplay "2000:shot=E:/Cline/_dx.ppm"
+```
+
+Measured (RTX 5070 Ti, `build 217`): the whole service list initialises, `GAME MODE : LOGIN`
+runs, the frame loop holds **5258 fps** (`[perf] frame 3960: avg 0.2 ms`), the screenshot is a
+valid 1280x720 PPM, and the run exits by itself. What is *not* drawn is the Flash login art
+(the 2D renderer is Vulkan): the window shows the clear colour. `[probe] bitmap fill ... has
+no texture` warnings in the log are expected - `TextureCache` hands out placeholders.
+
+With the overlay on, on the software rasterizer (the driver stall below does not happen
+there):
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-ui -d3d12-warp -game ... `
+    -exitframe 4000 -autoplay "2000:shot=E:/Cline/_dx_ui.ppm"
+```
+
+The screenshot carries the build watermark: sampled every 7th pixel it has **57 distinct
+colours and 735 non-black samples** - i.e. text, not an empty clear.
+
+### 3.2 The backend alone (no game data)
+
+Before `TestDriveGameInstance` exists (`source/tdu_instance.cpp`, `TestDrive::InitAndRun`) [CODE]:
+
 
 ```powershell
 build-cline\bin\opentdu2-cline.exe -renderer d3d12 -renderer-selftest 60 `
@@ -110,35 +141,53 @@ root constants or a CBV, and the pipeline state (blend / cull / depth / stencil 
 
 ## 5. Order of work
 
-1. **D3D12 device + swapchain + self test** - done, this session.
-2. **D3D12 textures, buffers, root signature, `dxc` hook, ImGui** - the
-   smallest visible step: the debug overlay and the 2D UI on D3D12.
-3. **D3D12 scene**: the DXSO SPIR-V through SPIRV-Cross + `dxc`, the Eden
-   constant buffer path in `EdenRenderer::fillConstants`, then the shadow /
-   reflection / post passes.
-4. **D3D11**: the same translated HLSL, a thin device; it is the cheap one once
-   (3) exists.
-5. **D3D9**: the original bytecode path (a near pass-through), with SM 3.0
-   limits documented where the engine's own shaders cannot follow.
+1. **D3D12 device + swapchain + self test** - done (2026-11-16).
+2. **D3D12 front end** - done (2026-11-16, second pass): the game boots on the backend,
+   presents real frames, screenshots, and the ImGui overlay draws (opt-in). `TextureCache`
+   and `flash_movie` are null-device safe, the title cinematic is skipped, 3D game modes are
+   refused with one log line instead of faulting.
+3. **D3D12 scene + 2D/Flash drawing**: the DXSO SPIR-V through SPIRV-Cross + `dxc`, the Eden
+   constant buffer path in `EdenRenderer::fillConstants`, `Renderer2D` on D3D12 (that is what
+   makes the Flash login art and the game modes visible), then the shadow / reflection / post
+   passes.
+4. **D3D11**: the same translated HLSL, a thin device; it is the cheap one once (3) exists.
+5. **D3D9**: the original bytecode path (a near pass-through), with SM 3.0 limits documented
+   where the engine's own shaders cannot follow.
 
-Next step, precisely: `source/render/d3d12/d3d12_device.cpp`,
-`createCommandQueue` - add the descriptor heaps (CBV/SRV/UAV + sampler) and a
-root signature, then a `createTexture2D` that mirrors `RenderDevice`'s signature
-so `TextureCache` can be pointed at it.
+Next step, precisely: `source/render/d3d12/d3d12_device.cpp`, `createCommandQueue` - the SRV
+heap exists (section 3.1 uses it for ImGui); add the CBV/SRV/UAV + sampler heaps a *scene*
+needs and a `createTexture2D` that mirrors `RenderDevice`'s signature, so `TextureCache` (and
+with it `GSFlash` and `Renderer2D`) can be pointed at the D3D12 device.
 
 ## 6. Known gaps and traps
 
-- **`-renderer d3d12` without `-renderer-selftest` refuses to start the game**
-  (`source/tdu_instance.cpp`, `TestDrive::InitAndRun`, exit code 2). The services
-  upload their textures through the Vulkan device while they initialise
-  (`GSFlash` -> `TextureCache::createFromRGBA` -> `RenderDevice::createTexture2D`),
-  so a full run faulted inside `GSFlash::initialize`; the refusal replaced a
-  half-started crash with one precise log line. Lifting it needs the phase 2
-  port, and `TextureCache` / `flash_movie.cpp` made null-device safe on the way.
-- **No build stamp on a D3D12 screenshot.** RULES section 6 asks every test
-  screenshot to carry `BUILD N HASH BRANCH`; that stamp is drawn by the 2D UI
-  (Vulkan), so a `-renderer d3d12` screenshot has none until step 2. Quote the
-  log banner (`Run: build N (hash) - branch`) with the file instead.
+- **3D game modes are refused on D3D12.** `switchToNextGameMode` (`tdu_instance.cpp`) allows
+  `GM_Login` and `GM_UiViewer` and logs `Renderer d3d12 cannot draw game mode X yet` for the
+  rest: their `enter()` builds an EdenWorld through the Vulkan device. The front end (login,
+  menus, the Flash *logic*) runs.
+- **The title cinematic is skipped** - `GMLogin::loadTitleScene` returns early when
+  `!canDrawScene()`, and `TitleScene::unload()` is inert when nothing was loaded (it used to
+  talk to a device that does not exist here). `-notitlescene` does the same by hand.
+- **`TextureCache` hands out placeholders** when there is no Vulkan device: `createFromRGBA`
+  returns one shared `OTDU_NoRenderer` texture, `loadBankTextures` loads nothing. That is why
+  the log fills with `[probe] bitmap fill N has no texture` while the Flash display list is
+  built - the logic runs, the art does not.
+- **The ImGui overlay is opt-in on D3D12 (`-d3d12-ui`) because it stalls on the NVIDIA
+  driver here.** Evidence, in order: the backend is initialised and its device objects
+  (root signature, PSO, font atlas) are created successfully; frame 0 has *no* geometry
+  (`0 lists, 0 vtx`) and completes including Present; frame 1 has `1 list, 196 vtx` and stops
+  inside `ImGui_ImplDX12_RenderDrawData` with an idle CPU while the log mutex stays held (so
+  the watchdog cannot report either). There is no host wait on that path - the only
+  `WaitForSingleObject` in the backend is the font upload, which had already completed. The
+  **same build on WARP draws the overlay and exits cleanly** (1258 fps, watermark in the
+  screenshot), so the command stream is valid; it is the hardware driver that does not
+  return. `-noimgui` is the same A/B on the Vulkan side.
+- **A D3D12 run that ends within its first second can stall in `GSAudio`'s teardown**
+  (reproduced at `-exitframe 130` and `4000`, both < 1 s at 3500-5300 fps; `-exitframe 6000`,
+  1.0 s, exits cleanly). It is not the renderer - the frame loop has already stopped and the
+  log's last line is the game mode exit. Use a longer `-exitframe` for automated checks.
+- **No build stamp on a D3D12 screenshot** unless `-d3d12-ui` is on (the stamp is an ImGui
+  overlay). RULES section 6: quote the log banner (`Run: build N (hash) - branch`) instead.
 - **`Options > Video` still configures the Vulkan object** in a D3D12 run
   (`ApplyVideoOptions` calls `RenderDevice::setVSync` / `setMaxAnisotropy`,
   `source/game/game_options.cpp`); those setters only write fields, so nothing

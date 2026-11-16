@@ -53,6 +53,13 @@ GMLogin::GMLogin() : GameMode( eGameMode::GM_Login ) {}
 GMLogin::~GMLogin() {}
 
 void GMLogin::loadTitleScene( int32_t cinematicIndex ) {
+    // The title cinematic is a 3D EdenWorld: a backend that cannot draw the
+    // scene yet must not touch it at all - neither the load (eden's device
+    // calls) nor the unload of a scene that was never built (docs/backends.md).
+    // "-notitlescene" is the same escape hatch, applied automatically here.
+    if ( gpRender == nullptr || !gpRender->canDrawScene() ) {
+        return;
+    }
     titleScene.unload();
     if ( !CmdLine::HasArg( "-notitlescene" ) ) {
         titleScene.load( island.c_str(), cinematicIndex );

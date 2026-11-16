@@ -140,6 +140,14 @@ void TextureCache::destroy() {
     owners.clear();
     retired.clear();
     borrows.clear();
+    if ( pDevice == nullptr ) {
+        // Nothing was ever uploaded (no Vulkan device): only the placeholder.
+        delete pPlaceholder;
+        pPlaceholder = nullptr;
+        pWhiteTexture = nullptr;
+        pCheckerTexture = nullptr;
+        return;
+    }
     pDevice->destroyTexture( pWhiteTexture );
     pDevice->destroyTexture( pCheckerTexture );
     pWhiteTexture = nullptr;
@@ -162,13 +170,32 @@ GPUTexture *TextureCache::createFromRGBA( uint32_t width,
                                           uint32_t height,
                                           const uint8_t *pPixels,
                                           const char *pName ) {
+    if ( pDevice == nullptr ) {
+        // No Vulkan device (a Direct3D backend run, docs/backends.md): the
+        // callers still need a non-null handle to remember, and nothing draws
+        // with it, so one shared placeholder stands in for every texture.
+        return getPlaceholder();
+    }
     const void *pData = pPixels;
     const uint32_t size = width * height * 4;
     return pDevice->createTexture2D( width, height, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size,
                                      pName );
 }
 
+GPUTexture *TextureCache::getPlaceholder() {
+    if ( pPlaceholder == nullptr ) {
+        pPlaceholder = new GPUTexture();
+        pPlaceholder->Width = 1;
+        pPlaceholder->Height = 1;
+        pPlaceholder->Name = "OTDU_NoRenderer";
+    }
+    return pPlaceholder;
+}
+
 GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *pName ) {
+    if ( pDevice == nullptr ) {
+        return getPlaceholder();
+    }
     const bool bSupportsBC = pDevice->supportsBC();
     const VkFormat format = GetVulkanFormat( texture.Format, bSupportsBC );
     const bool bBlockCompressed = IsBlockCompressedFormat( texture.Format );
@@ -252,6 +279,12 @@ GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *
 }
 
 uint32_t TextureCache::loadBankTextures( const Bank &bank, const char *pOwner ) {
+    if ( pDevice == nullptr ) {
+        // A Direct3D run has no texture upload path yet (docs/backends.md): the
+        // .2db files are not even parsed, so no owner is registered and
+        // releaseOwner has nothing to free.
+        return 0;
+    }
     OwnerTextures &owner = getOwner( pOwner );
     // One more holder of this bank path: the textures already in the owner are
     // skipped below (two views of the same island share them), and releaseOwner
@@ -426,8 +459,10 @@ uint32_t TextureCache::loadBankTextures( const Bank &bank, const char *pOwner ) 
 }
 
 void TextureCache::destroyOwnerTextures( OwnerTextures &owner ) {
-    for ( auto &entry : owner.Textures ) {
-        pDevice->destroyTexture( entry.second );
+    if ( pDevice != nullptr ) {
+        for ( auto &entry : owner.Textures ) {
+            pDevice->destroyTexture( entry.second );
+        }
     }
     owner.Textures.clear();
     owner.Aliases.clear();

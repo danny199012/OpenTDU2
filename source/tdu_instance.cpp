@@ -106,26 +106,6 @@ int32_t TestDrive::InitAndRun( const char **pCmdLineArgs,
         return bPassed ? 0 : 1;
     }
 
-    // The Direct3D backends own the device and the swapchain but not the scene
-    // yet (docs/backends.md), and the services upload their textures through
-    // the Vulkan device while they initialize (GSFlash -> TextureCache), so a
-    // full run would fault half way through the service list. Refuse up front
-    // and name what does work, instead of crashing after a partial start.
-    {
-        const eRenderBackend backend = RenderBackend::Resolve();
-        if ( RenderBackend::IsDirect3D( backend ) && !RenderBackend::CanRenderScene( backend ) ) {
-            OTDU_LOG_ERROR( "Renderer %s cannot drive the game yet: it presents the swapchain, "
-                            "but the scene, the 2D UI and Flash are still Vulkan and the "
-                            "services need them while they initialize (docs/backends.md, "
-                            "phase 2). Nothing was started. To test the backend itself: "
-                            "-renderer %s -renderer-selftest\n",
-                            RenderBackend::GetName( backend ), RenderBackend::GetName( backend ) );
-            Watchdog::Shutdown();
-            Logger::Shutdown();
-            return 2;
-        }
-    }
-
     TestDriveGameInstance instance;
     int32_t exitCode = 0;
     if ( instance.initialize() ) {
@@ -510,6 +490,18 @@ void TestDriveGameInstance::switchToNextGameMode() {
     }
     currentGameMode = mode;
 
+    // A Direct3D backend that cannot draw the scene yet runs the front end (the
+    // Flash login flow, the menus, the ImGui overlay) and presents it, but a 3D
+    // game mode would fault inside eden's device calls. Refuse the switch with
+    // one precise line instead of crashing into it (docs/backends.md).
+    if ( !pRender->canDrawScene() && mode != eGameMode::GM_Login &&
+         mode != eGameMode::GM_UiViewer ) {
+        OTDU_LOG_ERROR( "Renderer %s cannot draw game mode %s yet (the 3D scene is still "
+                        "Vulkan - docs/backends.md phase 3); staying where we are\n",
+                        pRender->getBackendName(), GetGameModeName( mode ) );
+        return;
+    }
+
     pRender->waitIdle();
     if ( pActiveGameMode != nullptr ) {
         pActiveGameMode->exit();
@@ -654,6 +646,9 @@ void TestDriveGameInstance::mainLoop() {
             // is its clear. Everything below draws through Vulkan objects, so
             // it is skipped rather than run against an uninitialised device.
             const bool bDrawScene = pRender->canDrawScene();
+            // -noimgui: the overlay off entirely (an A/B for a UI-side stall,
+            // like the -no3d / -noshadows family).
+            const bool bDrawUI = pRender->canDrawUI() && !CmdLine::HasArg( "-noimgui" );
             if ( bDrawScene && pActiveGameMode != nullptr ) {
                 pActiveGameMode->drawOffscreen();
             }
@@ -670,22 +665,28 @@ void TestDriveGameInstance::mainLoop() {
                                           sectionStart ) /
                      frequency * 1000.0;
             sectionStart = SDL_GetPerformanceCounter();
-            if ( bDrawScene ) {
+            if ( bDrawUI ) {
+                // The ImGui overlay draws on Vulkan and on D3D12; everything
+                // that goes through the 2D renderer and Flash (the game modes'
+                // own UI, the debug panels that read device state) is Vulkan
+                // only until the scene port lands (docs/backends.md).
                 pImGui->beginFrame( deltaTime );
-                if ( pActiveGameMode != nullptr ) {
-                    pActiveGameMode->drawUI();
-                }
-                GetAdvancedGraphics().drawUI();
-                CoordsOverlay::Draw();
-                WatermarkOverlay::Draw();
-                if ( bShowDebugUI ) {
-                    for ( GameSystem *pService : services ) {
-                        pService->drawDebug();
-                    }
+                if ( bDrawScene ) {
                     if ( pActiveGameMode != nullptr ) {
-                        pActiveGameMode->drawDebug();
+                        pActiveGameMode->drawUI();
+                    }
+                    GetAdvancedGraphics().drawUI();
+                    CoordsOverlay::Draw();
+                    if ( bShowDebugUI ) {
+                        for ( GameSystem *pService : services ) {
+                            pService->drawDebug();
+                        }
+                        if ( pActiveGameMode != nullptr ) {
+                            pActiveGameMode->drawDebug();
+                        }
                     }
                 }
+                WatermarkOverlay::Draw();
                 pImGui->endFrame();
             }
             uiMs = static_cast<double>( SDL_GetPerformanceCounter() -

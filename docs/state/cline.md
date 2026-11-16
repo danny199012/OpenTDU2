@@ -16,7 +16,85 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
-## Session 2026-11-16 (ninetieth, `cline`): Direct3D 12 phase 1 - device, flip-model swapchain, Present, screenshot and a self test behind `-renderer d3d12`
+## Session 2026-11-16 (ninety-first, `cline`): the game itself boots on Direct3D 12 - front end, real frames, screenshots, and the ImGui overlay drawing (opt-in)
+
+Continuation of the entry below, on the owner's *"Yes please continue on getting it to work"*:
+lift the in-game refusal from the first pass, i.e. make `-renderer d3d12` drive the game.
+
+### What changed
+
+- `source/render/texture_cache.{h,cpp}` - null-device safe: `createFromRGBA` / `createFrom2DB`
+  return one shared placeholder (`OTDU_NoRenderer`), `loadBankTextures` loads nothing,
+  `destroy` / `destroyOwnerTextures` skip the device. This is what made `GSFlash::initialize`
+  stop faulting (it was the reason for first pass's refusal).
+- `source/game/bootmenu/gm_login.cpp`, `title_scene.cpp` - the 3D press-start cinematic is
+  skipped when `!canDrawScene()` (it blocked inside eden's device calls), and
+  `TitleScene::unload()` is inert when nothing was loaded (its `view.destroy()` blocked the
+  *exit* path - found by tracing `terminate()`, not by guessing).
+- `source/flash/flash_player.cpp`, `flash_movie.cpp` - the Flash stage reads the presented size
+  from `GSRender::getBackbufferWidth/Height()` instead of the Vulkan device (0x0 meant division
+  by zero risk), and the movie texture teardown is Vulkan-only.
+- `source/render/d3d12/d3d12_imgui.{h,cpp}` (new) - Dear ImGui on D3D12 through
+  `imgui_impl_dx12` (precompiled DXBC shaders, no toolchain work): init / render / texture
+  seams, an SRV allocator over the device's shader-visible heap
+  (`D3D12Device::allocateSrv` / `freeSrv`, 64 descriptors).
+- `source/render/d3d12/d3d12_device.{h,cpp}` - that SRV heap, `getDevice` / `getCommandQueue` /
+  `getCommandList`, a debug-layer drain on the first frames (`-d3d12-debug`).
+- `source/debug/gs_imgui.cpp` - the D3D12 branch of initialize / terminate / endFrame, and the
+  disabled overlay no longer counts as a service failure.
+- `source/render/gs_render.{h,cpp}` - `canDrawUI()` (Vulkan always, D3D12 with `-d3d12-ui`),
+  `getD3D12Device()`, `getBackbufferWidth/Height()`; `onWindowResized`/`waitIdle` dispatch.
+- `source/tdu_instance.cpp` - the frame loop draws the ImGui overlay whenever `canDrawUI()`
+  (game-mode UI still `canDrawScene()`), `-noimgui` as the A/B, `switchToNextGameMode` refuses
+  3D modes with one precise line instead of faulting, and the first pass's exit-code-2 refusal
+  is gone.
+- `cmake/Dependencies.cmake` - `imgui_impl_dx12.cpp` into `otdu_imgui` (Windows + OTDU_ENABLE_D3D12).
+- `docs/backends.md` - status matrix, the new flags, the in-game verification recipe, and
+  section 6 rewritten around what the two traps actually are.
+
+### Verified (build 217 (2cb9b5f) · cline)
+
+The game on D3D12, no workarounds:
+
+    build-cline\bin\opentdu2-cline.exe -renderer d3d12 -game C:\TDU2-Gamedata\TestDrive2 ^
+        -userdata E:\Cline\_ud-dxR -nopad -exitframe 4000 -autoplay 2000:shot=...ppm
+
+    Renderer d3d12: device created, presenting the swapchain only (docs/backends.md)
+    ...service 'Service : Flash' successfully initialized.
+    |              GAME MODE : LOGIN
+    [perf] frame 3960: avg 0.2 ms (fps 5258)
+    Screenshot saved to 'E:/Cline/_dx_final.ppm'        (1280x720 PPM, 2764816 bytes)
+
+The ImGui overlay on D3D12 (WARP, because of the driver stall below):
+
+    -renderer d3d12 -d3d12-ui -d3d12-warp ... -exitframe 4000 -autoplay 2000:shot=...
+    D3D12 ImGui: backend ready (OpenTDU2 Direct3D 12 (Microsoft Basic Render Driver (WARP)))
+    [perf] frame 3960: avg 0.8 ms (fps 1258)
+    -> the screenshot carries the build watermark: 57 distinct colours, 735 non-black samples
+
+Vulkan unchanged: `-renderer vulkan ... -exitframe 20` still renders through eden
+(33 914 draws) and exits cleanly; the D3D12 self test still passes 45/45 frames with the
+eight colour bars exact.
+
+### Ruled out (with the test that ruled it out)
+
+- **Output pipe / console back-pressure** - the same hang happens with no stdout redirection.
+- **VSync / Present** - `-novsync` hangs identically; `-noimgui` runs at 4319 fps.
+- **ImGui's font upload (its `INFINITE` fence wait)** - `ImGui_ImplDX12_CreateDeviceObjects()`
+  succeeds at init and the atlas is already `OK` on the hanging frame (`0 pending textures`).
+- **A second frame's vertex-buffer allocation** - pinning `NumFramesInFlight = 1` changes
+  nothing.
+- **The audio teardown** - it is real but separate: the frame loop stops first, and a longer
+  run (`-exitframe 6000`, 1.0 s) exits cleanly; a < 1 s run stalls in `pAudio.reset()`.
+
+### Not done / next
+
+The D3D12 **draw** path for game content: `Renderer2D` (the Flash login art, all 2D UI) and the
+Eden scene, i.e. SPIR-V -> HLSL (SPIRV-Cross) -> DXIL (`dxc`) plus `TextureCache` on
+`createTexture2D`. That also unblocks the ImGui driver stall investigation (same PSO/heap code
+path) and removes the 3D game-mode refusal.
+
+
 
 The owner: *"work on Direct X 9, 11 & 12 support start with 12 work down doesn't need
 to all happen in 1 go"*, with the clone moved to `E:\Cline\OpenTDU2` and *"add -cline to

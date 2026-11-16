@@ -3,6 +3,8 @@
 #include "render/render_api.h"
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 struct SDL_Window;
 
@@ -65,6 +67,27 @@ public:
     inline bool hasDeviceLost() const { return bDeviceLost; }
     inline uint64_t getFrameNumber() const { return frameNumber; }
 
+    // For the backends that draw into our frame (ImGui's D3D12 renderer): the
+    // device, the queue and the command list beginFrame opened.
+    inline ID3D12Device *getDevice() const { return pDevice; }
+    inline ID3D12CommandQueue *getCommandQueue() const { return pQueue; }
+    inline ID3D12GraphicsCommandList *getCommandList() const { return frames[frameIndex].pList; }
+    inline ID3D12DescriptorHeap *getSrvHeap() const { return pSrvHeap; }
+    // DXGI_FORMAT_R8G8B8A8_UNORM, as a plain integer so the header stays free
+    // of dxgiformat.h.
+    static constexpr uint32_t kSwapchainFormatDXGI = 28;
+    static constexpr uint32_t kSrvDescriptors = 64;
+
+    // Shader visible SRV heap (ImGui's font atlas is the first client).
+    bool createSrvHeap();
+    // The debug layer's pending messages (-d3d12-debug): a consumer backend can
+    // fail silently otherwise (the ImGui font upload waits on a fence).
+    void flushPendingDebugMessages() { flushDebugMessages( "client" ); }
+    // Handles are returned as integers (D3D12_CPU_DESCRIPTOR_HANDLE::ptr) so
+    // that callers which only forward them need no d3d12.h.
+    bool allocateSrv( uintptr_t &cpuHandle, uintptr_t &gpuHandle );
+    void freeSrv( uintptr_t cpuHandle );
+
     bool saveScreenshot( const char *pPath );
     void requestScreenshot( const char *pPath ) { pendingScreenshot = pPath; }
 
@@ -102,6 +125,9 @@ private:
     ID3D12Fence *pFence = nullptr;
     void *hFenceEvent = nullptr;
     ID3D12DescriptorHeap *pRtvHeap = nullptr;
+    ID3D12DescriptorHeap *pSrvHeap = nullptr;
+    uint32_t srvDescriptorSize = 0;
+    std::vector<bool> srvUsed;
     ID3D12Resource *pBackbuffers[kSwapchainBuffers] = {};
     FrameData frames[kFramesInFlight];
     uint64_t fenceValue = 0;

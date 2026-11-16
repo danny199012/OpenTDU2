@@ -65,6 +65,10 @@ private:
     };
 
     RenderDevice *pDevice;
+    // Stands in for every texture while there is no Vulkan device (a Direct3D
+    // backend run): callers get a handle, nothing draws with it.
+    GPUTexture *getPlaceholder();
+    GPUTexture *pPlaceholder = nullptr;
     std::vector<OwnerTextures> owners; // Load order
     // Released while borrowed: not findable, destroyed once unborrowed.
     std::vector<OwnerTextures> retired;

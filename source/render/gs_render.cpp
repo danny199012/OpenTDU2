@@ -38,8 +38,14 @@ bool GSRender::createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation 
             OTDU_LOG_ERROR( "Failed to create the Direct3D 12 device\n" );
             return false;
         }
+        // The overlay is opt-in on D3D12: imgui_impl_dx12's first real draw
+        // stalls on the NVIDIA driver here (WARP and everything else are fine,
+        // docs/backends.md section 6), so the default run presents the
+        // swapchain alone and stays responsive.
+        bD3D12Ui = CmdLine::HasArg( "-d3d12-ui" );
         OTDU_LOG_INFO( "Renderer d3d12: device created, presenting the swapchain only "
-                       "(docs/backends.md)\n" );
+                       "(docs/backends.md)%s\n",
+                       bD3D12Ui ? "; the ImGui overlay is on (-d3d12-ui)" : "" );
         return true;
     }
 
