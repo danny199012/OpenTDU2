@@ -30,6 +30,7 @@ usage**. `docs/STATE.md` is the frozen deep history (up to session 62).
 | `docs/re/ps3/` | the PS3-build mining route (see §7) |
 | `docs/re/CROSSBUILD_PLAN.md` | which of the four versions to use for which kind of problem |
 | `docs/formats.md` | the game file formats |
+| `docs/backends.md` | the Direct3D 12 / 11 / 9 backends: what exists, the flags, the shader path, the next step |
 
 ---
 

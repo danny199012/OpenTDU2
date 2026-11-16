@@ -16,6 +16,82 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-16 (ninetieth, `cline`): Direct3D 12 phase 1 - device, flip-model swapchain, Present, screenshot and a self test behind `-renderer d3d12`
+
+The owner: *"work on Direct X 9, 11 & 12 support start with 12 work down doesn't need
+to all happen in 1 go"*, with the clone moved to `E:\Cline\OpenTDU2` and *"add -cline to
+your build so agents don't kill it if you run tests"* (the tree builds
+`build-cline\bin\opentdu2-cline.exe`, branch `cline`).
+
+The renderer is Vulkan-only and not abstracted (`EdenRenderer` holds `VkDescriptorPool`
+members), so the backends are added **around** it, newest first, instead of behind a
+big-bang RHI rewrite. `docs/backends.md` is the plan, the status board and the flags.
+
+### What changed
+
+- `source/render/rhi/render_backend.{h,cpp}` - `eRenderBackend`, the name parser
+  (`-renderer d3d12` / `-renderer=d3d12` / `OTDU_RENDERER`), what is compiled in, the
+  "can this backend draw the scene" query, and `-renderer-selftest`.
+- `source/render/d3d12/d3d12_device.{h,cpp}` (new) - DXGI 1.6 factory (high-performance
+  adapter, WARP fallback, `-d3d12-warp`), `ID3D12Device`, direct queue, 3-buffer
+  `DXGI_SWAP_EFFECT_FLIP_DISCARD` swapchain for the SDL window's HWND, RTV heap, 2 frames
+  in flight with allocator/list/fence, clear + viewport + scissor, resize, minimise,
+  device-removed reporting with DRED breadcrumbs (`-d3d12-debug`), PPM screenshot readback.
+- `source/render/gs_render.{h,cpp}` - the backend is resolved once in `createDevice`;
+  `beginFrame`/`endFrame`/`beginMainPass`/`requestScreenshot`/`hasDeviceLost`/`waitIdle`
+  dispatch to it, and `canDrawScene()` is the gate the frame loop asks.
+- `source/tdu_instance.cpp` - `-renderer-selftest` runs before `TestDriveGameInstance`
+  (no game data); the draw section is skipped when the backend cannot draw; the four
+  `getDevice()` call sites that only needed a dispatch go through `GSRender`;
+  in-game `-renderer d3d12` is refused with a precise message (see below).
+- `CMakeLists.txt` - `OTDU_ENABLE_D3D12` (ON, Windows), `_D3D11` / `_D3D9` (OFF), the
+  `OTDU_D3D12` define and `d3d12 dxgi dxguid`.
+- `docs/backends.md` (new) - seam, status matrix, flags, verification recipe, the shader
+  plan per backend (SPIR-V -> HLSL via SPIRV-Cross -> DXIL via the SDK's `dxc` for 12/11;
+  the original D3D9 bytecode as-is for 9) and the next step with file + function.
+
+### Verified (build 215 (7f3ba2b) · cline)
+
+Self test on the RTX 5070 Ti, exit 0:
+
+    build-cline\bin\opentdu2-cline.exe -renderer d3d12 -renderer-selftest 60 -renderer-shot E:\Cline\_dx12.ppm
+
+    D3D12: adapter 'NVIDIA GeForce RTX 5070 Ti' (15995 MB)
+    D3D12: binding tier 3, heap tier 2, conservative raster tier 3
+    D3D12: device 'NVIDIA GeForce RTX 5070 Ti', 1280x720, 3 buffers, vsync off, tearing available
+    D3D12 self test: 60 frame(s) presented on 'NVIDIA GeForce RTX 5070 Ti' (1280x720)
+    -renderer-selftest: PASSED
+
+The screenshot was checked numerically, not by eye - the eight bar centres of the PPM
+(1280x720, row 360, x = 80..1200) read back exactly `255,255,255` / `255,255,0` /
+`0,255,255` / `0,255,0` / `255,0,255` / `255,0,0` / `0,0,255` / `0,0,0`: eight of eight.
+`-renderer=d3d12` (the `=` form) and `-renderer-window` (a visible window) also pass, 45
+and 30 frames.
+
+Vulkan regression, same build: `-renderer vulkan -gm FREERIDE -skipcine -nopad -noaudio
+-exitframe 45` runs the real renderer (`EdenRenderer: 249077 draws`, `pipeline cache saved
+(7404 KB)`) and exits cleanly - the default path is untouched.
+
+### Ruled out (with the test that ruled it out)
+
+- **In-game `-renderer d3d12`**: the run stops inside `GSFlash::initialize` (no crash
+  message, the log just ends) - `GSFlash` -> `TextureCache::createFromRGBA` ->
+  `RenderDevice::createTexture2D` on the uninitialised Vulkan device. So the backend
+  cannot drive the service graph yet; `InitAndRun` now refuses it up front with exit
+  code 2 and names what does work. Making `TextureCache` / `flash_movie.cpp`
+  null-device safe is part of phase 2, not a fix on its own.
+- `-renderer d3d11` / `d3d9`: parsed and refused ("not compiled in, OTDU_ENABLE_D3D11=OFF")
+  rather than silently ignored - the switch is in place for their phase.
+
+### Not done / next
+
+Phase 2, one step: `source/render/d3d12/d3d12_device.cpp`, `createCommandQueue` - add the
+CBV/SRV/UAV + sampler descriptor heaps and a root signature, then a `createTexture2D`
+that mirrors `RenderDevice`'s signature so `TextureCache` (and with it `GSFlash`) can be
+pointed at the D3D12 device. That is what lifts the refusal. **No build stamp on a D3D12
+screenshot** until the 2D UI draws there (RULES §6): quote the log banner instead.
+
+
 ## Session 2026-11-03 (eighty-eighth, `cline`): world foliage verified — the V/O `.pmi` vegetation draws, and the old LOD0-only gap is closed (LOD1/2 impostors load and switch by distance)
 
 The owner: *"can we try get world foiliage working grass, flowers etc..."*. The vegetation was

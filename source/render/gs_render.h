@@ -1,9 +1,11 @@
 #pragma once
 
 #include "game/gs_base.h"
+#include "render/d3d12/d3d12_device.h"
 #include "render/eden/eden_renderer.h"
 #include "render/eden/eden_surface_fx.h"
 #include "render/renderer_2d.h"
+#include "render/rhi/render_backend.h"
 #include "render/rt/ray_tracing.h"
 #include "render/texture_cache.h"
 #include "render/vulkan/render_device.h"
@@ -40,18 +42,46 @@ public:
 
     bool createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation );
 
+    // The backend this run uses: -renderer <name> / OTDU_RENDERER
+    // (docs/backends.md), Vulkan when neither is given.
+    inline eRenderBackend getBackend() const { return backend; }
+    // True when the backend can draw the game (scene, 2D UI, Flash). The
+    // Direct3D backends present the swapchain only for now, so the frame loop
+    // asks this before drawing anything (tdu_instance.cpp).
+    inline bool canDrawScene() const { return RenderBackend::CanRenderScene( backend ); }
+    // Same question, from a backend pointer that does not know what it drives.
+    inline const char *getBackendName() const { return RenderBackend::GetName( backend ); }
+
     bool beginFrame();
     void endFrame();
+    // The main (swapchain) pass of the frame, whichever backend runs it.
+    void beginMainPass();
+    // -autoplay shot=<path> / the photo camera: the backend writes the file.
+    void requestScreenshot( const char *pPath );
+    // A lost device (Vulkan or Direct3D): the game loop leaves on it.
+    bool hasDeviceLost() const;
+    // Waits for the GPU (game mode changes, teardown).
+    void waitIdle();
+
     // Ray tracing (-rtworld): builds the frame's top level structure from what
     // the scene recorded and traces a probe ray from the camera. A no-op
     // unless -rtworld was passed.
     void updateRayTracing();
 
     void setClearColor( const ColorRGBA &color ) { clearColor = color; }
-    void onWindowResized() { device.requestSwapchainRecreation(); }
+    void onWindowResized() {
+        if ( backend == eRenderBackend::D3D12 ) {
+            d3d12Device.onWindowResized();
+        } else {
+            device.requestSwapchainRecreation();
+        }
+    }
 
 private:
+    // Vulkan: the complete renderer. Direct3D: the swapchain only, so far.
+    eRenderBackend backend = eRenderBackend::Vulkan;
     RenderDevice device;
+    D3D12Device d3d12Device;
     TextureCache textureCache;
     Renderer2D renderer2D;
     EdenRenderer edenRenderer;

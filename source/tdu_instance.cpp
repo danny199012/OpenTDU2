@@ -18,6 +18,7 @@
 #include "input/gs_input.h"
 #include "physics/gs_physics.h"
 #include "render/gs_render.h"
+#include "render/rhi/render_backend.h"
 #include "system/cmd_line.h"
 
 #include "game/bootmenu/gm_login.h"
@@ -93,6 +94,37 @@ int32_t TestDrive::InitAndRun( const char **pCmdLineArgs,
 
     OTDU_LOG_ALWAYS( "OpenTDU2 %s - Test Drive Unlimited 2 source port (%s)\n", GetVersion(),
                      OTDU_BUILD_FULL_STRING );
+
+    // -renderer-selftest: prove a Direct3D backend without the game - its own
+    // window, the device, a few frames of a test pattern, an optional
+    // screenshot (-renderer-shot <path>), then exit 0 or 1. It runs before the
+    // instance, so it needs no game data and no scene (docs/backends.md).
+    if ( CmdLine::HasArg( "-renderer-selftest" ) ) {
+        const bool bPassed = RenderBackend::RunSelfTest();
+        Watchdog::Shutdown();
+        Logger::Shutdown();
+        return bPassed ? 0 : 1;
+    }
+
+    // The Direct3D backends own the device and the swapchain but not the scene
+    // yet (docs/backends.md), and the services upload their textures through
+    // the Vulkan device while they initialize (GSFlash -> TextureCache), so a
+    // full run would fault half way through the service list. Refuse up front
+    // and name what does work, instead of crashing after a partial start.
+    {
+        const eRenderBackend backend = RenderBackend::Resolve();
+        if ( RenderBackend::IsDirect3D( backend ) && !RenderBackend::CanRenderScene( backend ) ) {
+            OTDU_LOG_ERROR( "Renderer %s cannot drive the game yet: it presents the swapchain, "
+                            "but the scene, the 2D UI and Flash are still Vulkan and the "
+                            "services need them while they initialize (docs/backends.md, "
+                            "phase 2). Nothing was started. To test the backend itself: "
+                            "-renderer %s -renderer-selftest\n",
+                            RenderBackend::GetName( backend ), RenderBackend::GetName( backend ) );
+            Watchdog::Shutdown();
+            Logger::Shutdown();
+            return 2;
+        }
+    }
 
     TestDriveGameInstance instance;
     int32_t exitCode = 0;
@@ -251,8 +283,9 @@ bool TestDriveGameInstance::initialize() {
             const VideoSettings &video = pConfig->getVideoSettings();
             if ( !pRender->createDevice(
                      pWindow, video.bVSync,
-                     CmdLine::HasArg( "-vk_enable_validation_layer" ) ) ) {
-                OTDU_LOG_ERROR( "Failed to create the Vulkan render device\n" );
+                     CmdLine::HasArg( "-vk_enable_validation_layer" ) ||
+                         CmdLine::HasArg( "-d3d12-debug" ) ) ) {
+                OTDU_LOG_ERROR( "Failed to create the render device\n" );
                 return false;
             }
         }
@@ -397,7 +430,7 @@ bool TestDriveGameInstance::initialize() {
 
 void TestDriveGameInstance::terminate() {
     if ( pRender != nullptr ) {
-        pRender->getDevice().waitIdle();
+        pRender->waitIdle();
     }
     if ( pActiveGameMode != nullptr ) {
         pActiveGameMode->exit();
@@ -477,7 +510,7 @@ void TestDriveGameInstance::switchToNextGameMode() {
     }
     currentGameMode = mode;
 
-    pRender->getDevice().waitIdle();
+    pRender->waitIdle();
     if ( pActiveGameMode != nullptr ) {
         pActiveGameMode->exit();
         pActiveGameMode.reset();
@@ -607,7 +640,7 @@ void TestDriveGameInstance::mainLoop() {
 
         if ( screenshotFrame >= 0 &&
              static_cast<int64_t>( frameIndex ) == screenshotFrame ) {
-            pRender->getDevice().requestScreenshot( screenshotPath.c_str() );
+            pRender->requestScreenshot( screenshotPath.c_str() );
         }
 
         const uint64_t updateEnd = SDL_GetPerformanceCounter();
@@ -616,15 +649,20 @@ void TestDriveGameInstance::mainLoop() {
         double offscreenMs = 0.0, mainMs = 0.0, uiMs = 0.0, endMs = 0.0;
         if ( pRender->beginFrame() ) {
             uint64_t sectionStart = SDL_GetPerformanceCounter();
-            if ( pActiveGameMode != nullptr ) {
+            // A Direct3D backend that still presents only the swapchain
+            // (docs/backends.md) has no scene, 2D or Flash renderer: the frame
+            // is its clear. Everything below draws through Vulkan objects, so
+            // it is skipped rather than run against an uninitialised device.
+            const bool bDrawScene = pRender->canDrawScene();
+            if ( bDrawScene && pActiveGameMode != nullptr ) {
                 pActiveGameMode->drawOffscreen();
             }
             offscreenMs = static_cast<double>( SDL_GetPerformanceCounter() -
                                                sectionStart ) /
                           frequency * 1000.0;
             sectionStart = SDL_GetPerformanceCounter();
-            pRender->getDevice().beginMainPass();
-            if ( pActiveGameMode != nullptr ) {
+            pRender->beginMainPass();
+            if ( bDrawScene && pActiveGameMode != nullptr ) {
                 pActiveGameMode->draw();
             }
 
@@ -632,22 +670,24 @@ void TestDriveGameInstance::mainLoop() {
                                           sectionStart ) /
                      frequency * 1000.0;
             sectionStart = SDL_GetPerformanceCounter();
-            pImGui->beginFrame( deltaTime );
-            if ( pActiveGameMode != nullptr ) {
-                pActiveGameMode->drawUI();
-            }
-            GetAdvancedGraphics().drawUI();
-            CoordsOverlay::Draw();
-            WatermarkOverlay::Draw();
-            if ( bShowDebugUI ) {
-                for ( GameSystem *pService : services ) {
-                    pService->drawDebug();
-                }
+            if ( bDrawScene ) {
+                pImGui->beginFrame( deltaTime );
                 if ( pActiveGameMode != nullptr ) {
-                    pActiveGameMode->drawDebug();
+                    pActiveGameMode->drawUI();
                 }
+                GetAdvancedGraphics().drawUI();
+                CoordsOverlay::Draw();
+                WatermarkOverlay::Draw();
+                if ( bShowDebugUI ) {
+                    for ( GameSystem *pService : services ) {
+                        pService->drawDebug();
+                    }
+                    if ( pActiveGameMode != nullptr ) {
+                        pActiveGameMode->drawDebug();
+                    }
+                }
+                pImGui->endFrame();
             }
-            pImGui->endFrame();
             uiMs = static_cast<double>( SDL_GetPerformanceCounter() -
                                         sectionStart ) /
                    frequency * 1000.0;
@@ -676,10 +716,11 @@ void TestDriveGameInstance::mainLoop() {
         // window frozen on the last image - the owner's "the game goes
         // unresponsive" left 639 identical vkQueueSubmit failures and a log
         // that simply stopped.
-        if ( pRender->getDevice().hasDeviceLost() ) {
-            OTDU_LOG_ERROR( "RenderDevice: the Vulkan device is lost - exiting "
+        if ( pRender->hasDeviceLost() ) {
+            OTDU_LOG_ERROR( "RenderDevice: the %s device is lost - exiting "
                             "(nothing can be presented any more; the watchdog log "
-                            "names the frame and the phase)\n" );
+                            "names the frame and the phase)\n",
+                            pRender->getBackendName() );
             bRequestedExit = true;
         }
 
@@ -713,8 +754,12 @@ void TestDriveGameInstance::mainLoop() {
             // what the update was doing when the frame went long.
             static const int32_t hitchMs = CmdLine::GetArgInt( "-hitchms", 100 );
             // The frame's texture uploads and host fence waits (batched since
-            // 2026-11-04; -syncuploads = one wait per texture, the A/B).
-            const RenderDevice::UploadStats uploads = pRender->getDevice().takeUploadStats();
+            // 2026-11-04; -syncuploads = one wait per texture, the A/B). A
+            // Direct3D run has no Vulkan uploads to report.
+            RenderDevice::UploadStats uploads;
+            if ( pRender->canDrawScene() ) {
+                uploads = pRender->getDevice().takeUploadStats();
+            }
             if ( hitchMs > 0 && frameMs >= static_cast<double>( hitchMs ) ) {
                 OTDU_LOG_WARN(
                     "[hitch] frame %llu: %.0f ms (update %.0f, draw %.0f; "
@@ -751,12 +796,14 @@ void TestDriveGameInstance::mainLoop() {
                                endMsSum / perfFrames );
                 // Device memory: a device lost after a long drive is often the
                 // driver running out (textures + BLASes of the sectors the
-                // car streamed through).
-                uint64_t vramUsed = 0, vramBudget = 0;
-                pRender->getDevice().getMemoryUsage( vramUsed, vramBudget );
-                OTDU_LOG_INFO( "[perf] vram: %.0f MB used / %.0f MB budget\n",
-                               vramUsed / ( 1024.0 * 1024.0 ),
-                               vramBudget / ( 1024.0 * 1024.0 ) );
+                // car streamed through). Vulkan only, so far.
+                if ( pRender->canDrawScene() ) {
+                    uint64_t vramUsed = 0, vramBudget = 0;
+                    pRender->getDevice().getMemoryUsage( vramUsed, vramBudget );
+                    OTDU_LOG_INFO( "[perf] vram: %.0f MB used / %.0f MB budget\n",
+                                   vramUsed / ( 1024.0 * 1024.0 ),
+                                   vramBudget / ( 1024.0 * 1024.0 ) );
+                }
                 updateMsSum = drawMsSum = frameMsSum = 0.0;
                 offscreenMsSum = mainMsSum = uiMsSum = endMsSum = 0.0;
                 updateMsMax = drawMsMax = frameMsMax = 0.0;
@@ -901,7 +948,7 @@ void TestDriveGameInstance::runAutoplay() {
             continue;
         }
         if ( command.Command == "shot" ) {
-            pRender->getDevice().requestScreenshot( command.Argument.c_str() );
+            pRender->requestScreenshot( command.Argument.c_str() );
             continue;
         }
         bool bAction = false;

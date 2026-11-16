@@ -24,6 +24,25 @@ bool GSRender::initialize( TestDriveGameInstance *pInstance ) {
 }
 
 bool GSRender::createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation ) {
+    // Which backend draws this run (docs/backends.md): -renderer <name>, then
+    // OTDU_RENDERER, then Vulkan. Resolved once, before any device exists.
+    backend = RenderBackend::Resolve();
+    RenderBackend::LogResolved( backend );
+
+    if ( backend == eRenderBackend::D3D12 ) {
+        // Device, queue, flip model swapchain and frame pacing. The scene
+        // renderers below are Vulkan objects and stay untouched: the frame is
+        // the clear colour until the port in docs/backends.md lands, which is
+        // what canDrawScene() tells the frame loop.
+        if ( !d3d12Device.create( pWindow, bVSync, bValidation ) ) {
+            OTDU_LOG_ERROR( "Failed to create the Direct3D 12 device\n" );
+            return false;
+        }
+        OTDU_LOG_INFO( "Renderer d3d12: device created, presenting the swapchain only "
+                       "(docs/backends.md)\n" );
+        return true;
+    }
+
     // Options > Advanced, ray tracing. The device is created once, so the
     // choice is made here; -nort still overrides it for a headless A/B run.
     device.setRayTracingEnabled( GetGameOptions().RayTracing != 0 && !CmdLine::HasArg( "-nort" ) );
@@ -61,6 +80,10 @@ bool GSRender::createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation 
 }
 
 void GSRender::terminate() {
+    if ( backend == eRenderBackend::D3D12 ) {
+        d3d12Device.destroy();
+        return;
+    }
     device.waitIdle();
     if ( pRtTlas != nullptr ) {
         rayTracing.destroyTlas( pRtTlas );
@@ -75,6 +98,10 @@ void GSRender::terminate() {
 }
 
 bool GSRender::beginFrame() {
+    if ( backend == eRenderBackend::D3D12 ) {
+        bFrameActive = d3d12Device.beginFrame( clearColor );
+        return bFrameActive;
+    }
     if ( bRtWorld ) {
         // A frame draws many scenes (the environment cube, the shadow casters,
         // the reflections, the main pass): the instance list is per frame, not
@@ -88,8 +115,42 @@ bool GSRender::beginFrame() {
 void GSRender::endFrame() {
     if ( bFrameActive ) {
         updateRayTracing();
-        device.endFrame();
+        if ( backend == eRenderBackend::D3D12 ) {
+            d3d12Device.endFrame();
+        } else {
+            device.endFrame();
+        }
         bFrameActive = false;
+    }
+}
+
+void GSRender::beginMainPass() {
+    if ( !canDrawScene() ) {
+        // The Direct3D backends open their pass inside beginFrame (the clear is
+        // the whole frame so far).
+        return;
+    }
+    device.beginMainPass();
+}
+
+void GSRender::requestScreenshot( const char *pPath ) {
+    if ( backend == eRenderBackend::D3D12 ) {
+        d3d12Device.requestScreenshot( pPath );
+    } else {
+        device.requestScreenshot( pPath );
+    }
+}
+
+bool GSRender::hasDeviceLost() const {
+    return backend == eRenderBackend::D3D12 ? d3d12Device.hasDeviceLost()
+                                            : device.hasDeviceLost();
+}
+
+void GSRender::waitIdle() {
+    if ( backend == eRenderBackend::D3D12 ) {
+        d3d12Device.waitIdle();
+    } else {
+        device.waitIdle();
     }
 }
 

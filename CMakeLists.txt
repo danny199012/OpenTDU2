@@ -20,6 +20,14 @@ set( OTDU_THIRDPARTY_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/third_party" )
 
 option( OTDU_DEVBUILD "Developer build (asserts on unimplemented functions)" OFF )
 
+# Direct3D backends (docs/backends.md). The game renders with Vulkan today and
+# -renderer <name> picks a backend at run time; D3D12 owns the device and the
+# swapchain, D3D11 / D3D9 are scaffolding until their phase lands. Off Windows
+# they are meaningless, so the options only do anything under WIN32.
+option( OTDU_ENABLE_D3D12 "Build the Direct3D 12 backend (device + swapchain)" ON )
+option( OTDU_ENABLE_D3D11 "Build the Direct3D 11 backend (not implemented yet)" OFF )
+option( OTDU_ENABLE_D3D9 "Build the Direct3D 9 backend (not implemented yet)" OFF )
+
 include( cmake/Dependencies.cmake )
 add_subdirectory( "${OTDU_THIRDPARTY_FOLDER}/dxvk" )
 
@@ -48,6 +56,23 @@ target_link_libraries( otdu_engine PUBLIC
 target_precompile_headers( otdu_engine PRIVATE "${OTDU_SRC_FOLDER}/pch.h" )
 if( OTDU_DEVBUILD )
     target_compile_definitions( otdu_engine PUBLIC OTDU_DEVBUILD )
+endif()
+if( WIN32 )
+    # Direct3D backends: the define is what source/render/rhi/render_backend.cpp
+    # asks for ("is this backend compiled in?"), the libraries are the device,
+    # the swapchain factory and (D3D9/11) the shader compiler.
+    if( OTDU_ENABLE_D3D12 )
+        target_compile_definitions( otdu_engine PUBLIC OTDU_D3D12=1 )
+        target_link_libraries( otdu_engine PUBLIC d3d12 dxgi dxguid )
+    endif()
+    if( OTDU_ENABLE_D3D11 )
+        target_compile_definitions( otdu_engine PUBLIC OTDU_D3D11=1 )
+        target_link_libraries( otdu_engine PUBLIC d3d11 dxgi dxguid d3dcompiler )
+    endif()
+    if( OTDU_ENABLE_D3D9 )
+        target_compile_definitions( otdu_engine PUBLIC OTDU_D3D9=1 )
+        target_link_libraries( otdu_engine PUBLIC d3d9 dxguid d3dcompiler )
+    endif()
 endif()
 if( MSVC )
     target_compile_options( otdu_engine PRIVATE /W3 )
