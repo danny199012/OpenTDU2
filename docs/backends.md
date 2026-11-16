@@ -76,8 +76,8 @@ Screenshot saved to 'E:\Cline\_dx12.ppm'
 ```
 
 The result can be checked without eyes: sample the eight bar centres of the PPM
-and compare them with the expected colours. Measured on the RTX 5070 Ti build
-`214 (c879c91+dirty) - cline`: `white 255,255,255`, `yellow 255,255,0`,
+and compare them with the expected colours. Measured on build `215 (947c66b) - cline`:
+`white 255,255,255`, `yellow 255,255,0`,
 `cyan 0,255,255`, `green 0,255,0`, `magenta 255,0,255`, `red 255,0,0`,
 `blue 0,0,255`, `black 0,0,0` - eight of eight, at bar centres x = 80..1200 on
 row 360 of a 1280x720 frame. `-autoplay "20:shot=..."` inside the game would use

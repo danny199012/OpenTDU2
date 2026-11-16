@@ -50,7 +50,7 @@ big-bang RHI rewrite. `docs/backends.md` is the plan, the status board and the f
   plan per backend (SPIR-V -> HLSL via SPIRV-Cross -> DXIL via the SDK's `dxc` for 12/11;
   the original D3D9 bytecode as-is for 9) and the next step with file + function.
 
-### Verified (build 215 (7f3ba2b) · cline)
+### Verified (build 215 (947c66b) · cline)
 
 Self test on the RTX 5070 Ti, exit 0:
 
