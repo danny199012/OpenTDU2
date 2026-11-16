@@ -2,6 +2,7 @@
 #include "flash_definitions.h"
 
 #include "flash/flash_movie.h"
+#include "system/cmd_line.h"
 #include "render/gs_render.h"
 
 #include <mapbox/earcut.hpp>
@@ -139,6 +140,81 @@ const FlashShape *FlashDefinitions::getShape( uint16_t id ) const {
     return it != shapes.end() ? &it->second : nullptr;
 }
 
+const FlashShape *FlashDefinitions::getMorphShape( uint16_t id, uint16_t ratio ) const {
+    auto morphIt = morphs.find( id );
+    if ( morphIt == morphs.end() ) {
+        return getShape( id );
+    }
+    const uint32_t key = ( static_cast<uint32_t>( id ) << 16 ) | ratio;
+    auto cached = morphCache.find( key );
+    if ( cached != morphCache.end() ) {
+        return &cached->second;
+    }
+    if ( morphCache.size() > 4096 ) {
+        morphCache.clear();
+    }
+    const Morph &morph = morphIt->second;
+    const float t = static_cast<float>( ratio ) / 65535.0f;
+    FlashShape &shape = morphCache[key];
+    shape.XMin = morph.Bounds.XMin;
+    shape.XMax = morph.Bounds.XMax;
+    shape.YMin = morph.Bounds.YMin;
+    shape.YMax = morph.Bounds.YMax;
+    for ( const auto &colors : morph.FillColors ) {
+        FlashFill fill;
+        fill.Type = eFlashFillType::FF_Solid;
+        uint32_t out = 0;
+        for ( int c = 0; c < 4; c++ ) {
+            const float a = static_cast<float>( ( colors.first >> ( c * 8 ) ) & 0xff );
+            const float b = static_cast<float>( ( colors.second >> ( c * 8 ) ) & 0xff );
+            out |= static_cast<uint32_t>( a + ( b - a ) * t + 0.5f ) << ( c * 8 );
+        }
+        fill.Color = out;
+        shape.Fills.push_back( fill );
+    }
+    std::map<uint32_t, std::vector<Ring>> polylinesPerFill;
+    for ( const MorphPath &path : morph.Paths ) {
+        Ring polyline;
+        polyline.push_back( { path.StartMove[0] + ( path.EndMove[0] - path.StartMove[0] ) * t,
+                              path.StartMove[1] + ( path.EndMove[1] - path.StartMove[1] ) * t } );
+        for ( const MorphEdge &edge : path.Edges ) {
+            const float cx = edge.StartC[0] + ( edge.EndC[0] - edge.StartC[0] ) * t;
+            const float cy = edge.StartC[1] + ( edge.EndC[1] - edge.StartC[1] ) * t;
+            const float ax = edge.StartA[0] + ( edge.EndA[0] - edge.StartA[0] ) * t;
+            const float ay = edge.StartA[1] + ( edge.EndA[1] - edge.StartA[1] ) * t;
+            const Point from = polyline.back();
+            if ( edge.bStraight ) {
+                polyline.push_back( { ax, ay } );
+            } else {
+                for ( int s = 1; s <= 8; s++ ) {
+                    const float u = static_cast<float>( s ) / 8.0f;
+                    const float iu = 1.0f - u;
+                    polyline.push_back( { iu * iu * from[0] + 2.0f * iu * u * cx + u * u * ax,
+                                          iu * iu * from[1] + 2.0f * iu * u * cy + u * u * ay } );
+                }
+            }
+        }
+        if ( path.Fill0 != 0 ) {
+            polylinesPerFill[path.Fill0].push_back( polyline );
+        }
+        if ( path.Fill1 != 0 && path.Fill1 != path.Fill0 ) {
+            polylinesPerFill[path.Fill1].push_back( polyline );
+        }
+    }
+    for ( auto &entry : polylinesPerFill ) {
+        if ( entry.first == 0 || entry.first > shape.Fills.size() ) {
+            continue;
+        }
+        FlashShapeMesh mesh;
+        mesh.FillIndex = entry.first - 1;
+        Triangulate( BuildRings( entry.second ), mesh );
+        if ( !mesh.Indices.empty() ) {
+            shape.Meshes.push_back( std::move( mesh ) );
+        }
+    }
+    return &shape;
+}
+
 const FlashTimeline *FlashDefinitions::getSprite( uint16_t id ) const {
     auto it = sprites.find( id );
     return it != sprites.end() ? &it->second : nullptr;
@@ -251,6 +327,9 @@ void FlashDefinitions::buildTimeline( const VMFFile &vmf, const std::vector<Flas
         case FT_DefineShape2:
         case FT_DefineShape3:
             parseShape( vmf, tag, pMovie );
+            break;
+        case FT_DefineMorphShape:
+            parseMorphShape( vmf, tag );
             break;
         case FT_DefineEditText:
             parseEditText( vmf, tag );
@@ -473,6 +552,171 @@ void FlashDefinitions::parseShape( const VMFFile &vmf, const FlashTag &tag, Flas
             shape.Meshes.push_back( std::move( mesh ) );
         }
     }
+}
+
+// DefineMorphShape (tag 46) [DATA]: the SWF layout with the Eden header -
+// id u16, StartBounds RECT, EndBounds RECT, u32 offset to the end edges (from
+// the end of that field), u8 fill count { type 0 solid: start RGBA, end RGBA },
+// u8 line count { 12 bytes each }, then the start edges as a bit-packed SWF
+// shape record stream (4-bit fill / line index widths) and the end edges at
+// the offset. Only solid fills are decoded (the gauge / wipe masks); a morph
+// with other fill types draws nothing.
+void FlashDefinitions::parseMorphShape( const VMFFile &vmf, const FlashTag &tag ) {
+    const std::vector<uint8_t> &data = vmf.getData();
+    const uint32_t end = tag.Offset + tag.Length;
+    const uint16_t id = Read<uint16_t>( data, tag.Offset );
+    Morph morph;
+    FlashBitReader reader( data.data(), end, tag.Offset + 2 );
+    float x0, x1, y0, y1;
+    reader.readRect( x0, x1, y0, y1 );
+    reader.readRect( morph.Bounds.XMin, morph.Bounds.XMax, morph.Bounds.YMin, morph.Bounds.YMax );
+    morph.Bounds.XMin = Min( morph.Bounds.XMin, x0 );
+    morph.Bounds.XMax = Max( morph.Bounds.XMax, x1 );
+    morph.Bounds.YMin = Min( morph.Bounds.YMin, y0 );
+    morph.Bounds.YMax = Max( morph.Bounds.YMax, y1 );
+    uint32_t offset = reader.getOffset();
+    const uint32_t endEdges = offset + 4 + Read<uint32_t>( data, offset );
+    offset += 4;
+    uint32_t numFills = data[offset++];
+    if ( numFills == 0xff ) {
+        numFills = Read<uint16_t>( data, offset );
+        offset += 2;
+    }
+    for ( uint32_t i = 0; i < numFills && offset < end; i++ ) {
+        const uint8_t type = data[offset++];
+        if ( type != 0x00 ) {
+            return; // unsupported fill: the morph stays undefined (draws nothing)
+        }
+        const uint32_t startColor = Read<uint32_t>( data, offset );
+        const uint32_t endColor = Read<uint32_t>( data, offset + 4 );
+        offset += 8;
+        morph.FillColors.emplace_back( startColor, endColor );
+    }
+    uint32_t numLines = data[offset++];
+    if ( numLines == 0xff ) {
+        numLines = Read<uint16_t>( data, offset );
+        offset += 2;
+    }
+    offset += numLines * 12;
+
+    struct RawEdge {
+        float C[2], A[2];
+        bool bStraight;
+    };
+    struct RawPath {
+        uint32_t Fill0, Fill1;
+        float Move[2];
+        std::vector<RawEdge> Edges;
+    };
+    auto readEdges = [&]( uint32_t from ) {
+        std::vector<RawPath> paths;
+        FlashBitReader bits( data.data(), end, from );
+        const uint32_t fillBits = bits.readUBits( 4 );
+        const uint32_t lineBits = bits.readUBits( 4 );
+        float x = 0.0f, y = 0.0f;
+        uint32_t fill0 = 0, fill1 = 0;
+        bool bOpen = false;
+        while ( true ) {
+            if ( bits.readUBits( 1 ) == 0 ) {
+                const uint32_t flags = bits.readUBits( 5 );
+                if ( flags == 0 ) {
+                    break;
+                }
+                if ( flags & 0x01 ) {
+                    const uint32_t n = bits.readUBits( 5 );
+                    x = static_cast<float>( bits.readSBits( n ) );
+                    y = static_cast<float>( bits.readSBits( n ) );
+                }
+                if ( flags & 0x02 ) {
+                    fill0 = bits.readUBits( fillBits );
+                }
+                if ( flags & 0x04 ) {
+                    fill1 = bits.readUBits( fillBits );
+                }
+                if ( flags & 0x08 ) {
+                    bits.readUBits( lineBits );
+                }
+                RawPath path;
+                path.Fill0 = fill0;
+                path.Fill1 = fill1;
+                path.Move[0] = x;
+                path.Move[1] = y;
+                paths.push_back( std::move( path ) );
+                bOpen = true;
+            } else {
+                if ( !bOpen ) {
+                    break;
+                }
+                RawEdge edge;
+                if ( bits.readUBits( 1 ) == 1 ) {
+                    const uint32_t n = bits.readUBits( 4 ) + 2;
+                    float dx = 0.0f, dy = 0.0f;
+                    if ( bits.readUBits( 1 ) == 1 ) {
+                        dx = static_cast<float>( bits.readSBits( n ) );
+                        dy = static_cast<float>( bits.readSBits( n ) );
+                    } else if ( bits.readUBits( 1 ) == 1 ) {
+                        dy = static_cast<float>( bits.readSBits( n ) );
+                    } else {
+                        dx = static_cast<float>( bits.readSBits( n ) );
+                    }
+                    edge.C[0] = x + dx * 0.5f;
+                    edge.C[1] = y + dy * 0.5f;
+                    x += dx;
+                    y += dy;
+                    edge.bStraight = true;
+                } else {
+                    const uint32_t n = bits.readUBits( 4 ) + 2;
+                    const float cx = static_cast<float>( bits.readSBits( n ) );
+                    const float cy = static_cast<float>( bits.readSBits( n ) );
+                    const float ax = static_cast<float>( bits.readSBits( n ) );
+                    const float ay = static_cast<float>( bits.readSBits( n ) );
+                    edge.C[0] = x + cx;
+                    edge.C[1] = y + cy;
+                    x = edge.C[0] + ax;
+                    y = edge.C[1] + ay;
+                    edge.bStraight = false;
+                }
+                edge.A[0] = x;
+                edge.A[1] = y;
+                paths.back().Edges.push_back( edge );
+            }
+            if ( bits.getOffset() >= end ) {
+                break;
+            }
+        }
+        return paths;
+    };
+    const std::vector<RawPath> startPaths = readEdges( offset );
+    const std::vector<RawPath> endPaths = readEdges( endEdges );
+    for ( size_t p = 0; p < startPaths.size(); p++ ) {
+        MorphPath path;
+        path.Fill0 = startPaths[p].Fill0;
+        path.Fill1 = startPaths[p].Fill1;
+        path.StartMove[0] = startPaths[p].Move[0];
+        path.StartMove[1] = startPaths[p].Move[1];
+        const RawPath *pEnd = p < endPaths.size() ? &endPaths[p] : &startPaths[p];
+        path.EndMove[0] = pEnd->Move[0];
+        path.EndMove[1] = pEnd->Move[1];
+        for ( size_t e = 0; e < startPaths[p].Edges.size(); e++ ) {
+            const RawEdge &s = startPaths[p].Edges[e];
+            const RawEdge &en = e < pEnd->Edges.size() ? pEnd->Edges[e] : s;
+            MorphEdge edge;
+            edge.StartC[0] = s.C[0];
+            edge.StartC[1] = s.C[1];
+            edge.StartA[0] = s.A[0];
+            edge.StartA[1] = s.A[1];
+            edge.EndC[0] = en.C[0];
+            edge.EndC[1] = en.C[1];
+            edge.EndA[0] = en.A[0];
+            edge.EndA[1] = en.A[1];
+            edge.bStraight = s.bStraight && en.bStraight;
+            path.Edges.push_back( edge );
+        }
+        morph.Paths.push_back( std::move( path ) );
+    }
+    shapes[id] = morph.Bounds; // placeholder so getShape() finds it
+    types[id] = eFlashCharacterType::CT_Shape;
+    morphs[id] = std::move( morph );
 }
 
 GPUTexture *FlashDefinitions::createGradientTexture( const FlashFill &fill ) {

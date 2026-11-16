@@ -2930,7 +2930,7 @@ void FlashPlayer::drawInstance( Renderer2D &renderer, const Instance &instance, 
     switch ( definitions.getType( instance.CharacterId ) ) {
     case eFlashCharacterType::CT_Shape:
         pShapeOverrideOwner = pDrawOwner;
-        drawShape( renderer, *definitions.getShape( instance.CharacterId ), matrix, colorTransform, stageToCanvas );
+        drawShape( renderer, *definitions.getMorphShape( instance.CharacterId, instance.Ratio ), matrix, colorTransform, stageToCanvas );
         pShapeOverrideOwner = nullptr;
         break;
     case eFlashCharacterType::CT_Sprite:

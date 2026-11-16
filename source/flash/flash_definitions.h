@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 
 #include "flash/flash_types.h"
 #include "flash/vmf_file.h"
@@ -112,6 +113,9 @@ public:
     inline const FlashTimeline &getRootTimeline() const { return root; }
     eFlashCharacterType getType( uint16_t id ) const;
     const FlashShape *getShape( uint16_t id ) const;
+    // A DefineMorphShape character at a placement ratio (0..65535; the
+    // PlaceObject2 ratio field). Other characters: the plain shape.
+    const FlashShape *getMorphShape( uint16_t id, uint16_t ratio ) const;
     const FlashTimeline *getSprite( uint16_t id ) const;
     const FlashEditText *getEditText( uint16_t id ) const;
     const FlashButton *getButton( uint16_t id ) const;
@@ -134,11 +138,31 @@ private:
     std::unordered_map<uint16_t, FlashButton> buttons;
     std::unordered_map<uint16_t, eFlashCharacterType> types;
     std::vector<GPUTexture *> gradientTextures;
+    // DefineMorphShape (tag 46): the start / end paths as quadratic edges
+    // (a straight edge has its control point at the midpoint), the solid
+    // fill colours of both ends. Triangulated per ratio on demand.
+    struct MorphEdge {
+        float StartC[2], StartA[2], EndC[2], EndA[2];
+        bool bStraight = true;
+    };
+    struct MorphPath {
+        uint32_t Fill0 = 0, Fill1 = 0;
+        float StartMove[2] = { 0, 0 }, EndMove[2] = { 0, 0 };
+        std::vector<MorphEdge> Edges;
+    };
+    struct Morph {
+        std::vector<MorphPath> Paths;
+        std::vector<std::pair<uint32_t, uint32_t>> FillColors; // start, end RGBA8 (solid fills)
+        FlashShape Bounds;
+    };
+    std::unordered_map<uint16_t, Morph> morphs;
+    mutable std::map<uint32_t, FlashShape> morphCache; // (id << 16 | ratio)
 
 private:
     void buildTimeline( const VMFFile &vmf, const std::vector<FlashTag> &tags, FlashTimeline &outTimeline,
                         FlashMovie *pMovie );
     void parseShape( const VMFFile &vmf, const FlashTag &tag, FlashMovie *pMovie );
+    void parseMorphShape( const VMFFile &vmf, const FlashTag &tag );
     void parseEditText( const VMFFile &vmf, const FlashTag &tag );
     void parseButton( const VMFFile &vmf, const FlashTag &tag );
     FlashPlaceInfo parsePlace( const VMFFile &vmf, const FlashTag &tag );

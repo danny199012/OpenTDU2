@@ -1982,6 +1982,12 @@ void GMShop::tick( float deltaTime ) {
             startExplainFrog();
         }
     }
+    if ( CmdLine::HasArg( "-dumpshopclips" ) ) {
+        static int32_t dumpTick = 0;
+        if ( ++dumpTick == 250 ) {
+            scene.getUi().dumpClips( "/", CmdLine::GetArgInt( "-dumpshopclips", 6 ) );
+        }
+    }
     // Last: the buy window's page pose (walk.update above resets the walk
     // camera every frame; this is what the player actually sees).
     if ( bBuyWindow && bPageCamera ) {
