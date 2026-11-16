@@ -4376,7 +4376,7 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
         // and the walk continues - true, the refusal was handled (the caller
         // would otherwise stamp its generic "not open yet" over the reason).
         if ( !TunerModEnabled() ) {
-            interior.showMessage( "Wangan Works needs the Tuner mod." );
+            interior.showMessage( std::string( TunerShopName( spotBank ) ) + " needs the Tuner mod." );
             return true;
         }
         if ( !GetTunerParts().isTunerCar( car.getIdCar() ) ) {
@@ -4385,6 +4385,7 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
             return true;
         }
         tunerMenu.setSidePanel( interior.isActive() );
+        tunerMenu.setShopName( TunerShopName( spotBank ) );
         tunerMenu.open( car.getIdCar(), FindCarDisplayName( car.getIdCar() ), pTunerRoomCar );
         return true;
     }

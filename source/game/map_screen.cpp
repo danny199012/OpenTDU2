@@ -1366,7 +1366,7 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
         player.setVariable( "/:NbStickersBoardsBought", std::to_string( profile.OwnedStickerBanks.size() ) );
         player.setVariable( "/:NbStickersBoardsTotal", "28" ); // the DBStickersBanks rows [INF count]
     } else if ( strcmp( pKind, "tuning" ) == 0 ) {
-        title = spot.Name.compare( 0, 4, "ETNR" ) == 0 ? "Wangan Works" : "Tuning shop";
+        title = spot.Name.compare( 0, 4, "ETNR" ) == 0 ? TunerShopName( spot.Name ) : "Tuning shop";
     } else if ( strcmp( pKind, "carWash" ) == 0 ) {
         title = "Car wash";
         player.setVariable( "/:WashingPrice", "$10" );

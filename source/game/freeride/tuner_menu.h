@@ -22,6 +22,8 @@ public:
     // pPreviewCar: the room car the previews land on (null: the menu sells
     // without a live preview - the change shows when you leave the shop).
     void open( int32_t newCarId, const std::string &name, CinematicCar *pPreviewCar );
+    // The shop's name for the title bar ("Wangan Works" / "Rev Yard").
+    inline void setShopName( const std::string &name ) { shopName = name; }
     void close();
     inline bool isOpen() const { return carId >= 0; }
     // Keys: left / right cycle the spoiler (stock first), validate buys what
@@ -40,6 +42,7 @@ private:
 
     int32_t carId = -1;
     std::string carName;
+    std::string shopName = "Wangan Works";
     CinematicCar *pCar = nullptr; // the room car (borrowed; not owned)
     std::vector<const TunerPart *> parts; // the car's spoiler catalog
     int32_t previewPart = -1;

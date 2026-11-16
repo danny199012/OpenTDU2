@@ -1,0 +1,8 @@
+newmtl tube
+Kd 1.000 1.000 1.000
+map_Kd neon_magenta.png
+
+newmtl frame
+Kd 0.300 0.300 0.340
+map_Kd darkmetal.png
+

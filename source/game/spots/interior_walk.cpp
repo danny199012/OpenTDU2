@@ -318,6 +318,15 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     setup.bWorld = false;
     setup.bInterior = true;
     setup.bStreamWorld = !island.empty() && !CmdLine::HasArg( "-nointeriorworld" );
+    // The tuner mod's second shop (ETNR_B, the dealer room) is a CLOSED room:
+    // it stands on arbitrary ground, so the streamed island's trees and grass
+    // grew through its floor (the dealer's real spots sit on cleared pads).
+    // ETNR_A (the windowless tuning-shop room) keeps the stream. -nointeriorworld
+    // is the same switch for every room.
+    if ( !bHouse && _strnicmp( houseSpotName.c_str(), "ETNR_", 5 ) == 0 && houseSpotName.size() >= 6 &&
+         houseSpotName[5] != 'A' && houseSpotName[5] != 'a' ) {
+        setup.bStreamWorld = false;
+    }
     // The house living room in its island (the retail house presentation, the
     // AVATAR_CHOICE party house setup): the spot exterior bank draws the shell
     // around the room (the caravan body, the garage building, the plot) and
@@ -364,6 +373,18 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
         OTDU_LOG_WARN( "InteriorWalk: '%s' could not be loaded\n", path.c_str() );
         scene.unload();
         return false;
+    }
+    // The tuner mod's own props for this room (interior/props_<bank>.txt, e.g.
+    // props_itnr_b.txt: make_revyard_props.py's lifts, racks and neon bars).
+    if ( !bHouse && _strnicmp( houseSpotName.c_str(), "ETNR", 4 ) == 0 ) {
+        const size_t slash = path.find_last_of( "/\\" );
+        std::string stem = path.substr( slash == std::string::npos ? 0 : slash + 1 );
+        const size_t dot = stem.find( '.' );
+        stem = stem.substr( 0, dot );
+        const size_t placed = scene.loadRoomProps( ( "interior/props_" + stem + ".txt" ).c_str(), "interior/props/" );
+        if ( placed > 0 ) {
+            OTDU_LOG_INFO( "InteriorWalk: %zu room props from props_%s.txt\n", placed, stem.c_str() );
+        }
     }
     spotBank = houseSpotName.empty() ? path : houseSpotName;
     bActive = true;

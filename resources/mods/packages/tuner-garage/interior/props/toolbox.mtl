@@ -1,0 +1,12 @@
+newmtl cabinet
+Kd 1.000 1.000 1.000
+map_Kd cabinet.png
+
+newmtl steel
+Kd 0.600 0.600 0.620
+map_Kd steel.png
+
+newmtl darkmetal
+Kd 0.300 0.300 0.340
+map_Kd darkmetal.png
+

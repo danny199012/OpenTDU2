@@ -14,6 +14,7 @@
 #include "render/eden/eden_model.h"
 #include "render/eden/eden_scene_view.h"
 #include "physics/havok_collision.h"
+#include "game/spots/obj_mesh.h"
 
 // Real time cinematics of the new game in the Ibiza party house
 // (Scenarics/Cinematics/intro/new_intro.bnk, docs/re/intro_spec.md and
@@ -185,6 +186,13 @@ public:
     bool getPosCamViewLocal( const std::string &posCamName, Vector3f &outPosition, Quaternionf &outHeading ) const;
     const Volume *findVolume( const std::string &name ) const;
     inline const std::vector<Volume> &getSelectables() const { return selectables; }
+    // Room props of our own (an OBJ list placed in the room's bank frame, drawn
+    // with the interior set): <listPath> lines "name ref x y z heading [scale]"
+    // - `ref` is "room" (the bank origin) or an Entity__PosCam name whose
+    // placement the offset is added to; the OBJ/MTL/PNG live in <folder> of
+    // the mods overlay. Used by the tuner mod's second shop (ETNR_B). Returns
+    // the number placed; call after load().
+    size_t loadRoomProps( const char *pListPath, const char *pFolder );
     // Re-types every selectable of type `from` to `to` (a retail dealer room
     // re-purposed as a workshop: its hostess desk, type 1, becomes the tuner
     // seller, type 23). Returns how many changed.
@@ -681,6 +689,13 @@ private:
         float SpinRate = 0.0f;
         float SpinAngle = 0.0f;
     };
+    struct RoomProp {
+        std::string Name;
+        std::vector<ObjMeshDraw> Draws;
+        Matrix4x4f Local;
+        Vector3f BoundsMin, BoundsMax;
+    };
+    std::vector<RoomProp> roomProps;
     std::vector<DisplayCar> displayCars;
     std::vector<VehiclePosition> vehiclePositions;
     std::vector<std::string> shopPosCams;

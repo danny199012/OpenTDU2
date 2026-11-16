@@ -1,0 +1,8 @@
+newmtl drum
+Kd 1.000 1.000 1.000
+map_Kd drum.png
+
+newmtl steel
+Kd 0.600 0.600 0.620
+map_Kd steel.png
+

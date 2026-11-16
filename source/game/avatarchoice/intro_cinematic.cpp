@@ -267,6 +267,10 @@ void IntroCinematic::unload() {
     showCars.clear();
     seatedShowCar = -1;
     displayCars.clear();
+    for ( RoomProp &roomProp : roomProps ) {
+        UnloadObjDraws( roomProp.Draws );
+    }
+    roomProps.clear();
     shopPosCams.clear();
     posCamCameras.clear();
     bCarEnvironment = false;
@@ -871,6 +875,76 @@ void IntroCinematic::closeTutorial() {
     if ( general.isLoaded() ) {
         general.invoke( "/pop_tutorial", "close_popup", {} );
     }
+}
+
+size_t IntroCinematic::loadRoomProps( const char *pListPath, const char *pFolder ) {
+    for ( RoomProp &roomProp : roomProps ) {
+        UnloadObjDraws( roomProp.Draws );
+    }
+    roomProps.clear();
+    if ( !bLoaded || gpFile == nullptr || CmdLine::HasArg( "-noroomprops" ) ) {
+        return 0;
+    }
+    std::vector<uint8_t> list;
+    if ( !gpFile->loadFile( pListPath, list ) ) {
+        return 0; // no list in the overlay: the room stays as the bank made it
+    }
+    const std::string text( list.begin(), list.end() );
+    size_t pos = 0;
+    while ( pos < text.size() ) {
+        size_t end = text.find( '\n', pos );
+        if ( end == std::string::npos ) {
+            end = text.size();
+        }
+        std::string line = text.substr( pos, end - pos );
+        pos = end + 1;
+        if ( !line.empty() && line.back() == '\r' ) {
+            line.pop_back();
+        }
+        if ( line.empty() || line[0] == '#' ) {
+            continue;
+        }
+        char name[128] = {}, ref[64] = {};
+        float x = 0.0f, y = 0.0f, z = 0.0f, heading = 0.0f, scale = 1.0f;
+        const int fields = sscanf( line.c_str(), "%127s %63s %f %f %f %f %f", name, ref, &x, &y, &z, &heading, &scale );
+        if ( fields < 6 ) {
+            OTDU_LOG_WARN( "RoomProps: '%s' is not 'name ref x y z heading [scale]'\n", line.c_str() );
+            continue;
+        }
+        Vector3f origin( 0.0f, 0.0f, 0.0f );
+        if ( StringCmpI( ref, "room" ) != 0 ) {
+            const auto placement = entityPlacements.find( ref );
+            if ( placement == entityPlacements.end() ) {
+                OTDU_LOG_WARN( "RoomProps: '%s': no placement named '%s' in the room\n", name, ref );
+                continue;
+            }
+            origin = placement->second.first;
+        }
+        RoomProp prop;
+        prop.Name = name;
+        uint32_t triangles = 0;
+        if ( !LoadObjDraws( *gpRender->getEdenRenderer(), pFolder, name, "TD_Gouraud", prop.Draws, &prop.BoundsMin,
+                            &prop.BoundsMax, &triangles, "RoomProps" ) ) {
+            OTDU_LOG_WARN( "RoomProps: '%s%s.obj' did not load\n", pFolder, name );
+            continue;
+        }
+        const float half = heading * 0.5f;
+        prop.Local = Matrix4x4f::Translation( origin + Vector3f( x, y, z ) ) *
+                     EdenRotationFromQuaternion( Quaternionf( 0.0f, std::sin( half ), 0.0f, std::cos( half ) ) );
+        if ( scale != 1.0f ) {
+            prop.Local = prop.Local * Matrix4x4f::Scale( Vector3f( scale, scale, scale ) );
+        }
+        OTDU_LOG_INFO( "RoomProps: '%s' at %s + (%.2f, %.2f, %.2f) heading %.2f: %zu draws, %u triangles\n", name, ref, x, y, z,
+                       heading, prop.Draws.size(), triangles );
+        roomProps.push_back( std::move( prop ) );
+    }
+    if ( CmdLine::HasArg( "-logroomprops" ) ) {
+        for ( const auto &placement : entityPlacements ) {
+            OTDU_LOG_INFO( "RoomProps: placement '%s' at (%.2f, %.2f, %.2f)\n", placement.first.c_str(),
+                           placement.second.first.x, placement.second.first.y, placement.second.first.z );
+        }
+    }
+    return roomProps.size();
 }
 
 float IntroCinematic::liftOntoFloor( const std::string &restEntity ) {
@@ -1809,6 +1883,18 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
         // the cinematic frame moved (liftOntoFloor / placeEntityAt).
         const bool bSpotFrame = ( i < setIsExterior.size() && setIsExterior[i] ) || i >= interiorSetStart;
         sets[i]->draw( renderer, bSpotFrame ? spotOrigin : sceneOrigin );
+    }
+    // Room props of our own (loadRoomProps): the interior set's frame.
+    if ( !bActorsOnly ) {
+        for ( const RoomProp &roomProp : roomProps ) {
+            const Matrix4x4f world = spotOrigin * roomProp.Local;
+            if ( !renderer.isBoxVisible( world, roomProp.BoundsMin, roomProp.BoundsMax ) ) {
+                continue;
+            }
+            for ( const ObjMeshDraw &draw : roomProp.Draws ) {
+                renderer.draw( draw.Mesh, draw.Material, world );
+            }
+        }
     }
     // Props: .sce actor of the main / background cinematic (same entity) or
     // the entity placement.

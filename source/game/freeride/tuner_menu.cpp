@@ -155,7 +155,7 @@ void TunerMenu::draw( Renderer2D &renderer ) {
     renderer.drawRect( Rect2D( x0, y0, w, h ), Rgba( 18, 26, 28, bSidePanel ? 215 : 235 ) );
     renderer.drawRectOutline( Rect2D( x0, y0, w, h ), 2.0f, Rgba( 200, 200, 200, 255 ) );
     renderer.drawRect( Rect2D( x0, y0, w, 52.0f ), Rgba( 26, 46, 40, 255 ) );
-    const std::string title = "Wangan Works - " + ( carName.empty() ? std::string( "your car" ) : carName );
+    const std::string title = shopName + " - " + ( carName.empty() ? std::string( "your car" ) : carName );
     renderer.drawText( pFont, title.c_str(), x0 + 20.0f, y0 + 10.0f, bSidePanel ? 24.0f : 28.0f, Rgba( 255, 255, 255 ) );
     renderer.drawText( pFont, FormatMoney( profile.Money ).c_str(), x0 + w - 20.0f, y0 + 12.0f, 24.0f, Rgba( 120, 255, 120 ),
                        eTextAlign::TA_Right );

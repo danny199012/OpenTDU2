@@ -7,6 +7,31 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 46): the second tuner shop "Rev Yard" - the used-car-dealer room as a dark neon workshop, with props of our own
+
+The owner: *"we made a custom shop using something we already have ... maybe make a unique shop ... use used car dealer interior, add the lifts and a few other things, use stuff from other places for props ... custom cars in the background ... people working on their cars online"*, then *"make it an extra shop"*, *"yes icdc_wld"*, *"reskin and add props"*.
+
+### What changed
+- `tools/mod/make_revyard_interior.py` (new) - `itnr_b.bnk` from the retail used-car dealer `icdc_wld.bnk` ("U.S. Cars (north)" / World classic [DATA]). Floor `marble_02_d` -> dark tiles with glowing cyan/magenta seams; brick / concrete / planks / ceiling / carpet / windows darkened and cooled (original detail kept: decode -> multiply); `newlogosquare` "US Cars" -> the neon REV / YARD sign; `glow_neons_d` / `halo02_d` -> neon fills (the light panels); lightmap + cubecar dimmed; every material x0.68. Reuses `make_tuner_interior.py`'s encoder helpers. Bank entry names are not renamed (a plain renamed copy works).
+- `tools/mod/make_revyard_props.py` (new) - our own OBJ/MTL/PNG props in `resources/mods/packages/tuner-garage/interior/props/`: `lift_2post`, `tire_stack`, `toolbox`, `drum`, `rack`, `neon_bar_{magenta,cyan}`. **Why generated, not exported from `itun_a`:** the tuning shop's lift is baked into the room scene and `eden_3dg.py` reads primitive headers only (no vertex decode). Parts are ours (plan rule).
+- `IntroCinematic::loadRoomProps( list, folder )` (`intro_cinematic.{h,cpp}`) - reads `interior/props_<bank>.txt` (`name ref x y z heading [scale]`, `ref` = `room` or an Entity__PosCam name; bank frame), loads each through the shared OBJ route (`LoadObjDraws`) and draws them in `drawSets` at `spotOrigin * Local` (not in the actors-only pass). `-noroomprops` A/B, `-logroomprops` dumps the PosCam placements (the layout helper). `InteriorWalk::loadRoom` calls it for ETNR rooms.
+- `InteriorWalk::InteriorBankFor` - `ETNR_<L>` -> `itnr_<l>.bnk` (fallback `itnr_a`). ETNR rooms retype the hostess desk (selectable type 1, car seller) to 23 (`npc_tuner`) via `IntroCinematic::remapSelectableType`. **ETNR_B is a closed room** (`bStreamWorld` off): it stands on arbitrary Ibiza ground and the streamed island's grass AND a tree grew through the floor (the retail dealers sit on cleared pads). `-nograss` alone cleaned the grass but not the tree.
+- `TunerShopName( spotBank )` (`tuner.h`): ETNR_A "Wangan Works", ETNR_B "Rev Yard" - used by the map title, the "needs the Tuner mod" notice, the menu title (`TunerMenu::setShopName`); F4 teleporter row "Rev Yard" (`cheats.cpp`, the Wangan row now keys on `ETNR_A`).
+- `add_spot.py` now starts from the overlay's own `spots.bin` (spots stack; before, the second `add_spot` silently dropped the first).
+- Spot: `ETNR_B` on Ibiza at (12640, 16640) heading 1.21, installed in BOTH userdata folders (`C:\temp\otdu2-win-userdata` and the AppData pref path, see the session 44 two-userdata trap), exterior = the Wangan Works exterior copy (stand-in).
+
+### Verified
+- `-interior ETNR_B -nointeriorintro` (AppData, no `-userdata`): the room loads, 17 props placed, hall + aisle shots `docs/images/revyard_hall_s45.png`, `revyard_aisle_s45.png`. `-walkaim Hostess_area` + `press=validate`: the part menu opens titled "Rev Yard - GT-R" with the car on slot D_CAR_01 wearing its wing (the stock rack prop beside it). F4 list on Ibiza: 10 destinations incl. "Rev Yard".
+- Ruled out: grass-only (`-nograss`) is not enough - a world tree stands in the room; the closed room is the fix.
+
+### Not done / next
+- Not exercised end to end: the F4 "Rev Yard" teleport + walk-in (the headless `-tpdestination` was consumed by the Hawaii start), the real door-prompt path, the map icon, Hawaii (no ETNR_B there; the room is closed so a Hawaii spot is just one more `add_spot.py` call).
+- Spot (12640, 16640) is a guess: the exterior is the small Wangan building and may sit in a hedge or tree - check it from the road (`-tp 12640,16640`).
+- Background cars: the room has 8 D_CAR_* PosCams (x +5.56 / -5.95, z -13..13, y 0.29); `InteriorWalk::placeDisplayCars` already parks cars on them. Cars on the lifts need a raised PosCam (the lifts are floor-level props now).
+- Online "people working on their cars": nothing exists (no netcode); plan = bay slots filled by scripted NPC cars first.
+- Tyre stacks / the wall racks were placed from PosCam offsets and not all seen in a shot; windows show a plain night sky (closed room).
+- The launcher-side installer for the tuner mod still does not exist (session 44): a new machine needs `add_spot.py` ETNR_A/ETNR_B, `make_tuner_interior.py`, `make_revyard_interior.py` and the `interior/props` copy.
+
 ## Session 2026-11-16 (`main`, 45): the despawn/flicker is FIXED - a shadowed `range` plus the slot-VP reuse
 
 The owner: the perf work caused buildings despawning and trees flickering.
