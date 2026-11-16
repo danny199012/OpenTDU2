@@ -31,9 +31,9 @@ layout( location = 0 ) in vec2 inTexcoord;
 layout( location = 0 ) out vec4 outColor;
 
 const float kMaxDistance = 60000.0; // shared with the accumulate / composite passes
-const float kShapeScale = 4500.0;   // metres per base-noise tile
-const float kDetailScale = 450.0;   // metres per detail-noise tile
-const float kMarchLength = 16000.0; // metres marched inside the slab
+const float kShapeScale = 2600.0;   // metres per base-noise tile (cumulus scale)
+const float kDetailScale = 260.0;   // metres per detail-noise tile
+const float kMarchLength = 26000.0; // metres marched inside the slab
 
 float heightFraction( float y ) {
     return clamp( ( y - pc.Up.w ) / max( pc.Fwd.w - pc.Up.w, 1.0 ), 0.0, 1.0 );
@@ -48,8 +48,12 @@ float density( vec3 p, bool bDetail ) {
     // Coverage: the lower the threshold, the more of the slab is cloud. The
     // divisor saturates the interior quickly (the pale 1 - threshold scaling
     // left a sky thin enough to see through).
-    const float threshold = mix( 0.72, 0.34, pc.Right.w );
-    d = clamp( ( d - threshold ) / mix( 0.45, 0.30, pc.Right.w ), 0.0, 1.0 ) * profile;
+    // Coverage: the threshold is a measured quantile of the base-noise field
+    // (EdenClouds::thresholdForCoverage, pushed in pc.Fog.w), so coverage 0.5
+    // really leaves half the field above it. The divisor only controls how
+    // quickly the density ramps past the threshold.
+    const float threshold = pc.Fog.w;
+    d = clamp( ( d - threshold ) / mix( 0.30, 0.22, pc.Right.w ), 0.0, 1.0 ) * profile;
     if ( bDetail && d > 0.0 ) {
         const float w = dot( texture( uDetail, q * ( kShapeScale / kDetailScale ) ).rgb, vec3( 0.625, 0.25, 0.125 ) );
         // Erode the edges: wispy at the bottom, billowier near the top.
@@ -123,14 +127,18 @@ void main() {
             // into the cloud interior (Schneider's fit).
             const float lightDepth = lightMarch( p );
             const float powder = 1.0 - exp( -d * 6.0 );
+            // Three multi-scatter octaves (Schneider / Hillaire): each one is
+            // less extinct than the last. The floor keeps a thick deck from
+            // going black - the single-scatter exp() alone is ~0 for any real
+            // cloud depth and the whole layer read as flat grey.
             vec3 sunLight = vec3( 0.0 );
-            float scatter = 1.0, extinction = 1.0;
-            for ( int o = 0; o < 2; o++ ) {
-                sunLight += pc.SunColor.rgb * exp( -lightDepth * sigma * extinction ) * scatter;
-                scatter *= 0.42;
-                extinction *= 0.30;
+            float scatter = 1.0;
+            for ( int o = 0; o < 3; o++ ) {
+                const float octave = exp( -lightDepth * sigma / float( o + 1 ) );
+                sunLight += pc.SunColor.rgb * max( octave, 0.10 ) * scatter;
+                scatter *= 0.55;
             }
-            sunLight *= phase * mix( 1.0, powder, 0.55 );
+            sunLight *= phase * mix( 1.0, powder, 0.35 );
             const float h = heightFraction( p.y );
             const vec3 ambient = pc.Ambient.rgb * mix( 0.45, 1.30, h ) * mix( 1.0, 0.45, pc.ToSun.w );
             const float stepTransmittance = exp( -d * stepLength * sigma );
@@ -151,10 +159,11 @@ void main() {
     // Towards the horizon the layer dissolves into the fog colour, so it
     // never ends as a hard line (the composite's depth test keeps it in
     // front of / behind terrain correctly).
-    const float fade = clamp( ( tNear - 18000.0 ) / 22000.0, 0.0, 1.0 );
-    // Rays grazing the slab (the deck seen edge-on from above / below) sample
-    // the noise field at sub-pixel scale: fade them instead of showing alias.
-    alpha *= smoothstep( 0.0, 0.10, abs( dir.y ) );
+    const float fade = clamp( ( tNear - 24000.0 ) / 26000.0, 0.0, 1.0 );
+    // Rays grazing the slab (the deck seen edge-on) sample the noise field at
+    // sub-pixel scale: fade only the truly edge-on ones (the old 0.10 window
+    // erased the whole horizon band, which is where a 1-2 km deck appears).
+    alpha *= smoothstep( 0.0, 0.03, abs( dir.y ) );
     light = mix( light, pc.Fog.rgb * alpha, fade );
     alpha *= 1.0 - fade * fade * 0.9;
     light *= 1.0 - fade * fade * 0.9;

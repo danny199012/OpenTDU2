@@ -77,6 +77,13 @@ private:
     bool generateNoise();
     static float tileablePerlin( float x, float y, float z, uint32_t frequency );
     static float tileableWorley( float x, float y, float z, uint32_t frequency );
+    // coverage (0 clear .. 1 overcast) -> the base-noise threshold that leaves
+    // exactly that fraction of the field above it. Measured from the generated
+    // volume (quantiles), not a hand-tuned constant: the old linear
+    // mix(0.72, 0.34, coverage) made the 0.5 default almost clear.
+    static constexpr uint32_t kCoverageSteps = 64;
+    float coverageThresholds[kCoverageSteps + 1] = {};
+    float thresholdForCoverage( float coverage ) const;
 
     RenderDevice *pDevice = nullptr;
     FullscreenPass fullscreen;

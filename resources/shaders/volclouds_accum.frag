@@ -25,9 +25,30 @@ layout( location = 0 ) out vec4 outColor;
 
 const float kMaxDistance = 60000.0; // shared with the march / composite passes
 
+// The alpha channel packs (alpha, hitDistance) as two halves. That value MUST
+// NOT be linearly filtered: interpolating the float whose *bits* are two halves
+// produces garbage (the composite drew white speckles over the whole scene).
+// Unpack the four nearest texels and blend the decoded pair instead.
+vec2 sampleAlphaHit( sampler2D tex, vec2 uv ) {
+    const ivec2 size = textureSize( tex, 0 );
+    const vec2 texel = uv * vec2( size ) - 0.5;
+    const ivec2 base = ivec2( floor( texel ) );
+    const vec2 f = texel - vec2( base );
+    vec2 result = vec2( 0.0 );
+    for ( int i = 0; i < 4; i++ ) {
+        const ivec2 o = ivec2( i & 1, i >> 1 );
+        const ivec2 c = clamp( base + o, ivec2( 0 ), size - 1 );
+        const vec4 t = texelFetch( tex, c, 0 );
+        const vec2 ah = unpackHalf2x16( floatBitsToUint( t.a ) );
+        const vec2 w = mix( 1.0 - f, f, vec2( o ) );
+        result += ah * w.x * w.y;
+    }
+    return result;
+}
+
 void main() {
     const vec4 current = texture( uCurrent, inTexcoord );
-    const vec2 currentAH = unpackHalf2x16( floatBitsToUint( current.a ) ); // x alpha, y hit distance (0..1)
+    const vec2 currentAH = sampleAlphaHit( uCurrent, inTexcoord ); // x alpha, y hit distance (0..1)
 
     vec4 history = current;
     vec2 historyAH = currentAH;
@@ -47,7 +68,7 @@ void main() {
                       0.5 - 0.5 * dot( v, pc.PrevUp.xyz ) / ( z * pc.PrevCam.w ) );
             if ( all( greaterThan( uvHistory, vec2( 0.0 ) ) ) && all( lessThan( uvHistory, vec2( 1.0 ) ) ) ) {
                 history = texture( uHistory, uvHistory );
-                historyAH = unpackHalf2x16( floatBitsToUint( history.a ) );
+                historyAH = sampleAlphaHit( uHistory, uvHistory );
                 // Clamp the history against the neighbourhood of this frame's
                 // march (colour and alpha), so changes converge instead of ghosting.
                 const vec2 texel = 1.0 / vec2( textureSize( uCurrent, 0 ) );
@@ -58,7 +79,7 @@ void main() {
                     const vec4 tap = texture( uCurrent, inTexcoord + offset * texel );
                     lo = min( lo, tap );
                     hi = max( hi, tap );
-                    const float a = unpackHalf2x16( floatBitsToUint( tap.a ) ).x;
+                    const float a = sampleAlphaHit( uCurrent, inTexcoord + offset * texel ).x;
                     alphaLo = min( alphaLo, a );
                     alphaHi = max( alphaHi, a );
                 }
@@ -76,5 +97,12 @@ void main() {
     const float fresh = 1.0 - keep;
     const float alpha = mix( historyAH.x, currentAH.x, fresh );
     const float hit = mix( historyAH.y, currentAH.y, fresh );
+    // pc.PrevUp.w is unused (-showcloudmarchalpha): this frame's march alpha as
+    // grey, so "the march found nothing" and "the accumulation lost it" can be
+    // told apart without guessing.
+    if ( pc.PrevUp.w > 0.5 ) {
+        outColor = vec4( vec3( currentAH.x ), 1.0 );
+        return;
+    }
     outColor = vec4( mix( history.rgb, current.rgb, fresh ), uintBitsToFloat( packHalf2x16( vec2( alpha, hit ) ) ) );
 }

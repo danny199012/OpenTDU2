@@ -1,11 +1,14 @@
 #include "shared.h"
 #include "eden_clouds.h"
 
+#include "system/cmd_line.h"
+
 #include "render/shaders/builtin/depthcopy_frag.h"
 #include "render/shaders/builtin/volclouds_accum_frag.h"
 #include "render/shaders/builtin/volclouds_composite_frag.h"
 #include "render/shaders/builtin/volclouds_frag.h"
 
+#include <algorithm>
 #include <cmath>
 #include <thread>
 #include <vector>
@@ -178,6 +181,29 @@ bool EdenClouds::initialize( RenderDevice &device ) {
 bool EdenClouds::generateNoise() {
     std::vector<uint8_t> base;
     GenerateBaseVolume( base );
+    // Quantiles of the generated field: `coverage` is the fraction of the sky
+    // the deck should cover, so the shader threshold is the matching quantile
+    // of the base noise. A prime stride samples the volume without locking onto
+    // the tile period.
+    {
+        std::vector<float> sample;
+        sample.reserve( base.size() / 97 + 1 );
+        for ( size_t i = 0; i < base.size(); i += 97 ) {
+            sample.push_back( static_cast<float>( base[i] ) / 255.0f );
+        }
+        std::sort( sample.begin(), sample.end() );
+        for ( uint32_t i = 0; i <= kCoverageSteps; i++ ) {
+            const float coverage = static_cast<float>( i ) / static_cast<float>( kCoverageSteps );
+            const float q = 1.0f - coverage; // top (1 - coverage) of the field
+            const size_t index = Min<size_t>(
+                sample.size() - 1, static_cast<size_t>( q * static_cast<float>( sample.size() - 1 ) + 0.5f ) );
+            coverageThresholds[i] = sample[index];
+        }
+        OTDU_LOG_INFO( "EdenClouds: base noise median %.3f, coverage 0.50 -> threshold %.3f, "
+                       "0.86 -> %.3f\n",
+                       sample[sample.size() / 2], thresholdForCoverage( 0.5f ),
+                       thresholdForCoverage( 0.86f ) );
+    }
     std::vector<uint8_t> detail;
     GenerateDetailVolume( detail );
     const void *pBaseData = base.data();
@@ -220,9 +246,15 @@ void EdenClouds::ensureTargets( uint32_t sceneWidth, uint32_t sceneHeight ) {
         return;
     }
     destroyTargets();
-    pMarchTarget = pDevice->createRenderTarget( width, height, VK_FORMAT_R16G16B16A16_SFLOAT, false, "CloudMarch" );
-    pHistory[0] = pDevice->createRenderTarget( width, height, VK_FORMAT_R16G16B16A16_SFLOAT, false, "CloudHistoryA" );
-    pHistory[1] = pDevice->createRenderTarget( width, height, VK_FORMAT_R16G16B16A16_SFLOAT, false, "CloudHistoryB" );
+    // RGBA32F, not RGBA16F: the march packs alpha and the hit distance as two
+    // halves inside the alpha channel (packHalf2x16), and a 16-bit float
+    // attachment converts that bit pattern as a *number*, destroying both
+    // values - the composite then always read alpha 0 and drew nothing (the
+    // reason v3 looked empty on screen while -showclouds showed the march).
+    // 32-bit float storage round-trips the packed pattern exactly.
+    pMarchTarget = pDevice->createRenderTarget( width, height, VK_FORMAT_R32G32B32A32_SFLOAT, false, "CloudMarch" );
+    pHistory[0] = pDevice->createRenderTarget( width, height, VK_FORMAT_R32G32B32A32_SFLOAT, false, "CloudHistoryA" );
+    pHistory[1] = pDevice->createRenderTarget( width, height, VK_FORMAT_R32G32B32A32_SFLOAT, false, "CloudHistoryB" );
     bHistoryValid = false; // the history is gone: the next accumulate restarts
 }
 
@@ -258,6 +290,20 @@ void EdenClouds::copySceneDepth( RenderDevice &device, GPUTexture *pSceneDepth )
                      eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
     device.endRenderTarget();
     device.endGpuPass();
+}
+
+float EdenClouds::thresholdForCoverage( float coverage ) const {
+    const float c = Clamp( coverage, 0.0f, 1.0f );
+    // A deck seen from below reads much denser than its volume fraction (rays
+    // graze it), so the request is mapped onto a percentile that is *far* above
+    // the middle: 0.5 (fair-weather CLOUD_B) leaves ~28 % of the field as
+    // cloud, 0.86 (CLOUD_R) ~70 %. q = 1 - (0.3c + 0.7c^3).
+    const float q = Clamp( 1.0f - ( 0.3f * c + 0.7f * c * c * c ), 0.0f, 1.0f );
+    const float position = q * static_cast<float>( kCoverageSteps );
+    const uint32_t index = static_cast<uint32_t>( position );
+    const float fraction = position - static_cast<float>( index );
+    const uint32_t next = Min<uint32_t>( index + 1, kCoverageSteps );
+    return coverageThresholds[index] + ( coverageThresholds[next] - coverageThresholds[index] ) * fraction;
 }
 
 void EdenClouds::setWeatherTargets( float newCoverage, float newDarkness, float newBase, float newTop ) {
@@ -305,7 +351,7 @@ void EdenClouds::marchAndAccumulate( RenderDevice &device, const Params &params 
         params.toSun.x, params.toSun.y, params.toSun.z, darkness,
         params.sunColor.x, params.sunColor.y, params.sunColor.z, params.windX,
         params.ambient.x, params.ambient.y, params.ambient.z, params.windZ,
-        params.fogColor.x, params.fogColor.y, params.fogColor.z, 0.0f,
+        params.fogColor.x, params.fogColor.y, params.fogColor.z, thresholdForCoverage( coverage ),
     };
     GPUTexture *pMarchTextures[2] = { pBaseNoise, pDetailNoise };
     device.beginGpuPass( "clouds" );
@@ -321,16 +367,22 @@ void EdenClouds::marchAndAccumulate( RenderDevice &device, const Params &params 
     // previous camera; a camera jump (or the first frame) resets it.
     const Vector3f cameraDelta = params.camPos - prevCamPos;
     const bool bJump = bHistoryValid && cameraDelta.dot( cameraDelta ) > 2000.0f * 2000.0f;
+    // -cloudnohistory: skip the temporal reprojection (history weight 0, reset
+    // every frame). A/B that separates "the march found no cloud" from "the
+    // accumulation ate it".
+    static const bool bNoCloudHistory = CmdLine::HasArg( "-cloudnohistory" );
     const uint32_t writeIndex = historyIndex ^ 1;
     GPUTexture *pAccumTextures[2] = { &pMarchTarget->Color, &pHistory[historyIndex]->Color };
+    static const bool bShowMarchAlpha = CmdLine::HasArg( "-showcloudmarchalpha" );
     const float accumPush[32] = {
-        params.camPos.x, params.camPos.y, params.camPos.z, 0.88f, // history weight
+        params.camPos.x, params.camPos.y, params.camPos.z, bNoCloudHistory ? 0.0f : 0.88f, // history weight
         params.right.x, params.right.y, params.right.z, params.tanHalf,
         params.up.x, params.up.y, params.up.z, params.aspect,
-        params.forward.x, params.forward.y, params.forward.z, ( !bHistoryValid || bJump ) ? 1.0f : 0.0f,
+        params.forward.x, params.forward.y, params.forward.z,
+        ( !bHistoryValid || bJump || bNoCloudHistory ) ? 1.0f : 0.0f,
         prevCamPos.x, prevCamPos.y, prevCamPos.z, prevTanHalf,
         prevRight.x, prevRight.y, prevRight.z, prevAspect,
-        prevUp.x, prevUp.y, prevUp.z, 0.0f,
+        prevUp.x, prevUp.y, prevUp.z, bShowMarchAlpha ? 1.0f : 0.0f,
         prevFwd.x, prevFwd.y, prevFwd.z, 0.0f,
     };
     device.beginRenderTarget( pHistory[writeIndex], false );
@@ -354,9 +406,26 @@ void EdenClouds::composite( RenderDevice &device, const Params &params ) {
     }
     pDevice = &device;
     GPUTexture *pTextures[2] = { &pHistory[historyIndex]->Color, &pCloudDepthTarget->Color };
-    const float push[4] = { params.nearPlane, params.farPlane, 0.0f, 0.0f };
+    // The diagnostic / A/B selector the composite shader reads in pc.Planes.z:
+    // 1 -showcloudalpha (alpha + both depths as colour), 2 -noclouddepth (skip
+    // the depth rejection), 3 -clouddepthflip (sample the distance copy
+    // vertically flipped). 0 = the shipping path.
+    static const bool bShowAlpha = CmdLine::HasArg( "-showcloudalpha" );
+    static const bool bNoCloudDepth = CmdLine::HasArg( "-noclouddepth" );
+    static const bool bCloudDepthFlip = CmdLine::HasArg( "-clouddepthflip" );
+    const float mode = bShowAlpha ? 1.0f : bNoCloudDepth ? 2.0f : bCloudDepthFlip ? 3.0f : 0.0f;
+    const float push[4] = { params.nearPlane, params.farPlane, mode, 0.0f };
     // The composite rejects the cloud against the copied opaque depth (the
     // shader), blending the premultiplied colour over the scene.
+    // The composite is drawn inside the blended pass, where resumeScene() has
+    // set the D3D-style flipped viewport for the scene draws. A fullscreen pass
+    // under that viewport maps texcoord (0,0) to the BOTTOM row, which flipped
+    // the whole layer (clouds for up-rays landed on the ground) and inverted the
+    // depth test. Draw it with a plain Vulkan viewport, then restore.
+    const VkViewport savedViewport = device.getCurrentViewport();
+    device.setViewport( VkViewport{ 0.0f, 0.0f, std::abs( savedViewport.width ),
+                                   std::abs( savedViewport.height ), 0.0f, 1.0f } );
     fullscreen.draw( device, kSPIRV_volclouds_composite_frag, sizeof( kSPIRV_volclouds_composite_frag ), pTextures, 2,
                      push, sizeof( push ), eBlendMode::BM_PremultipliedAlpha, eSamplerFilter::SF_Linear );
+    device.setViewport( savedViewport );
 }

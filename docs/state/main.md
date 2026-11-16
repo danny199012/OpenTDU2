@@ -8,6 +8,44 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 39): volumetric clouds render for the first time - four defects fixed, coverage/lighting tuned
+
+Owner: "I want to have volumetric clouds but 3 attempts and still haven't really seen a single cloud ... as for the 2nd attempt we had clouds but were static way to big and a bit of an eye sore to look at".
+
+**Reproduced before changing anything** - build 194 (`fceb7b4`), `_c3_day.ppm` vs `_c2_off.ppm`: mean |difference| in the sky band **0.16/255** (`-novolclouds` A/B). The march itself was drawing (`-showclouds` differed from clouds-off by **92.4**), the composite contributed nothing. The committed v3 evidence images agree with the owner: `clouds_v3_day.webp` and `clouds_v3_overcast.webp` differ by **2.8/255 mean** and the "overcast" shot is blue sky (RGB 68,102,145 at y=40), i.e. v3's "Done" was never on screen.
+
+### What changed (all in `source/render/eden/eden_clouds.cpp`, `eden_scene_view.cpp`, `resources/shaders/volclouds*.frag`, `depthcopy.frag`)
+
+1. **The packed alpha was destroyed by the render target.** The march packs `(alpha, hitDistance)` as two halves *inside* the alpha channel, but the march/history targets were `R16G16B16A16_SFLOAT` - writing a float whose *bits* are two halves converts it as a number, so the composite always decoded `alpha ≈ 0`. Targets are now `R32G32B32A32_SFLOAT` (half res, ~15 MB total).
+2. **The packed value was then linearly filtered.** Even with 32F storage, `texture()` on the history interpolates the packed float: the composite drew white speckles over the whole scene. New `sampleAlphaHit()` (both shaders) decodes the 4 nearest texels with `texelFetch` and blends the *decoded* pair.
+3. **The composite inherited the D3D flipped viewport.** `resumeScene()` sets `height = -height` for the scene draws; the composite fullscreen pass then mapped texcoord (0,0) to the bottom row, so the layer was upside down (clouds for up-rays drew on the ground, the sky stayed clear) and the depth test compared the wrong rows. The composite now draws with a plain Vulkan viewport and restores the saved one.
+4. **The scene-depth copy returned a constant 1.0.** `depthcopy.frag` sampled the depth image with `texture()`; `texelFetch` (1:1 copy) makes it return the real depth. That also repairs the FSR/DLSS depth input, which shared the shader.
+
+Tuning, once it was on screen: coverage is now a **measured quantile of the generated noise** (`thresholdForCoverage`, precomputed from a 32k sample histogram; log `EdenClouds: base noise median 0.463, coverage 0.50 -> threshold ...`) instead of the hand-tuned `mix(0.72, 0.34, ...)` that made the 0.5 default effectively clear; the deck is mapped so 0.5 leaves ~28 % of the field as cloud and 0.86 ~70 % (rays graze the slab, so volume fraction reads much denser). Shape tile 4500 -> **2600 m** (the "way too big" of attempt 2), march reach 16 -> 26 km, grazing fade window 0.10 -> 0.03 (the old one erased the whole horizon band, which is where a 1-2 km deck appears), distance fade moved out, three multi-scatter octaves with a 0.10 transmittance floor (single-scatter `exp()` is ~0 at real cloud depth, so the deck read as flat grey), powder reduced, wind 12 m/s fair-weather / 32 m/s storm (was 2.4 m/s).
+
+### Verified
+
+- Default CLOUD_B day, camera pitched up: `docs/images/clouds_v4_day.webp`; overcast `-cloudcover 0.86`: `clouds_v4_overcast.webp`; rain `-intempery 6`: `clouds_v4_rain.webp`.
+- Buildings occlude the deck sharply (`-showcloudalpha`: scene depth varies 0.68-1.00, cloud depth equals the scene on the ground and the alpha is rejected there; sky rows keep alpha 0.5-0.83).
+- Drift: two shots 3.3 s apart in one run (`-autoplay 260:shot=...;460:shot=...`) differ by **4.39/255 mean** in the sky band (the static attempt measured 0.1-0.5).
+- Cost: `[perf] frame 240` **7.8 ms** with the layer vs **8.6 ms** `-novolclouds`; frame 360 9.1 vs 9.0 ms - within run-to-run noise.
+- `-novolclouds` / `-oldclouds` still draw the `clouds.3dd` billboards.
+
+### Ruled out (with the test)
+
+- "The noise is empty": `-showclouds` was bright; `-showcloudmarchalpha` (`-showcloudhist`) showed the march alpha reaching 1.0.
+- "The temporal accumulation eats it": `-cloudnohistory` (history weight 0, reset every frame) changed nothing.
+- "The depth test rejects everything": `-noclouddepth` changed nothing before fix 3, and `-clouddepthflip` showed the sample was the wrong row - the viewport, not the depth image.
+- "The weather never selects CLOUD_B": the log prints the resolved preset; the default preset is B and its coverage is 0.5.
+
+### Not done / next
+
+- Clouds are still absent from the env cube / planar mirrors (the retail billboards stand in there).
+- The sunset silver lining is unverified (the test street hides the sun); check a west-facing shot at `-clock 19` with CLOUD_B.
+- The layer is soft at half res by design; a checkerboard/quarter-res option would buy ~0.3 ms but needs a mask pass.
+- `-showcloudalpha` / `-showcloudmarchalpha` / `-noclouddepth` / `-clouddepthflip` / `-cloudnohistory` are documented A/Bs, not user flags.
+
+
 ## Session 2026-11-16 (`main`, 38): volumetric clouds v3 - Perlin-Worley 3D noise, temporal accumulation, depth-rejected composite
 
 Owner: "I want you to improve the clouds I want them to be realistic volumetric if possible I had claude try twice and honestly there not that great".
