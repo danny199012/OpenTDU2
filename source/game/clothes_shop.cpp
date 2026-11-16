@@ -2,6 +2,7 @@
 #include "game/skill_levels.h"
 #include "clothes_shop.h"
 
+#include "audio/frontend_audio.h"
 #include "core/xmb.h"
 #include "database/gs_database.h"
 #include "flash/gs_flash.h"
@@ -116,6 +117,7 @@ void ClothesMenu::open( const std::string &newShopName ) {
     selected = 0;
     message.clear();
     messageTimer = 0.0f;
+    PlayFrontEndCue( "mopen" );
 }
 
 void ClothesMenu::open( const std::string &newShopName, uint64_t brandHashcode, int32_t sex ) {
@@ -137,6 +139,7 @@ void ClothesMenu::open( const std::string &newShopName, uint64_t brandHashcode, 
     selected = 0;
     message.clear();
     messageTimer = 0.0f;
+    PlayFrontEndCue( "mopen" );
 }
 
 void ClothesMenu::close() {
@@ -151,12 +154,15 @@ void ClothesMenu::buySelected() {
     PlayerProfile &profile = GetPlayerProfile();
     if ( std::find( profile.OwnedClothes.begin(), profile.OwnedClothes.end(), item.Id ) != profile.OwnedClothes.end() ) {
         message = "You already own this item";
+        PlayFrontEndCue( "wrong" );
     } else if ( profile.Money < item.Price ) {
         message = "Not enough money";
+        PlayFrontEndCue( "wrong" );
     } else {
         profile.Money -= item.Price;
         profile.OwnedClothes.push_back( item.Id );
         message = "Bought: " + item.Name;
+        PlayFrontEndCue( "valid" );
         OTDU_LOG_INFO( "Clothes: bought '%s' (id %d) for $%d (money now $%d)\n", item.Name.c_str(), item.Id, item.Price,
                        profile.Money );
         AwardCollectionMilestones( "COLLECTION_CLOTHES", static_cast<int32_t>( profile.OwnedClothes.size() ) ); // 5, 10, 20, 30 [DATA]
@@ -173,15 +179,18 @@ void ClothesMenu::tick( float deltaTime ) {
     const int32_t count = static_cast<int32_t>( pItems->size() );
     if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
         selected = ( selected + count - 1 ) % count;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
         selected = ( selected + 1 ) % count;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         buySelected();
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
         close();
+        PlayFrontEndCue( "back" );
     }
 }
 

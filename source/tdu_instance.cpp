@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "tdu_instance.h"
 
+#include "audio/frontend_audio.h"
 #include "audio/gs_audio.h"
 
 #include "config/gs_config.h"
@@ -265,6 +266,19 @@ bool TestDriveGameInstance::initialize() {
         pAudio->setSpeakerLayout( GetGameOptions().SpeakerLayout );
         pAudio->initialize();
     }
+    // The frontend (menu) sounds: fe_snd.bnk + its sounds.ini cue map, played
+    // on the "FrontEnd" bfx client. Every flash movie asks for a cue with
+    // FSCommand("sndp:<name>"), so the hook is global — the boot menu, the
+    // pause menu, the HUD and the shops all deliver theirs here.
+    pFrontEndAudio = std::make_unique<FrontEndAudio>();
+    if ( !CmdLine::HasArg( "-noaudio" ) ) {
+        pFrontEndAudio->load();
+    }
+    FlashPlayer::SetSoundCommandCallback( []( const std::string &cue ) {
+        if ( gpFrontEndAudio != nullptr ) {
+            gpFrontEndAudio->play( cue );
+        }
+    } );
     LoadProfile();
     // -playername (the launcher's Player tab): the profile's name, applied
     // after the save is loaded so the launcher's field wins over an older save

@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "fuel_menu.h"
 
+#include "audio/frontend_audio.h"
 #include "database/gs_database.h"
 #include "flash/gs_flash.h"
 #include "game/freeride/fuel.h"
@@ -39,6 +40,7 @@ void FuelMenu::open( const std::string &where_ ) {
     hint = LocStr( 1642, "Fill" );
     OTDU_LOG_INFO( "Fuel: pump screen at %s (tank %.1f / %.1f L, grade %d)\n", where.c_str(), GetFuelTank().Litres,
                    GetFuelTank().Capacity, GetFuelTank().Grade );
+    PlayFrontEndCue( "mopen" );
 }
 
 void FuelMenu::close() {
@@ -55,18 +57,22 @@ void FuelMenu::tick( float deltaTime ) {
         if ( bConfirmReplace ) {
             bConfirmReplace = false;
             message.clear();
+            PlayFrontEndCue( "back" );
             return;
         }
         close();
+        PlayFrontEndCue( "back" );
         return;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
         selected = ( selected + 2 ) % 3;
         bConfirmReplace = false;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
         selected = ( selected + 1 ) % 3;
         bConfirmReplace = false;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) && selected == 2 ) {
         payRepair();
@@ -81,6 +87,7 @@ void FuelMenu::tick( float deltaTime ) {
             message = std::string( LocStr( 1640, "Currently, there is another gas type in this tank." ) ) + "  " +
                       LocStr( 1641, "Replace with this gas type ?" );
             messageTimer = 6.0f;
+            PlayFrontEndCue( "alert" );
             return;
         }
         fill();
@@ -98,14 +105,17 @@ void FuelMenu::payRepair() {
     if ( repair.Damage < 1500.0f ) {
         message = "Nothing to repair: the car is in good shape.";
         messageTimer = 4.0f;
+        PlayFrontEndCue( "wrong" );
         return;
     }
     if ( profile.Money < repair.Price ) {
         message = std::string( LocStr( 1865, "Car repair" ) ) + ": you need " + FormatMoney( repair.Price ) + ".";
         messageTimer = 5.0f;
+        PlayFrontEndCue( "wrong" );
         return;
     }
     profile.Money -= repair.Price;
+    PlayFrontEndCue( "valid" );
     bRepairPaid = true;
     message = std::string( LocStr( 1643, "Bill" ) ) + ": " + FormatMoney( repair.Price ) + "  (" + LocStr( 1865, "Car repair" ) + ")";
     messageTimer = 5.0f;
@@ -121,8 +131,10 @@ void FuelMenu::fill() {
     if ( litres <= 0.0f ) {
         message = std::string( LocStr( 1643, "Bill" ) ) + ": the tank is already full.";
         messageTimer = 4.0f;
+        PlayFrontEndCue( "wrong" );
         return;
     }
+    PlayFrontEndCue( "valid" );
     if ( profile.Money >= static_cast<int32_t>( bill ) ) {
         profile.Money -= static_cast<int32_t>( bill + 0.5f );
         FillTank( selected );

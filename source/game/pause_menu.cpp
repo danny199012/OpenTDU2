@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "pause_menu.h"
 
+#include "audio/frontend_audio.h"
 #include "database/gs_database.h"
 #include "flash/flash_localization.h"
 #include "flash/gs_flash.h"
@@ -1146,6 +1147,8 @@ void PauseMenu::open() {
     fTabRowBaseTY = 0.0f;
     player.setVariableBool( "/:IsInOptions", false );
     player.gotoLabel( "/", "pause_in", true );
+    // The movie's own pause_in timeline fires sndp:mopen (verified: the
+    // global flash hook plays it), so no native cue here.
 }
 
 PauseMenu::eNav PauseMenu::takeStickNav( float deltaTime ) {
@@ -2400,6 +2403,9 @@ void PauseMenu::moveOptionsFocus( int32_t direction ) {
     player.invokeWithNumbers( pagePath, "setVarToFocus", { static_cast<double>( slot ) } );
     player.invokeWithNumbers( pagePath, "lightParam", { 1.0 } );
     player.setVariableNumber( "/:CurrentParam", slot );
+    // Native focus move (the page's own key button, when it fits, fires the
+    // movie's sndp:move above).
+    PlayFrontEndCue( "move" );
     OTDU_LOG_INFO(
         "PauseMenu: options %s focus slot %d (game rows %d..%d of %d)%s\n",
         pPageClip, slot, windowFirst + 1, windowFirst + visible, rowCount,
@@ -3010,6 +3016,7 @@ void PauseMenu::close() {
     player.setVariableBool( "/:IsInOptions", false );
     bClosing = true;
     closeTimer = kCloseDuration;
+    // pause_out fires sndp:mclose itself (the movie's own cue).
 }
 
 void PauseMenu::tick( float deltaTime ) {
@@ -3379,6 +3386,7 @@ void PauseMenu::tick( float deltaTime ) {
         break;
     }
     if ( selected != previous ) {
+        PlayFrontEndCue( "move" );
         refreshEntries();
     }
     // The squares' state animations write their own matrix back: the row
@@ -3484,7 +3492,10 @@ void PauseMenu::refreshEntries() {
 
 void PauseMenu::validateSelected() {
     if ( !bEntryEnabled[selected] ) {
-        // Locked entry (Lock* state of the movie): validate does nothing.
+        // Locked entry (Lock* state of the movie): validate does nothing. The
+        // square's 'on_lock' state is not entered here, so retail's blocked
+        // cue has to be played natively.
+        PlayFrontEndCue( "wrong" );
         return;
     }
     const MenuEntry &entry = kEntries[selected];
@@ -3529,6 +3540,7 @@ void PauseMenu::closeOptions() {
     bInOptions = false;
     bOptionsDumped = false;
     refreshEntries();
+    PlayFrontEndCue( "back" );
     OTDU_LOG_INFO( "PauseMenu: options screen closed\n" );
 }
 

@@ -97,6 +97,8 @@ void FlashStageToCanvas( float stageX, float stageY, float stageWidth, float sta
 
 namespace {
 FlashPlayer::CommandResolver gCommandResolver;
+// The sndp: sound-cue handler (SetSoundCommandCallback): one for every player.
+FlashPlayer::SoundCommandCallback gSoundCommandCallback;
 // DAT_013e2720: name -> {scale x, scale y, bitmap} (FUN_00dd85c0 lookup).
 std::map<std::string, FlashPlayer::TextBitmap> gTextBitmaps;
 // The loaded players (SetPromptPlatform reaches every movie).
@@ -184,6 +186,23 @@ void FlashPlayer::refreshPlatformGlyphs( Clip &clip ) {
 }
 
 void FlashPlayer::SetCommandResolver( CommandResolver resolver ) { gCommandResolver = std::move( resolver ); }
+
+void FlashPlayer::SetSoundCommandCallback( SoundCommandCallback callback ) {
+    gSoundCommandCallback = std::move( callback );
+}
+
+void FlashPlayer::dispatchFSCommand( const std::string &command, const std::string &args ) {
+    // "sndp:<cue>": the frontend sound cues of fe_snd.bnk's sounds.ini
+    // (audio/frontend_audio.h). Delivered to the global handler before the
+    // menu's own callback, so a menu keeps seeing every FSCommand.
+    if ( StringNCmpI( command.c_str(), "sndp:", 5 ) == 0 && gSoundCommandCallback ) {
+        gSoundCommandCallback( command.substr( 5 ) );
+    }
+    if ( fsCommandCallback ) {
+        fsCommandCallback( command, args );
+    }
+}
+
 
 std::string FlashPlayer::PadChannelMarkup( const std::string &channel ) {
     // FUN_00d877b0 (and the BUTTON_0 test inlined in FUN_00d87cc0).
@@ -2013,8 +2032,8 @@ FlashPlayer::Value FlashPlayer::execute( Clip *pClip, uint32_t offset, uint32_t 
             uint32_t p = payload;
             const std::string url = ReadString( data, p, next );
             const std::string window = ReadString( data, p, next );
-            if ( StringNCmpI( url.c_str(), "FSCommand:", 10 ) == 0 && fsCommandCallback ) {
-                fsCommandCallback( url.substr( 10 ), window );
+            if ( StringNCmpI( url.c_str(), "FSCommand:", 10 ) == 0 ) {
+                dispatchFSCommand( url.substr( 10 ), window );
             }
             break;
         }
@@ -2022,8 +2041,8 @@ FlashPlayer::Value FlashPlayer::execute( Clip *pClip, uint32_t offset, uint32_t 
             const Value window = pop();
             const Value url = pop();
             const std::string urlString = url.toString();
-            if ( StringNCmpI( urlString.c_str(), "FSCommand:", 10 ) == 0 && fsCommandCallback ) {
-                fsCommandCallback( urlString.substr( 10 ), window.toString() );
+            if ( StringNCmpI( urlString.c_str(), "FSCommand:", 10 ) == 0 ) {
+                dispatchFSCommand( urlString.substr( 10 ), window.toString() );
             }
             break;
         }

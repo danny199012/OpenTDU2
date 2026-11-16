@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "championship_menu.h"
 
+#include "audio/frontend_audio.h"
 #include "flash/gs_flash.h"
 #include "game/freeride/ig2_challenge.h"
 #include "game/player_profile.h"
@@ -60,6 +61,7 @@ void ChampionshipMenu::open( const LicenseInfo &championship ) {
     message.clear();
     messageTimer = 0.0f;
     OTDU_LOG_INFO( "ChampionshipMenu: '%s' - %zu race(s)\n", championship.Name.c_str(), races.size() );
+    PlayFrontEndCue( "mopen" );
 }
 
 void ChampionshipMenu::close() { pChampionship = nullptr; }
@@ -81,24 +83,30 @@ void ChampionshipMenu::tick( float deltaTime ) {
     const int32_t count = static_cast<int32_t>( races.size() );
     if ( count > 0 && gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
         selected = ( selected + count - 1 ) % count;
+        PlayFrontEndCue( "move" );
     }
     if ( count > 0 && gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
         selected = ( selected + 1 ) % count;
+        PlayFrontEndCue( "move" );
     }
     if ( count > 0 && gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         const RaceRow &race = races[selected];
         if ( !IsRaceRunnable( race.Name ) ) {
             message = "Speed challenges are not available yet";
             messageTimer = 3.0f;
+            PlayFrontEndCue( "wrong" );
         } else if ( !race.bOpen ) {
             message = "Finish the previous race first";
             messageTimer = 3.0f;
+            PlayFrontEndCue( "wrong" );
         } else {
             startedRace = race.Name;
             pChampionship = nullptr;
+            PlayFrontEndCue( "valid" );
         }
     } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
         close();
+        PlayFrontEndCue( "back" );
     }
 }
 

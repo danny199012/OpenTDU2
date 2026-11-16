@@ -2,6 +2,7 @@
 #include <functional>
 #include <set>
 #include "map_screen.h"
+#include "audio/frontend_audio.h"
 #include "game/pause_menu.h"
 #include "game/freeride/race_events.h"
 
@@ -803,10 +804,15 @@ void MapScreen::openMenu() {
     menuSelection = 0;
     menuPoint = point;
     bMenuOpen = true;
+    PlayFrontEndCue( "mopen" );
 }
 
 void MapScreen::closeMenu() {
+    if ( !bMenuOpen ) {
+        return;
+    }
     bMenuOpen = false;
+    PlayFrontEndCue( "mclose" );
 }
 
 void MapScreen::menuMove( int32_t step ) {
@@ -814,7 +820,11 @@ void MapScreen::menuMove( int32_t step ) {
         return;
     }
     const int32_t count = static_cast<int32_t>( menuRows.size() );
+    const int32_t previous = menuSelection;
     menuSelection = ( menuSelection + step + count ) % count;
+    if ( menuSelection != previous ) {
+        PlayFrontEndCue( "move" );
+    }
 }
 
 bool MapScreen::menuAccept() {
@@ -823,22 +833,27 @@ bool MapScreen::menuAccept() {
     }
     const int32_t action = menuRows[static_cast<size_t>( menuSelection )].Action;
     bMenuOpen = false;
+    const char *pCue = "valid";
     if ( action == 0 ) {
         Vector3f travelPoint;
         if ( getFastTravelPoint( travelPoint ) ) {
             fastTravelPoint = travelPoint;
             bFastTravelPending = true;
+        } else {
+            pCue = "wrong";
         }
     } else if ( action == 1 ) {
         toggleTarget();
     } else {
         std::vector<float> &list = GetPlayerProfile().Bookmarks[roadIsland];
         const int32_t existing = findBookmarkNear( menuPoint, 40.0f );
+        pCue = "map_bmrk"; // the bookmark cue of sounds.ini (st_favco/map_bmrk)
         if ( existing >= 0 ) {
             list.erase( list.begin() + existing * 2, list.begin() + existing * 2 + 2 );
             toastText = LocStr( 3914, "Remove bookmark" );
         } else if ( list.size() >= kMaxBookmarks * 2 ) {
             toastText = LocStr( 6853, "Bookmarks limit number reached" ); // 32 "my spots" [CODE-dev: /:CanAddMySpot, count < 0x20]
+            pCue = "wrong";
         } else {
             list.push_back( menuPoint.x );
             list.push_back( menuPoint.z );
@@ -847,6 +862,7 @@ bool MapScreen::menuAccept() {
         toastTimer = 3.0f;
         SaveProfile( "bookmark" );
     }
+    PlayFrontEndCue( pCue );
     return true;
 }
 

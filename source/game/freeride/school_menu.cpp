@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "school_menu.h"
 
+#include "audio/frontend_audio.h"
 #include <algorithm>
 
 #include "flash/gs_flash.h"
@@ -36,6 +37,7 @@ void SchoolMenu::open( char schoolLetter, int32_t island ) {
         message = "No licence is taught here";
         messageTimer = 3.0f;
     }
+    PlayFrontEndCue( "mopen" );
 }
 
 void SchoolMenu::close() { bOpen = false; }
@@ -111,39 +113,49 @@ void SchoolMenu::tick( float deltaTime ) {
         const int32_t count = static_cast<int32_t>( tests.size() );
         if ( count > 0 && bUp ) {
             selectedTest = ( selectedTest + count - 1 ) % count;
+            PlayFrontEndCue( "move" );
         }
         if ( count > 0 && bDown ) {
             selectedTest = ( selectedTest + 1 ) % count;
+            PlayFrontEndCue( "move" );
         }
         if ( count > 0 && bValidate ) {
             if ( tests[selectedTest].bOpen ) {
                 startedTest = tests[selectedTest].Name;
                 bOpen = false;
+                PlayFrontEndCue( "valid" );
             } else {
                 message = "Pass the previous test first";
                 messageTimer = 3.0f;
+                PlayFrontEndCue( "wrong" );
             }
         } else if ( bBack ) {
             step = eStep::Licenses;
+            PlayFrontEndCue( "back" );
         }
         return;
     }
     const int32_t count = static_cast<int32_t>( licenses.size() );
     if ( count > 0 && bUp ) {
         selected = ( selected + count - 1 ) % count;
+        PlayFrontEndCue( "move" );
     }
     if ( count > 0 && bDown ) {
         selected = ( selected + 1 ) % count;
+        PlayFrontEndCue( "move" );
     }
     if ( count > 0 && bValidate ) {
         if ( isLicenseOpen( selected ) ) {
             openLicense( selected );
+            PlayFrontEndCue( "valid" );
         } else {
             message = "Obtain the previous licence first";
             messageTimer = 3.0f;
+            PlayFrontEndCue( "wrong" );
         }
     } else if ( bBack ) {
         close();
+        PlayFrontEndCue( "back" );
     }
 }
 

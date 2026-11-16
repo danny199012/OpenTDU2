@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "dealer_menu.h"
 
+#include "audio/frontend_audio.h"
 #include "database/gs_database.h"
 #include "flash/gs_flash.h"
 #include "game/cheats.h"
@@ -139,6 +140,7 @@ void DealerMenu::open( const CarShop *pNewShop ) {
     comparePrice = 0;
     message.clear();
     messageTimer = 0.0f;
+    PlayFrontEndCue( "mopen" );
 }
 
 void DealerMenu::close() {
@@ -225,6 +227,7 @@ void DealerMenu::buySelected( int32_t paintIndex ) {
     const int32_t total = car.Price + paintPrice;
     if ( profile.Money < total ) {
         message = "Not enough money";
+        PlayFrontEndCue( "wrong" );
     } else {
         profile.Money -= total;
         profile.OwnedCars.push_back( car.CarId );
@@ -325,16 +328,19 @@ void DealerMenu::tick( float deltaTime ) {
         if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
             selectedPaint = ( selectedPaint + paintsCount - 1 ) % paintsCount;
             bPreviewDirty = true;
+            PlayFrontEndCue( "move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
             selectedPaint = ( selectedPaint + 1 ) % paintsCount;
             bPreviewDirty = true;
+            PlayFrontEndCue( "move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
             buySelected( selectedPaint );
         } else if ( bBack ) {
             step = eStep::Entries;
             bPreviewDirty = true;
+            PlayFrontEndCue( "back" );
         }
         break;
     }
@@ -344,14 +350,17 @@ void DealerMenu::tick( float deltaTime ) {
         const int32_t entries = static_cast<int32_t>( eEntry::Count );
         if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
             selectedEntry = static_cast<eEntry>( ( static_cast<int32_t>( selectedEntry ) + entries - 1 ) % entries );
+            PlayFrontEndCue( "move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
             selectedEntry = static_cast<eEntry>( ( static_cast<int32_t>( selectedEntry ) + 1 ) % entries );
+            PlayFrontEndCue( "move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
             validateEntry();
         } else if ( bBack ) {
             step = eStep::Cars;
+            PlayFrontEndCue( "back" );
         }
         break;
     }
@@ -359,6 +368,7 @@ void DealerMenu::tick( float deltaTime ) {
     case eStep::View:
         if ( bBack ) {
             step = eStep::Entries;
+            PlayFrontEndCue( "back" );
         }
         break;
     case eStep::Cars:
@@ -366,16 +376,20 @@ void DealerMenu::tick( float deltaTime ) {
         if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
             selected = ( selected + count - 1 ) % count;
             bPreviewDirty = true;
+            PlayFrontEndCue( "move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
             selected = ( selected + 1 ) % count;
             bPreviewDirty = true;
+            PlayFrontEndCue( "move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
             step = eStep::Entries;
             selectedEntry = eEntry::Buy;
+            PlayFrontEndCue( "valid" );
         } else if ( bBack ) {
             close();
+            PlayFrontEndCue( "back" );
         }
         break;
     }

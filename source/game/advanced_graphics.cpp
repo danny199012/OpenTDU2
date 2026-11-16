@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "advanced_graphics.h"
 
+#include "audio/frontend_audio.h"
 #include "debug/gs_imgui.h"
 #include "game/game_options.h"
 #include "game/units.h"
@@ -172,6 +173,7 @@ AdvancedGraphics &GetAdvancedGraphics() {
 void AdvancedGraphics::open() {
     bOpen = true;
     selected = 0;
+    PlayFrontEndCue( "mopen" );
 }
 
 void AdvancedGraphics::close() {
@@ -223,13 +225,16 @@ void AdvancedGraphics::drawUI() {
     if ( gpInput != nullptr ) {
         if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
             selected = ( selected + kNumSelectableRows - 1 ) % kNumSelectableRows;
+            PlayFrontEndCue( "move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
             selected = ( selected + 1 ) % kNumSelectableRows;
+            PlayFrontEndCue( "move" );
         }
         const int32_t step = ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ? 1 : 0 ) -
                              ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ? 1 : 0 );
         if ( step != 0 ) {
+            PlayFrontEndCue( "valid" );
             if ( selected == kSelfTestRow ) {
                 // An action, not a value: Right runs it (Left does nothing).
                 if ( step > 0 ) {
@@ -272,6 +277,7 @@ void AdvancedGraphics::drawUI() {
         if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_MenuValidate ) ||
              gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
             close();
+            PlayFrontEndCue( "back" );
             return;
         }
     }

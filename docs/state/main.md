@@ -8,7 +8,45 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
-## Session 2026-11-16 (`main`, 39): volumetric clouds render for the first time - four defects fixed, coverage/lighting tuned
+## Session 2026-11-16 (`main`, 40): the retail menu / UI sounds play - `fe_snd.bnk` + its `sounds.ini` cue map + the `sndp:` hook
+
+Owner: *"I want you to start addingsound effects for menu's and in game like collisions etc... thanks
+you can use dev build if you want to dig for refferences"*.
+
+**Where the sounds were all along.** `Euro/bnk/frontend/sounds/fe_snd.bnk` (178 entries) holds
+`sounds.ini` - retail's own name registry - and 177 MS-ADPCM 48 kHz stereo wavs. `sounds.ini` maps the
+flash message a movie sends (`sndp:<name>`) to a wav and a volume:
+`AddFESound "mopen" "menuOn01.wav" 0.3`, 189 such lines (`mopen`/`mclose`/`move`/`valid`/`wrong`/`back`/
+`ttip`/`switch`/`st_*`/`md*`/`rd_*`/`S_*`/`UPMONEY`/`UPBET` ...), plus the `SetMusic` shop-music table
+(not used yet). The bank is played on the **"FrontEnd"** bfx client (7): `audiosetup.xmb` points it at the
+`FrontEndStereo` pipeline and the `Menu` mix preset keeps it at gain 1 while muting the world; the `Freeride`
+preset keeps it at 1 too, so pause-menu cues sit on top of the game without any game-mode switch.
+
+**What was built.** `source/audio/frontend_audio.{h,cpp}`: opens the bank (kept mapped, 4.8 MB), parses
+`sounds.ini`'s `AddFESound` lines (cue -> wav + volume, case insensitive), decodes a wav on first use and
+plays it non-spatial on client 7; a cue repeated within 40 ms is dropped (the movies fire some twice).
+`FlashPlayer::SetSoundCommandCallback` is the movie side: `dispatchFSCommand` feeds every
+`FSCommand("sndp:<cue>")` from **every** FlashPlayer (boot menu, pause menu, HUD, map, shops, casino HUDs)
+to that one handler and still passes the command to the menu's own callback. `PlayFrontEndCue()` is the
+native side, for the menus the port drives itself (their label swaps bypass the movie scripts): the pause
+menu's fallback column + its blocked entry, the map's cursor menu, the dealer / estate / fuel / paint /
+school / tuning / championship menus, the clothes shop, the advanced-graphics panel. `gm_login`, `gm_shop`,
+the casino HUDs and the HUD need nothing - they send keys to their movie, which fires `sndp:` itself.
+
+**Verified** (build 196, headless `-gm freeride`, `-logfrontendaudio`, autoplay pause/right/valid/map):
+`FrontEndAudio: 'Euro/Bnk/frontend/sounds/fe_snd.bnk', 189 cues, client 9 (FrontEnd, pipeline 2)`, then
+`mopen`->menuOn01 (0.30), `ttip`->toolTip02 (0.20), `move`->move04 (0.10), `valid`->valid01 (0.90),
+`mclose`->menuOff01 (0.30), the map's `switch`->trigger, and - from the HUD movie, unprompted - the race
+countdown's `three`. The pause menu's own FSCommands (`sndp:mopen`, `sndp:move`, `sndp:valid`, `sndp:ttip`,
+`sndp:mclose`) confirm the hook rather than the native fallback is what plays in the movie-driven column.
+Collision audio (already in the tree) was re-verified in the same sweep: `CollisionAudio: metal 6/6,
+ground 6/6, car 4/4, scrape loops 4`, and a wall hit logged `'carmetal_high03_PHYSIC_SFX' volume 1.01`.
+
+**Not done / next** (single next step: shop music): parse the `SetMusic` lines and play
+`Euro/bnk/sound/musics/*.wav` on client 8 ("FrontEndMusic") while an `InteriorWalk` stands in a shop, stop
+on exit. Then the sticker editor's `st_*` cues (`paint_menu.cpp`'s native placement mode) and the seller
+voice lines (still no data - do not invent audio). Detail: `docs/re/frontend_audio_spec.md`.
+
 
 Owner: "I want to have volumetric clouds but 3 attempts and still haven't really seen a single cloud ... as for the 2nd attempt we had clouds but were static way to big and a bit of an eye sore to look at".
 

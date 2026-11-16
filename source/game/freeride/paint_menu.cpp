@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "paint_menu.h"
 
+#include "audio/frontend_audio.h"
 #include "flash/gs_flash.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
@@ -68,6 +69,7 @@ void PaintMenu::open( int32_t newCarId, const std::string &name ) {
     }
     OTDU_LOG_INFO( "Paint: shop for car %d '%s': %zu catalogue row(s), %zu sticker pack(s)\n", carId, carName.c_str(),
                    paints.size(), soldBanks.size() );
+    PlayFrontEndCue( "mopen" );
 }
 
 void PaintMenu::close() {
@@ -147,24 +149,29 @@ void PaintMenu::tick( float deltaTime ) {
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
         page = Page::Stickers;
+        PlayFrontEndCue( "move" );
         return;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
         selected = ( selected + count - 1 ) % count;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
         selected = ( selected + 1 ) % count;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         const CinematicCar::PaintInfo &paint = paints[selected];
         PlayerProfile &profile = GetPlayerProfile();
         if ( profile.Money < paint.Price ) {
             message = "Not enough money";
+            PlayFrontEndCue( "wrong" );
         } else {
             profile.Money -= paint.Price;
             profile.OwnedCarPaints[carId] = selected;
             appliedPaint = selected;
             message = "Painted: " + paint.Name;
+            PlayFrontEndCue( "valid" );
             OTDU_LOG_INFO( "Paint: car %d painted with row %d '%s' for $%d (money now $%d)\n", carId, selected,
                            paint.Name.c_str(), paint.Price, profile.Money );
             SaveProfile( "paint bought" );
@@ -173,6 +180,7 @@ void PaintMenu::tick( float deltaTime ) {
     } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ||
                 gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
         close();
+        PlayFrontEndCue( "back" );
     }
 }
 

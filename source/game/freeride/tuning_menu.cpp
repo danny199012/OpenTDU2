@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "tuning_menu.h"
 
+#include "audio/frontend_audio.h"
 #include "flash/gs_flash.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
@@ -69,6 +70,7 @@ void TuningMenu::open( int32_t newCarId, const std::string &name ) {
     OTDU_LOG_INFO( "Tuning: shop for car %d '%s' (accel %d, braking %d, speed %d, rims %d\" of %d..%d)\n", carId,
                    carName.c_str(), levels.Accel, levels.Braking, levels.Speed,
                    rimInstalled > 0 ? rimInstalled : stockDiameter, rimMin, rimMax );
+    PlayFrontEndCue( "mopen" );
 }
 
 void TuningMenu::close() {
@@ -82,20 +84,26 @@ void TuningMenu::tick( float deltaTime ) {
     messageTimer = Max( 0.0f, messageTimer - deltaTime );
     if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
         selected = ( selected + 3 ) % 4;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
         selected = ( selected + 1 ) % 4;
+        PlayFrontEndCue( "move" );
     }
     // Rim size: left / right preview the shop's range, validate fits it.
     if ( selected == 3 && rimMax > rimMin ) {
         if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
             rimPreview = Max( rimMin, rimPreview - 1 );
+            PlayFrontEndCue( "move" );
         }
         if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
             rimPreview = Min( rimMax, rimPreview + 1 );
+            PlayFrontEndCue( "move" );
         }
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+        // The outcome decides the cue: valid (installed) / wrong (refused).
+        bool bDone = false;
         if ( selected == 3 ) {
             RimProfile stock;
             GetStockRimInfo( carId, stock );
@@ -121,6 +129,7 @@ void TuningMenu::tick( float deltaTime ) {
                         RimProfile fitted;
                         GetRimProfile( carId, target, fitted );
                         message = target == 0 ? "Stock rims fitted" : "Installed: " + TireLabel( fitted );
+                        bDone = true;
                         OTDU_LOG_INFO( "Tuning: car %d rims %d\" (%s) for $%d (money now $%d)\n", carId, target,
                                        TireLabel( fitted ).c_str(), price, profile.Money );
                         SaveProfile( "rim size bought" );
@@ -141,6 +150,7 @@ void TuningMenu::tick( float deltaTime ) {
                     profile.Money -= price;
                     ( *pLevel )++;
                     message = "Installed: level " + std::to_string( *pLevel );
+                    bDone = true;
                     OTDU_LOG_INFO( "Tuning: car %d %s -> level %d for $%d (money now $%d)\n", carId,
                                    selected == 0 ? "accel" : selected == 1 ? "braking" : "speed", *pLevel, price,
                                    profile.Money );
@@ -149,9 +159,11 @@ void TuningMenu::tick( float deltaTime ) {
             }
         }
         messageTimer = 3.0f;
+        PlayFrontEndCue( bDone ? "valid" : "wrong" );
     } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ||
                 gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
         close();
+        PlayFrontEndCue( "back" );
     }
 }
 

@@ -41,6 +41,13 @@ public:
     // Empty result: the markup is dropped.
     using CommandResolver = std::function<std::string( const std::string &action )>;
     static void SetCommandResolver( CommandResolver resolver );
+    // FSCommand("sndp:<cue>"): the frontend sound cues (fe_snd.bnk's
+    // sounds.ini, audio/frontend_audio.h). One handler for every player: the
+    // boot menu, the pause menu, the HUD, the shops and the casino HUDs each
+    // own a FlashPlayer, and all of them ask for the same cue names. The
+    // player's own fsCommandCallback still receives the command.
+    using SoundCommandCallback = std::function<void( const std::string &cue )>;
+    static void SetSoundCommandCallback( SoundCommandCallback callback );
     // Pad form of FUN_00d87cc0 for a key map entry whose DevSubType (+0x179)
     // is 3 (X360 pad): channel name -> "#bitmap:x360_..#" (table
     // FUN_00d877b0, strings 0x00ee6270..0x00ee64b8). Empty for an unknown
@@ -359,6 +366,9 @@ private:
     Value execute( Clip *pClip, uint32_t offset, uint32_t length, std::map<std::string, Value> *pLocals,
                    std::vector<Value> *pRegisters, Value *pThis,
                    const std::vector<std::string> *pConstants = nullptr );
+    // GetURL "FSCommand:...": the global sound-cue handler (SetSoundCommand)
+    // then the player's own fsCommandCallback.
+    void dispatchFSCommand( const std::string &command, const std::string &args );
     Value callFunction( int32_t index, Clip *pClip, const std::vector<Value> &args, Value *pThis );
     Value getMember( const Value &object, const std::string &name );
     void setMember( Value &object, const std::string &name, const Value &value );

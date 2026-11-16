@@ -2,6 +2,7 @@
 #include "game/skill_levels.h"
 #include "estate_menu.h"
 
+#include "audio/frontend_audio.h"
 #include "flash/gs_flash.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
@@ -38,6 +39,7 @@ void EstateMenu::open( uint64_t realtorId ) {
         OTDU_LOG_INFO( "Estate: realtor 0x%llx '%s': %zu house(s) on sale\n",
                        static_cast<unsigned long long>( realtorId ), stock.front()->Realtor.c_str(), stock.size() );
     }
+    PlayFrontEndCue( "mopen" );
 }
 
 void EstateMenu::close() {
@@ -49,11 +51,13 @@ void EstateMenu::buy( const HouseRow &house ) {
     PlayerProfile &profile = GetPlayerProfile();
     if ( profile.Money < house.BuyPrice ) {
         message = "Not enough money";
+        PlayFrontEndCue( "wrong" );
     } else {
         profile.Money -= house.BuyPrice;
         profile.OwnedHouses.push_back( house.SpotName );
         profile.NbHouses = static_cast<int32_t>( profile.OwnedHouses.size() );
         message = "Bought: " + house.Name;
+        PlayFrontEndCue( "valid" );
         OTDU_LOG_INFO( "Estate: bought '%s' (spot '%s') for $%d (money now $%d, %d house(s))\n", house.Name.c_str(),
                        house.SpotName.c_str(), house.BuyPrice, profile.Money, profile.NbHouses );
         AwardCollectionMilestones( "COLLECTION_HOUSES", profile.NbHouses ); // 1, 3, 6, 10, 15 houses [DATA]
@@ -68,6 +72,7 @@ void EstateMenu::sell( const HouseRow &house ) {
     if ( found == profile.OwnedHouses.end() || profile.OwnedHouses.size() <= 1 ) {
         message = "You cannot sell your only house";
         messageTimer = 3.0f;
+        PlayFrontEndCue( "wrong" );
         return;
     }
     profile.OwnedHouses.erase( found );
@@ -77,6 +82,7 @@ void EstateMenu::sell( const HouseRow &house ) {
         profile.HomeHouse = profile.OwnedHouses.front();
     }
     message = "Sold: " + house.Name;
+    PlayFrontEndCue( "valid" );
     OTDU_LOG_INFO( "Estate: sold '%s' (spot '%s') for $%d (money now $%d, %d house(s))\n", house.Name.c_str(),
                    house.SpotName.c_str(), house.SellPrice, profile.Money, profile.NbHouses );
     SaveProfile( "house sold" );
@@ -92,10 +98,12 @@ void EstateMenu::tick( float deltaTime ) {
     if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
         selected = ( selected + count - 1 ) % count;
         bConfirmSell = false;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
         selected = ( selected + 1 ) % count;
         bConfirmSell = false;
+        PlayFrontEndCue( "move" );
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         const HouseRow &house = *stock[selected];
@@ -111,6 +119,7 @@ void EstateMenu::tick( float deltaTime ) {
                 bConfirmSell = true;
                 message = "Press A again to sell for " + FormatMoney( house.SellPrice );
                 messageTimer = 3.0f;
+                PlayFrontEndCue( "alert" );
             }
         } else {
             buy( house );
@@ -118,6 +127,7 @@ void EstateMenu::tick( float deltaTime ) {
     } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ||
                 gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
         close();
+        PlayFrontEndCue( "back" );
     }
 }
 
