@@ -69,6 +69,21 @@ session a confusion cycle). With `-clock` the rate freezes, so the whole run is 
   shader source; retail drew these per-instance as well (pmi_streaming_spec 4, MASSINSTANCE_VIS_MAX caps).
   The env cube (2.9-3.2 ms) is already throttled (200 ms full, 70 ms rear faces while moving); a longer
   interval trades reflection lag, which the owner has complained about before - needs their eye.
+- **Two levers from the owner's DeepSeek dev-build dig (2026-11-16, pmi_streaming_spec 1.2a)**
+  `[CODE-dev]`:
+  1. **MASSINSTANCE_VIS_MAX - retail's own draw budget, which the port does not implement.** Retail clamps
+     the visible mass instances per list to 1000 (quality levels 0-1) / 4000 (levels 2-3) and overflows print
+     `TOO MANY VISIBLE MASS INSTANCES`; the port draws every instance inside its LOD/cull distances (spec
+     table row 6 is the known difference). This is the direct lever on the ~8k draws/frame: an
+     `-massinstancevismax <n>` knob (default off = today, 4000 = retail level 3) measured with
+     `-logdrawfamilies` + side-by-side shots. IMAGE-AFFECTING by design - it is the retail look, but the
+     owner judges the far-instance density before it becomes a default.
+  2. **The instancing lever is not parked where it was**: `SETINSTANCIATEPMIACTORSHIGH/MEDIUM/LOW` prove
+     retail hardware-instanced pre-merged actors per LOD tier, and the port already runs the
+     `TD_HardwareInstance` shader family (2 VS variants, eden_material_handlers.cpp 184). Check those 2 VS
+     variants for a per-instance stream (D3D9 stream frequency) - if one reads instance data, feed instance
+     matrices as a vertex buffer and `drawIndexedInstanced`, using retail's own path instead of patching the
+     other 114 libraries. `otdu2_sob_tool TD_HardwareInstance.sob` + spirv-cross are the tools.
 
 ## 0a. 2026-11-04 (`win`) — the 4K High baseline, the lost minimap fix, and the road to 60
 

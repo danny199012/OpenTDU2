@@ -72,6 +72,17 @@ opaque 2.2, GPU ~5.5 ms).
   sample (860ef3b changed that path after my validation). Repro: the §0a command at 720p +
   `-vk_enable_validation_layer`; fix the history reset to render (not sample) on frame 0.
 
+### Addendum (same day): the owner's DeepSeek dev-build dig mapped onto the perf plan
+The owner relayed DeepSeek's dev-build findings; captured in `docs/re/pmi_streaming_spec.md` **1.2a** and
+PERF_PLAN §0b. Two are actionable: (1) **MASSINSTANCE_VIS_MAX is retail's own visible-instance budget**
+(1000/4000 per list, overrun prints `TOO MANY VISIBLE MASS INSTANCES`) and the port does not implement it -
+the direct lever on the ~8k draws/frame (`-massinstancevismax` knob proposed, image-affecting, owner judges
+the density); (2) **SETINSTANCIATEPMIACTORS\* proves retail hardware-instanced pre-merged actors** - the
+`TD_HardwareInstance` shader family (2 VS variants, already in the port) is the first place to check for a
+per-instance stream, which would make GPU instancing feasible without patching the other 114 shader
+libraries. Also new: `CULLINGCONFIG`'s 4th int is an angle in degrees; Eden's own PerfLog CSV profiled
+instance counts against 33.33 ms (draws, not fill rate - consistent with the port's measurements).
+
 ## Session 2026-11-16 (`main`, 40): the retail menu / UI sounds play - `fe_snd.bnk` + its `sounds.ini` cue map + the `sndp:` hook
 
 Owner: *"I want you to start addingsound effects for menu's and in game like collisions etc... thanks

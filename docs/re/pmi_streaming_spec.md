@@ -47,6 +47,38 @@ Static defaults in .data [DATA]: f7f5f8 = 1.0, f7f5fc = 1.0, f75f04 = 1.0, f75f0
 SetNbMaxInstance 64000, SetNbMaxHierNode 20000; `[Memory]` STREAMING_ACTORSPMI_SIZE 716800. GamePC.cpr has no LOD/streaming key.
 `ALPHAFADEINSPEED` (→ DAT_00f765d8) is a grass key and is absent from the file.
 
+### 1.2a Dev-build verifications of the same knobs (2026-11-16, the owner's DeepSeek dig) [CODE-dev]
+
+The dev build (and the 360 guest - the same key strings verified in `_guest_strings.txt`) confirms the PC-table
+semantics and adds details the encrypted PC band hides. The dev addresses (0x511E40..0x518xxx) are that
+build's; the PC handlers of §1 are the readable twins (e.g. MASSINSTANCE_VIS_MAX dev 0x5189D0 ↔ PC 0xd648c0).
+
+- `SET_GLOBAL_LOD_FACTOR` (dev 0x5187C0): arg1 is the LOD factor, default 1.0; the engine keeps `1 - factor` in
+  a settings cell (dev 0x01985F34) - the same law the PC table reads (`DAT_00fd50a8 = a < 1.0 ? 1.0 - a : 0.0`).
+- `MASSINSTANCE_VIS_MAX` (dev 0x5189D0): a **u16 visible-instance budget**; an overrun prints
+  `TOO MANY VISIBLE MASS INSTANCES`. §4's per-list cap is therefore a hard budget the engine clamps to
+  (`min(count, n)`), not a soft target.
+- `MASSINSTANCE_VIS_MAX_CUBEMAP n r` (dev 0x518A20): **r is a screen-space pixel threshold** (not a distance) -
+  the same pseudo-pixel radius §4's cube pass multiplies (`25 / 5 / 1` px at levels 0-3). OpenTDU2's
+  `setMinInstanceRatio(0.02)` for the env cube is this law with one fixed threshold; retail raises it per
+  quality level.
+- `CULLINGCONFIG` (dev 0x517F80): 4 ints; the 4th is multiplied by π/180, i.e. it is an **angle in degrees**
+  (a view-culling cone). Not in the PC-readable table; unused by OpenTDU2 so far.
+- `SETINSTANCIATEPMIACTORSHIGH / MEDIUM / LOW`: the switches that decide whether **pre-merged instances are
+  hardware-instanced**, per LOD tier. This is retail's own instancing path for .pmi actors: the first place to
+  look when revisiting GPU instancing is the `TD_HardwareInstance` shader family (2 VS variants, GUID
+  cd453201027c8aba - the port already runs its material handler, eden_material_handlers.cpp 184) - if either
+  VS reads a per-instance stream (D3D9 stream frequency), the port can feed instance matrices with a real
+  vertex buffer and `drawIndexedInstanced`, no SPIR-V patching of the other 114 libraries.
+- `SETNBMAXINSTANCE` (dev 0x511E40): max instance count (the cpr's SetNbMaxInstance 64000).
+- Eden's own profiler writes `PerfLog-<date>.csv`: visible/total **actor, impostor and object instances**,
+  memory free/fragmentation, mean frame duration, `Mean Under 33.33ms` / `Mean Over 33.33ms` - Eden profiled
+  instance counts and streaming against a 33.33 ms budget, consistent with the port's finding that draws, not
+  fill rate, are the cost.
+- A dev-only debug page exposes exactly these levers: Object LOD +/-, HeightMap LOD, Stream Sector/Area ON/OFF,
+  INC/DEC SECT LOAD DIST, INC/DEC MAX SECTORS, `LOD Factor : %f`, and per-category draw toggles
+  (BKGND / Cloud / Shadow / Sector / Area / World / Sun). The port's `-no*` flags + Advanced rows cover most.
+
 ### 1.3 Which level is active [CODE]
 
 - FUN_00d6f770(cat, level): builds `"%s_QUALITY_LEVEL_%d"` with STREAMING / ENVIRONMENT / GRAPHICS / CAR / FX / AUDIO and executes that section.
