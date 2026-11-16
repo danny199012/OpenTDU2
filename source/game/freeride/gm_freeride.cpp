@@ -1485,6 +1485,59 @@ void RunVehicleTest( const VehicleDynamics &templateVehicle ) {
                            v.getSteerAngle() * 57.29578f, v.getGear(), rollMax, pitchMax, bFlipped ? " FLIPPED" : "" );
         }
     }
+    // Transients (the roll-over reports): a snap steer held ("jturn": full lock for 2 s), a lane change
+    // ("lane": full lock one way 0.5 s, the other way 1 s, then back to centre) and a lift-off in a corner
+    // ("liftoff": half lock, throttle dropped and brake tapped after 2 s). Reports the peak roll, the peak
+    // lateral acceleration and whether the car ended on its side. -vehtest only; a regression guard for
+    // the angular damping / steering tables [INF].
+    for ( const char *pManoeuvre : { "jturn", "lane", "liftoff" } ) {
+        for ( const float targetKmh : { 100.0f, 150.0f, 200.0f } ) {
+            v = templateVehicle;
+            const float spawnY = 0.12f + Max( v.getWheelDescs().empty() ? 0.0f : v.getWheelDescs()[0].Radius - 0.34f, 0.0f );
+            v.reset( Vector3f( 0.0f, spawnY, 0.0f ), Quaternionf(), Vector3f( 0.0f, 0.0f, targetKmh / 3.6f ) );
+            input = VehicleDynamics::Input();
+            for ( int32_t i = 0; i < 60; i++ ) {
+                input.Throttle = Clamp( ( targetKmh - v.getSpeedKmh() ) * 0.2f + 0.3f, 0.0f, 1.0f );
+                v.step( dt, input, flat );
+            }
+            float rollMax = 0.0f, lateralMax = 0.0f, yawMax = 0.0f;
+            bool bFlipped = false;
+            const std::string manoeuvre = pManoeuvre;
+            for ( int32_t i = 0; i < 6 * 60; i++ ) {
+                const float t = i * dt;
+                const float kmh = v.getSpeedKmh();
+                input.Throttle = Clamp( ( targetKmh - kmh ) * 0.2f + 0.3f, 0.0f, 1.0f );
+                input.Brake = 0.0f;
+                input.Steering = 0.0f;
+                if ( manoeuvre == "jturn" ) {
+                    input.Steering = t < 2.0f ? 1.0f : 0.0f;
+                } else if ( manoeuvre == "lane" ) {
+                    input.Steering = t < 0.5f ? 1.0f : ( t < 1.5f ? -1.0f : 0.0f );
+                } else {
+                    input.Steering = t < 4.0f ? 0.5f : 0.0f;
+                    if ( t >= 2.0f && t < 4.0f ) {
+                        input.Throttle = 0.0f;
+                        input.Brake = t < 2.5f ? 0.4f : 0.0f;
+                    }
+                }
+                const Quaternionf before = v.getOrientation();
+                v.step( dt, input, flat );
+                const Vector3f upAxis = v.getOrientation().rotate( Vector3f( 0.0f, 1.0f, 0.0f ) );
+                const Vector3f sideAxis = v.getOrientation().rotate( Vector3f( 1.0f, 0.0f, 0.0f ) );
+                rollMax = Max( rollMax, std::abs( std::asin( Clamp( sideAxis.y, -1.0f, 1.0f ) ) * 57.29578f ) );
+                bFlipped = bFlipped || upAxis.y < 0.5f;
+                const Vector3f f0 = before.rotate( Vector3f( 0.0f, 0.0f, 1.0f ) );
+                const Vector3f f1 = v.getOrientation().rotate( Vector3f( 0.0f, 0.0f, 1.0f ) );
+                const float yaw = std::atan2( f0.x * f1.z - f0.z * f1.x, f0.x * f1.x + f0.z * f1.z ) / dt;
+                yawMax = Max( yawMax, std::abs( yaw ) );
+                lateralMax = Max( lateralMax, std::abs( yaw ) * v.getVelocity().length() );
+            }
+            OTDU_LOG_INFO( "VEHTEST transient '%s': %s at %.0f km/h -> peak roll %.1f deg, peak lateral %.2f g, peak yaw %.2f rad/s, "
+                           "end %.0f km/h%s\n",
+                           setup.Db.FileName.c_str(), pManoeuvre, targetKmh, rollMax, lateralMax / 9.81f, yawMax, v.getSpeedKmh(),
+                           bFlipped ? " FLIPPED" : "" );
+        }
+    }
 }
 } // namespace
 

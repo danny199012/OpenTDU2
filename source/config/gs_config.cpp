@@ -2,7 +2,10 @@
 #include "gs_config.h"
 
 #include <SDL3/SDL.h>
+#include <fstream>
+#include <iterator>
 
+#include "core/crypto/cpr.h"
 #include "filesystem/gs_file.h"
 #include "game/game_options.h"
 #include "system/cmd_line.h"
@@ -52,7 +55,22 @@ bool GSConfig::initialize( TestDriveGameInstance *pInstance ) {
             }
         }
     }
-    if ( !physicsConfig.loadCPR( "Physics.cpr" ) ) {
+    // -physicscpr <file>: an alternative Physics.cpr (absolute path), e.g. the stock Eden tuning of the Apr 2012
+    // dev build instead of the TDU World file of the game folder (docs/DEVBUILD_MOD_SURVEY.md). A/B tool [INF].
+    bool bPhysicsLoaded = false;
+    if ( const char *pPhysicsCpr = CmdLine::GetArgValue( "-physicscpr" ) ) {
+        std::ifstream file( pPhysicsCpr, std::ios::binary );
+        std::vector<uint8_t> raw( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        std::vector<uint8_t> plain;
+        if ( DecryptCPR( raw.data(), raw.size(), plain ) ) {
+            const size_t length = strnlen( reinterpret_cast<const char *>( plain.data() ), plain.size() );
+            bPhysicsLoaded = physicsConfig.parse( std::string( reinterpret_cast<const char *>( plain.data() ), length ) );
+            OTDU_LOG_INFO( "Physics: -physicscpr '%s' (%s)\n", pPhysicsCpr, bPhysicsLoaded ? "loaded" : "parse failed" );
+        } else {
+            OTDU_LOG_WARN( "Physics: -physicscpr '%s' unreadable, using Physics.cpr\n", pPhysicsCpr );
+        }
+    }
+    if ( !bPhysicsLoaded && !physicsConfig.loadCPR( "Physics.cpr" ) ) {
         OTDU_LOG_WARN( "Physics.cpr not found\n" );
     }
     // FUN_00d6f770: "%s_QUALITY_LEVEL_%d" sections of Quality_Settings.cpr.
