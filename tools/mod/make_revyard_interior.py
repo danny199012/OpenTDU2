@@ -45,6 +45,11 @@ import build_bank         # noqa: E402
 import make_tuner_interior as mt   # noqa: E402  (shared: png_to_2db, darken_materials, dxt_darken, pc_dxt_decode)
 
 GAME_BANK = os.path.join("euro", "bnk", "interior", "icdc_wld.bnk")
+# Our own generated art ships in the package (the launcher's installer swaps it in
+# without Python): resources/mods/packages/tuner-garage/interior/art_b/
+ART_DIR = os.path.join(REPO, "resources", "mods", "packages", "tuner-garage", "interior", "art_b")
+ART_FILES = {"marble_02_d.2db": "floor_tiles.png", "newlogosquare.2db": "sign_revyard.png",
+             "glow_neons_d.2db": "fill_magenta.png", "halo02_d.2db": "fill_cyan.png"}
 DARKEN = 0.68
 
 # Originals that keep their detail: bank entry -> (multiplier r,g,b)
@@ -130,6 +135,16 @@ def make_fill(colour):
 
 
 # ---------------------------------------------------------------------------
+
+def make_art():
+    """Writes the PNGs the installer ships (floor at the texture's size 256, sign 128, fills 64)."""
+    os.makedirs(ART_DIR, exist_ok=True)
+    make_floor(256).save(os.path.join(ART_DIR, "floor_tiles.png"))
+    make_sign(128).save(os.path.join(ART_DIR, "sign_revyard.png"))
+    make_fill(NEON_A).save(os.path.join(ART_DIR, "fill_magenta.png"))
+    make_fill(NEON_B).save(os.path.join(ART_DIR, "fill_cyan.png"))
+    print("art written to", ART_DIR)
+
 
 def tint(blob, mult):
     from PIL import ImageChops, Image

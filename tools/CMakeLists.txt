@@ -53,6 +53,7 @@ if( WIN32 )
         launcher/launcher_ui.cpp
         launcher/launcher_updater.cpp
         launcher/launcher_util.cpp
+        launcher/tuner_install.cpp
         launcher/game_installer.cpp
         launcher/iso_archive.cpp
         # Dear ImGui (core + the Win32/DX11 backends; the engine's otdu_imgui

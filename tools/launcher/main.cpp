@@ -18,6 +18,7 @@
 //   --selftest                 UTF-8/INI/JSON checks, writes a report
 //   --iso-info <path>          list an image, read one file back
 //   --check-update             run the updater check and print the changelog
+//   --install-tuner <game> <userdata> <package>   build the tuner mod's rooms / spots (tuner_install.cpp)
 //   --log <path>               where the report goes (default %TEMP%)
 
 #include <windows.h>
@@ -39,6 +40,7 @@
 #include "launcher_json.h"
 #include "launcher_settings.h"
 #include "launcher_ui.h"
+#include "tuner_install.h"
 #include "launcher_updater.h"
 #include "launcher_util.h"
 
@@ -161,8 +163,13 @@ int RunSelfTest( int argc, wchar_t **argv ) {
     std::wstring logPath;
     bool bCheckUpdate = false;
     bool bLaunchTest = false;
+    std::wstring tunerGame, tunerUserData, tunerPackage;
     for ( int index = 1; index < argc; index++ ) {
-        if ( wcscmp( argv[index], L"--iso-info" ) == 0 && index + 1 < argc ) {
+        if ( wcscmp( argv[index], L"--install-tuner" ) == 0 && index + 3 < argc ) {
+            tunerGame = argv[++index];
+            tunerUserData = argv[++index];
+            tunerPackage = argv[++index];
+        } else if ( wcscmp( argv[index], L"--iso-info" ) == 0 && index + 1 < argc ) {
             isoPath = argv[++index];
         } else if ( wcscmp( argv[index], L"--check-update" ) == 0 ) {
             bCheckUpdate = true;
@@ -500,6 +507,27 @@ int RunSelfTest( int argc, wchar_t **argv ) {
         std::filesystem::remove_all( root, ec );
     }
 
+    // The tuner mod's one-time install, headless (the launcher's Mods page runs the same call with a progress bar).
+    if ( !tunerGame.empty() ) {
+        Launcher::TunerInstallOptions options;
+        options.GameRoot = tunerGame;
+        options.UserData = tunerUserData;
+        options.PackageFolder = tunerPackage;
+        std::string error;
+        const bool bOk = Launcher::InstallTunerMod(
+            options,
+            [&]( float fraction, const std::string &what ) {
+                report += "  tuner install " + std::to_string( static_cast<int>( fraction * 100.0f ) ) + "% " + what + "\n";
+                return true;
+            },
+            error );
+        check( "tuner mod install", bOk );
+        if ( !bOk ) {
+            report += "  error: " + error + "\n";
+        }
+        check( "tuner mod install marker", Launcher::TunerInstalled( tunerUserData ) );
+    }
+
     report += failures == 0 ? "\nRESULT: PASS\n" : "\nRESULT: FAIL\n";
     report += "log: " + Launcher::WideToUtf8( logPath ) + "\n";
     Launcher::WriteTextFile( logPath, report );
@@ -528,7 +556,8 @@ int WINAPI WinMain( _In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
         if ( wcscmp( argv[index], L"--selftest" ) == 0 ||
              wcscmp( argv[index], L"--iso-info" ) == 0 ||
              wcscmp( argv[index], L"--check-update" ) == 0 ||
-             wcscmp( argv[index], L"--launch-test" ) == 0 ) {
+             wcscmp( argv[index], L"--launch-test" ) == 0 ||
+             wcscmp( argv[index], L"--install-tuner" ) == 0 ) {
             bHeadless = true;
         } else if ( wcscmp( argv[index], L"--page" ) == 0 && index + 1 < argc ) {
             const wchar_t *page = argv[++index];
