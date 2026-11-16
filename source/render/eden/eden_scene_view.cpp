@@ -369,6 +369,16 @@ void EdenSceneView::destroy() {
     bReady = false;
 }
 
+GPUTexture *EdenSceneView::getFinalColor() const {
+    if ( pFsrResult != nullptr ) {
+        return pFsrResult;
+    }
+    if ( pFinalTarget != nullptr && pFinalTarget->bInitialized ) {
+        return &pFinalTarget->Color;
+    }
+    return pSceneTarget != nullptr && pSceneTarget->bInitialized ? &pSceneTarget->Color : nullptr;
+}
+
 GPUTexture *EdenSceneView::getEnvironmentCube() const {
     return pEnvironmentTarget != nullptr && pEnvironmentTarget->bInitialized && pEnvironmentTarget->InitializedLayers == 0x3f
                ? &pEnvironmentTarget->Color

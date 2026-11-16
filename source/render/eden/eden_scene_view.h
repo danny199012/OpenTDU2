@@ -89,6 +89,9 @@ public:
     inline const EdenSceneParams &getSceneParams() const { return sceneParams; }
     // Dynamic environment cube (nullptr until its first faces are drawn).
     GPUTexture *getEnvironmentCube() const;
+    // The composited frame renderOffscreen produced (the final target, or the
+    // FSR result): what draw() blits. Null before the first render.
+    GPUTexture *getFinalColor() const;
 
     void setWeather( const WeatherPreset *pPreset ) { pWeather = pPreset; }
     void setShadowConfig( const EdenShadows::Config &config ) { shadows.setConfig( config ); }

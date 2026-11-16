@@ -8,6 +8,23 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 36): buy-window panel live feed + Flash morph shapes (stat bars)
+
+Owner (360 captures): the buy menu's panel shows a live close-up of the part; stat bars (Acceleration / Speed / Braking) were empty; asked about the road discovery / progression bars. DeepSeek's dev-build dig: the panel is a real-time RTT of the showcase car (`VwPrtDtlsGMShop` at `viewport_details`) with named presets C_WHEELS_V / C_PAINT_V / C_INTERIOR_V - not video.
+
+### What changed
+- `source/flash/flash_definitions.*`: **DefineMorphShape (tag 46)** decoded [DATA]: Eden header (id, 2 RECTs, u32 end-edges offset, solid start/end RGBA, 12-byte line styles) + SWF bit-packed start / end edges; interpolated per placement ratio, triangulated and cached per (id, ratio). `flash_player.cpp` draws morphs through `getMorphShape(id, instance.Ratio)`. This was why the shop's stat gauges had no fill (the fill is clipped by a morph mask, char 4975); 337 morph shapes exist in the UI movies. Only solid fills decoded; `-logmorph` dumps tag bytes.
+- `gm_shop.cpp/.h`, `intro_cinematic.*`, `eden_scene_view.*`, `flash_player.*`: `IntroCinematic::renderInset` renders the scene a second time from the panel camera into a 512x380 target (`EdenSceneView::getFinalColor` + a 2D quad copy, depth attachment required by the 2D pipeline), bound to `/buy/window_buy/lure` + `/buy/lure` via `setBitmapOverride`, alpha forced with the new `setClipAlpha`. Main vs panel poses per page: wheels = rear-quarter car + wheel; paint = corner orbit + body side; interior = driver's seat + open-door cabin. The wheels page leaves the movie's lure parked off stage, so `setClipTransform(79.3, -57, scale 124.3 / 109)` places it (native paint-page matrix read with `-logpanelmatrix`; y is calibrated, [INF]). `-noinset` = A/B, `-dumpshopclips <depth>` / `-dumpshopat <frame>` dump the shop movie's clips.
+
+### Verified
+- Stat bars fill by value (95 / 64 / 95): `docs/images/shop_stat_bars_morph_masks.webp`.
+- Panel feed on all three pages: `docs/images/shop_panel_live_feed_wheels.webp`, `shop_panel_live_feed_pages.webp`. Full Audi R8 buy still completes (bought car 442). Validation: 12 -> 0 render VUIDs; one remaining message at exit is a device-shutdown leak (VkBuffer), not from the inset.
+
+### Not done / next
+- Road discovery / progression bars: not opened yet; the morph decoder may already fix them - check the pause-menu progression page and the map's discovery bar first.
+- Cost: the second scene render doubles the shop's 3D time (`-noinset` to compare); the env cube refreshes twice.
+- Interior colours still pale grey (session 34); interior main camera pose is a first guess; the wheel in the wheels panel sits slightly low / right.
+
 ## Session 2026-11-16 (`main`, 35): buy window - paint page orbits the car corner to corner, interior page opens the door
 
 Owner (360 recomp captures): the paint view draws a box around the car, holding at each corner then panning; the interior page opens the door by itself and the panel shows a live feed of the view.

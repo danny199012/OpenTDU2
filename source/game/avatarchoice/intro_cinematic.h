@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render/renderer_2d.h"
 #include "filesystem/bank.h"
 #include "flash/flash_player.h"
 #include "game/avatar/eden_avatar.h"
@@ -449,6 +450,10 @@ public:
 
     void tick( float deltaTime );
     void renderOffscreen();
+    // A second render of the scene from 'inset' into pTarget (the shop buy
+    // window's preview panel: retail shows a part close-up beside the main
+    // view). uv = the crop of the window-sized frame that is kept.
+    void renderInset( const EdenSceneView::Camera &inset, RenderTarget *pTarget, const Rect2D &uv );
     void draw();
     // The frontend movies only (tests without the 3D view, -no3d).
     void drawUi();

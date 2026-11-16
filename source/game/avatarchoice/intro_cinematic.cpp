@@ -2630,6 +2630,28 @@ void IntroCinematic::renderOffscreen() {
     view.renderOffscreen();
 }
 
+void IntroCinematic::renderInset( const EdenSceneView::Camera &inset, RenderTarget *pTarget, const Rect2D &uv ) {
+    if ( !bLoaded || pTarget == nullptr ) {
+        return;
+    }
+    const bool bOldOverride = bCameraOverride;
+    const EdenSceneView::Camera oldCamera = cameraOverride;
+    setCameraOverride( &inset );
+    renderOffscreen();
+    if ( GPUTexture *pColor = view.getFinalColor() ) {
+        RenderDevice &device = gpRender->getDevice();
+        Renderer2D &renderer = gpRender->get2DRenderer();
+        device.beginRenderTarget( pTarget, true, ColorRGBA( 0.0f, 0.0f, 0.0f, 1.0f ) );
+        renderer.begin( static_cast<float>( pTarget->Color.Width ), static_cast<float>( pTarget->Color.Height ), false );
+        renderer.drawQuad( pColor, Rect2D( 0.0f, 0.0f, static_cast<float>( pTarget->Color.Width ), static_cast<float>( pTarget->Color.Height ) ),
+                           uv, 0xffffffffu );
+        renderer.end();
+        device.endRenderTarget();
+    }
+    bCameraOverride = bOldOverride;
+    cameraOverride = oldCamera;
+}
+
 void IntroCinematic::drawFade() {
     // Shot start transition (+0x14 type 1: fade from a colour over +0x18 s)
     // [INF].

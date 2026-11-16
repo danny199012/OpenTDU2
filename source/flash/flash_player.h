@@ -269,6 +269,9 @@ public:
     // which the retail exe paints from native code. Kept against the
     // timeline's later moves like a scripted transform. True when it exists.
     bool setClipColor( const std::string &clipPath, float r, float g, float b );
+    // The clip's alpha multiplier from the game side (0..1), kept against the
+    // timeline like a scripted transform (the buy window's preview lure sits at 0).
+    bool setClipAlpha( const std::string &clipPath, float alpha );
     // The same for a child the movie placed without a name: the display list is
     // keyed by depth, so a path cannot reach it (HUD.vmf /HUD/enter places its
     // prompt bar at depth 1 unnamed, and it paints a stray beige rectangle at

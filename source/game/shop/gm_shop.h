@@ -130,6 +130,12 @@ private:
     float pageTime = 0.0f;   // seconds on the page (the paint orbit's clock)
     int32_t pageDoorCar = -1; // the show car whose door the interior page opened
     void closePageDoor();
+    RenderTarget *pInsetTarget = nullptr; // the preview panel's second render
+    Vector3f insetEyeLocal, insetTargetLocal;
+    float insetFov = 0.55f;
+    bool bInsetBound = false;
+    EdenSceneView::Camera insetCamera;
+    void renderPageInset(); // drawOffscreen: the panel's close-up
     float pageDoor = 0.0f;   // the interior page's door opening 0..1
     EdenSceneView::Camera pageCamera; // the override target (kept by pointer)
     void writeBuyChoiceFlags();

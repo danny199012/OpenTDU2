@@ -1629,6 +1629,16 @@ bool FlashPlayer::setClipColor( const std::string &clipPath, float r, float g, f
     return true;
 }
 
+bool FlashPlayer::setClipAlpha( const std::string &clipPath, float alpha ) {
+    Clip *pClip = findClip( clipPath );
+    if ( pClip == nullptr || pClip->pInstance == nullptr ) {
+        return false;
+    }
+    pClip->pInstance->ColorTransform.Mul[3] = alpha;
+    pClip->pInstance->bTransformedByScript = true;
+    return true;
+}
+
 bool FlashPlayer::setInstanceVisible( const std::string &clipPath, uint16_t depth, bool bVisible ) {
     Clip *pClip = findClip( clipPath );
     if ( pClip == nullptr ) {

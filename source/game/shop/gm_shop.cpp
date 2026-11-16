@@ -546,6 +546,10 @@ bool GMShop::enter( TestDriveGameInstance *pInstance ) {
 }
 
 void GMShop::exit() {
+    if ( pInsetTarget != nullptr && gpRender != nullptr ) {
+        gpRender->getDevice().destroyRenderTarget( pInsetTarget );
+        pInsetTarget = nullptr;
+    }
     if ( bLoaded ) {
         scene.unload();
     }
@@ -966,19 +970,31 @@ void GMShop::playPageCamera( int32_t option ) {
     float fov = 0.61f;
     // (the pose re-applies every tick: the walk camera would win otherwise)
     switch ( option ) {
+    // The main view and the panel's close-up differ like the 360 capture:
+    // wheels = the whole car from the rear quarter + the wheel in the panel;
+    // paint = the corner orbit + the body side; interior = the driver's seat
+    // view + the open door in the panel.
     case 2:
-        eyeLocal = Vector3f( 2.3f, 0.85f, 2.4f );
-        targetLocal = Vector3f( 0.8f, 0.42f, 1.45f );
-        fov = 0.55f;
+        eyeLocal = Vector3f( -3.4f, 1.25f, -4.6f );
+        targetLocal = Vector3f( 0.0f, 0.6f, 0.0f );
+        insetEyeLocal = Vector3f( 2.3f, 0.85f, 2.4f );
+        insetTargetLocal = Vector3f( 0.8f, 0.42f, 1.45f );
+        insetFov = 0.55f;
         break;
     case 3:
         eyeLocal = Vector3f( 2.9f, 1.25f, 4.9f );
         targetLocal = Vector3f( 0.0f, 0.7f, 0.2f );
+        insetEyeLocal = Vector3f( 2.0f, 0.9f, 2.6f );
+        insetTargetLocal = Vector3f( 0.8f, 0.55f, 1.4f );
+        insetFov = 0.6f;
         break;
     case 4:
-        eyeLocal = Vector3f( 1.7f, 1.4f, 0.5f );
-        targetLocal = Vector3f( 0.45f, 1.0f, 0.35f );
-        fov = 0.7f;
+        eyeLocal = Vector3f( 0.36f, 1.1f, -0.15f );
+        targetLocal = Vector3f( 0.36f, 0.95f, 0.8f );
+        fov = 1.0f;
+        insetEyeLocal = Vector3f( 1.7f, 1.4f, 0.5f );
+        insetTargetLocal = Vector3f( 0.45f, 1.0f, 0.35f );
+        insetFov = 0.7f;
         break;
     default:
         // The confirm page (5) and the drive-out cinematic need the walk
@@ -1072,6 +1088,14 @@ void GMShop::closePageDoor() {
 
 void GMShop::restoreWindowView() {
     closePageDoor();
+    if ( bInsetBound ) {
+        FlashPlayer &ui = scene.getUi();
+        for ( const char *pLure : { "/buy/window_buy/lure", "/buy/lure" } ) {
+            ui.setBitmapOverride( pLure, nullptr, 0.0f, 0.0f, 1.0f, 1.0f );
+            ui.setClipAlpha( pLure, 0.0f );
+        }
+        bInsetBound = false;
+    }
     if ( bPageCamera ) {
         scene.setCameraOverride( nullptr );
         bPageCamera = false;
@@ -1984,7 +2008,7 @@ void GMShop::tick( float deltaTime ) {
     }
     if ( CmdLine::HasArg( "-dumpshopclips" ) ) {
         static int32_t dumpTick = 0;
-        if ( ++dumpTick == 250 ) {
+        if ( ++dumpTick == ( CmdLine::HasArg( "-dumpshopat" ) ? CmdLine::GetArgInt( "-dumpshopat", 250 ) : 250 ) ) {
             scene.getUi().dumpClips( "/", CmdLine::GetArgInt( "-dumpshopclips", 6 ) );
         }
     }
@@ -1995,9 +2019,59 @@ void GMShop::tick( float deltaTime ) {
     }
 }
 
+void GMShop::renderPageInset() {
+    if ( !bBuyWindow || !bPageCamera || CmdLine::HasArg( "-noinset" ) ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    if ( pInsetTarget == nullptr ) {
+        pInsetTarget = device.createRenderTarget( 512, 380, VK_FORMAT_UNDEFINED, true, "ShopInset" );
+        if ( pInsetTarget == nullptr ) {
+            return;
+        }
+    }
+    const Vector3f eye = pageCameraCarWorld.transformPoint( insetEyeLocal );
+    const Vector3f direction = ( pageCameraCarWorld.transformPoint( insetTargetLocal ) - eye ).normalized();
+    const float yaw = std::atan2( direction.x, direction.z );
+    const float pitch = std::asin( Clamp( direction.y, -1.0f, 1.0f ) );
+    const Quaternionf conjugate = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), yaw ) *
+                                  Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), -pitch );
+    insetCamera.Position = eye;
+    insetCamera.Rotation = Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w );
+    insetCamera.Fov = insetFov;
+    insetCamera.Near = 0.05f;
+    // The panel is 256 x 190: keep that aspect out of the window-sized frame.
+    const float windowAspect = static_cast<float>( gpRender->get2DRenderer().getTargetWidth() ) /
+                               Max( 1.0f, static_cast<float>( gpRender->get2DRenderer().getTargetHeight() ) );
+    const float keep = Clamp( ( 256.0f / 190.0f ) / windowAspect, 0.2f, 1.0f );
+    scene.renderInset( insetCamera, pInsetTarget, Rect2D( ( 1.0f - keep ) * 0.5f, 0.0f, keep, 1.0f ) );
+    FlashPlayer &ui = scene.getUi();
+    for ( const char *pLure : { "/buy/window_buy/lure", "/buy/lure" } ) {
+        ui.setBitmapOverride( pLure, &pInsetTarget->Color, 0.0f, 0.0f, 1.0f, 1.0f );
+        ui.setClipAlpha( pLure, 1.0f );
+    }
+    if ( CmdLine::HasArg( "-logpanelmatrix" ) ) {
+        if ( const FlashPlayer::Clip *pLure = ui.findClip( "/buy/window_buy/lure" ) ) {
+            if ( pLure->pInstance != nullptr ) {
+                const FlashMatrix &m = pLure->pInstance->Matrix;
+                OTDU_LOG_INFO( "SHOP: lure page %d matrix a %.3f b %.3f c %.3f d %.3f tx %.1f ty %.1f\n", pageOption, m.A, m.B, m.C, m.D,
+                               m.TX / 20.0f, m.TY / 20.0f );
+            }
+        }
+    }
+    if ( pageOption == 2 ) {
+        // The wheels page leaves the movie's preview clip parked off stage
+        // (retail fills it natively); put it where the paint page's panel
+        // sits, one row higher [INF: calibrated on the captures].
+        ui.setClipTransform( "/buy/window_buy/lure", 79.3f, -57.0f, 0.0f, 124.3f, 109.0f );
+    }
+    bInsetBound = true;
+}
+
 void GMShop::drawOffscreen() {
     static const bool bNo3D = CmdLine::HasArg( "-no3d" );
     if ( bLoaded && !bNo3D ) {
+        renderPageInset();
         scene.renderOffscreen();
     }
 }
