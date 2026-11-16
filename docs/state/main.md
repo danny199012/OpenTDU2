@@ -8,6 +8,43 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 33): spot holograms rebuilt on the entrance anchor + frame arrow; birds per-island + path flock
+
+The owner (taking over from another vendor): "the 1 thing that really really needs work on both islands is the hologram enter markers for races, shops, dealerships etc... I did try to get claude to really dig in the dev build the data might be there for it." Also: "we need birds and Airplanes flying over I don't think the islands share the same stuff like traffic etc".
+
+### What changed
+- `source/game/freeride/gm_freeride.cpp` (`tickWorldSpots`, hologram block) - the plates anchor at the spot's **road-side entrance** now: `FindSpotEntranceById` (spots.bin +0x28/+0x38, the same record the enter press and `-atspot` use) instead of the building point + an invented 12 m eye-nudge + a per-spot-hash 7 m side offset. The old anchor put the plate INSIDE the building (Ferrari dealer Ibiza: no hologram visible from the road at all - the plate stood in the showroom volume; G-Miami: clipped into the canopy). Scale is authored 1.0 (was `1.5*clamp(d/60,1,2.2)` - the retail capture reads the 10 m frame 1:1 against the street). The frame AddOn draws with the plate's heading (the old `+pi` "drawn from behind" flip showed only its pointer cone).
+- `source/game/freeride/spot_holograms.h/.cpp` - each frame model finds its `Arrow_*` node (the flat direction pointer; material name probe). `draw()` hides it via `EdenDrawParams::ForceHiddenNodes` and redraws it alone (`EdenModel::drawNode`) with the plate's heading + a 0.61 rad roll toward the building's door (door bearing = building point - entrance point, projected on the plate's right axis; positive RotZ leans the tip LEFT - verified against the Ferrari approach; `-holoarrowflip` = A/B). `-logspotholo` now also dumps materials (shader set) and scene nodes.
+- `source/game/freeride/birds.h/.cpp` - flock slot 0 is a **path flock**: spawns 300-500 m AHEAD of the drive at 18-32 m with a heading across the road (log `Birds: flock0 ... (path flock, crossing ahead)`); the other four slots keep the behind/around behaviour. The owner asked for birds "flying over" - they previously spawned mostly behind the camera.
+
+### Decoded (dev build + data)
+- `pack_spots.bnk` loads as a scenaric pack: `Scenarics\Packs\pack_spots` beside worldactors + worldlifeset [CODE-dev 0x892250..0x8922d4]; `SpotMesh` is a `SCEntityFactory` entity class (name getter 0x8a5490; ctors 0x8a54a0/0x8a5550). `MngSpots.cpp`/`Spot.cpp`/`Spots.cpp` exist readable in the dev exe only.
+- The record's `Type` condition (+144, `{VIRTUAL if; VIRTUAL then;}`) has a `then` word taking 9 values (0x36..0x52 step 4, 0xaa) = the xmb schema's nine `Struct*` classes in order: House, Club, Goodies, Other, Tuning, School, DriveIn, Challenge (0x52: Event/Cup/Championship_*/the multipliers), CarDealer 0xaa (every CD_*/CDC_* plate). Playerhouse/House_To_Buy share 0x36 with Photograph/Surgery/Airport/Used_Car_Dealer/Hair_Stylist/Casino, so the class alone does not pick the plate - the `if` side is NOT decoded (its second word varies per record; the AddOn frames store 64-bit hash pairs from a non-Eden hash function). spots.bin +0x100 (0..0x19) is the map category, not this enum. The port's name-prefix mapping agrees with every decoded value; unchanged.
+- Frame scene composition (`-logspotholo`): `Spot_Pulse_*` x2 (UVA pulse) + ring Inside/Outside + `Arrow_*`; the flat arrow's FACE is its own yaw (fixed-yaw sweep: face-on at the camera bearing, edge-on 90 deg off).
+- The spots.bin entrance pair explains session 31's oddity: ECD_MERC_7416's BUILDING point sits under the dealer's overhang; its entrance is 52 m away on the forecourt.
+- Full notes: `docs/re/spot_holograms_spec.md` section 2.
+
+### Verified
+- Ibiza Ferrari dealer (`-atspot ECD_FERR_3337I -weather 18`, reverse 3 s, shoot): plate + frame over the road ahead, arrow leaning at the dealer (`docs/images/spot_hologram_ferrari_day.webp`); night: plate glows white-blue (`spot_hologram_night.webp`).
+- Hawai Mercedes dealer (`-atspot ECD_MERC_7416 -island hawai`): same composition, entrance 52 m from the building, "Hawaii Area 3" (`spot_hologram_hawai_dealer.webp`). Log: `1 spot holograms in 300 m (nearest 'CD_MERC' at 52 m)`.
+- Hawai event start (`-tp 14781,31560 -island hawai`): the Event hologram 118 m ahead (log; the shot has the usual `-tp` streaming float).
+- All 8 AddOn frames render whole (`-spotholotest 56 -spotholocount 8`): vivid rings + pointers.
+- Birds/aircraft per-island [DATA]: `islands/<isl>/scenarics/packs/aircrafts.bnk` + `world_aircrafts.bnk` + `fx/details/birds.bnk` exist on BOTH islands; logs: Hawai 4 routes / 3 aircraft types / 11 planes / 5 species; Ibiza 4 routes / 2 types / 11 planes / 5 species. The islands do NOT share them. Showcase `docs/images/aircraft_hawai_airlines.webp`.
+- Path flock: `Birds: flock0 at ... 401 m from the camera ... (path flock, crossing ahead)`.
+- Builds clean, runs 0 stalls (watchdog lines).
+
+### Ruled out
+- The Type-condition offsets (word1/word3) as data pointers: the bytes there are scene/table data unrelated to the condition (counts read as floats/garbage) - they are part of the VIRTUAL encoding, not a link.
+- Node hierarchy loss: `EdenModel` draws each node with its authored `World`; both cones in a frame scene are LOD0 authored geometry, not a double draw.
+- The arrow's yaw = camera-heading +/- 90: renders edge-on (logged heading -1.34 vs face-on at -77 deg) - the face is the yaw itself.
+
+### Not done / next
+- The `if` side of the Type condition (which would replace `HologramIconFor`'s name prefixes with the data rule) and the per-record word: needs the dev exe's SCData VIRTUAL reader (edXMB `CLASS_VIRTUAL`) decoded - start at the `VIRTUAL` string 0x15850fc neighborhood and the class-name switch.
+- The arrow lean at other approach sides / for circles-rhombi unverified by eye (one capture only); retail's exact lean angle (mine is 0.61 rad [INF]).
+- The plates' night glow strength vs retail: the port's night plate reads bright (the UVA pulse layers tick); an A/B against a retail night capture would settle it.
+- `SignificanceLevel` (+56) and `Shape` (+160) per record: not applied (draw distance tier?).
+- Birds: visibility in natural play is the owner's look; bird/plane SOUNDS (ambience banks have candidates) unexamined.
+
 ## Session 2026-11-15 (`main`, 32): Hawai buy + other shops verified, zone badge fallback fixed, `-atspot`
 
 - Buy: `-gm SHOP -shopspot ECD_MERC_7416 -island hawai -shopaim 3 -money 500000` with the Audi key recipe (`docs/state/main.md` buy test): FSCommands eval / buyc, "bought Mercedes-Benz SLS AMG (car 401) for 244500", profile saved; next FREERIDE "driving the profile's car 401 'SLS_AMG', rims mercedes/sls_amg_f_02 (ordered at the dealer)". (A blind recipe at the wrong `-shopaim` buys nothing; the shop view shows no menu without the presses - same on Ibiza.)

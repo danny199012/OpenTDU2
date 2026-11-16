@@ -2582,15 +2582,18 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
     }
 
     // The 3D holograms (bHolo): every kind of spot around the car, nearest first.
+    // Id is the spot's spots.bin record id (0: race starts and championships,
+    // which have no building record).
     struct HoloSpot {
         std::string Model;
         Vector3f Position;
         float Distance;
+        uint64_t Id = 0;
     };
     std::vector<HoloSpot> holoSpots;
-    const auto addHologram = [&]( const char *pModel, const Vector3f &position ) {
+    const auto addHologram = [&]( const char *pModel, const Vector3f &position, uint64_t id = 0 ) {
         holoSpots.push_back( { pModel, position,
-                               Vector3f( position.x - carPosition.x, 0.0f, position.z - carPosition.z ).length() } );
+                               Vector3f( position.x - carPosition.x, 0.0f, position.z - carPosition.z ).length(), id } );
     };
     // The distant markers: race starts and shops around the car, plus the
     // next checkpoint of a running race.
@@ -2718,7 +2721,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                     std::string storage;
                     const char *pModel = HologramIconFor( name, pIcon, name.compare( 0, 3, "EPH" ) == 0 && IsHouseOwned( id ), storage );
                     if ( pModel != nullptr ) {
-                        holoSpots.push_back( { storage.empty() ? std::string( pModel ) : storage, position, distance } );
+                        holoSpots.push_back( { storage.empty() ? std::string( pModel ) : storage, position, distance, id } );
                     }
                 }
                 return;
@@ -2778,54 +2781,65 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                                    hx, hy, bOn ? "" : " (behind the camera)" );
                 }
                 SpotHolograms::Placement placement;
-                bool bPointerLeft = false;
-                // A spot is the entrance in the facade: the plate floats in
-                // FRONT of the building, nudged toward the viewer so the wall
-                // does not swallow it [INF: the retail offset is not decoded].
+                // Retail placement [DATA]: the plate stands over the spot's
+                // road-side ENTRANCE, not the building - spots.bin's second
+                // point (+0x28 position / +0x38 heading, the same record the
+                // enter press and -atspot use; the Mercedes dealer's first
+                // point sits under its own overhang, its entrance 52 m away on
+                // the forecourt). The first-point anchor swallowed the plate
+                // inside the building volume (invisible at the Ferrari dealer,
+                // clipped into the canopy at G-Miami). A spot without a record
+                // or an unset entrance keeps its building position.
+                bool bHasEntrance = false;
+                Vector3f entrance;
                 {
-                    const float tx = eye.x - spot.Position.x, tz = eye.z - spot.Position.z;
-                    const float len = Max( std::sqrt( tx * tx + tz * tz ), 0.01f );
-                    const float nudge = Min( 12.0f, len * 0.4f );
-                    placement.Position = spot.Position + Vector3f( tx / len * nudge, 0.0f, tz / len * nudge );
-                    // Retail (the owner's captures): the plate floats to ONE
-                    // side of the entrance and its pointer aims back at the
-                    // building - the bracket / pointer are on the plate's door
-                    // side. The side is a fixed world offset per spot [INF: the
-                    // retail rule - road side? - is not decoded]; which way the
-                    // pointer hangs follows from where that puts the door as
-                    // seen from the camera.
-                    // Perpendicular to the line of sight, so the plate keeps the
-                    // same screen side of the door as the camera moves; the side
-                    // is a per-spot hash.
-                    const bool bPlateRight = std::fmod( std::fabs( spot.Position.x * 12.9898f + spot.Position.z * 78.233f ), 2.0f ) < 1.0f;
-                    const Vector3f view( -tx / len, 0.0f, -tz / len );
-                    const Vector3f camRight( view.z, 0.0f, -view.x ); // left-handed Eden: right = up x forward
-                    const float side = ( bPlateRight ? 1.0f : -1.0f ) * ( CmdLine::HasArg( "-holoflip" ) ? 1.0f : -1.0f ); // checked by eye: the pointer sits on the door side
-                    placement.Position = placement.Position + camRight * ( side * 7.0f );
-                    bPointerLeft = side < 0.0f; // plate right of the door -> pointer hangs left, toward it
+                    float entranceHeading = 0.0f;
+                    bHasEntrance = spot.Id != 0 && FindSpotEntranceById( islandName, spot.Id, entrance, entranceHeading );
                 }
-                // The hologram is a flat plate: it turns to face the viewer
-                // about the vertical axis [INF]; its size grows with the
-                // distance so a marker down the road stays readable.
-                placement.Scale = 1.5f * Clamp( spot.Distance / 60.0f, 1.0f, 2.2f );
-                // Scale about the plate's centre (local y ~12), not the anchor: the
-                // anchor-based scale lifted it out of the frame.
-                placement.Position.y -= ( placement.Scale - 1.0f ) * 12.0f;
-                placement.Heading = std::atan2( eye.x - spot.Position.x, eye.z - spot.Position.z );
+                placement.Position = bHasEntrance ? entrance : spot.Position;
+                // Authored size [DATA: the owner's retail capture of the owned
+                // house reads the frame's authored 10 m height against the
+                // street; no distance growth], turned to face the viewer about
+                // the vertical axis.
+                placement.Scale = 1.0f;
+                placement.Heading = std::atan2( eye.x - placement.Position.x, eye.z - placement.Position.z );
+                // The frame's flat arrow pointer hangs face-on with the plate,
+                // on the door's side (the retail pointer leans toward the
+                // building). The door bearing decides the side: right of the
+                // plate (dot with the plate's right axis) = mirrored, so the
+                // tip leans right toward it.
+                if ( bHasEntrance ) {
+                    placement.bAimArrow = true;
+                    // The flat pointer's FACE is its own yaw (calibrated: the
+                    // fixed-yaw sweep renders it face-on at +-90 with the
+                    // camera at -77): give it the plate's heading so the face
+                    // tracks the camera like the plate, and roll its tip
+                    // toward the door (the retail pointer leans at the
+                    // entrance; -holoarrowflip is the side A/B).
+                    placement.ArrowHeading = placement.Heading;
+                    const float rx = std::cos( placement.Heading ), rz = -std::sin( placement.Heading );
+                    const bool bDoorRight =
+                        ( spot.Position.x - entrance.x ) * rx + ( spot.Position.z - entrance.z ) * rz > 0.0f;
+                    const bool bLeanRight = bDoorRight != CmdLine::HasArg( "-holoarrowflip" );
+                    // RotZ sign verified against the Ferrari approach: the
+                    // positive roll leans the tip to the plate's LEFT.
+                    placement.ArrowRoll = bLeanRight ? -0.61f : 0.61f;
+                    static uint32_t arrowLogTick = 0;
+                    if ( CmdLine::HasArg( "-logmarkers" ) && ( arrowLogTick++ % 60 ) == 0 ) {
+                        OTDU_LOG_INFO(
+                            "FREERIDE: holo arrow '%s' heading %.2f doorRight %d leanRight %d\n", spot.Model.c_str(),
+                            placement.Heading, bDoorRight ? 1 : 0, bLeanRight ? 1 : 0 );
+                    }
+                }
                 placement.ModelIndex = spotHolograms.findModel( HologramFrameFor( spot.Model.c_str() ) );
                 if ( placement.ModelIndex >= 0 ) {
-                    // (bMirror - the retail pointer hangs lower-left - makes the
-                    // plate vanish: the renderer's mirrored-matrix cull does not
-                    // cover this draw path; left off.)
-                    // The backplate is drawn from behind: the retail captures
-                    // (owner, 360 recomp) have the bracket on the right and the
-                    // pointer lower-left for the squares, the crescent on the
-                    // left for the circles - the mesh's front is the mirror.
-                    if ( bPointerLeft ) {
-                        placement.Heading += 3.14159265f;
-                    }
+                    // Same heading as the icon plate: the frame's square +
+                    // bracket + pointer cone are authored around the anchor
+                    // (bounds x -3.17..5.22: the bracket side; y 5.5..15.5: the
+                    // pointer hangs under the plate). The earlier +pi flip for
+                    // "drawn from behind" faced its front away from the camera
+                    // and only the pointer cone stayed visible.
                     placements.push_back( placement );
-                    placement.Heading = std::atan2( eye.x - spot.Position.x, eye.z - spot.Position.z );
                 }
                 placement.ModelIndex = icon;
                 placements.push_back( placement );

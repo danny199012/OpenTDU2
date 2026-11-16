@@ -29,6 +29,7 @@ public:
         std::unique_ptr<EdenModel> Mesh;
         Matrix4x4f Local;       // the scene root's inverse
         Vector3f BoundsMin, BoundsMax;
+        int32_t ArrowNode = -1; // the 'Arrow_*' material's node (the direction cone)
     };
     struct Placement {
         int32_t ModelIndex = -1;
@@ -36,6 +37,13 @@ public:
         float Heading = 0.0f;
         float Scale = 1.0f;
         bool bMirror = false; // flip across the plate's vertical axis (the backplate's pointer side)
+        // The frame's Arrow_* pointer is a flat triangle hanging under the
+        // plate: drawn face-on to the camera (ArrowHeading = the plate's
+        // heading, its face is its own yaw) and rolled toward the building's
+        // door (ArrowRoll, the retail pointer leans at the entrance).
+        bool bAimArrow = false;
+        float ArrowHeading = 0.0f;
+        float ArrowRoll = 0.0f;
     };
 
     ~SpotHolograms() { unload(); }

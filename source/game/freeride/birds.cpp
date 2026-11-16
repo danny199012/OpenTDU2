@@ -191,27 +191,34 @@ bool Birds::load( const std::string &island ) {
     return bLoaded;
 }
 
-void Birds::spawnFlock( Flock &flock, const Vector3f &cameraPosition, const Vector3f &cameraForward,
+void Birds::spawnFlock( Flock &flock, size_t index, const Vector3f &cameraPosition, const Vector3f &cameraForward,
                         const SurfaceFunction &surface, std::mt19937 &random ) {
     const bool bNear = isNearMode();
     // -birdsfront (test): the flock appears in front of the camera, inside the
     // screen: a screenshot off the road would otherwise rarely catch one.
     static const bool bFront = CmdLine::HasArg( "-birdsfront" );
-    const float minRing = bFront ? 25.0f : ( bNear ? kSpawnMinNear : kSpawnMinFar );
-    const float maxRing = bFront ? 70.0f : ( bNear ? kSpawnMaxNear : kSpawnMaxFar );
+    // Flock slot 0 is the path flock: it spawns AHEAD of the drive (300-500 m,
+    // low), so the birds cross the road over the player instead of only
+    // milling about behind the camera - the one flock the player actually
+    // sees in play [INF: the retail spawn law is not decoded].
+    const bool bPath = index == 0 && !bFront && !bNear;
+    const float minRing = bFront ? 25.0f : ( bPath ? 300.0f : ( bNear ? kSpawnMinNear : kSpawnMinFar ) );
+    const float maxRing = bFront ? 70.0f : ( bPath ? 500.0f : ( bNear ? kSpawnMaxNear : kSpawnMaxFar ) );
     const Vector3f heading =
         cameraForward.length() > 0.0001f ? cameraForward.normalized() : Vector3f( 0.0f, 0.0f, 1.0f );
     const float headingAngle = std::atan2( heading.x, heading.z );
     for ( int32_t attempt = 0; attempt < 8; attempt++ ) {
         const float distance = std::uniform_real_distribution<float>( minRing, maxRing )( random );
-        const float angle = bFront ? headingAngle + std::uniform_real_distribution<float>( -0.35f, 0.35f )( random )
-                                  : std::uniform_real_distribution<float>( 0.0f, 2.0f * kPi )( random );
+        const float angle = bFront || bPath ? headingAngle + std::uniform_real_distribution<float>( -0.35f, 0.35f )( random )
+                                            : std::uniform_real_distribution<float>( 0.0f, 2.0f * kPi )( random );
         // The angle is a yaw in this engine's convention (x = sin, z = cos), the
         // same atan2(heading.x, heading.z) the flock steers by.
         const Vector3f offset( std::sin( angle ) * distance, 0.0f, std::cos( angle ) * distance );
         // Never in front of the player: a flock appearing in the middle of the
-        // screen is the one thing that reads as a bug.
-        if ( !bFront && distance < maxRing * 0.75f && offset.x * heading.x + offset.z * heading.z > 0.35f * distance ) {
+        // screen is the one thing that reads as a bug. (The path flock spawns
+        // far enough ahead that it flies into view instead of popping in.)
+        if ( !bFront && !bPath && distance < maxRing * 0.75f &&
+             offset.x * heading.x + offset.z * heading.z > 0.35f * distance ) {
             continue;
         }
         const Vector3f centre = cameraPosition + offset;
@@ -229,21 +236,28 @@ void Birds::spawnFlock( Flock &flock, const Vector3f &cameraPosition, const Vect
             continue;
         }
         flock.Altitude = bFront ? std::uniform_real_distribution<float>( 6.0f, 16.0f )( random )
-                                : ( bNear ? std::uniform_real_distribution<float>( 10.0f, 26.0f )( random )
-                                          : std::uniform_real_distribution<float>( 25.0f, 70.0f )( random ) );
+                                : ( bPath ? std::uniform_real_distribution<float>( 18.0f, 32.0f )( random )
+                                          : ( bNear ? std::uniform_real_distribution<float>( 10.0f, 26.0f )( random )
+                                                    : std::uniform_real_distribution<float>( 25.0f, 70.0f )( random ) ) );
         flock.Centre = Vector3f( centre.x, ground + flock.Altitude, centre.z );
         flock.Ground = ground;
-        flock.Heading = Vector3f( std::sin( angle ), 0.0f, std::cos( angle ) );
+        // The path flock flies ACROSS the road: its heading is roughly
+        // perpendicular to the view, so it crosses in front of the player.
+        const float crossAngle = bPath ? headingAngle + ( random() % 2 ? 1.5707963f : -1.5707963f ) +
+                                             std::uniform_real_distribution<float>( -0.5f, 0.5f )( random )
+                                       : angle;
+        flock.Heading = Vector3f( std::sin( crossAngle ), 0.0f, std::cos( crossAngle ) );
         flock.Speed = std::uniform_real_distribution<float>( 8.0f, 15.0f )( random );
         flock.Turn = std::uniform_real_distribution<float>( -0.12f, 0.12f )( random );
         flock.GroundTimer = 0.0f;
         flock.Species = std::uniform_int_distribution<int32_t>( 0, static_cast<int32_t>( species.size() ) - 1 )( random );
         flock.bAlive = true;
         if ( CmdLine::HasArg( "-logbirds" ) ) {
-            OTDU_LOG_INFO( "Birds: flock at (%.0f, %.0f, %.0f) %.0f m from the camera, %s, altitude %.0f m\n",
-                           flock.Centre.x, flock.Centre.y, flock.Centre.z,
+            OTDU_LOG_INFO( "Birds: flock%zu at (%.0f, %.0f, %.0f) %.0f m from the camera, %s, altitude %.0f m%s\n",
+                           index, flock.Centre.x, flock.Centre.y, flock.Centre.z,
                            Vector3f( flock.Centre.x - cameraPosition.x, 0.0f, flock.Centre.z - cameraPosition.z ).length(),
-                           species[static_cast<size_t>( flock.Species )].Name.c_str(), flock.Altitude );
+                           species[static_cast<size_t>( flock.Species )].Name.c_str(), flock.Altitude,
+                           bPath ? " (path flock, crossing ahead)" : "" );
         }
         return;
     }
@@ -309,7 +323,8 @@ void Birds::tick( float deltaTime, float rain, float sun, const SurfaceFunction 
         }
         if ( !flock.bAlive ) {
             if ( !bGroundThem ) {
-                spawnFlock( flock, cameraPosition, cameraForward, surface, random );
+                spawnFlock( flock, std::distance( flocks.data(), &flock ), cameraPosition, cameraForward, surface,
+                            random );
                 bRebuild = bRebuild || flock.bAlive;
             }
             continue;

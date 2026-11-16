@@ -92,7 +92,7 @@ private:
         bool bAlive = false;
     };
 
-    void spawnFlock( Flock &flock, const Vector3f &cameraPosition, const Vector3f &cameraForward,
+    void spawnFlock( Flock &flock, size_t index, const Vector3f &cameraPosition, const Vector3f &cameraForward,
                      const SurfaceFunction &surface, std::mt19937 &random );
     void rebuildBirds();
     bool initializePipeline( RenderDevice &device );

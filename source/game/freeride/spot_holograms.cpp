@@ -70,6 +70,30 @@ bool SpotHolograms::load( EdenSceneView &view ) {
                     }
                     model.BoundsMin = pMesh->getBoundsMin();
                     model.BoundsMax = pMesh->getBoundsMax();
+                    // The frame scenes carry an 'Arrow_*' material on their
+                    // direction cone (the last material of Square_Blue_Frame:
+                    // Spot_Pulse x2, Circle_Inside/Outside, Arrow_Blue_01).
+                    // The port aims it at the building's door (see draw()).
+                    {
+                        const std::vector<SceneNode> &nodes = pMesh->getScene().getNodes();
+                        for ( size_t n = 0; n < nodes.size() && model.ArrowNode < 0; n++ ) {
+                            bool bArrowNode = false;
+                            for ( const uint64_t materialHash : nodes[n].Materials ) {
+                                for ( const EdenMaterial &material : pMesh->getMaterials() ) {
+                                    if ( material.Hashcode == materialHash && material.Name.compare( 0, 5, "Arrow" ) == 0 ) {
+                                        bArrowNode = true;
+                                        break;
+                                    }
+                                }
+                                if ( bArrowNode ) {
+                                    break;
+                                }
+                            }
+                            if ( bArrowNode ) {
+                                model.ArrowNode = static_cast<int32_t>( n );
+                            }
+                        }
+                    }
                     model.Mesh = std::move( pMesh );
                 }
             }
@@ -80,6 +104,20 @@ bool SpotHolograms::load( EdenSceneView &view ) {
                                model.TypeRaw[1], model.TypeRaw[2], model.TypeRaw[3], model.BoundsMin.x, model.BoundsMin.y,
                                model.BoundsMin.z, model.BoundsMax.x, model.BoundsMax.y, model.BoundsMax.z,
                                model.Mesh ? "" : " NO MODEL" );
+                if ( model.Mesh ) {
+                    // The plates glow in the retail game at night; log what
+                    // lights them here (shader set, emissive / anim params).
+                    for ( const EdenMaterial &material : model.Mesh->getMaterials() ) {
+                        OTDU_LOG_INFO( "SpotHolograms:   material '%s' shader %016llx params %zu\n",
+                                       material.Name.c_str(), static_cast<unsigned long long>( material.ShaderSetGUID ),
+                                       material.Parameters.size() );
+                    }
+                    for ( const SceneNode &node : model.Mesh->getScene().getNodes() ) {
+                        OTDU_LOG_INFO( "SpotHolograms:   node '%s' geo %016llx parent %d local t(%.1f, %.1f, %.1f)\n",
+                                       node.Name.c_str(), static_cast<unsigned long long>( node.ObjectHashcode ), node.Parent,
+                                       node.Local.m[3][0], node.Local.m[3][1], node.Local.m[3][2] );
+                    }
+                }
             }
             models.push_back( std::move( model ) );
         }
@@ -127,6 +165,22 @@ void SpotHolograms::draw( EdenRenderer &renderer ) const {
         const Matrix4x4f frame =
             Matrix4x4f::Translation( placement.Position ) * Matrix4x4f::Scale( Vector3f( placement.bMirror ? -placement.Scale : placement.Scale, placement.Scale, placement.Scale ) ) *
             Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), placement.Heading ) );
-        model.Mesh->draw( renderer, frame * model.Local );
+        if ( placement.bAimArrow && model.ArrowNode >= 0 ) {
+            // The retail marker's pointer hangs under the plate face-on to the
+            // camera, rolled toward the door: hide the authored-direction
+            // cone, then draw it again with the plate's heading and a roll
+            // about the view axis (drawNode skips the box cull, so this
+            // second draw of one node is safe).
+            EdenDrawParams params;
+            params.ForceHiddenNodes.push_back( model.ArrowNode );
+            model.Mesh->draw( renderer, frame * model.Local, &params );
+            const Matrix4x4f arrow =
+                Matrix4x4f::Translation( placement.Position ) *
+                Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), placement.ArrowHeading ) ) *
+                Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 0.0f, 1.0f ), placement.ArrowRoll ) );
+            model.Mesh->drawNode( renderer, model.ArrowNode, arrow * model.Local );
+        } else {
+            model.Mesh->draw( renderer, frame * model.Local );
+        }
     }
 }
