@@ -125,7 +125,12 @@ private:
     Vector3f pageEyeLocal, pageTargetLocal; // the page pose in the car frame
     float pageFov = 0.61f;
     bool bPageCamera = false; // a page camera override is up
-    void applyPageCameraPose(); // re-applies the page pose (per tick)
+    void applyPageCameraPose( float deltaTime = 0.0f ); // re-applies the page pose (per tick)
+    int32_t pageOption = 0;  // the page the pose belongs to
+    float pageTime = 0.0f;   // seconds on the page (the paint orbit's clock)
+    int32_t pageDoorCar = -1; // the show car whose door the interior page opened
+    void closePageDoor();
+    float pageDoor = 0.0f;   // the interior page's door opening 0..1
     EdenSceneView::Camera pageCamera; // the override target (kept by pointer)
     void writeBuyChoiceFlags();
     void writeBuyPrices();

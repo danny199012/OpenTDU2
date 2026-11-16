@@ -991,19 +991,60 @@ void GMShop::playPageCamera( int32_t option ) {
     pageEyeLocal = eyeLocal;
     pageTargetLocal = targetLocal;
     pageFov = fov;
+    if ( !bPageCamera || pageOption != option ) {
+        pageTime = 0.0f;
+    }
+    pageOption = option;
+    closePageDoor();
+    if ( option == 4 && car.ShowCar >= 0 ) {
+        pageDoorCar = car.ShowCar;
+        pageDoor = 0.0f;
+    }
     bPageCamera = true;
     applyPageCameraPose();
     OTDU_LOG_INFO( "SHOP: page camera %d on %s: %d show cars\n", option, car.Name.c_str(),
                    static_cast<int32_t>( scene.getShowCarCount() ) );
 }
 
-void GMShop::applyPageCameraPose() {
+void GMShop::applyPageCameraPose( float deltaTime ) {
     // The walk camera refreshes the scene view every frame: the page pose
     // re-applies after it (tick) or is gone by the next draw.
     if ( !bPageCamera ) {
         return;
     }
-    const Vector3f eye = pageCameraCarWorld.transformPoint( pageEyeLocal );
+    pageTime += deltaTime;
+    Vector3f eyeLocal = pageEyeLocal;
+    if ( pageOption == 3 ) {
+        // The retail paint view draws a box around the car: it holds at each
+        // corner, then pans smoothly to the next [owner, 360 capture; the
+        // timings are INF]. Corners in the car frame (+X left, +Z forward).
+        static const Vector3f corners[4] = { Vector3f( 2.9f, 1.25f, 4.9f ), Vector3f( -2.9f, 1.25f, 4.9f ),
+                                             Vector3f( -2.9f, 1.25f, -4.9f ), Vector3f( 2.9f, 1.25f, -4.9f ) };
+        const float hold = 1.8f, move = 2.2f, period = hold + move;
+        const float t = std::fmod( pageTime, period * 4.0f );
+        const int32_t index = static_cast<int32_t>( t / period );
+        const float local = t - static_cast<float>( index ) * period;
+        const Vector3f &from = corners[index];
+        const Vector3f &to = corners[( index + 1 ) & 3];
+        float f = local <= hold ? 0.0f : ( local - hold ) / move;
+        f = f * f * ( 3.0f - 2.0f * f );
+        // Corner to corner goes round the car, not through it: blend the
+        // angle about the car centre.
+        const float a0 = std::atan2( from.x, from.z ), a1 = std::atan2( to.x, to.z );
+        float da = a1 - a0;
+        while ( da > 3.14159265f ) da -= 6.2831853f;
+        while ( da < -3.14159265f ) da += 6.2831853f;
+        const float angle = a0 + da * f;
+        const float radius = std::sqrt( from.x * from.x + from.z * from.z );
+        eyeLocal = Vector3f( std::sin( angle ) * radius, from.y, std::cos( angle ) * radius );
+    }
+    // The interior page opens the driver's door by itself (retail capture),
+    // so the cabin shows through; 0.8 s ease, closed again on leaving.
+    if ( pageDoorCar >= 0 ) {
+        pageDoor = Min( 1.0f, pageDoor + deltaTime / 0.8f );
+        scene.getShowCar( static_cast<size_t>( pageDoorCar ) ).setDoorAngle( 0, -0.95f * pageDoor * pageDoor * ( 3.0f - 2.0f * pageDoor ) );
+    }
+    const Vector3f eye = pageCameraCarWorld.transformPoint( eyeLocal );
     const Vector3f direction = ( pageCameraCarWorld.transformPoint( pageTargetLocal ) - eye ).normalized();
     // Eden convention: forward = R(q*) (0, 0, 1), q* = Ry(yaw) Rx(-pitch)
     // (the garage cockpit camera, GMFirstWalkMode::updateCockpitCamera).
@@ -1021,7 +1062,16 @@ void GMShop::applyPageCameraPose() {
     scene.setCameraOverride( &pageCamera );
 }
 
+void GMShop::closePageDoor() {
+    if ( pageDoorCar >= 0 ) {
+        scene.getShowCar( static_cast<size_t>( pageDoorCar ) ).setDoorAngle( 0, 0.0f );
+        pageDoorCar = -1;
+        pageDoor = 0.0f;
+    }
+}
+
 void GMShop::restoreWindowView() {
+    closePageDoor();
     if ( bPageCamera ) {
         scene.setCameraOverride( nullptr );
         bPageCamera = false;
@@ -1935,7 +1985,7 @@ void GMShop::tick( float deltaTime ) {
     // Last: the buy window's page pose (walk.update above resets the walk
     // camera every frame; this is what the player actually sees).
     if ( bBuyWindow && bPageCamera ) {
-        applyPageCameraPose();
+        applyPageCameraPose( deltaTime );
     }
 }
 

@@ -8,6 +8,13 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 35): buy window - paint page orbits the car corner to corner, interior page opens the door
+
+Owner (360 recomp captures): the paint view draws a box around the car, holding at each corner then panning; the interior page opens the door by itself and the panel shows a live feed of the view.
+
+- `gm_shop.cpp/.h`: `applyPageCameraPose(dt)` - paint (page 3) orbits 4 corners (1.8 s hold, 2.2 s smoothstep pan about the car centre, timings [INF]); interior (page 4) opens DOOR_L over 0.8 s (`setDoorAngle(0,-0.95)`), closed again by `closePageDoor` on leaving / closing. Evidence: `docs/images/shop_paint_orbit_interior_door.webp` (4 orbit frames + the open-door cabin).
+- Not done: (1) the in-panel live feed (retail crops the part view into the panel; ours shows an unrelated shop view there), (2) the stat bars (Acceleration / Speed / Braking, Difficulty stars on the car info panel) and other bar widgets, (3) the road discovery / progression bars, (4) interior colours still read pale grey (see session 34).
+
 ## Session 2026-11-16 (`main`, 34): buy-window page cameras + live rims / interior preview landed; hologram double arrow fixed
 
 Picked up GLM's uncommitted work (quota ran out) and the owner's report: "2 arrows instead of 1, one side correct, the other flipped".
