@@ -298,8 +298,8 @@ float EdenClouds::thresholdForCoverage( float coverage ) const {
     // table is filled from the top of the sorted field), so it is indexed by
     // the coverage itself. The first version indexed it by 1 - coverage, which
     // inverted the weather: the "overcast" preset had FEWER clouds than fair
-    // weather. 0.8c keeps a little of the field clear even at full cover.
-    const float position = Clamp( 0.8f * c, 0.0f, 1.0f ) * static_cast<float>( kCoverageSteps );
+    // weather. 0.48c keeps a lot of the field clear even at full cover.
+    const float position = Clamp( 0.48f * c, 0.0f, 1.0f ) * static_cast<float>( kCoverageSteps );
     const uint32_t index = static_cast<uint32_t>( position );
     const float fraction = position - static_cast<float>( index );
     const uint32_t next = Min<uint32_t>( index + 1, kCoverageSteps );

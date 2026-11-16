@@ -55,7 +55,8 @@ public:
     // labels default / open / ring and phone_message open / close).
     // pPortrait: the caller's 2db (bound into phone_message/lure); bChase: the
     // dispatcher's calque_chase badge instead of a portrait.
-    void showPhoneCall( const std::string &text, GPUTexture *pPortrait = nullptr, bool bChase = false );
+    void showPhoneCall( const std::string &text, GPUTexture *pPortrait = nullptr, bool bChase = false , bool bGpsOffer = false,
+                        const std::string &callerName = std::string() );
     // The player's answer: the movie's accept / decline labels.
     void answerPhoneCall( bool bAccept );
     void closePhoneCall();

@@ -7,6 +7,18 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 48): clouds v6 (smaller / fewer / higher) + the phone-call GPS offer layout
+
+Owner: clouds "slightly off ... way too big / too many ... as if clouds are low down"; phone-call accept/decline "maybe inaccurate" with a 360 capture (Tess: portrait + name, text, `A OK, change my GPS target` / `B No thanks, maybe later...`).
+
+### What changed
+- Clouds: deck 1900-3000 m (was 1000-2100; rain 1100-2300), shape tile 2100 m (was 2600), detail 210 m, coverage mapping `0.48c` (was 0.8c) in `eden_clouds.cpp` / `eden_scene_view.cpp` / `volclouds.frag`. A smaller tile with the old coverage was too busy (flecks); the final trio gives separate cumulus with blue between (`clouds_v6_*.webp`).
+- Phone call (`freeride_hud.cpp`, `phone_calls.cpp`): `/:dialog_pnj` is the **caller name** header (loc 7697 Tess .. 7707 Jane; was showing wrong text), the ringing-phone overlay (`gps_display/phone`) and the small answer icons (`gps_display/buttons`) are hidden once the call is shown, help bar `A_B` with `/:m_Ok` = loc 7449 "OK, change my GPS target" and `/:m_Cancel_` = loc 7450 "No thanks, maybe later...". Only for calls that have a GPS target (`TargetSpot`). Controls unchanged and already matched the 360: A / Enter accepts, B / Esc declines (`-phonecall RS_ASPHALT -autoplay "400:press=validate|back"` logs accepted -> GPS to ERS_B / declined). `docs/images/phone_call_gps_offer.webp`.
+
+### Not done / next
+- Calls without a GPS target keep the single-OK bar. Mickey / dispatcher / the ev_bwoman caller have no name id found (header empty). The button glyphs are the PC ones, the 360 uses A/B.
+- Not measured: clouds perf; sunset/night cloud colours.
+
 ## Session 2026-11-16 (`main`, 47): clouds v5 - real cumulus with blue gaps; the coverage table was inverted
 
 Owner: "look into the clouds again ... they had been looked at a few times and still don't look great".

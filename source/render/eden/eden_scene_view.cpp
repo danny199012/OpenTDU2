@@ -2100,15 +2100,15 @@ bool EdenSceneView::fillCloudLayerParams( EdenClouds::Params &p, const EdenScene
     // cross-fade the same way, weather_spec 6.2).
     const std::string name = ToUpper( pWeather->getString( "clouds_cloud3dname", "CLOUD_B" ) );
     const char kind = name.empty() ? 'B' : name.back();
-    float coverage = 0.5f, darkness = 0.0f, base = 1000.0f, top = 2100.0f;
+    float coverage = 0.5f, darkness = 0.0f, base = 1900.0f, top = 3000.0f;
     if ( kind == 'A' ) {
         coverage = 0.42f;
         darkness = 0.15f;
     } else if ( kind == 'R' ) {
         coverage = 0.86f;
         darkness = 1.0f;
-        base = 700.0f;
-        top = 1800.0f;
+        base = 1100.0f;
+        top = 2300.0f;
     }
     static const char *pCover = CmdLine::GetArgValue( "-cloudcover" );
     if ( pCover != nullptr ) {

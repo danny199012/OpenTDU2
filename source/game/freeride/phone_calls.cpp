@@ -220,7 +220,24 @@ void PhoneCalls::ring( const Call &call, FreeRideHud &hud ) {
     }
     bAnswered = false;
     const std::string text = LocStr( call.TextHc, call.Name.c_str() );
-    hud.showPhoneCall( text, pPortrait, call.Npc == 0x151 );
+    std::string offerIcon, offerPrefix;
+    // The caller's name for the portrait header (/:dialog_pnj) [DATA: loc 7697.. 'Tess Wintory'.. 'Jane O'Mahan';
+    // the npc -> id pairing follows the portrait banks, [INF]].
+    int32_t nameId = 0;
+    switch ( call.Npc ) {
+    case 0x194: nameId = 7697; break; // Tess
+    case 0x190: nameId = 7698; break; // Stuart
+    case 0x187: nameId = 7699; break; // Todd
+    case 0x17f: nameId = 7700; break; // Jude
+    case 0x18f: nameId = 7703; break; // Miami
+    case 0x18d: nameId = 7704; break; // Chris
+    case 0x18c: nameId = 7705; break; // Ryan
+    case 0x180: nameId = 7706; break; // Marco
+    case 0x17e: nameId = 7707; break; // Jane
+    default: break;
+    }
+    const std::string callerName = nameId != 0 ? LocStr( nameId, "" ) : std::string();
+    hud.showPhoneCall( text, pPortrait, call.Npc == 0x151, TargetSpot( call.Name, offerIcon, offerPrefix ), callerName );
     OTDU_LOG_INFO( "PhoneCalls: ring '%s' (npc 0x%x, %s, %.1f s): %s\n", call.Name.c_str(), call.Npc, call.SoundFile.c_str(),
                    activeTimer, text.c_str() );
 }

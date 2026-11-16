@@ -941,7 +941,8 @@ void FreeRideHud::showGoal( const std::string &text ) {
     goalTimer = 30.0f;
 }
 
-void FreeRideHud::showPhoneCall( const std::string &text, GPUTexture *pPortrait, bool bChase ) {
+void FreeRideHud::showPhoneCall( const std::string &text, GPUTexture *pPortrait, bool bChase, bool bGpsOffer,
+                                 const std::string &callerName ) {
     // HUD.vmf /HUD/phone_call [DATA: timeline labels default / open 9 /
     // open_loop 15 / ring 25 / stop 38 / accept_pnj 45 / accept 94 / accepted
     // 125 / end_dialog 136 / decline 148; text field /:dialog_ph in
@@ -955,6 +956,21 @@ void FreeRideHud::showPhoneCall( const std::string &text, GPUTexture *pPortrait,
     hud.setClipVisible( "/HUD/phone_call", true );
     hud.gotoLabel( "/HUD/phone_call", "open", true );
     hud.gotoLabel( "/HUD/phone_call/phone_message", "open", true );
+    if ( bGpsOffer && hud.findClip( "/HUD/phone_call/gps_display" ) != nullptr ) {
+        // The retail offer layout (HUD.vmf /HUD/phone_call/gps_display: text
+        // /:dialog_pnj, buttons A / B) - the 360 shows "OK, change my GPS
+        // target" / "No thanks, maybe later..." here.
+        hud.setVariable( "/:dialog_pnj", callerName );
+        hud.setClipVisible( "/HUD/phone_call/gps_display", true );
+        hud.gotoLabel( "/HUD/phone_call/gps_display", "accept", true );
+        hud.gotoLabel( "/HUD/phone_call/phone_message/help", "A_B", true );
+        // The answered call: no ringing phone or answer buttons over the portrait, and the help bar offers
+        // loc 7449 "OK, change my GPS target" (A) / 7450 "No thanks, maybe later..." (B) as in the 360 capture.
+        hud.setClipVisible( "/HUD/phone_call/gps_display/phone", false );
+        hud.setClipVisible( "/HUD/phone_call/gps_display/buttons", false );
+        hud.setVariable( "/:m_Ok", LocStr( 7449, "OK" ) );
+        hud.setVariable( "/:m_Cancel_", LocStr( 7450, "Cancel" ) );
+    }
     if ( pPortrait != nullptr ) {
         // The portrait quad: the whole 2db over phone_message/lure.
         const bool bBound = hud.setBitmapOverride( "/HUD/phone_call/phone_message/lure", pPortrait, 0.0f, 0.0f, 1.0f, 1.0f );

@@ -31,8 +31,8 @@ layout( location = 0 ) in vec2 inTexcoord;
 layout( location = 0 ) out vec4 outColor;
 
 const float kMaxDistance = 60000.0; // shared with the accumulate / composite passes
-const float kShapeScale = 2600.0;   // metres per base-noise tile (cumulus scale)
-const float kDetailScale = 260.0;   // metres per detail-noise tile
+const float kShapeScale = 2100.0;   // metres per base-noise tile (cumulus scale)
+const float kDetailScale = 210.0;   // metres per detail-noise tile
 const float kMarchLength = 26000.0; // metres marched inside the slab
 
 float heightFraction( float y ) {
