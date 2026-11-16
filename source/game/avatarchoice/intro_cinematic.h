@@ -453,7 +453,8 @@ public:
     // A second render of the scene from 'inset' into pTarget (the shop buy
     // window's preview panel: retail shows a part close-up beside the main
     // view). uv = the crop of the window-sized frame that is kept.
-    void renderInset( const EdenSceneView::Camera &inset, RenderTarget *pTarget, const Rect2D &uv );
+    // showCar >= 0: only that showroom car is drawn, on a flat backdrop (the 360 panel).
+    void renderInset( const EdenSceneView::Camera &inset, RenderTarget *pTarget, const Rect2D &uv, int32_t showCar = -1 );
     void draw();
     // The frontend movies only (tests without the 3D view, -no3d).
     void drawUi();
@@ -720,6 +721,7 @@ private:
     bool bPendingUiLocalization = false;
     EdenSceneView::Camera cameraOverride;
     bool bCameraOverride = false;
+    int32_t insetShowCar = -1; // renderInset's only-this-car filter (drawSets)
     bool bLoaded = false;
 
 private:

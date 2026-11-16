@@ -8,6 +8,22 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 37): panel feed is a car-only showcase pass (cost 15 ms -> 0.3 ms); progression pages checked
+
+Owner: "what can we do to get that extra cost down ... in the 360 the window render doesn't look like anything else is rendered, floor doesn't match, everything grey - maybe a boxing method for the 2nd camera".
+
+### What changed
+- `eden_scene_view.*`: `setShowcaseMode( on, backdrop )` - no world / sky / sun halo / clouds / ocean / haze / rain, no env-cube refresh, shadow casters = the objects only, flat grey clear (0.30, 0.31, 0.33). `intro_cinematic.*`: `renderInset( cam, target, uv, showCar )` draws ONLY that showroom car (`insetShowCar` filter at the top of `drawSets`). `gm_shop.cpp`: the panel pass uses it, and refreshes every 3rd frame (immediately on a page change; `-insetevery` = every frame, `-insetfull` = the old full-scene panel for A/B).
+- `pause_menu.cpp`: test hooks `-unlockprogress` (Game Progress entry in free roam) and `-progresstest <n>` (every detail row + ring at n %).
+
+### Verified
+- Measured on the Audi buy window paint page: no inset 13.3 ms, full second scene render (`-insetfull`) 28.4 ms, showcase pass every frame 16.9 ms, showcase every 3rd frame 13.6 ms. Panels show the car on plain grey on all three pages (`docs/images/shop_panel_showcase_grey.webp`, `shop_panel_showcase_pages.webp`).
+- Progression: `-unlockprogress -progresstest 60` - the Completion page and the Competition / Collection / Discovery pages render with their ring gauges (the ring lights with the percentage); the detail rows in `MAIN.vmf`'s `simple_menu` lines are a percent text + a checkbox only (the AS sets `/:Percent` and `/checkbox`; no bar clip in the line). The level-up popup (`-testlevelup`) and HUD earn bar draw. No missing bar found there.
+
+### Not done / next
+- The row percents (`kPercents`) are still 0 except roads: nothing earns Racing School / Championship / Vehicles ... percentages, and the checkboxes never tick. If the owner means a different bar (a screenshot of the 360 screen would say which), start there.
+- Interior colours still pale grey (session 34).
+
 ## Session 2026-11-16 (`main`, 36): buy-window panel live feed + Flash morph shapes (stat bars)
 
 Owner (360 captures): the buy menu's panel shows a live close-up of the part; stat bars (Acceleration / Speed / Braking) were empty; asked about the road discovery / progression bars. DeepSeek's dev-build dig: the panel is a real-time RTT of the showcase car (`VwPrtDtlsGMShop` at `viewport_details`) with named presets C_WHEELS_V / C_PAINT_V / C_INTERIOR_V - not video.

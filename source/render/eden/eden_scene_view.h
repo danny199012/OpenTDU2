@@ -128,6 +128,13 @@ public:
     // Ocean (normal map, reflection, TD_Ocean draws) on / off: closed rooms
     // rendered without the island (FIRST_WM garage).
     void setOceanEnabled( bool bEnable );
+    // Showcase pass (the shop buy window's panel feed): only the objects the
+    // draw callback submits, on a flat backdrop - no world, sky, ocean, haze,
+    // rain or environment cube refresh (the 360 panel shows the car on plain grey).
+    void setShowcaseMode( bool bEnable, const ColorRGBA &backdrop ) {
+        bShowcase = bEnable;
+        showcaseBackdrop = backdrop;
+    }
     inline bool isOceanEnabled() const { return bOceanEnabled; }
 
     // GSReflection (planar / refraction projective maps, see
@@ -218,6 +225,8 @@ private:
     EdenOcclusion occlusion;
     const EdenOcclusion::Grid *pOcclusionGrid = nullptr;
     RenderTarget *pOcclusionTarget = nullptr; // the tile maxima of the pre-pass depth (R32)
+    bool bShowcase = false;
+    ColorRGBA showcaseBackdrop;
     bool bLastWaterHidden = false; // -logocclusion: log the ocean-skip changes
     EdenPlanarReflections planarReflections;
     // NIGHTLMAP materials of the scene (the day / night blend of the

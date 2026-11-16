@@ -1393,7 +1393,7 @@ void EdenSceneView::renderOffscreen() {
     static const uint32_t kCubeMapInterval =
         static_cast<uint32_t>( Max( 1, CmdLine::GetArgInt( "-cubemapinterval", 1 ) ) );
     device.beginGpuPass( "env" );
-    if ( bEnvironmentEnabled && !bStaticCubemap ) {
+    if ( bEnvironmentEnabled && !bStaticCubemap && !bShowcase ) {
         world.updateWetGround( *pRenderer, nullptr, nullptr, 0.0f );
         static Vector3f lastCenter( FLT_MAX, FLT_MAX, FLT_MAX );
         static float lastYaw = FLT_MAX;
@@ -1502,7 +1502,7 @@ void EdenSceneView::renderOffscreen() {
 
     // Ocean: noise normal map, mirror reflection, TD_Ocean runtime setup.
     device.beginGpuPass( "ocean" );
-    if ( ocean.isReady() && bOceanEnabled ) {
+    if ( ocean.isReady() && bOceanEnabled && !bShowcase ) {
         ocean.updateNormalMap( *pRenderer, frameDelta, pWeather );
         // The port's shore swell: every ocean level (island / area / sector)
         // rides the same water plane height, computed by the tide clock.
@@ -1589,7 +1589,9 @@ void EdenSceneView::renderOffscreen() {
     // copy and never culled. The probe measures the whole set: no cull on its
     // frame.
     pRenderer->setOcclusionGrid( bOcclusionProbe ? nullptr : pOcclusionGrid );
-    world.draw( *pRenderer, params.CameraPosition );
+    if ( !bShowcase ) {
+        world.draw( *pRenderer, params.CameraPosition );
+    }
     pRenderer->setOcclusionGrid( nullptr );
     const Matrix4x4f prepassViewProjection = pRenderer->getViewProjection();
     if ( !bMapView && EdenOcclusion::IsEnabled() && pOcclusionTarget != nullptr ) {
@@ -1645,7 +1647,9 @@ void EdenSceneView::renderOffscreen() {
         const Vector3f cameraPosition = params.CameraPosition;
         shadows.renderCasters( *pRenderer, params,
                                [this, cameraPosition]( EdenRenderer &renderer, const EdenSceneParams & ) {
-                                   world.draw( renderer, cameraPosition );
+                                   if ( !bShowcase ) {
+                                       world.draw( renderer, cameraPosition );
+                                   }
                                    drawObjects( renderer, ePass::ShadowCasters );
                                } );
         pShadowBuffer = shadows.resolve( *pRenderer, params, &pViewPosTarget->Color, pWeather );
@@ -1737,28 +1741,32 @@ void EdenSceneView::renderOffscreen() {
     // instead of the sky, so the sea continues past the loaded area.
     device.beginGpuPass( "opaque" );
     device.beginRenderTarget( pSceneTarget, true,
-                              ( bMapView && !bMapKeepSky ) ? ColorRGBA( 0.0f, 14.0f / 255.0f, 46.0f / 255.0f, 1.0f ) : ColorRGBA( 0.0f, 0.0f, 0.0f, 1.0f ) );
+                              bShowcase ? showcaseBackdrop : ( bMapView && !bMapKeepSky ) ? ColorRGBA( 0.0f, 14.0f / 255.0f, 46.0f / 255.0f, 1.0f ) : ColorRGBA( 0.0f, 0.0f, 0.0f, 1.0f ) );
     pRenderer->setScreenTexture( nullptr );
     pRenderer->beginScene( params );
     static const bool bNoSky = CmdLine::HasArg( "-nosky" ); // A/B: the sky dome
-    if ( !bNoSky && ( !bMapView || bMapKeepSky ) ) {
+    if ( !bNoSky && !bShowcase && ( !bMapView || bMapKeepSky ) ) {
         sky.draw( *pRenderer );
         sky.drawMoon( *pRenderer, params, pWeather );
         sky.drawStars( *pRenderer, params, pWeather );
     }
     const bool bNoSunFlare = CmdLine::HasArg( "-nosunflare" ) || GetGameOptions().SunFlare == 0;
-    if ( !bNoSunFlare && ( !bMapView || bMapKeepSky ) ) {
+    if ( !bNoSunFlare && !bShowcase && ( !bMapView || bMapKeepSky ) ) {
         sun.drawHalo( *pRenderer, params, pWeather );
     }
     // Volumetric clouds right after the sky: later geometry (the world, the car and its cockpit) draws over them.
-    drawVolumetricClouds( params );
-    drawClouds( *pRenderer );
+    if ( !bShowcase ) {
+        drawVolumetricClouds( params );
+        drawClouds( *pRenderer );
+    }
     // The same cull as the pre-pass (the blended draws are deferred from this
     // traversal, so they follow it).
     pRenderer->setOcclusionGrid( bOcclusionProbe ? nullptr : pOcclusionGrid );
-    world.draw( *pRenderer, params.CameraPosition );
+    if ( !bShowcase ) {
+        world.draw( *pRenderer, params.CameraPosition );
+    }
     pRenderer->setOcclusionGrid( nullptr ); // the moving objects are never culled (see the pre-pass)
-    if ( rain.isActive() ) {
+    if ( rain.isActive() && !bShowcase ) {
         // The rain materials are blended: the renderer defers these draws
         // into the blended flush (main view only, like upstream's).
         rain.draw( *pRenderer, params.CameraPosition );
@@ -1808,7 +1816,7 @@ void EdenSceneView::renderOffscreen() {
     if ( bEffectsPass && drawCallback ) {
         drawCallback( *pRenderer, ePass::Effects );
     }
-    const bool bNoHaze = bMapView || !bHazeEnabled || CmdLine::HasArg( "-nohaze" ) || GetGameOptions().Haze == 0;
+    const bool bNoHaze = bMapView || bShowcase || !bHazeEnabled || CmdLine::HasArg( "-nohaze" ) || GetGameOptions().Haze == 0;
     // -loghaze: the haze / fog inputs of the drawn weather whenever it changes.
     static const bool bLogHaze = CmdLine::HasArg( "-loghaze" );
     static const WeatherPreset *pLoggedWeather = nullptr;

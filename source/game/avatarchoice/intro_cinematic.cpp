@@ -1775,6 +1775,15 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
     if ( pass == EdenSceneView::ePass::Environment ) {
         return;
     }
+    if ( insetShowCar >= 0 ) {
+        // The panel feed: the one showroom car, nothing else.
+        Matrix4x4f showWorld;
+        if ( static_cast<size_t>( insetShowCar ) < showCars.size() && getShowCarWorld( static_cast<size_t>( insetShowCar ), showWorld ) ) {
+            showCars[static_cast<size_t>( insetShowCar )].Car->draw( renderer, showWorld, view.getWeather(),
+                                                                     showCars[static_cast<size_t>( insetShowCar )].bEnvironment );
+        }
+        return;
+    }
     // Projector actor layers (REFLECT 2D refraction / REFLECT FOR ACTORS): the
     // actors (avatars, car) and the props (the pool accessories: the inflatable
     // ring, the loungers...) — the sets stay out of the mirror render (cost).
@@ -2630,14 +2639,20 @@ void IntroCinematic::renderOffscreen() {
     view.renderOffscreen();
 }
 
-void IntroCinematic::renderInset( const EdenSceneView::Camera &inset, RenderTarget *pTarget, const Rect2D &uv ) {
+void IntroCinematic::renderInset( const EdenSceneView::Camera &inset, RenderTarget *pTarget, const Rect2D &uv, int32_t showCar ) {
     if ( !bLoaded || pTarget == nullptr ) {
         return;
     }
     const bool bOldOverride = bCameraOverride;
     const EdenSceneView::Camera oldCamera = cameraOverride;
     setCameraOverride( &inset );
+    insetShowCar = showCar;
+    if ( showCar >= 0 ) {
+        view.setShowcaseMode( true, ColorRGBA( 0.30f, 0.31f, 0.33f, 1.0f ) );
+    }
     renderOffscreen();
+    view.setShowcaseMode( false, ColorRGBA() );
+    insetShowCar = -1;
     if ( GPUTexture *pColor = view.getFinalColor() ) {
         RenderDevice &device = gpRender->getDevice();
         Renderer2D &renderer = gpRender->get2DRenderer();

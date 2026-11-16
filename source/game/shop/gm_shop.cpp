@@ -2030,6 +2030,14 @@ void GMShop::renderPageInset() {
             return;
         }
     }
+    // The panel's view is static: refresh it every third frame (the texture
+    // persists in between), at once on a page change.
+    static int32_t insetFrame = 0, insetPage = -1;
+    const bool bRefresh = pageOption != insetPage || !bInsetBound || ( insetFrame++ % 3 ) == 0 || CmdLine::HasArg( "-insetevery" );
+    insetPage = pageOption;
+    if ( !bRefresh ) {
+        return;
+    }
     const Vector3f eye = pageCameraCarWorld.transformPoint( insetEyeLocal );
     const Vector3f direction = ( pageCameraCarWorld.transformPoint( insetTargetLocal ) - eye ).normalized();
     const float yaw = std::atan2( direction.x, direction.z );
@@ -2044,7 +2052,8 @@ void GMShop::renderPageInset() {
     const float windowAspect = static_cast<float>( gpRender->get2DRenderer().getTargetWidth() ) /
                                Max( 1.0f, static_cast<float>( gpRender->get2DRenderer().getTargetHeight() ) );
     const float keep = Clamp( ( 256.0f / 190.0f ) / windowAspect, 0.2f, 1.0f );
-    scene.renderInset( insetCamera, pInsetTarget, Rect2D( ( 1.0f - keep ) * 0.5f, 0.0f, keep, 1.0f ) );
+    scene.renderInset( insetCamera, pInsetTarget, Rect2D( ( 1.0f - keep ) * 0.5f, 0.0f, keep, 1.0f ),
+                       CmdLine::HasArg( "-insetfull" ) ? -1 : cars[static_cast<size_t>( hoveredCar )].ShowCar );
     FlashPlayer &ui = scene.getUi();
     for ( const char *pLure : { "/buy/window_buy/lure", "/buy/lure" } ) {
         ui.setBitmapOverride( pLure, &pInsetTarget->Color, 0.0f, 0.0f, 1.0f, 1.0f );

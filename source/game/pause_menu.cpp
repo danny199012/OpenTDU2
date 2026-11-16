@@ -911,7 +911,7 @@ void PauseMenu::setCasinoMode( bool bCasino ) {
     bEntryEnabled[kEntryPhoto] = !bCasino;
     // The casino's Game Progress page is the casino progression (the retail
     // IsCasino list carries game_progress); free roam keeps it locked.
-    bEntryEnabled[kEntryGameProgress] = bCasino;
+    bEntryEnabled[kEntryGameProgress] = bCasino || CmdLine::HasArg( "-unlockprogress" ); // test hook: open the pages in free roam
     bEntryEnabled[kEntryEditor] = !bCasino;
     if ( !player.isLoaded() ) {
         return; // load() re-applies this once the movie is up
@@ -1014,7 +1014,8 @@ void PauseMenu::pushProgressData() {
         // -logprogress].
         player.setVariableNumber(
             ( prefix + "Points" ).c_str(),
-            Min( 100, 100 * skill.Points / kPageMaxPoints[index] ) );
+            CmdLine::HasArg( "-progresstest" ) ? CmdLine::GetArgInt( "-progresstest", 50 )
+                                               : Min( 100, 100 * skill.Points / kPageMaxPoints[index] ) );
         player.setVariableNumber( ( prefix + "LvlPoints" ).c_str(),
                                   kPageMaxPoints[index] );
         // The Completion page opens first: its counts include the casino
@@ -1052,10 +1053,12 @@ void PauseMenu::pushProgressData() {
     player.setVariableNumber( "/:NextTitleIn", racing.NextLevelIn );
     player.setVariableNumber( "/:NextLevelCount", racing.NextLevelIn );
     player.setVariableNumber( "/:NextTitleCount", racing.NextTitleLevel );
+    // -progresstest <n>: every detail row at n % (the row bars' look).
+    const int32_t testPercent = CmdLine::HasArg( "-progresstest" ) ? CmdLine::GetArgInt( "-progresstest", 50 ) : -1;
     for ( const PercentRow &row : kPercents ) {
-        player.setVariableNumber( row.pVariable, row.Value );
+        player.setVariableNumber( row.pVariable, testPercent >= 0 ? testPercent : row.Value );
     }
-    player.setVariableNumber( "/:PercentRoad", profile.ExploredPercent );
+    player.setVariableNumber( "/:PercentRoad", testPercent >= 0 ? testPercent : profile.ExploredPercent );
     player.setVariableBool( "/:LockGlobal", false );
     player.setVariableBool( "/:LockCollection", false );
     player.setVariableBool( "/:LockSocial", false );
