@@ -16,12 +16,13 @@
 //  2. accumulate - the march is reprojected into the previous frame's camera
 //                  and blended into a half-res history (TAA style), which
 //                  removes the ray-march jitter.
-//  3. composite  - the history is drawn into the scene with a depth test and
-//                  gl_FragDepth from the hit distance: mountains occlude the
-//                  clouds behind them and the clouds occlude what is behind
-//                  them, in both directions (session: replace the fixed
-//                  "clouds right after the sky" order of the first two
-//                  attempts).
+//  3. composite  - drawn in the blended pass right after the renderer's
+//                  deferred flush (the sky dome is a deferred draw itself), it
+//                  rejects the cloud where a copy of the scene depth (taken
+//                  straight after the opaque pass, before the deferred dome
+//                  draws land) is nearer than the cloud's hit distance:
+//                  mountains and the car / cockpit hide the clouds, the clouds
+//                  stay in front of what is behind them. No depth is written.
 class EdenClouds {
 public:
     // View + weather parameters of the frame (filled by EdenSceneView).
@@ -45,6 +46,12 @@ public:
     bool initialize( RenderDevice &device );
     void destroy();
     inline bool isEnabled() const { return pBaseNoise != nullptr; }
+    // The debug views (-showclouds / -showcloudhist): the march result and the
+    // newest accumulated history, raw.
+    inline GPUTexture *getMarchColor() const { return pMarchTarget != nullptr ? &pMarchTarget->Color : nullptr; }
+    inline GPUTexture *getHistoryColor() const {
+        return pHistory[historyIndex] != nullptr ? &pHistory[historyIndex]->Color : nullptr;
+    }
     // Half-res march / history targets (call from EdenSceneView::ensureTargets).
     void ensureTargets( uint32_t sceneWidth, uint32_t sceneHeight );
     void destroyTargets();
@@ -54,7 +61,12 @@ public:
     void setWeatherTargets( float coverage, float darkness, float base, float top );
     // Passes 1 + 2 (own GPU passes, call before the opaque pass).
     void marchAndAccumulate( RenderDevice &device, const Params &params );
-    // Pass 3, into the render pass currently being recorded (depth tested).
+    // Copies the scene depth for the composite's manual depth test (call
+    // between passes, after the opaque pass: the depth holds the world and
+    // the car, but not the deferred sky dome draws).
+    void copySceneDepth( RenderDevice &device, GPUTexture *pSceneDepth );
+    // Pass 3, into the render pass currently being recorded (the blended pass,
+    // after the deferred flush and before the haze).
     void composite( RenderDevice &device, const Params &params );
 
 private:
@@ -68,8 +80,9 @@ private:
 
     RenderDevice *pDevice = nullptr;
     FullscreenPass fullscreen;
-    RenderTarget *pMarchTarget = nullptr; // RGBA16F, half res
-    RenderTarget *pHistory[2] = {};       // RGBA16F, half res, ping-pong
+    RenderTarget *pMarchTarget = nullptr;     // RGBA16F, half res
+    RenderTarget *pHistory[2] = {};           // RGBA16F, half res, ping-pong
+    RenderTarget *pCloudDepthTarget = nullptr; // R32F, scene size: the opaque depth for the composite
     uint32_t historyIndex = 0;
     bool bHistoryValid = false;
     // Previous frame's camera (the reprojection).

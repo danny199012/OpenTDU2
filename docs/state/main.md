@@ -8,6 +8,34 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 38): volumetric clouds v3 - Perlin-Worley 3D noise, temporal accumulation, depth-rejected composite
+
+Owner: "I want you to improve the clouds I want them to be realistic volumetric if possible I had claude try twice and honestly there not that great".
+
+### What changed
+- `source/render/eden/eden_clouds.{h,cpp}` (new): `EdenClouds` - CPU generated tileable Perlin-Worley 128³ R8 + Worley 32³ RGBA8 3D textures (multithreaded, the ocean-NoiseSlice pattern), half-res RGBA16F march + history ping-pong targets, pass orchestration, exponential weather smoothing (tau 4 s shape / 6 s slab) that removes the mid-blend string pop of `clouds_cloud3dname`, camera-jump history reset.
+- `resources/shaders/volclouds.frag` (rewrite): 3D-texture shape (coverage threshold + height profile) with Worley detail erosion, 56-step march through a generic slab intersection (works from above the deck too, which the old shader did not render at all), 6-tap sun march, two-octave multi-scatter, dual-lobe Henyey-Greenstein, grazing-angle + distance fades. **Fixed attempt 1's ray y-flip** (D3D texcoords, y down): the old pass marched screen-bottom rays upward, so the clouds only ever showed as a band at the horizon. The alpha channel packs `packHalf2x16(alpha, hitT)` for the next two passes.
+- `resources/shaders/volclouds_accum.frag` (new): TAA-style accumulation - reprojects the history with the previous camera basis, neighbourhood-clamps colour + alpha, history weight 0.88. This is what removes the ray dither (documented as visible in session 16).
+- `resources/shaders/volclouds_composite.frag` (new): samples the history + a copy of the opaque scene depth and rejects the cloud where the scene is nearer: mountains hide the clouds, the clouds stay in front of what is behind them, the car / cockpit (near depth) always cover them. Premultiplied blend, no depth writes.
+- `eden_scene_view.*`: march + accumulate in their own "clouds" pass before the opaque pass; scene-depth copy between the passes; composite in the blended pass **after `flushDeferred`** - the sky dome is itself a deferred blended draw, so a composite drawn in the opaque pass (every earlier attempt) was simply painted over by it; weather targets from `clouds_cloud3dname` (A/B/R mapping kept [INF]); `-showclouds` / `-showcloudhist` debug views; stale comments fixed.
+- `postfx/fullscreen_pass.*`: optional depth test / write and sampler-address parameters (both defaulted - no existing call site changed).
+
+### Verified
+- Overcast `-cloudcover 1.0`: full deck, buildings occlude it sharply (`docs/images/clouds_v3_overcast.webp`).
+- Rain `-intempery 6`: dark heavy overcast, wet-road mood (`docs/images/clouds_v3_rain.webp`).
+- Default CLOUD_B day (`docs/images/clouds_v3_day.webp`); bonnet camera: the hood rejects the clouds, no X-ray (`docs/images/clouds_v3_bonnet.webp`) - the class of bug that killed attempt 1.
+- `-oldclouds` / `-novolclouds` / `-cloudcover` A/Bs all behave; `-clockrate 200` dry-to-night cycling ran with no pops and no device lost.
+- Perf `[perf] frame 240`: 6.9 ms with the layer vs 8.3 ms `-novolclouds` (draw 6.6 vs 8.0) - no measurable cost (half-res march + a cheap composite instead of the old full-res heavy-ALU march).
+
+### Ruled out (with the test that ruled it out)
+- Depth-tested composite in the opaque pass (three orders tried): invisible in all of them; the `-nosky` A/B showed clouds the moment the dome was gone -> the dome is drawn from `flushDeferred` (eden_renderer.cpp defers every blended material), it paints over anything earlier. Compositing after the flush, against a depth copy taken before the deferred draws, is the position that works.
+- "The noise texture is too dark": measured median 0.18 in a Python mirror of the generator, rebalanced to 0.46 - necessary but not the blocker; the y-flip was.
+
+### Not done / next
+- Clouds are still absent from the env cube / planar mirrors (car reflections use the retail billboards): `renderEnvironment` would need a low-quality march per face.
+- The sunset silver lining is not yet verified on screen (the sun sits behind buildings in the test street); the phase term + physical sun colour are in the shader - check at a west-facing spot at `-clock 19`.
+- Rays grazing the slab (the deck edge-on, seen from above) fade out; a mip-filtered detail fetch could bring them back if the owner ever sees it.
+
 ## Session 2026-11-16 (`main`, 37): panel feed is a car-only showcase pass (cost 15 ms -> 0.3 ms); progression pages checked
 
 Owner: "what can we do to get that extra cost down ... in the 360 the window render doesn't look like anything else is rendered, floor doesn't match, everything grey - maybe a boxing method for the 2nd camera".

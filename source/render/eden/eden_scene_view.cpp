@@ -1765,8 +1765,10 @@ void EdenSceneView::renderOffscreen() {
     if ( !bNoSunFlare && !bShowcase && ( !bMapView || bMapKeepSky ) ) {
         sun.drawHalo( *pRenderer, params, pWeather );
     }
-    // The billboard clouds of clouds.3dd (-oldclouds; the volumetric layer
-    // composites over the scene after the world below).
+    // The billboard clouds of clouds.3dd (-oldclouds). The volumetric layer
+    // composites in the blended pass below, after the deferred flush: the sky
+    // dome is itself a deferred draw, so anything drawn earlier here would be
+    // painted over by it.
     if ( !bShowcase ) {
         drawClouds( *pRenderer );
     }
@@ -1784,13 +1786,6 @@ void EdenSceneView::renderOffscreen() {
     }
     drawObjects( *pRenderer, ePass::Opaque );
     pRenderer->setOcclusionGrid( nullptr );
-    // The volumetric clouds composite after the opaque world, depth tested
-    // against it: a cloud in front of a mountain stays visible, a mountain in
-    // front of a cloud hides it, and the cockpit / car (near depth) never let
-    // clouds through (the first cloud attempt's bug, docs/state 16).
-    if ( !bShowcase ) {
-        compositeCloudLayer( params );
-    }
     static const bool bLogOcclusion = CmdLine::HasArg( "-logocclusion" );
     if ( bLogOcclusion ) {
         static uint32_t frames = 0, sumTested = 0, sumCulled = 0, framesWithGrid = 0;
@@ -1818,6 +1813,12 @@ void EdenSceneView::renderOffscreen() {
 
     device.endGpuPass();
     gSceneTimes.mark( SceneTimes::Opaque );
+    // The composite's depth source: a copy of the opaque depth (world + car),
+    // taken before the blended pass - the deferred sky dome / halo draws are
+    // not in it yet, which is exactly what the cloud layer wants to draw over.
+    if ( !bShowcase ) {
+        volumetricClouds.copySceneDepth( device, &pSceneTarget->Depth );
+    }
     // 2. gViewPos comes from the Z pre-pass (step 0).
 
     // 3. Blended draws (projected shadow boxes read gViewPos, glass,
@@ -1829,6 +1830,13 @@ void EdenSceneView::renderOffscreen() {
     // Blended scene draws (heightfields with their alpha blended borders,
     // glass...) before the haze: the haze covers the whole scene.
     pRenderer->flushDeferred();
+    // The volumetric clouds composite right after the deferred flush (the dome
+    // is already on screen here) and before the haze: scene depth nearer than
+    // a cloud hides it (mountains, the car and its cockpit), a cloud stays in
+    // front of what is behind it.
+    if ( !bShowcase ) {
+        compositeCloudLayer( params );
+    }
     // Port effects (wheel spray, tyre tracks): depth tested against the scene,
     // no depth write, before the haze so they are fogged like everything else.
     if ( bEffectsPass && drawCallback ) {
@@ -1960,6 +1968,16 @@ void EdenSceneView::draw() {
     static const bool bShowAO = CmdLine::HasArg( "-showaomask" );
     if ( bShowAO && pAOTarget != nullptr && bAORan ) {
         pColor = &pAOTarget->Color;
+    }
+    // -showclouds / -showcloudhist: the volumetric cloud march / history
+    // (premultiplied colour; the alpha channel carries packed bits, so it
+    // displays as near-black when the alpha is small).
+    static const bool bShowClouds = CmdLine::HasArg( "-showclouds" );
+    static const bool bShowCloudHist = CmdLine::HasArg( "-showcloudhist" );
+    if ( bShowClouds && volumetricClouds.getMarchColor() != nullptr ) {
+        pColor = volumetricClouds.getMarchColor();
+    } else if ( bShowCloudHist && volumetricClouds.getHistoryColor() != nullptr ) {
+        pColor = volumetricClouds.getHistoryColor();
     }
     static const bool bShowShadow = CmdLine::HasArg( "-showshadowbuffer" );
     if ( bShowShadow && shadows.getScreenShadow() != nullptr ) {

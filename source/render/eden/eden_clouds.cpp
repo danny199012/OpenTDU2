@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "eden_clouds.h"
 
+#include "render/shaders/builtin/depthcopy_frag.h"
 #include "render/shaders/builtin/volclouds_accum_frag.h"
 #include "render/shaders/builtin/volclouds_composite_frag.h"
 #include "render/shaders/builtin/volclouds_frag.h"
@@ -116,11 +117,15 @@ void GenerateBaseVolume( std::vector<uint8_t> &out ) {
                     const float w = ( static_cast<float>( z ) + 0.5f ) / static_cast<float>( kBaseNoiseSize );
                     const float perlin = TileablePerlin( u, v, w, 4, 0x5BD1E3F1u );
                     // Bias above 0.5: the field stays billowy instead of fading to empty.
-                    const float perlin01 = Clamp( perlin * 0.95f + 0.58f, 0.0f, 1.0f );
+                    const float perlin01 = Clamp( perlin * 0.95f + 0.62f, 0.0f, 1.0f );
                     const float worley = 0.625f * TileableWorley( u, v, w, 4, 0x1F3A9D2Bu ) +
                                          0.25f * TileableWorley( u, v, w, 8, 0x6C4B7C11u ) +
                                          0.125f * TileableWorley( u, v, w, 16, 0x2E9F0A47u );
-                    const float pw = ( perlin01 - worley ) / Max( 1.0f - worley, 0.001f );
+                    // Softened Worley remap (measured: median 0.46, 61 % of the
+                    // volume above the overcast coverage threshold - the raw
+                    // Perlin-Worley remap centres at 0.18 and the sky stays
+                    // empty).
+                    const float pw = ( perlin01 - worley * 0.6f ) / Max( 1.0f - worley * 0.6f, 0.001f );
                     out[( static_cast<size_t>( z ) * kBaseNoiseSize + y ) * kBaseNoiseSize + x] =
                         static_cast<uint8_t>( Clamp( pw, 0.0f, 1.0f ) * 255.0f + 0.5f );
                 }
@@ -228,10 +233,31 @@ void EdenClouds::destroyTargets() {
     pDevice->destroyRenderTarget( pMarchTarget );
     pDevice->destroyRenderTarget( pHistory[0] );
     pDevice->destroyRenderTarget( pHistory[1] );
+    pDevice->destroyRenderTarget( pCloudDepthTarget );
     pMarchTarget = nullptr;
     pHistory[0] = nullptr;
     pHistory[1] = nullptr;
+    pCloudDepthTarget = nullptr;
     bHistoryValid = false;
+}
+
+void EdenClouds::copySceneDepth( RenderDevice &device, GPUTexture *pSceneDepth ) {
+    if ( pDevice == nullptr || pSceneDepth == nullptr ) {
+        return;
+    }
+    pDevice = &device;
+    if ( pCloudDepthTarget == nullptr || pCloudDepthTarget->Width != pSceneDepth->Width ||
+         pCloudDepthTarget->Height != pSceneDepth->Height ) {
+        pDevice->destroyRenderTarget( pCloudDepthTarget );
+        pCloudDepthTarget = pDevice->createRenderTarget( pSceneDepth->Width, pSceneDepth->Height,
+                                                         VK_FORMAT_R32_SFLOAT, false, "CloudDepth" );
+    }
+    device.beginGpuPass( "clouddepth" );
+    device.beginRenderTarget( pCloudDepthTarget, true );
+    fullscreen.draw( device, kSPIRV_depthcopy_frag, sizeof( kSPIRV_depthcopy_frag ), &pSceneDepth, 1, nullptr, 0,
+                     eBlendMode::BM_Opaque, eSamplerFilter::SF_Point );
+    device.endRenderTarget();
+    device.endGpuPass();
 }
 
 void EdenClouds::setWeatherTargets( float newCoverage, float newDarkness, float newBase, float newTop ) {
@@ -284,8 +310,11 @@ void EdenClouds::marchAndAccumulate( RenderDevice &device, const Params &params 
     GPUTexture *pMarchTextures[2] = { pBaseNoise, pDetailNoise };
     device.beginGpuPass( "clouds" );
     device.beginRenderTarget( pMarchTarget, false );
+    // The 3D noise tiles are seamless: sample them wrapped (the default clamp
+    // would flatten everything beyond half a tile).
     fullscreen.draw( device, kSPIRV_volclouds_frag, sizeof( kSPIRV_volclouds_frag ), pMarchTextures, 2, push,
-                     sizeof( push ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear );
+                     sizeof( push ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear, false, false,
+                     eSamplerAddress::SA_Wrap );
     device.endRenderTarget();
 
     // Pass 2: temporal accumulation. The history is reprojected with the
@@ -320,16 +349,14 @@ void EdenClouds::marchAndAccumulate( RenderDevice &device, const Params &params 
 }
 
 void EdenClouds::composite( RenderDevice &device, const Params &params ) {
-    if ( pDevice == nullptr || !bHistoryValid || pHistory[historyIndex] == nullptr ) {
+    if ( pDevice == nullptr || !bHistoryValid || pHistory[historyIndex] == nullptr || pCloudDepthTarget == nullptr ) {
         return;
     }
     pDevice = &device;
-    GPUTexture *pTexture = &pHistory[historyIndex]->Color;
+    GPUTexture *pTextures[2] = { &pHistory[historyIndex]->Color, &pCloudDepthTarget->Color };
     const float push[4] = { params.nearPlane, params.farPlane, 0.0f, 0.0f };
-    // Depth tested (LESS_OR_EQUAL) and depth writing: the fragment writes the
-    // depth of the accumulated hit distance, so terrain nearer than the cloud
-    // hides it and the cloud hides what is behind it. The premultiplied
-    // colour blends over the scene.
-    fullscreen.draw( device, kSPIRV_volclouds_composite_frag, sizeof( kSPIRV_volclouds_composite_frag ), &pTexture, 1,
-                     push, sizeof( push ), eBlendMode::BM_PremultipliedAlpha, eSamplerFilter::SF_Linear, true, true );
+    // The composite rejects the cloud against the copied opaque depth (the
+    // shader), blending the premultiplied colour over the scene.
+    fullscreen.draw( device, kSPIRV_volclouds_composite_frag, sizeof( kSPIRV_volclouds_composite_frag ), pTextures, 2,
+                     push, sizeof( push ), eBlendMode::BM_PremultipliedAlpha, eSamplerFilter::SF_Linear );
 }

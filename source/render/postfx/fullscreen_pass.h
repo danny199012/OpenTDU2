@@ -22,7 +22,8 @@ public:
                eBlendMode blend = eBlendMode::BM_Opaque,
                eSamplerFilter filter = eSamplerFilter::SF_Linear,
                bool bDepthTest = false,
-               bool bDepthWrite = false );
+               bool bDepthWrite = false,
+               eSamplerAddress address = eSamplerAddress::SA_Clamp );
 
 private:
     RenderDevice *pDevice;

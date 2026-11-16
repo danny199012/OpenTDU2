@@ -20,7 +20,7 @@ void FullscreenPass::destroy() {
 void FullscreenPass::draw( RenderDevice &device, const uint32_t *pFragmentSPIRV, size_t fragmentSize,
                            GPUTexture *const *ppTextures, uint32_t numTextures, const void *pPushConstants,
                            uint32_t pushConstantsSize, eBlendMode blend, eSamplerFilter filter, bool bDepthTest,
-                           bool bDepthWrite ) {
+                           bool bDepthWrite, eSamplerAddress address ) {
     pDevice = &device;
     const VkRenderPass renderPass = device.getCurrentRenderPass();
     if ( renderPass == VK_NULL_HANDLE || numTextures == 0 ) {
@@ -53,7 +53,7 @@ void FullscreenPass::draw( RenderDevice &device, const uint32_t *pFragmentSPIRV,
     }
     VkCommandBuffer commandBuffer = device.getCommandBuffer();
     VkDescriptorSet set =
-        device.allocateTextureSet( ppTextures, numTextures, device.getSampler( filter, eSamplerAddress::SA_Clamp ) );
+        device.allocateTextureSet( ppTextures, numTextures, device.getSampler( filter, address ) );
     if ( set == VK_NULL_HANDLE ) {
         // The frame's descriptor pool is exhausted (a 4K frame with the map,
         // the HUD and every popup up draws thousands of 2D sets). Binding a

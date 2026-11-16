@@ -45,13 +45,15 @@ float density( vec3 p, bool bDetail ) {
     const float profile = smoothstep( 0.0, 0.10, h ) * ( 1.0 - smoothstep( 0.45, 0.98, h ) );
     const vec3 q = ( p + vec3( pc.SunColor.w, 0.0, pc.Ambient.w ) * pc.CamPos.w ) / kShapeScale;
     float d = texture( uBase, q ).r;
-    // Coverage: the lower the threshold, the more of the slab is cloud.
+    // Coverage: the lower the threshold, the more of the slab is cloud. The
+    // divisor saturates the interior quickly (the pale 1 - threshold scaling
+    // left a sky thin enough to see through).
     const float threshold = mix( 0.72, 0.34, pc.Right.w );
-    d = clamp( ( d - threshold ) / max( 1.0 - threshold, 1e-3 ), 0.0, 1.0 ) * profile;
+    d = clamp( ( d - threshold ) / mix( 0.45, 0.30, pc.Right.w ), 0.0, 1.0 ) * profile;
     if ( bDetail && d > 0.0 ) {
         const float w = dot( texture( uDetail, q * ( kShapeScale / kDetailScale ) ).rgb, vec3( 0.625, 0.25, 0.125 ) );
         // Erode the edges: wispy at the bottom, billowier near the top.
-        d = clamp( d - ( 1.0 - w ) * 0.32 * mix( 1.0, 0.45, h ), 0.0, 1.0 );
+        d = clamp( d - ( 1.0 - w ) * 0.24 * mix( 1.0, 0.5, h ), 0.0, 1.0 );
     }
     return d * mix( 1.0, 1.6, pc.ToSun.w );
 }
@@ -78,7 +80,10 @@ float interleavedGradient( vec2 p, float seed ) {
 }
 
 void main() {
-    const vec2 ndc = vec2( inTexcoord.x * 2.0 - 1.0, inTexcoord.y * 2.0 - 1.0 );
+    // The texcoords are D3D style (0,0 top left): the vertical NDC of the ray
+    // must flip, or the sky renders mirrored below the horizon (attempt 1's
+    // "cloud band" was this bug seen edge-on).
+    const vec2 ndc = vec2( inTexcoord.x * 2.0 - 1.0, 1.0 - inTexcoord.y * 2.0 );
     const vec3 dir = normalize( pc.Fwd.xyz + pc.Right.xyz * ndc.x + pc.Up.xyz * ndc.y );
     const float base = pc.Up.w, top = pc.Fwd.w;
     // Ray / slab intersection from any camera height (above the deck too).
@@ -146,7 +151,10 @@ void main() {
     // Towards the horizon the layer dissolves into the fog colour, so it
     // never ends as a hard line (the composite's depth test keeps it in
     // front of / behind terrain correctly).
-    const float fade = clamp( ( tNear - 28000.0 ) / 28000.0, 0.0, 1.0 );
+    const float fade = clamp( ( tNear - 18000.0 ) / 22000.0, 0.0, 1.0 );
+    // Rays grazing the slab (the deck seen edge-on from above / below) sample
+    // the noise field at sub-pixel scale: fade them instead of showing alias.
+    alpha *= smoothstep( 0.0, 0.10, abs( dir.y ) );
     light = mix( light, pc.Fog.rgb * alpha, fade );
     alpha *= 1.0 - fade * fade * 0.9;
     light *= 1.0 - fade * fade * 0.9;

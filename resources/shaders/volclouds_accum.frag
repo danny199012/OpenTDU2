@@ -33,7 +33,9 @@ void main() {
     vec2 historyAH = currentAH;
     if ( pc.Fwd.w < 0.5 ) {
         // The march hit distance -> world position -> previous frame's uv.
-        const vec2 ndc = vec2( inTexcoord.x * 2.0 - 1.0, inTexcoord.y * 2.0 - 1.0 );
+        // Vertical NDC flips (D3D texcoords, see volclouds.frag), and so does
+        // the uv row: uv y grows downwards on screen.
+        const vec2 ndc = vec2( inTexcoord.x * 2.0 - 1.0, 1.0 - inTexcoord.y * 2.0 );
         const vec3 dir = normalize( pc.Fwd.xyz + pc.Right.xyz * ( pc.Right.w * pc.Up.w * ndc.x ) +
                                     pc.Up.xyz * ( pc.Right.w * ndc.y ) );
         const vec3 world = pc.CamPos.xyz + dir * ( currentAH.y * kMaxDistance );
@@ -41,9 +43,8 @@ void main() {
         const float z = dot( v, pc.PrevFwd.xyz );
         if ( z > 1.0 ) {
             const vec2 uvHistory =
-                vec2( 0.5 ) +
-                0.5 * vec2( dot( v, pc.PrevRight.xyz ) / ( z * pc.PrevCam.w * pc.PrevRight.w ),
-                            dot( v, pc.PrevUp.xyz ) / ( z * pc.PrevCam.w ) );
+                vec2( 0.5 + 0.5 * dot( v, pc.PrevRight.xyz ) / ( z * pc.PrevCam.w * pc.PrevRight.w ),
+                      0.5 - 0.5 * dot( v, pc.PrevUp.xyz ) / ( z * pc.PrevCam.w ) );
             if ( all( greaterThan( uvHistory, vec2( 0.0 ) ) ) && all( lessThan( uvHistory, vec2( 1.0 ) ) ) ) {
                 history = texture( uHistory, uvHistory );
                 historyAH = unpackHalf2x16( floatBitsToUint( history.a ) );
