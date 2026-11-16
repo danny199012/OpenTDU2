@@ -294,12 +294,12 @@ void EdenClouds::copySceneDepth( RenderDevice &device, GPUTexture *pSceneDepth )
 
 float EdenClouds::thresholdForCoverage( float coverage ) const {
     const float c = Clamp( coverage, 0.0f, 1.0f );
-    // A deck seen from below reads much denser than its volume fraction (rays
-    // graze it), so the request is mapped onto a percentile that is *far* above
-    // the middle: 0.5 (fair-weather CLOUD_B) leaves ~28 % of the field as
-    // cloud, 0.86 (CLOUD_R) ~70 %. q = 1 - (0.3c + 0.7c^3).
-    const float q = Clamp( 1.0f - ( 0.3f * c + 0.7f * c * c * c ), 0.0f, 1.0f );
-    const float position = q * static_cast<float>( kCoverageSteps );
+    // coverageThresholds[i] already holds the quantile for coverage i / steps (the
+    // table is filled from the top of the sorted field), so it is indexed by
+    // the coverage itself. The first version indexed it by 1 - coverage, which
+    // inverted the weather: the "overcast" preset had FEWER clouds than fair
+    // weather. 0.8c keeps a little of the field clear even at full cover.
+    const float position = Clamp( 0.8f * c, 0.0f, 1.0f ) * static_cast<float>( kCoverageSteps );
     const uint32_t index = static_cast<uint32_t>( position );
     const float fraction = position - static_cast<float>( index );
     const uint32_t next = Min<uint32_t>( index + 1, kCoverageSteps );

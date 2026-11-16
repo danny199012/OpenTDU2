@@ -7,6 +7,25 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 47): clouds v5 - real cumulus with blue gaps; the coverage table was inverted
+
+Owner: "look into the clouds again ... they had been looked at a few times and still don't look great".
+
+**Reproduced**: freeride look-up and World Viewer `-island ibiza -campos 35700,80,5600 -campitch 20 -weather 12 -clock 12` showed a near-solid dull-grey deck, smooth lens-shaped blobs and blown-out white "holes", no blue sky, no cumulus shape.
+
+### What changed
+- `source/render/eden/eden_clouds.cpp` `thresholdForCoverage`: **the table was indexed by 1-coverage although it is already filled by coverage**, so more coverage gave FEWER clouds (log: 0.5 -> 0.169, 0.86 -> 0.679). Now 0.5 -> 0.513, 0.86 -> 0.154 (`0.8c` mapping). The "overcast"/rain presets were thinner than fair weather before.
+- `resources/shaders/volclouds.frag` (+ regenerated `volclouds_frag.h`): large-scale cluster map and per-cloud top height from the same noise volume (flat bases, puffy varying tops, gaps); stronger 4-channel detail erosion; lower light extinction (0.014), higher multi-scatter floor, brighter ambient, HDR sun scaled 0.55 and the HG phase capped (the lit tops clipped to white).
+
+### Verified
+- `docs/images/clouds_v5_viewer.webp`, `clouds_v5_drive.webp` (freeride look-up), `clouds_v5_overcast.webp` (`-cloudcover 0.86`), `clouds_v5_rain.webp` (freeride `-intempery 6`, dark storm sky). Drive/overcast captures were taken at the `0.9c` mapping; the final `0.8c` is slightly clearer (World Viewer day shot re-taken).
+- Not measured: perf (shader got one more texture fetch per density call, 2 more in the light march) - check the `[perf]` line.
+
+### Not done / next
+- `-intempery` has no effect in the World Viewer (weather fixed there), so the rain look was only checked in freeride.
+- Sunset / night colours unchecked; still no clouds in the env cube / mirrors.
+
+
 ## Session 2026-11-16 (`main`, 46): the second tuner shop "Rev Yard" - the used-car-dealer room as a dark neon workshop, with props of our own
 
 The owner: *"we made a custom shop using something we already have ... maybe make a unique shop ... use used car dealer interior, add the lifts and a few other things, use stuff from other places for props ... custom cars in the background ... people working on their cars online"*, then *"make it an extra shop"*, *"yes icdc_wld"*, *"reskin and add props"*.

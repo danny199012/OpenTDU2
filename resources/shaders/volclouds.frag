@@ -41,23 +41,29 @@ float heightFraction( float y ) {
 
 float density( vec3 p, bool bDetail ) {
     const float h = heightFraction( p.y );
-    // Rounded bases; the tops thin out so the slab never ends as a lid.
-    const float profile = smoothstep( 0.0, 0.10, h ) * ( 1.0 - smoothstep( 0.45, 0.98, h ) );
     const vec3 q = ( p + vec3( pc.SunColor.w, 0.0, pc.Ambient.w ) * pc.CamPos.w ) / kShapeScale;
+    // Low-frequency maps (the same noise volume, a large-scale slice): where
+    // the clouds cluster (cmap) and how tall each one grows (tmap). A flat
+    // base with a per-cloud top is what makes a fair-weather cumulus field
+    // read as separate puffy clouds with blue sky between, instead of one lid.
+    const float cmap = texture( uBase, vec3( q.xz * 0.23, 0.37 ) ).r;
+    const float tmap = texture( uBase, vec3( q.zx * 0.41 + 0.5, 0.81 ) ).r;
+    const float topH = mix( 0.30, 1.0, smoothstep( 0.15, 0.85, tmap ) );
+    // Rounded bases; each cloud's own top rounds off below the slab top.
+    const float profile = smoothstep( 0.0, 0.08, h ) * ( 1.0 - smoothstep( topH * 0.55, topH, h ) );
     float d = texture( uBase, q ).r;
-    // Coverage: the lower the threshold, the more of the slab is cloud. The
-    // divisor saturates the interior quickly (the pale 1 - threshold scaling
-    // left a sky thin enough to see through).
+    // Clusters: positive cmap raises the field, so the threshold carves
+    // isolated clouds in the gaps and merges them where cmap is high.
+    d += ( cmap - 0.5 ) * mix( 0.55, 0.25, pc.Right.w );
     // Coverage: the threshold is a measured quantile of the base-noise field
-    // (EdenClouds::thresholdForCoverage, pushed in pc.Fog.w), so coverage 0.5
-    // really leaves half the field above it. The divisor only controls how
-    // quickly the density ramps past the threshold.
+    // (EdenClouds::thresholdForCoverage, pushed in pc.Fog.w).
     const float threshold = pc.Fog.w;
-    d = clamp( ( d - threshold ) / mix( 0.30, 0.22, pc.Right.w ), 0.0, 1.0 ) * profile;
+    d = clamp( ( d - threshold ) / mix( 0.16, 0.22, pc.Right.w ), 0.0, 1.0 ) * profile;
     if ( bDetail && d > 0.0 ) {
-        const float w = dot( texture( uDetail, q * ( kShapeScale / kDetailScale ) ).rgb, vec3( 0.625, 0.25, 0.125 ) );
-        // Erode the edges: wispy at the bottom, billowier near the top.
-        d = clamp( d - ( 1.0 - w ) * 0.24 * mix( 1.0, 0.5, h ), 0.0, 1.0 );
+        const vec4 w4 = texture( uDetail, q * ( kShapeScale / kDetailScale ) );
+        const float w = dot( w4, vec4( 0.50, 0.28, 0.14, 0.08 ) );
+        // Erode the edges hard: cauliflower billows, wispy at the base.
+        d = clamp( d - ( 1.0 - w ) * 0.42 * mix( 1.0, 0.55, h ), 0.0, 1.0 );
     }
     return d * mix( 1.0, 1.6, pc.ToSun.w );
 }
@@ -113,7 +119,7 @@ void main() {
 
     const float cosSun = dot( dir, pc.ToSun.xyz );
     const float phase = mix( henyeyGreenstein( cosSun, 0.60 ), henyeyGreenstein( cosSun, -0.20 ), 0.35 ) * 12.566;
-    const float sigma = mix( 0.020, 0.042, pc.ToSun.w ); // extinction per metre of density
+    const float sigma = mix( 0.014, 0.036, pc.ToSun.w ); // extinction per metre of density
 
     float transmittance = 1.0;
     vec3 light = vec3( 0.0 );
@@ -138,9 +144,9 @@ void main() {
                 sunLight += pc.SunColor.rgb * max( octave, 0.10 ) * scatter;
                 scatter *= 0.55;
             }
-            sunLight *= phase * mix( 1.0, powder, 0.35 );
+            sunLight *= 0.55 /* HDR sun: unscaled the lit tops clip to flat white */ * min( phase, 1.6 ) * mix( 1.0, powder, 0.35 );
             const float h = heightFraction( p.y );
-            const vec3 ambient = pc.Ambient.rgb * mix( 0.45, 1.30, h ) * mix( 1.0, 0.45, pc.ToSun.w );
+            const vec3 ambient = pc.Ambient.rgb * mix( 0.80, 1.35, h ) * mix( 1.0, 0.45, pc.ToSun.w );
             const float stepTransmittance = exp( -d * stepLength * sigma );
             // Energy of the step, integrated over its length (Hillaire's analytic form).
             const vec3 scattered = ( sunLight + ambient ) * ( 1.0 - stepTransmittance );
