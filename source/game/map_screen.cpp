@@ -1311,7 +1311,7 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
                         gpDatabase->getDocument().getRoot().getArrayElement( "DBCarPhysicsData", static_cast<uint32_t>( car.PhysicsRow ) )["_vehiclecategory"].asInt() );
                 }
                 const char *pClass = VehicleClassName( category );
-                player.setVariable( key + "_gp", pClass != nullptr && pClass[0] != ' ' ? pClass : "empty" );
+                player.setVariable( key + "_gp", pClass != nullptr && pClass[0] != '\0' ? pClass : "empty" );
                 player.setVariable( key + "_car_name", car.Brand + " " + car.Model );
                 player.setVariable( key + "_state", bOwned ? "true" : "false" );
                 bought += bOwned ? 1 : 0;
@@ -1332,8 +1332,8 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
             const std::string key = "/:li" + std::to_string( i );
             const char *pFirst = VehicleClassName( licences[i]->VehicleCategory[0] );
             const char *pSecond = VehicleClassName( licences[i]->VehicleCategory[1] );
-            player.setVariable( key + "_gp1", pFirst != nullptr && pFirst[0] != ' ' ? pFirst : "empty" );
-            player.setVariable( key + "_gp2", pSecond != nullptr && pSecond[0] != ' ' ? pSecond : "empty" );
+            player.setVariable( key + "_gp1", pFirst != nullptr && pFirst[0] != '\0' ? pFirst : "empty" );
+            player.setVariable( key + "_gp2", pSecond != nullptr && pSecond[0] != '\0' ? pSecond : "empty" );
             const bool bDone = IsLicenseObtained( *licences[i] );
             done += bDone ? 1 : 0;
             player.setVariable( key + "_state", bDone ? "done" : ( !bCurrent ? "current" : "locked" ) );
@@ -1366,7 +1366,7 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
         player.setVariable( "/:NbStickersBoardsBought", std::to_string( profile.OwnedStickerBanks.size() ) );
         player.setVariable( "/:NbStickersBoardsTotal", "28" ); // the DBStickersBanks rows [INF count]
     } else if ( strcmp( pKind, "tuning" ) == 0 ) {
-        title = spot.Name.compare( 0, 4, "ETNR" ) == 0 ? "Tuner garage" : "Tuning shop";
+        title = spot.Name.compare( 0, 4, "ETNR" ) == 0 ? "Wangan Works" : "Tuning shop";
     } else if ( strcmp( pKind, "carWash" ) == 0 ) {
         title = "Car wash";
         player.setVariable( "/:WashingPrice", "$10" );

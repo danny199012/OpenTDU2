@@ -4376,7 +4376,7 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
         // and the walk continues - true, the refusal was handled (the caller
         // would otherwise stamp its generic "not open yet" over the reason).
         if ( !TunerModEnabled() ) {
-            interior.showMessage( "The tuner garage needs the Tuner mod." );
+            interior.showMessage( "Wangan Works needs the Tuner mod." );
             return true;
         }
         if ( !GetTunerParts().isTunerCar( car.getIdCar() ) ) {
@@ -4606,8 +4606,22 @@ void GMFreeRide::drawUI() {
     Vector3f target;
     float heading = 0.0f;
     bool bHasHeading = false;
-    if ( cheats.takeTeleport( target, heading, bHasHeading ) ) {
+    std::string teleportEnterSpot;
+    if ( cheats.takeTeleport( target, heading, bHasHeading, &teleportEnterSpot ) ) {
         teleportTo( target, heading, bHasHeading );
+        // The panel's Wangan Works row: at the door AND inside. The retail
+        // spots need the enter prompt pressed at the building; the mod's room
+        // is a closed one (no world stream), so the walk-in lands the same
+        // frame - the -interior hook's path.
+        if ( !teleportEnterSpot.empty() && !interior.isActive() && interior.enter( teleportEnterSpot, islandName ) ) {
+            interiorKind = strncmp( teleportEnterSpot.c_str(), "ETNR", 4 ) == 0 ? "tuner" : "";
+            interiorSpotId = 0;
+            bindStickerShop();
+            bindTunerGarage();
+            hud.closeEnterSpot();
+            hud.closeHint();
+            OTDU_LOG_INFO( "FREERIDE: teleport walked straight into '%s'\n", teleportEnterSpot.c_str() );
+        }
     }
     if ( CmdLine::HasArg( "-cavescan" ) && pGameInstance->getFrameIndex() == 90 ) {
         // Down rays through the Hawai cave box: every triangle hit (the ray goes on after each), to see whether the

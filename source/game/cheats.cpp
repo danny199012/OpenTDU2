@@ -60,17 +60,22 @@ bool gbPendingAllSpotsFromCommandLine = false;
 struct LandmarkDestination {
     const char *Name;
     const char *BankPrefix;
+    // When the resolved spot's name starts with this, the teleport walks
+    // straight into that interior (the Wangan Works row: the mod's closed
+    // room loads without a world stream, so the drop and the walk-in are
+    // one action). Null = a plain drop.
+    const char *EnterPrefix;
 };
 const LandmarkDestination kLandmarks[] = {
-    { "Airport", "EAIR" },
-    { "Casino", "EGAMHA" },
-    { "Ferrari dealer", "ECD_FERR" },
-    { "Any dealer", "ECD_" },
-    { "Tuning shop", "ETUN_A" },
-    { "Tuner garage", "ETNR_" },
-    { "Car wash", "ECW_A" },
-    { "Race school", "ERS_A" },
-    { "Clothes shop", "EAS_A" },
+    { "Airport", "EAIR", nullptr },
+    { "Casino", "EGAMHA", nullptr },
+    { "Ferrari dealer", "ECD_FERR", nullptr },
+    { "Any dealer", "ECD_", nullptr },
+    { "Tuning shop", "ETUN_A", nullptr },
+    { "Wangan Works", "ETNR_", "ETNR" },
+    { "Car wash", "ECW_A", nullptr },
+    { "Race school", "ERS_A", nullptr },
+    { "Clothes shop", "EAS_A", nullptr },
 };
 
 // `-tpdestination <name>`: a quick destination of the row, teleported to once
@@ -98,6 +103,10 @@ void Cheats::setSpots( std::vector<Spot> newSpots, const std::string &newIsland 
                 Destination destination;
                 destination.Name = landmark.Name;
                 destination.SpotIndex = static_cast<int32_t>( i );
+                if ( landmark.EnterPrefix != nullptr &&
+                     spots[i].Name.compare( 0, strlen( landmark.EnterPrefix ), landmark.EnterPrefix ) == 0 ) {
+                    destination.EnterSpot = spots[i].Name;
+                }
                 destinations.push_back( std::move( destination ) );
                 break;
             }
@@ -116,21 +125,23 @@ void Cheats::setSpots( std::vector<Spot> newSpots, const std::string &newIsland 
     // are here (an exact name first, then the first name containing it).
     if ( !gsPendingDestination.empty() ) {
         const std::string wanted = ToLower( gsPendingDestination );
-        int32_t match = -1;
+        const Destination *pMatch = nullptr;
         for ( const Destination &destination : destinations ) {
             const std::string name = ToLower( destination.Name );
             if ( name == wanted ) {
-                match = destination.SpotIndex;
+                pMatch = &destination;
                 break;
             }
-            if ( match < 0 && name.find( wanted ) != std::string::npos ) {
-                match = destination.SpotIndex;
+            if ( pMatch == nullptr && name.find( wanted ) != std::string::npos ) {
+                pMatch = &destination;
             }
         }
-        if ( match >= 0 ) {
-            teleportToSpot( match );
-            OTDU_LOG_INFO( "Cheats: -tpdestination '%s' -> %s (%.0f, %.0f)\n", gsPendingDestination.c_str(),
-                           spots[match].Name.c_str(), spots[match].Position.x, spots[match].Position.z );
+        if ( pMatch != nullptr ) {
+            teleportToSpot( pMatch->SpotIndex, pMatch->EnterSpot );
+            OTDU_LOG_INFO( "Cheats: -tpdestination '%s' -> %s (%.0f, %.0f)%s\n", gsPendingDestination.c_str(),
+                           spots[pMatch->SpotIndex].Name.c_str(), spots[pMatch->SpotIndex].Position.x,
+                           spots[pMatch->SpotIndex].Position.z,
+                           pMatch->EnterSpot.empty() ? "" : ", walk straight in" );
         } else {
             OTDU_LOG_WARN( "Cheats: -tpdestination '%s' is not one of the row's destinations\n",
                            gsPendingDestination.c_str() );
@@ -144,7 +155,7 @@ void Cheats::setWeathers( std::vector<std::string> names, int32_t current ) {
     selectedWeather = current;
 }
 
-void Cheats::teleportToSpot( int32_t index ) {
+void Cheats::teleportToSpot( int32_t index, const std::string &enterSpot ) {
     if ( index < 0 || index >= static_cast<int32_t>( spots.size() ) ) {
         return;
     }
@@ -155,9 +166,10 @@ void Cheats::teleportToSpot( int32_t index ) {
     bTeleport = true;
     teleportTarget = spots[index].Position;
     bTeleportRequestHeading = false;
+    pendingEnterSpot = enterSpot;
 }
 
-bool Cheats::takeTeleport( Vector3f &outTarget, float &outHeading, bool &outHasHeading ) {
+bool Cheats::takeTeleport( Vector3f &outTarget, float &outHeading, bool &outHasHeading, std::string *pOutEnterSpot ) {
     if ( !bTeleport ) {
         return false;
     }
@@ -165,6 +177,10 @@ bool Cheats::takeTeleport( Vector3f &outTarget, float &outHeading, bool &outHasH
     outTarget = teleportTarget;
     outHeading = teleportRequestHeading;
     outHasHeading = bTeleportRequestHeading;
+    if ( pOutEnterSpot != nullptr ) {
+        *pOutEnterSpot = pendingEnterSpot;
+    }
+    pendingEnterSpot.clear();
     return true;
 }
 
@@ -524,7 +540,7 @@ void Cheats::drawUI( const char *pModeName ) {
                         ImGui::SameLine();
                     }
                     if ( ImGui::Button( destinations[i].Name.c_str() ) ) {
-                        teleportToSpot( destinations[i].SpotIndex );
+                        teleportToSpot( destinations[i].SpotIndex, destinations[i].EnterSpot );
                     }
                 }
                 ImGui::TextDisabled( "destinations - the island's landmark spots" );

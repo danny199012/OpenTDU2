@@ -42,6 +42,15 @@ session a confusion cycle). With `-clock` the rate freezes, so the whole run is 
   **pixel-identical** (0 differing pixels), and the clean paired measurement (back to back, pinned clock) is
   **13.9 -> 12.0 ms (72 -> 83 fps)**: prepass 6.6 -> 5.9, shadows 2.8 -> 2.4, opaque 2.2 -> 1.7 - the cache
   saves 1.9 ms a frame. The A/A runs of one build are pixel-identical.
+  **CORRECTION (session 44, 2026-11-16):** the frame-400 purity check was too short to catch two
+  defects. (1) `Sector::InstanceFrameInfo`'s ONE shared stamp let the frustum / ground writes
+  revalidate the LOD entry ahead of its own staleness check - every instance's LOD froze at its
+  first pick for the sector's whole load (the owner-visible flicker / despawn of world objects;
+  fixed in session 44 with one stamp per value). (2) With a STATIONARY camera the frame stamp never
+  bumps, and the view-projection slot lets a pass reuse verdicts written by a DIFFERENT pass under
+  the same slot - the paired A/B at 2400 frames still shows a ~2 % horizon band vs
+  `-noinstancecache`, far-slice caster draws differ (548 vs 305 on slice 2). Full data and the fix
+  direction: docs/state/main.md session 44. The 1.9 ms win needs a re-measure after (2) lands.
 - **Fresh `-sampleprof` of the remaining main thread (frames 360-600) `[MEAS]`** - the next levers, biggest
   first:
   1. **The grass emit is ~22 %**: `buildGrassBatch` 12.2 + `GrassRoadIndex::nearRoad` 4.5 + `maybeNear` 1.5 +

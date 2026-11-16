@@ -44,7 +44,7 @@ import struct
 import sys
 
 # The re-theme: the sign's name and the neon palette (magenta / cyan).
-SIGN_NAME = "TUNER GARAGE"
+SIGN_NAME = "WANGAN WORKS"
 NEON_A = (255, 60, 200)   # magenta
 NEON_B = (60, 220, 255)   # cyan
 
@@ -124,6 +124,25 @@ def _glow_line(img, points, colour, width):
                              width=width, joint="curve")
 
 
+def _fit_font(texts, base, max_width):
+    """The biggest font size <= base whose widest text fits max_width pixels
+    (the mural words come from SIGN_NAME, so a rename must not overflow the
+    tube frame)."""
+    from PIL import ImageFont
+    size = base
+    while size > 24:
+        font = _font(size)
+        widest = 0
+        for t in texts:
+            if t:
+                box = font.getbbox(t)
+                widest = max(widest, box[2] - box[0])
+        if widest <= max_width:
+            return font
+        size -= 8
+    return _font(24)
+
+
 def make_wall(path):
     """256x256, tileable: dark workshop wall, faint scuffs, two small tags
     kept clear of the tile edges so the repeat stays clean."""
@@ -159,11 +178,14 @@ def make_poster(path):
     _glow_line(img, [(36, 476), (988, 476)], NEON_B, 5)
     _glow_line(img, [(36, 36), (36, 476)], NEON_B, 3)
     _glow_line(img, [(988, 36), (988, 476)], NEON_A, 3)
-    # the name, two lines, magenta over cyan
-    font_big = _font(96)
+    # the name, the first two words of SIGN_NAME stacked, magenta over cyan,
+    # sized to the tube frame (the constant at the top is the knob)
+    words = (SIGN_NAME.split() + [""])[:2]
+    font_big = _fit_font(words, 96, 988 - 36 - 2 * 74)
     font_small = _font(64)
-    _glow_text(img, (110, 120), "TUNER", font_big, NEON_A)
-    _glow_text(img, (110, 240), "GARAGE", font_big, NEON_B)
+    _glow_text(img, (110, 120), words[0], font_big, NEON_A)
+    if words[1]:
+        _glow_text(img, (110, 240), words[1], font_big, NEON_B)
     _glow_text(img, (112, 372), "parts  -  fits  -  paint", font_small, NEON_A)
     # a graffiti scribble over the corner (our tag)
     _glow_line(img, [(760, 400), (800, 360), (850, 410), (900, 370), (950, 400)], NEON_B, 4)
@@ -244,7 +266,7 @@ def make_screen(path):
     for y in range(0, 128, 24):
         draw.line((0, y, 256, y), fill=(22, 40, 52, 255))
     font = _font(30)
-    _glow_text(img, (18, 44), "TUNER", font, NEON_B)
+    _glow_text(img, (18, 44), (SIGN_NAME.split() or ["WANGAN"])[0], font, NEON_B)
     img.convert("RGB").save(path)
 
 

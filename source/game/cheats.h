@@ -43,6 +43,9 @@ public:
     struct Destination {
         std::string Name;      // "Airport", "Ferrari dealer"...
         int32_t SpotIndex = -1; // index into the spot list
+        // The spot bank a teleport here walks straight into ("" = a plain
+        // drop at the building).
+        std::string EnterSpot;
     };
 
     // Filled by the mode (the island's spots, the weather preset names).
@@ -53,8 +56,13 @@ public:
     void setOpen( bool bValue ) { bOpen = bValue; }
     void toggle() { bOpen = !bOpen; }
 
-    // What the panel asked for; each call clears the request.
-    bool takeTeleport( Vector3f &outTarget, float &outHeading, bool &outHasHeading );
+    // What the panel asked for; each call clears the request. pOutEnterSpot
+    // (optional) receives the spot bank the teleport should walk straight
+    // into (the Wangan Works row: at the door AND inside - the room is a
+    // closed one, it loads without a world stream), or an empty string for
+    // the plain drops.
+    bool takeTeleport( Vector3f &outTarget, float &outHeading, bool &outHasHeading,
+                       std::string *pOutEnterSpot = nullptr );
     // Travel to another island ("ibiza" / "hawai" / "casino"): the mode restarts there at the island's airport.
     bool takeIslandTravel( std::string &outIsland );
     bool takeWeather( int32_t &outIndex );
@@ -131,8 +139,9 @@ private:
     char spotFilter[64] = {};
     int32_t selectedSpot = -1;
     // The one teleport path of the panel: the spot list, the destination row
-    // and the coordinate fields all set the same request.
-    void teleportToSpot( int32_t index );
+    // and the coordinate fields all set the same request. enterSpot (the
+    // destination row's Wangan Works) walks straight into that interior.
+    void teleportToSpot( int32_t index, const std::string &enterSpot = std::string() );
     std::vector<std::string> weathers;
     int32_t selectedWeather = 0;
     int32_t moneyInput = 1000000;
@@ -148,6 +157,9 @@ private:
     Vector3f teleportTarget;
     float teleportRequestHeading = 0.0f;
     bool bTeleportRequestHeading = false;
+    // The spot bank this teleport walks straight into (the Wangan Works row;
+    // empty for every other drop).
+    std::string pendingEnterSpot;
     bool bWeather = false;
     int32_t weatherIndex = 0;
     bool bStoryStep = false;

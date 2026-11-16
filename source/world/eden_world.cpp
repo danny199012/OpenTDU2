@@ -1391,7 +1391,7 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
         }
         bool bVisible = true;
         bool bOccluded = false;
-        if ( bVisCache && info.Stamp == stamp && info.bVisFilled ) {
+        if ( bVisCache && info.VisStamp == stamp ) {
             bVisible = info.bMainVisible;
             bOccluded = info.bOccluded;
         } else {
@@ -1415,8 +1415,7 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
             if ( bVisWrite ) {
                 info.bMainVisible = bVisible;
                 info.bOccluded = bOccluded;
-                info.bVisFilled = true;
-                info.Stamp = stamp;
+                info.VisStamp = stamp;
             }
         }
         if ( !bVisible || bOccluded ) {
@@ -1446,13 +1445,12 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
         // repeated by every pass).
         bool bHasGround = false;
         if ( instance.Type == 1 || instance.Type == 3 ) {
-            if ( info.Stamp == stamp && info.bGroundValid ) {
+            if ( info.GroundStamp == stamp ) {
                 bHasGround = info.bHasGround;
             } else {
                 bHasGround = libraryNodeHasGround( sector.InstanceModels[i] );
                 info.bHasGround = bHasGround;
-                info.bGroundValid = true;
-                info.Stamp = stamp;
+                info.GroundStamp = stamp;
             }
         }
         const EdenDrawParams *pGroundParams =
@@ -1477,10 +1475,14 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
             // (max(F, 1) for the last level, the same rule the cull distance
             // uses). A level whose geometry did not load falls back to the
             // finest one that did. Cached per frame (InstanceFrame): every
-            // pass picks the same LOD for the same camera position.
+            // pass of a frame picks the same LOD for the same camera position;
+            // the LOD's own stamp (not a flag shared with the frustum / ground
+            // writes above) decides stale - otherwise the first frame's pick
+            // would ride every later stamp refresh and freeze (the
+            // flicker / despawn of 2026-11-16).
             uint32_t lod = 0;
             std::pair<uint32_t, uint32_t> range( 0, 0 );
-            if ( info.Stamp == stamp && info.bComputed ) {
+            if ( info.LodStamp == stamp ) {
                 lod = info.Lod;
                 range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
             } else {
@@ -1511,8 +1513,7 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
                     range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
                 }
                 info.Lod = lod;
-                info.bComputed = true;
-                info.Stamp = stamp;
+                info.LodStamp = stamp;
             }
             // The item loop of drawNodeItems with one extra filter: the lamp
             // glow faces (TD_Lamp, c913741cbe17490d) of the SF_Ligh* models

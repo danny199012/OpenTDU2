@@ -322,20 +322,28 @@ private:
         // reused by every pass that draws the world with it (the prepass, the
         // shadow slices and the opaque pass submit the same instances 3-4x a
         // frame; PERF_PLAN 2 #2's cheaper variant - the distance walk and the
-        // per-pass frustum stay inline). Stamp compares EdenWorld's
+        // per-pass frustum stay inline). The stamps compare EdenWorld's
         // instanceFrameStamp; the view-projection bits (bMainVisible /
         // bOccluded) are only written and read by non-shadow-caster passes
         // (the slot VP in EdenWorld::instanceFrameVp - the opaque after the
         // prepass); the shadow slices' light projections and any other pass
         // compute inline. Everything stays a memoization of values this
         // function computed anyway.
+        // One stamp per value, not one shared: a write of one value's stamp
+        // must never revalidate another's. The shared Stamp let the frustum /
+        // ground branches (they run first in the loop) refresh the field to
+        // the new frame's stamp ahead of the LOD branch's staleness check, so
+        // a LOD picked on the first frame a sector was drawn stayed for the
+        // sector's whole load - cars rolled into cities that never left their
+        // first-seen LOD (blob / impostor buildings up close) and instances
+        // whose frozen level's items were not in the streamed model drew
+        // nothing (the flicker / despawn of 2026-11-16).
         struct InstanceFrameInfo {
-            uint32_t Stamp = 0;
+            uint32_t VisStamp = 0;    // bMainVisible / bOccluded (with the slot VP)
+            uint32_t GroundStamp = 0; // bHasGround
+            uint32_t LodStamp = 0;    // Lod (stamp equality is validity: 0 = never filled)
             uint32_t Lod = 0;
             bool bHasGround = false;
-            bool bComputed = false;   // Lod valid
-            bool bGroundValid = false; // bHasGround valid
-            bool bVisFilled = false;  // bMainVisible / bOccluded valid
             bool bMainVisible = false;
             bool bOccluded = false;
         };
@@ -687,7 +695,10 @@ private:
     ModelCallback modelUnloadedCallback;
     // drawInstances' per-frame cache key (Sector::InstanceFrame): the stamp
     // bumps when the camera position, the draw-distance / LOD factors or the
-    // drawn sector set change - a new stamp invalidates every entry. The
+    // drawn sector set change - a new stamp invalidates every entry, and each
+    // entry's value revalidates only through its OWN stamp (InstanceFrameInfo:
+    // a write of one value's stamp must not revalidate another's - the shared
+    // stamp of the first cut let the LOD freeze at its first pick). The
     // view-projection slot owns the per-instance bMainVisible / bOccluded
     // bits: the first pass after a stamp bump (the ocean mirror, a cube face
     // or the prepass - whichever runs first) claims it and fills, a pass with

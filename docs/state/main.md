@@ -7,6 +7,78 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 44): "Wangan Works" - the shop gets its name; F4 walks straight in; the flicker root cause is HALF fixed (handoff below)
+
+Task: the owner picked the garage's final name (the plan's open question), asked which shop the
+retail game uses for customizations, wanted an F4 teleporter button for it, and reported world
+objects / buildings flickering and despawning, worse when the camera pans (suspected session 41).
+
+### The shop name + the customization-shop answer
+- Name: **"Wangan Works"** (owner's pick of 4). Wired everywhere player-visible: the neon mural
+  (`make_tuner_interior.py` SIGN_NAME + the poster/screen art derive their words from it now, with a
+  fit-to-frame font size; `itnr_a.bnk` REGENERATED into the overlay - run
+  `python tools/mod/make_tuner_interior.py --art`), the walk-up prompt title
+  (`map_screen.cpp` ~1369), the part-menu title (`tuner_menu.cpp`), the F4 landmark row and the
+  mod-off refusal (`cheats.cpp`, `gm_freeride.cpp`). Evidence: `docs/images/wangan_works_room.webp`
+  (teleport-in shot: the GTR on the lift, the dark room, the "WORKS" wall art visible).
+- The retail customization-shop question: retail TDU2 has exactly ONE tuning interior -
+  `Euro/Bnk/Interior/itun_a.bnk`, shared by every ETUN_* spot; visual paint/vinyls happen at the
+  ESTICK_* sticker shops (`istick_b`). There is no separate "customization shop". The mod's room is
+  the generated **`<userdata>/mods/packages/tuner-garage/Euro/Bnk/interior/itnr_a.bnk`** (the
+  re-skinned copy of itun_a; delete the file to fall back to the vanilla one). The mod package's
+  art sources live in `resources/mods/packages/tuner-garage/interior/art/`.
+
+### F4 teleporter: teleport AND walk straight in
+- The F4 panel's destination row already had "Tuner garage" (session 42) but it only dropped you at
+  the building. `Cheats::LandmarkDestination` now carries an `EnterPrefix` - the **"Wangan Works"**
+  row resolves the first `ETNR_*` spot and asks the mode to walk straight in: `takeTeleport` grew an
+  optional `pOutEnterSpot` out-param (also honored by `-tpdestination "wangan works"` - that is the
+  headless test path), and `gm_freeride.cpp` (~4609) does `interior.enter(spot)` + `interiorKind =
+  "tuner"` + `bindStickerShop()` / `bindTunerGarage()` on the same tick (the `-interior` hook's
+  path; the room is a closed one, no world stream, so it loads instantly).
+- Verified (Hawai, the save's island; `-car GTR -tpdestination "wangan works" -nointeriorintro`):
+  `Cheats: -tpdestination 'wangan works' -> ETNR_A (21160, 11500), walk straight in` ->
+  `interior/itnr_a.bnk` -> `sticker car 403 on D_CAR` -> `Tuner: the car is on the room's place` ->
+  `FREERIDE: teleport walked straight into 'ETNR_A'`. The GTR wore its saved wing.
+
+### Housekeeping
+- `map_screen.cpp` carried three RAW NUL bytes inside `'\0'` char literals (committed long ago) -
+  they made the whole file unreadable to text tooling (the Read tool refuses it, grep needs -a).
+  Normalized to the `'\0'` escape, byte-identical semantics. Trap for the next agent: bash
+  double quotes eat `\\0` into a literal NUL - patch such bytes with `bytes([92, 48])`, not
+  backslash literals.
+
+### The flicker / despawn: root cause found, HALF fixed - **handoff for the next agent**
+`Sector::InstanceFrameInfo` (session 41's per-instance draw cache, `eden_world.cpp`) used ONE
+shared `Stamp` for three cached values, and the loop's order made it wrong: the frustum/occlusion
+branch and the TD_Ground branch run FIRST and refresh `info.Stamp` to the new frame's stamp, then
+the LOD branch's staleness check (`info.Stamp == stamp && info.bComputed`) passes on a LOD computed
+for an older camera. **Every instance's LOD froze at the first value computed for that sector
+load**: buildings first seen far stayed coarse/impostor blobs up close, and a frozen level whose
+items were not in the streamed model drew nothing (the flicker / despawn). Session 41's "pixel-identical"
+purity check compared frame 400 of a short straight drive - too early to cross LOD thresholds.
+- **Fixed here**: one stamp per value (`VisStamp` / `GroundStamp` / `LodStamp`; stamp equality IS
+  validity - the `bVisFilled` / `bComputed` / `bGroundValid` flags are gone). Per-frame LOD
+  recompute while moving is back (with its empty-range fallback walk), within-frame sharing
+  (prepass fills, opaque reads) is kept, cross-frame reuse while stationary is kept.
+- **NOT fixed (the next agent's work)**: the A/B vs `-noinstancecache` still diverges - paired
+  2400-frame drives (720p, `-clock 02.00 -staticcubemap -fixedtimestep`, teleport
+  `-tp 21796.3,24188.1 -snaproad 150 -carlod 4`, autoplay `60:hold=accel`): ~2 % of pixels differ
+  in a horizon band (far-hill ridge), A/A is pixel-identical. Temporary instrumentation
+  (`-loginstances` per-pass decision counters, since removed - re-add it, and do not trust a ninja
+  build that did not recompile the file, see the map_screen trap above) localized it to the
+  **view-projection slot**: with a STATIONARY camera the frame stamp never bumps, so
+  `VisStamp == stamp` stays true forever and a pass whose VP equals the slot reuses verdicts that
+  were written by a DIFFERENT pass under the same slot (the slot tracks only the current VP, not
+  the VP the stored verdicts were computed with). Instrumented groups (cache ON vs OFF, same VP):
+  `frustumCulled 0 (visReused 2151)` vs `frustumCulled 1604 (visComputed 2196)` - the ON run draws
+  ~1600 instances the OFF run culls, and the far-slice shadow maps then differ (slice 2: 548 vs 305
+  caster draws). Fix direction: key the vis verdicts by the VP they were computed with (store the
+  slot VP hash per instance, or per group of passes), not just by the frame stamp. Shadow far-slice
+  round-robin lag (`eden_shadows.cpp`) is a separate, deliberate tradeoff - leave it.
+- Repro of the user report (pre-fix, gone with the fix): drive a while, buildings stay blobs;
+  post-fix drives look right, only the stationary-camera band remains.
+
 
 ## Session 2026-11-16 (`main`, 43): the tuner garage gets its own dark / neon / graffiti interior
 
