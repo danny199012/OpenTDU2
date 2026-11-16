@@ -46,6 +46,16 @@ std::string InteriorWalk::InteriorBankFor( const std::string &spotBank ) {
         cache[spotBank] = bThere ? bikeBank : std::string();
         return cache[spotBank];
     }
+    // ETNR_*: the tuner-garage mod's spots (the overlay's spots.bin records,
+    // docs/TUNER_MOD_PLAN.md 4). One interior serves every tuning shop of the
+    // game (itun_a, the ETUN_* walk-in), so the garage reuses it - the same
+    // shared-bank rule as the bike dealers above.
+    if ( spotBank.size() >= 4 && _strnicmp( spotBank.c_str(), "ETNR", 4 ) == 0 ) {
+        const std::string tunerBank = "interior/itun_a.bnk";
+        const bool bThere = gpFile != nullptr && gpFile->fileExists( ( gpFile->getBankFolder() + tunerBank ).c_str() );
+        cache[spotBank] = bThere ? tunerBank : std::string();
+        return cache[spotBank];
+    }
     std::string name = spotBank.substr( 1 );
     std::transform( name.begin(), name.end(), name.begin(),
                     []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );

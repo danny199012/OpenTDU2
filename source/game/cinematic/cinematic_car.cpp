@@ -365,6 +365,7 @@ void CinematicCar::unload() {
     wheelSpinRests[0].clear();
     wheelSpinRests[1].clear();
     bWheelSpinRests = false;
+    tunerAttachment = TunerAttachment(); // the part's node index died with the model (re-applied by the caller)
     bHardtop = false;
     hardtopTime = 0.0f;
     hardtopSkin.clear();
@@ -2792,6 +2793,49 @@ bool CinematicCar::getNodeModelTransform( const char *pName, Matrix4x4f &outTran
     return true;
 }
 
+void CinematicCar::setTunerAttachment( const EdenMesh &mesh, const EdenMaterial &material,
+                                       const char *pBodyNodeName, const Matrix4x4f &offset ) {
+    tunerAttachment.Mesh = mesh;
+    tunerAttachment.Material = material;
+    tunerAttachment.Offset = offset;
+    // The node to hang from, by name (the scene lookup folds the long names);
+    // the low LOD banks have no BODY_HR - BODY_MR is their body, a part on an
+    // AI-detail car then still hangs off something sane.
+    tunerAttachment.Node = -1;
+    if ( pBodyNodeName != nullptr && pBodyNodeName[0] != '\0' && car.isLoaded() ) {
+        tunerAttachment.Node = car.getScene().findNode( pBodyNodeName );
+        if ( tunerAttachment.Node < 0 ) {
+            tunerAttachment.Node = FindNodeByHash( car.getScene(), pBodyNodeName );
+        }
+        if ( tunerAttachment.Node < 0 && StringCmpI( pBodyNodeName, "BODY_HR" ) == 0 ) {
+            tunerAttachment.Node = car.getScene().findNode( "BODY_MR" );
+        }
+        if ( tunerAttachment.Node < 0 ) {
+            OTDU_LOG_WARN( "CinematicCar: tuner part node '%s' not found on '%s' (drawn at the origin)\n",
+                           pBodyNodeName, fileName.c_str() );
+        }
+    }
+    OTDU_LOG_INFO( "CinematicCar: tuner part attached to '%s' node %d\n", fileName.c_str(), tunerAttachment.Node );
+    if ( CmdLine::HasArg( "-logtuner" ) ) {
+        // The offset calibration: where the body node sits and how tall the
+        // body is, so a tuner.txt offset can be set by the numbers.
+        Matrix4x4f bodyT;
+        Vector3f bMin, bMax;
+        if ( getNodeModelTransform( "BODY_HR", bodyT ) ) {
+            OTDU_LOG_INFO( "CinematicCar: BODY_HR at (%.3f, %.3f, %.3f)\n", bodyT.m[3][0], bodyT.m[3][1],
+                           bodyT.m[3][2] );
+        }
+        if ( getBodyBounds( bMin, bMax ) ) {
+            OTDU_LOG_INFO( "CinematicCar: body bounds (%.3f, %.3f, %.3f)-(%.3f, %.3f, %.3f)\n", bMin.x, bMin.y, bMin.z,
+                           bMax.x, bMax.y, bMax.z );
+        }
+    }
+}
+
+void CinematicCar::clearTunerAttachment() {
+    tunerAttachment = TunerAttachment();
+}
+
 bool CinematicCar::getBodyBounds( Vector3f &outMin, Vector3f &outMax ) const {
     if ( !car.isLoaded() ) {
         return false;
@@ -3599,6 +3643,13 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
             renderer.draw( wiper.Mesh, car.getMaterials()[car.getItems()[static_cast<size_t>( wiper.ItemIndex )].MaterialIndex],
                            world * nodeT * swing );
         }
+    }
+    // The tuner-garage part (setTunerAttachment): one borrowed mesh on the
+    // body node, drawn in every context this car renders in.
+    if ( tunerAttachment.Mesh.IndexCount > 0 ) {
+        const Matrix4x4f nodeT =
+            tunerAttachment.Node >= 0 ? car.getNodeTransform( tunerAttachment.Node ) : Matrix4x4f();
+        renderer.draw( tunerAttachment.Mesh, tunerAttachment.Material, world * nodeT * tunerAttachment.Offset );
     }
     if ( bInterior ) {
         interior.draw( renderer, world );

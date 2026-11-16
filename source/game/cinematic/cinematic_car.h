@@ -95,6 +95,21 @@ public:
     // outroWheelSpin for C_FIRST_OUTRO. radians is cumulative (0 restores).
     void setWheelSpin( float radians );
 
+    // The tuner-garage mod's part (docs/TUNER_MOD_PLAN.md, session 42): one
+    // extra mesh drawn on a body node at a fixed node-space offset - the
+    // mod-props OBJ route, so the part is our own art and rides the overlay.
+    // The mesh / material are borrowed (the buffers stay owned by the tuner
+    // part cache, which several car instances share); unload() drops the
+    // borrow. pBodyNodeName: the node to hang from ("BODY_HR", falling back to
+    // "BODY_MR", then the car origin); offset places the part origin in that
+    // node's space (the tuner.txt per-car offsets). Drawing here means every
+    // context of the car - the world, the showrooms, the shop room - shows the
+    // part with no per-caller work.
+    void setTunerAttachment( const EdenMesh &mesh, const EdenMaterial &material,
+                             const char *pBodyNodeName, const Matrix4x4f &offset );
+    void clearTunerAttachment();
+    inline bool hasTunerAttachment() const { return tunerAttachment.Mesh.IndexCount > 0; }
+
     // Car world pose: the cinematic pose with the 4 tires resting on the
     // surface (plane through the hub targets).
     Matrix4x4f fitOnGround( Vector3f position, const Quaternionf &rotation,
@@ -578,4 +593,13 @@ private:
     int32_t loggedRimRear = -1;
     float tireRadius = 0.339f;
     float bodyLift = 0.0f;
+    // The tuner-garage part (setTunerAttachment): the borrowed mesh / material
+    // and the resolved body node + offset.
+    struct TunerAttachment {
+        EdenMesh Mesh;
+        EdenMaterial Material;
+        int32_t Node = -1;   // the node it hangs from (-1 = the car origin)
+        Matrix4x4f Offset;
+    };
+    TunerAttachment tunerAttachment;
 };

@@ -24,6 +24,9 @@
 #include "game/freeride/fuel.h"
 #include "game/freeride/fuel_menu.h"
 #include "game/freeride/sticker_bank.h"
+#include "game/freeride/tuner.h"
+#include "game/freeride/tuner_menu.h"
+#include "game/freeride/tuner_parts.h"
 #include "game/world_clock.h"
 #include "input/gs_input.h"
 #include "physics/havok_collision.h"
@@ -693,6 +696,8 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     car.load( carDesc );
     applyOwnedPaint();
     applyOwnedStickers();
+    bTunerApplied = false; // the parts (the tuner garage mod) - applyTunerParts lands them, drawOffscreen retries
+    applyTunerParts();
     loadOccupants();
     // The sticker shop rooms' movie: its stsh: FSCommands come to the shop UI.
     interior.setCommandSink( [this]( const std::string &command, const std::string & ) {
@@ -2358,7 +2363,8 @@ const char *HologramIconFor( const std::string &bank, const char *pIcon, bool bO
         return bank.compare( 0, 3, "EPH" ) == 0 ? ( bOwnedHouse ? "Playerhouse" : "House_To_Buy" ) : "Realtor";
     }
     static const struct { const char *Icon, *Model; } kMap[] = {
-        { "clothes", "Clothes_Shop" }, { "tuning", "Tuner" },       { "club", "Club" },
+        { "clothes", "Clothes_Shop" }, { "tuning", "Tuner" },       { "tuner", "Tuner" },
+        { "club", "Club" },
         { "gamblinghall", "GamblinHall" }, { "carwash", "Car_Wash" }, { "carpaint", "Stickers" },
         { "rschool", "Racing_School" },    { "photograph", "Photograph" }, { "surgery", "Surgery" },
         { "stolencar", "Used_Car_Dealer" }, { "hair", "Hair_Stylist" }, { "airport", "Airport" },
@@ -3042,7 +3048,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
 
     // The A button of the nearest spot (nothing while a menu or a race is up).
     const bool bBusy = clothesMenu.isOpen() || dealer.isOpen() || schoolMenu.isOpen() || schoolScreen.isOpen() || championshipMenu.isOpen() ||
-                       estate.isOpen() || tuningMenu.isOpen() || paintMenu.isOpen() || licenseTest.isActive() ||
+                       estate.isOpen() || tuningMenu.isOpen() || tunerMenu.isOpen() || paintMenu.isOpen() || licenseTest.isActive() ||
                        raceEvents.getStage() != RaceEvents::eStage::Idle;
     if ( !bBusy && bSlow && pNearKind != nullptr && !hud.isLevelUpActive() && !risk.isBanking() &&
          gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
@@ -3114,6 +3120,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                 interiorKind = pNearKind;
                 interiorSpotId = nearSpotId;
                 bindStickerShop();
+                bindTunerGarage();
                 hud.closeEnterSpot();
                 hud.closeHint();
                 // The bike showroom (EUC_BD*): the only bike of the data, Default_Bike (id 666, the Ducati Diavel
@@ -3257,6 +3264,48 @@ void GMFreeRide::applyTuning() {
     vehicle.setParams( tunedSetup );
     OTDU_LOG_INFO( "FREERIDE: '%s' tuning applied live (accel %d, braking %d, speed %d)\n", carDesc.FileName.c_str(),
                    levels.Accel, levels.Braking, levels.Speed );
+}
+
+void GMFreeRide::applyTunerParts() {
+    // The tuner-garage mod's parts the car wears (PlayerProfile::
+    // OwnedCarTunerParts, slot -> part id; the catalog is the mod's
+    // tuner.txt). Mod off = vanilla: nothing is drawn, the save data stays
+    // (the rule: a toggle is reversible, never destructive). The part meshes
+    // need the renderer, which is not up at spawn - a bTunerApplied == false
+    // here makes drawOffscreen retry once it is.
+    if ( !car.isLoaded() ) {
+        return;
+    }
+    if ( gpRender == nullptr || gpRender->getEdenRenderer() == nullptr ) {
+        return; // the drawOffscreen retry lands it
+    }
+    bTunerApplied = true;
+    if ( !TunerModEnabled() ) {
+        car.clearTunerAttachment();
+        return;
+    }
+    GetTunerParts().load();
+    const PlayerProfile &profile = GetPlayerProfile();
+    const auto found = profile.OwnedCarTunerParts.find( car.getIdCar() );
+    if ( found == profile.OwnedCarTunerParts.end() ) {
+        car.clearTunerAttachment();
+        return;
+    }
+    const auto slot = found->second.Parts.find( "spoiler" );
+    if ( slot == found->second.Parts.end() || slot->second.empty() ) {
+        car.clearTunerAttachment();
+        return;
+    }
+    const TunerPart *pPart = GetTunerParts().findPart( slot->second );
+    if ( pPart == nullptr ) {
+        // A part the catalog lost (a renamed id, a file gone): the data stays
+        // saved, nothing is drawn.
+        OTDU_LOG_INFO( "Tuner: '%s' part '%s' is not in the catalog (kept as data, not drawn)\n",
+                       carDesc.FileName.c_str(), slot->second.c_str() );
+        car.clearTunerAttachment();
+        return;
+    }
+    GetTunerParts().applyPart( car, car.getIdCar(), pPart );
 }
 
 void GMFreeRide::openChampionshipScreen( const LicenseInfo &championship ) {
@@ -4225,6 +4274,41 @@ void GMFreeRide::bindStickerShop() {
                       pStickerRoomCar != nullptr ? pStickerRoomCar : ( car.isLoaded() ? &car : nullptr ) );
 }
 
+void GMFreeRide::bindTunerGarage() {
+    // The tuner garage (the mod's ETNR_* spots): the car copy on the room's
+    // car place - the live preview the menu edits (the design-studio rule).
+    // Runs at the enter prompt; the menu itself opens at the seller.
+    if ( interiorKind != "tuner" || !TunerModEnabled() ) {
+        return;
+    }
+    GetTunerParts().load();
+    pTunerRoomCar = car.isLoaded() ? interior.placeStickerCar( car.getIdCar() ) : nullptr;
+    if ( pTunerRoomCar == nullptr ) {
+        OTDU_LOG_INFO( "Tuner: the room has no car place - the menu sells without a live preview\n" );
+        return;
+    }
+    // The room car wears what the driven car wears (its paint, then its saved
+    // parts) before the first preview move.
+    const PlayerProfile &profile = GetPlayerProfile();
+    const auto paint = profile.OwnedCarPaints.find( car.getIdCar() );
+    if ( paint != profile.OwnedCarPaints.end() ) {
+        pTunerRoomCar->applyDatabasePaint( paint->second );
+    }
+    const auto custom = profile.OwnedCarCustomPaints.find( car.getIdCar() );
+    if ( custom != profile.OwnedCarCustomPaints.end() ) {
+        pTunerRoomCar->applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour,
+                                         custom->second.Colour2 );
+    }
+    const auto parts = profile.OwnedCarTunerParts.find( car.getIdCar() );
+    if ( parts != profile.OwnedCarTunerParts.end() ) {
+        const auto slot = parts->second.Parts.find( "spoiler" );
+        if ( slot != parts->second.Parts.end() && !slot->second.empty() ) {
+            GetTunerParts().applyPart( *pTunerRoomCar, car.getIdCar(), GetTunerParts().findPart( slot->second ) );
+        }
+    }
+    OTDU_LOG_INFO( "Tuner: the car is on the room's place, the garage turntable ready\n" );
+}
+
 bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotBank, uint64_t spotId ) {
     if ( kind == "cardealer" ) {
         const CarShop *pShop = findSpotCarShop( spotBank, spotId );
@@ -4284,6 +4368,24 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
         OTDU_LOG_INFO( "FREERIDE: realtor '%s' (0x%llx): %s\n", spotBank.c_str(),
                        static_cast<unsigned long long>( spotId ), estate.isOpen() ? "stock found" : "no stock" );
         return estate.isOpen();
+    }
+    if ( kind == "tuner" ) {
+        // The tuner garage (the mod's ETNR_* spots): the visual parts of the
+        // car you drove in with. Not a tuner car (or the mod off): a notice,
+        // and the walk continues - true, the refusal was handled (the caller
+        // would otherwise stamp its generic "not open yet" over the reason).
+        if ( !TunerModEnabled() ) {
+            interior.showMessage( "The tuner garage needs the Tuner mod." );
+            return true;
+        }
+        if ( !GetTunerParts().isTunerCar( car.getIdCar() ) ) {
+            interior.showMessage( "This is not a tuner car. The garage works on the tuner style: the GT-R, "
+                                  "the Zs, the WRX STI, the RX-8..." );
+            return true;
+        }
+        tunerMenu.setSidePanel( interior.isActive() );
+        tunerMenu.open( car.getIdCar(), FindCarDisplayName( car.getIdCar() ), pTunerRoomCar );
+        return true;
     }
     if ( kind == "tuning" ) {
         // The tuning shop (ETUN_*): the three levels of the car you drove in with.
@@ -5560,6 +5662,34 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         return;
     }
+    if ( tunerMenu.isOpen() ) {
+        tunerMenu.tick( deltaTime );
+        interior.tickBackground( deltaTime );
+        // The car on the room place slowly turns (the garage turntable): the
+        // preview shows every side while the panel sits at the right. Set
+        // after tickBackground so this frame's camera is the one that renders.
+        if ( pTunerRoomCar != nullptr ) {
+            tunerCamYaw += 0.28f * deltaTime; // ~22 s a revolution
+            Vector3f local;
+            int32_t roomCarId = -1;
+            if ( interior.getScene().getDisplayCarInfo( 0, local, roomCarId ) ) {
+                constexpr float kTurntablePitch = 0.30f;
+                constexpr float kTurntableDistance = 5.5f;
+                const Vector3f focus = local + Vector3f( 0.0f, 0.8f, 0.0f );
+                const Vector3f eye = focus + Vector3f( std::sin( tunerCamYaw ) * std::cos( kTurntablePitch ),
+                                                       std::sin( kTurntablePitch ),
+                                                       std::cos( tunerCamYaw ) * std::cos( kTurntablePitch ) ) *
+                                                   kTurntableDistance;
+                interior.getScene().setLocalCamera( eye, ChaseCamera::LookRotation( eye, focus ), 55.0f * kDegToRad,
+                                                    0.1f );
+            }
+        }
+        // A bought part is on the real car as the panel closes.
+        if ( !tunerMenu.isOpen() ) {
+            applyTunerParts();
+        }
+        return;
+    }
     // The pump screen (fuel_menu): its own little screen, the world keeps living.
     if ( fuelMenu.isOpen() ) {
         {
@@ -5636,7 +5766,14 @@ void GMFreeRide::tick( float deltaTime ) {
     static const char *pForcedInterior = CmdLine::GetArgValue( "-interior" );
     if ( pForcedInterior != nullptr ) {
         interior.enter( pForcedInterior, islandName );
+        // The forced interior's kind (the enter prompt's pNearKind never ran):
+        // the tuner garage by its name prefix, the rest stay kindless (they
+        // open through the prompt).
+        if ( strncmp( pForcedInterior, "ETNR", 4 ) == 0 ) {
+            interiorKind = "tuner";
+        }
         bindStickerShop();
+        bindTunerGarage();
         pForcedInterior = nullptr;
     }
     // -enterhouse <DBHouse spot>: straight into that house's living room (any
@@ -5661,6 +5798,10 @@ void GMFreeRide::tick( float deltaTime ) {
     if ( stickerShop.isBound() && !interior.isActive() ) {
         stickerShop.unbind();
         pStickerRoomCar = nullptr;
+    }
+    // Out of the tuner garage: the room car goes with the room.
+    if ( pTunerRoomCar != nullptr && !interior.isActive() ) {
+        pTunerRoomCar = nullptr;
     }
     // Inside a spot interior (InteriorWalk): the island and the car are
     // frozen behind it, the engine is off.
@@ -5796,6 +5937,9 @@ void GMFreeRide::tick( float deltaTime ) {
             // A tuning bought inside the shop takes effect as the player gets
             // back in the car (the physics is re-seeded from the base setup).
             applyTuning();
+            // The tuner-garage parts too (a purchase in the garage, or the
+            // spawn-time apply that waited for the renderer).
+            applyTunerParts();
             OTDU_LOG_INFO( "FREERIDE: back in the car\n" );
             break;
         }
@@ -8360,6 +8504,12 @@ void GMFreeRide::drawOffscreen() {
             bStickerCanvasBound = car.bindStickerTexture( *pRenderer, stickerCanvas.getTexture() ) > 0;
         }
     }
+    // The tuner-garage parts (the mod): the renderer is up here (it was not
+    // at spawn), so a deferred attach lands now - once; applyTunerParts marks
+    // itself done even when the car wears nothing.
+    if ( !bTunerApplied && car.isLoaded() ) {
+        applyTunerParts();
+    }
     if ( pStickerRoomCar != nullptr && interior.isActive() && stickerCanvas.getTexture() != nullptr &&
          !bStickerRoomCarBound ) {
         bStickerRoomCarBound = pStickerRoomCar->bindStickerTexture( *pRenderer, stickerCanvas.getTexture() ) > 0;
@@ -8418,6 +8568,7 @@ void GMFreeRide::draw() {
     clothesMenu.draw( renderer );
     estate.draw( renderer );
     tuningMenu.draw( renderer );
+    tunerMenu.draw( renderer );
     paintMenu.draw( renderer );
     fuelMenu.draw( renderer );
     schoolMenu.draw( renderer );

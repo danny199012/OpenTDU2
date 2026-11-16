@@ -402,6 +402,37 @@ void LoadProfile() {
                 profile.OwnedCarRimSizes[static_cast<int32_t>( id )] = static_cast<int32_t>( diameter );
                 pText = *pEnd == ',' ? pEnd + 1 : pEnd;
             }
+        } else if ( key == "car_tuner_parts" ) {
+            // "<id_car>:<slot>=<part id>[;<slot>=<part id>],..." - the
+            // tuner-garage mod's parts. An entry is kept as saved even when
+            // its part id is not in the catalog (or the mod is off): the
+            // apply step skips what it does not know, nothing is deleted.
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const long id = strtol( pText, &pEnd, 10 );
+                if ( pEnd == pText || *pEnd != ':' ) {
+                    break;
+                }
+                TunerCarParts &carParts = profile.OwnedCarTunerParts[static_cast<int32_t>( id )];
+                pText = pEnd + 1;
+                while ( *pText != 0 && *pText != ',' ) {
+                    const char *pEq = strchr( pText, '=' );
+                    const char *pSep = strpbrk( pText, ";," );
+                    if ( pEq == nullptr || ( pSep != nullptr && pSep < pEq ) ) {
+                        break; // not "<slot>=": malformed, stop this car
+                    }
+                    const size_t partLen =
+                        ( pSep != nullptr ? pSep : pText + strlen( pText ) ) - ( pEq + 1 );
+                    carParts.Parts[ToLower( std::string( pText, static_cast<size_t>( pEq - pText ) ) )] =
+                        std::string( pEq + 1, partLen );
+                    pText = pSep != nullptr ? pSep + 1 : pText + strlen( pText );
+                }
+                while ( *pText != 0 && *pText != ',' ) {
+                    pText++; // a malformed tail: skip to the next car
+                }
+                pText = *pText == ',' ? pText + 1 : pText;
+            }
         } else if ( key == "outlaw_level" ) {
             profile.OutlawLevel = number;
         } else if ( key == "chase_escapes" ) {
@@ -798,6 +829,21 @@ bool SaveProfile( const char *pReason ) {
         for ( const auto &rim : profile.OwnedCarRimSizes ) {
             file << ( bFirstRim ? "" : "," ) << rim.first << ":" << rim.second;
             bFirstRim = false;
+        }
+        file << "\n";
+        file << "car_tuner_parts = ";
+        bool bFirstTunerCar = true;
+        for ( const auto &carParts : profile.OwnedCarTunerParts ) {
+            if ( carParts.second.Parts.empty() ) {
+                continue;
+            }
+            file << ( bFirstTunerCar ? "" : "," ) << carParts.first << ":";
+            bool bFirstSlot = true;
+            for ( const auto &slot : carParts.second.Parts ) {
+                file << ( bFirstSlot ? "" : ";" ) << slot.first << "=" << slot.second;
+                bFirstSlot = false;
+            }
+            bFirstTunerCar = false;
         }
         file << "\n";
         file << "outlaw_level = " << profile.OutlawLevel << "\n";

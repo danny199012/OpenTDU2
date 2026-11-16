@@ -14,6 +14,15 @@ struct TuningLevels {
     int32_t Speed = 0;
 };
 
+// The tuner-garage mod's installed parts of one car: slot -> part id
+// ("spoiler" -> "wing_gt"; the ids are the mod's tuner.txt catalog). A part
+// the catalog no longer knows stays here as data - the apply step skips it,
+// so disabling the mod or losing the file never loses the work (the mod rule:
+// a toggle is reversible).
+struct TunerCarParts {
+    std::map<std::string, std::string> Parts; // slot -> part id
+};
+
 // Cinematic request of the CINE game mode (0x1f), ported from
 // CamilleKMI/OpenTDU2 335759a (docs/re/story_spec.md 3): FUN_00b9a1f0 stores
 // it at DAT_01025608 + 0x9730 (kind), +0x9734 (the story callback
@@ -179,11 +188,14 @@ struct PlayerProfile {
     // (docs/re/houses_spec.md 9). Two houses of one level share the bank, so
     // they share the entry key too. Shop interiors keep replaying theirs.
     std::vector<std::string> SeenHouseIntros;
-    // Tuning levels per owned car (bought at a tuning shop): _id_car -> levels.
-    std::map<int32_t, TuningLevels> OwnedCarTuning;
-    // Rim size bought at a tuning shop (the "rim size" mechanical option):
-    // _id_car -> rim diameter in inches. Absent = the car's stock rims.
-    std::map<int32_t, int32_t> OwnedCarRimSizes;
+// Tuning levels per owned car (bought at a tuning shop): _id_car -> levels.
+std::map<int32_t, TuningLevels> OwnedCarTuning;
+// Rim size bought at a tuning shop (the "rim size" mechanical option):
+// _id_car -> rim diameter in inches. Absent = the car's stock rims.
+std::map<int32_t, int32_t> OwnedCarRimSizes;
+// The tuner-garage mod's visual parts (the `tuner-garage` package):
+// _id_car -> its installed parts (TunerCarParts above).
+std::map<int32_t, TunerCarParts> OwnedCarTunerParts;
     // Chase mode (police): the outlaw rank 0..3 (Clean record .. Public
     // enemy, loc 5885 / 5887 / 5888 / 5889) and the counters of the Game
     // Progress pages. The cop rank (5890..5893) is not earned yet.

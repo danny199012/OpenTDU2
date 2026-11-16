@@ -34,6 +34,7 @@
 #include "game/freeride/paint_menu.h"
 #include "game/freeride/sticker_shop_ui.h"
 #include "game/freeride/tuning_menu.h"
+#include "game/freeride/tuner_menu.h"
 #include "game/freeride/discovery_points.h"
 #include "game/freeride/race_events.h"
 #include "game/freeride/race_gates.h"
@@ -265,6 +266,13 @@ private:
     // ESTICK room; -nostickerui keeps the native paintMenu there.
     StickerShopUi stickerShop;
     void bindStickerShop();
+    // The tuner garage (the `tuner-garage` mod, ETNR_* spots): its menu and
+    // the car copy on the room's car place - the live preview the menu edits.
+    TunerMenu tunerMenu;
+    CinematicCar *pTunerRoomCar = nullptr;
+    bool bTunerApplied = false; // the driven car wears its saved parts
+    float tunerCamYaw = 0.6f;   // the room turntable
+    void bindTunerGarage();
     // The sticker editor's car view: the native place mode or the movie's
     // stsh:mcin .. stsh:mcou span.
     bool stickerCarView() const;
@@ -389,6 +397,12 @@ private:
     // the live vehicle (setupVehicle() applies them at spawn, this re-applies
     // after a shop purchase).
     void applyTuning();
+    // The tuner-garage mod's saved parts onto the driven car (the spoiler and
+    // what follows): a no-op draw state when the mod is off - the save data
+    // stays. Called at spawn (the renderer may not be up yet: drawOffscreen
+    // retries through bTunerApplied), on leaving the tuner garage, and when
+    // the player gets back in the car.
+    void applyTunerParts();
     // "Take photo" of the pause screen (PhotoCamera): a free camera around the
     // car that writes a PNG of the frame; bPendingPhoto waits for the pause
     // menu's out animation before it opens.

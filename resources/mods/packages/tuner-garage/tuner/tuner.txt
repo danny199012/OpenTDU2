@@ -1,0 +1,82 @@
+# The tuner-garage mod's data file: the part catalog and the per-car profiles.
+#
+# Read with the game's own overlay rules: the file inside the enabled
+# `tuner-garage` package (or a loose <mods>/tuner/tuner.txt) shadows this one,
+# so a user can add a car or a part without touching the repo. Editing this
+# file needs a game restart (the catalog is read once).
+#
+# Format (INI-like, '#' comments):
+#
+#   [part:<id>]            a visual part. <id> is the save's part id: renaming
+#                          one orphans the saved installs (they are skipped on
+#                          load, never lost - they come back if the id does).
+#     name = ...           the menu label
+#     slot = spoiler       the attach slot (v1: spoilers only)
+#     price = 9500         what the garage charges [INF: no retail pricing
+#                          table exists; the tuning shop's levels are $12k steps]
+#     mesh = wing_gt.obj   the OBJ in this folder's parts/ (Blender -> OBJ+MTL,
+#                          the mod-props route). Y=0 is the deck plane the part
+#                          sits on, +Z points at the car's nose (the car body
+#                          space is rear = -Z; measured on the GTR at runtime),
+#                          metres.
+#     offset = 0 1.02 -1.9 the default body-space position (x y z, metres):
+#                          where the part's origin lands on the car body node.
+#     node = BODY_HR       the car node the part hangs from (BODY_HR, BODY_MR;
+#                          default BODY_HR)
+#
+#   [car:<file name>]      a tuner car, keyed by the DBCarPhysicsData
+#                          _car_file_name (so both catalog rows of a car - e.g.
+#                          the two GTR rows - match). A car absent from this
+#                          list is not a tuner car.
+#     slots = spoiler      the slots its garage menu offers
+#     spoiler_offset = ... overrides the slot's default offset for this car
+#
+# The retail roster is small: no R34, Evo, Supra, RX-7, S15 or NSX exists in
+# the game's 279 car rows [DATA: -dumpdbtable DBCarPhysicsData] - those would
+# be new car models, a project of their own. The starter list is what fits the
+# style today; adding a car is one block here.
+
+[part:wing_gt]
+name = GT Wing
+slot = spoiler
+price = 9500
+mesh = wing_gt.obj
+offset = 0 0.80 -2.0
+node = BODY_HR
+
+[part:wing_ducktail]
+name = Ducktail
+slot = spoiler
+price = 5200
+mesh = wing_ducktail.obj
+offset = 0 0.74 -2.05
+node = BODY_HR
+
+[part:wing_street]
+name = Street Lip
+slot = spoiler
+price = 2800
+mesh = wing_street.obj
+offset = 0 0.78 -2.0
+node = BODY_HR
+
+[car:GTR]
+slots = spoiler
+
+[car:370Z]
+slots = spoiler
+
+[car:350Z_CPE]
+slots = spoiler
+
+[car:Impreza_WRX_STI_2007]
+slots = spoiler
+
+[car:RX8_Cpe]
+slots = spoiler
+
+[car:Delta_Integrale_Evo_2]
+slots = spoiler
+
+[car:Escort_RS_Cosworth]
+slots = spoiler

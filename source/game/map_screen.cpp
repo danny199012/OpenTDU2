@@ -5,6 +5,7 @@
 #include "audio/frontend_audio.h"
 #include "game/pause_menu.h"
 #include "game/freeride/race_events.h"
+#include "game/freeride/tuner.h"
 
 #include "database/gs_database.h"
 #include "flash/flash_localization.h"
@@ -1241,7 +1242,7 @@ void MapScreen::updateSnap() {
 static const char *SpotCardKind( const char *pIcon ) {
     static const struct { const char *pIcon; const char *pKind; } kKinds[] = {
         { "estates", "estates" },   { "home", "home" },         { "cardealer", "carDealer" }, { "clothes", "clothes" },
-        { "tuning", "tuning" },     { "club", "club" },         { "gamblinghall", "gamblingHall" },
+        { "tuning", "tuning" },     { "tuner", "tuning" },     { "club", "club" },         { "gamblinghall", "gamblingHall" },
         { "carwash", "carWash" },   { "carpaint", "carPaint" }, { "bikedealer", "bikeDealer" },
         { "rschool", "rschool" },   { "photograph", "photograph" }, { "surgery", "surgery" },
         { "stolencar", "stolenCar" }, { "hair", "hair" },       { "airport", "airport" }, { "event", "event" },
@@ -1365,7 +1366,7 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
         player.setVariable( "/:NbStickersBoardsBought", std::to_string( profile.OwnedStickerBanks.size() ) );
         player.setVariable( "/:NbStickersBoardsTotal", "28" ); // the DBStickersBanks rows [INF count]
     } else if ( strcmp( pKind, "tuning" ) == 0 ) {
-        title = "Tuning shop";
+        title = spot.Name.compare( 0, 4, "ETNR" ) == 0 ? "Tuner garage" : "Tuning shop";
     } else if ( strcmp( pKind, "carWash" ) == 0 ) {
         title = "Car wash";
         player.setVariable( "/:WashingPrice", "$10" );
@@ -1967,7 +1968,15 @@ void MapScreen::loadSpots( const std::string &island ) {
         // 3 and 5 [DATA: the source paths inside the interior banks]: EAS_* /
         // ESHOP_CA are spots\avatshp (the clothes shops), ECH_* spots\clubhous.
         case 0x03: spot.pIcon = "clothes"; spot.Tab = 2; break;
-        case 0x04: spot.pIcon = "tuning"; spot.Tab = 3; break;
+        case 0x04:
+            // ETNR_*: the tuner-garage mod's spots (the overlay's spots.bin
+            // records) wear the tuning-shop building - their own kind, the
+            // tuner garage flow instead (the ESTICK prefix rule).
+            // With the mod off no icon: vanilla shows nothing of the
+            // garage, whatever the overlay holds.
+            if ( startsWith( "ETNR" ) ) { spot.pIcon = TunerModEnabled() ? "tuner" : nullptr; spot.Tab = 3; }
+            else { spot.pIcon = "tuning"; spot.Tab = 3; }
+            break;
         case 0x05: spot.pIcon = "club"; spot.Tab = 2; break;
         case 0x06: spot.pIcon = "gamblinghall"; spot.Tab = 2; break;
         case 0x08:

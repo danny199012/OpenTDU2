@@ -67,6 +67,7 @@ const LandmarkDestination kLandmarks[] = {
     { "Ferrari dealer", "ECD_FERR" },
     { "Any dealer", "ECD_" },
     { "Tuning shop", "ETUN_A" },
+    { "Tuner garage", "ETNR_" },
     { "Car wash", "ECW_A" },
     { "Race school", "ERS_A" },
     { "Clothes shop", "EAS_A" },

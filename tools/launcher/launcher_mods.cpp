@@ -49,6 +49,18 @@ const char *kEnhancedDamageJson =
     "car.\"\n"
     "}\n";
 
+const char *kTunerGarageJson =
+    "{\n"
+    "  \"name\": \"Tuner garage (experimental)\",\n"
+    "  \"version\": \"0.1\",\n"
+    "  \"author\": \"OpenTDU2\",\n"
+    "  \"description\": \"Adds a tuner garage to the game: a map spot on every island where the tuner-style cars (GT-R, "
+    "370Z, 350Z, Impreza WRX STI, RX-8, Delta Integrale, Escort RS Cosworth) get visual parts the vanilla game never "
+    "had. First parts: spoilers (a GT wing, a ducktail, a street lip), shown live on your car and saved per car. Leave "
+    "it off for the vanilla experience: no garage, no parts - and parts you already bought stay saved, untouched, "
+    "until you turn the mod back on.\"\n"
+    "}\n";
+
 int CountFiles( const fs::path &folder ) {
     int count = 0;
     std::error_code ec;
@@ -58,6 +70,36 @@ int CountFiles( const fs::path &folder ) {
         }
     }
     return count;
+}
+
+// Copies every file of `source` into `dest` (sub-folders kept): a file is
+// copied when it is missing or older than its source. The data-mod install:
+// the mod's own art / data live in the repo (resources/mods/packages/<id>) and
+// land in the user's overlay here, so a launcher user gets the parts without a
+// manual copy. Never touches anything outside `dest`.
+void SyncFolderInto( const fs::path &source, const fs::path &dest ) {
+    std::error_code ec;
+    if ( !fs::is_directory( source, ec ) ) {
+        return;
+    }
+    for ( const auto &entry : fs::recursive_directory_iterator( source, ec ) ) {
+        if ( !entry.is_regular_file( ec ) ) {
+            continue;
+        }
+        const fs::path relative = fs::relative( entry.path(), source, ec );
+        if ( relative.empty() ) {
+            continue;
+        }
+        const fs::path target = dest / relative;
+        bool bCopy = !fs::exists( target, ec );
+        if ( !bCopy ) {
+            bCopy = fs::last_write_time( entry.path(), ec ) > fs::last_write_time( target, ec );
+        }
+        if ( bCopy ) {
+            fs::create_directories( target.parent_path(), ec );
+            fs::copy_file( entry.path(), target, fs::copy_options::overwrite_existing, ec );
+        }
+    }
 }
 
 } // namespace
@@ -91,6 +133,23 @@ void EnsureBundledMods( const std::wstring &userData ) {
     if ( !FileExists( damageManifest ) ) {
         MakeDirs( damageFolder );
         WriteTextFile( damageManifest, kEnhancedDamageJson );
+    }
+    // The tuner-garage mod carries its own data (tuner/tuner.txt + the part
+    // meshes - our art, never game data). A checkout's launcher installs it
+    // from the repo's resources folder (refreshing files it has updated); a
+    // distributed zip degrades to the manifest-only switch, and the game then
+    // runs an empty part catalog.
+    const std::wstring tunerFolder = JoinPath( JoinPath( ModsRoot( userData ), L"packages" ), L"tuner-garage" );
+    const std::wstring tunerManifest = JoinPath( tunerFolder, L"mod.json" );
+    if ( !FileExists( tunerManifest ) ) {
+        MakeDirs( tunerFolder );
+        WriteTextFile( tunerManifest, kTunerGarageJson );
+    }
+    const std::wstring repoRoot = FindRepositoryRoot( ExeDir() );
+    if ( !repoRoot.empty() ) {
+        const std::wstring source = JoinPath( JoinPath( JoinPath( repoRoot, L"resources" ), L"mods" ),
+                                              JoinPath( L"packages", L"tuner-garage" ) );
+        SyncFolderInto( fs::path( source ), fs::path( tunerFolder ) );
     }
 }
 

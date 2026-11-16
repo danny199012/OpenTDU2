@@ -80,3 +80,9 @@ Each step is useful alone; stopping after any of them leaves something working.
 - Scope inspiration: TDU Solar Crown's tuner update and Initial D collab. A scope reference, not a target.
 - The Apr 2012 dev build (`E:\Documents\TDU2+Dev+Build`, see memory index) may hold audio code or
   data worth checking. Nothing read yet.
+
+## Status (session 42, 2026-11-16)
+
+- **Shipped** (opt-in, `resources/mods/packages/tuner-garage`): mod switch (`-tunermod` / `-notunermod`), part catalog `tuner/tuner.txt` (3 spoilers, 7 cars), shared OBJ loader (`source/game/spots/obj_mesh.cpp`), engine hook `CinematicCar::setTunerAttachment`, garage = the reused tuning shop on the lift (spots ETNR_A, Ibiza + Hawaii), menu, buy + `car_tuner_parts` save. Order of work steps 1, 4 and the first part of 5 are done.
+- **Roster [DATA]:** retail TDU2 has no R34 / Evo / Supra / RX-7 / S15 / NSX; the catalog uses the cars that exist (GTR, 370Z, 350Z_CPE, Impreza WRX STI 2007, RX8, Delta Integrale Evo 2, Escort RS Cosworth).
+- **Render bug fixed:** OBJ-route materials drew flat white because `MaterialDesc::Spec` was all zero, which selects the no-texture TD_Gouraud permutation. Setting `Spec[0]=1` (S_NBTEXTURES) and `Spec[1]=1` (S_COORDTEXTURE), as the rain materials do, selects the textured one. Evidence: `docs/images/tuner_wing_gt_wear.png`.

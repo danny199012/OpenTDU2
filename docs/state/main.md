@@ -8,6 +8,24 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 42): tuner-garage mod - OBJ materials no longer render flat white
+
+Task: the handoff's one open bug (obj_mesh / mod_props materials flat white).
+
+### What changed
+- `source/game/spots/obj_mesh.cpp` - textured materials now set `desc.Spec[0]=1` (S_NBTEXTURES) and `Spec[1]=1` (S_COORDTEXTURE). An all-zero Spec picks the no-texture TD_Gouraud permutation (the same two bytes `eden_rain.cpp` sets). [CODE]
+- Whole mod (uncommitted in session 41): tuner.{h,cpp}, tuner_parts, tuner_menu, obj_mesh, make_gt_wing.py, package `tuner-garage`, spot ETNR_A, profile `car_tuner_parts`.
+
+### Verified
+- Wear run (GTR, `-tp 12615,16658 -heading 90`): dark carbon GT wing on the car, `docs/images/tuner_wing_gt_wear.png`. `-notunermod` A/B: 3,128 pixels differ (wing + map icon gone).
+- Buy / save / lift flows were verified in session 42's first half (build 201).
+
+### Ruled out
+- assignTexture, ViewType, missing shader params, texture cache fallback - none was the cause; the Spec bytes were.
+
+### Not done / next
+- Checklist items not re-run this pass: ducktail / street-lip previews, non-tuner-car refusal message, unknown-part-id log, Hawaii spot walk-in, cleanup of the userdata test leftovers (`mods/props.txt`, `mods/props/cube.*`, `red.png`). Each is one run from the handoff's command list.
+
 ## Session 2026-11-16 (`main`, 41): 4K High 17.9 -> 15.9 ms (56 -> 63 fps) with the image untouched - shadow far-slice round-robin + per-instance per-frame cache
 
 Owner: "What else can we do to improve performance without cutting down the graphics quality I want you to
