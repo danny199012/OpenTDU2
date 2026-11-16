@@ -1538,6 +1538,67 @@ void RunVehicleTest( const VehicleDynamics &templateVehicle ) {
                            bFlipped ? " FLIPPED" : "" );
         }
     }
+    // Road-edge test: a 7 m road with a thin kerb box (0.15 / 0.30 m) on each side over a ditch 1 m lower. The
+    // car steers full lock at an edge for 1 s, then straight, at 60 / 100 km/h; the question the flat tests
+    // cannot answer: does leaving the road roll the car, and does the damping table change it.
+    // NOTE: the kerb box does not stop the car (the wheel rays look down only and the chassis spheres sit above
+    // it: 0.15 and 0.30 m give the same H3 result), so this measures the drop-off, not a kerb strike.
+    for ( const float kerbHeight : { 0.15f, 0.30f } ) {
+        for ( const float targetKmh : { 60.0f, 100.0f } ) {
+            for ( const float side : { 1.0f, -1.0f } ) {
+                VehicleWorldCollision kerbWorld;
+                kerbWorld.setHeightFunction( []( float, float, float, float &outHeight ) {
+                    outHeight = -1.0f;
+                    return true;
+                } );
+                HavokCollision road;
+                road.Vertices = { Vector3f( -3.5f, 0.0f, -40.0f ), Vector3f( 3.5f, 0.0f, -40.0f ),
+                                  Vector3f( 3.5f, 0.0f, 800.0f ), Vector3f( -3.5f, 0.0f, 800.0f ) };
+                road.Indices = { 0, 1, 2, 0, 2, 3 };
+                HavokCollision::Body body;
+                body.MotionType = 7;
+                body.Friction = 0.7f;
+                body.FirstTriangle = 0;
+                body.NumTriangles = 2;
+                body.FirstBox = 0;
+                body.NumBoxes = 2;
+                road.Bodies.push_back( body );
+                for ( const float x : { -3.6f, 3.6f } ) {
+                    HavokCollision::Box box;
+                    box.Transform = Matrix4x4f::Translation( Vector3f( x, kerbHeight * 0.5f, 380.0f ) );
+                    box.HalfExtents = Vector3f( 0.025f, kerbHeight * 0.5f, 420.0f );
+                    box.BodyIndex = 0;
+                    road.Boxes.push_back( box );
+                }
+                kerbWorld.addCollision( road, Matrix4x4f::Identity(), true );
+                v = templateVehicle;
+                const float spawnY = 0.12f + Max( v.getWheelDescs().empty() ? 0.0f : v.getWheelDescs()[0].Radius - 0.34f, 0.0f );
+                v.reset( Vector3f( 0.0f, spawnY, 0.0f ), Quaternionf(), Vector3f( 0.0f, 0.0f, targetKmh / 3.6f ) );
+                input = VehicleDynamics::Input();
+                for ( int32_t i = 0; i < 60; i++ ) {
+                    input.Throttle = Clamp( ( targetKmh - v.getSpeedKmh() ) * 0.2f + 0.3f, 0.0f, 1.0f );
+                    v.step( dt, input, kerbWorld );
+                }
+                float rollMax = 0.0f, yMax = 0.0f;
+                bool bFlipped = false;
+                for ( int32_t i = 0; i < 5 * 60; i++ ) {
+                    const float t = i * dt;
+                    input.Throttle = Clamp( ( targetKmh - v.getSpeedKmh() ) * 0.2f + 0.3f, 0.0f, 1.0f );
+                    input.Steering = t < 1.0f ? side : 0.0f;
+                    v.step( dt, input, kerbWorld );
+                    const Vector3f upAxis = v.getOrientation().rotate( Vector3f( 0.0f, 1.0f, 0.0f ) );
+                    const Vector3f sideAxis = v.getOrientation().rotate( Vector3f( 1.0f, 0.0f, 0.0f ) );
+                    rollMax = Max( rollMax, std::abs( std::asin( Clamp( sideAxis.y, -1.0f, 1.0f ) ) * 57.29578f ) );
+                    yMax = Max( yMax, v.getPosition().y );
+                    bFlipped = bFlipped || upAxis.y < 0.5f;
+                }
+                OTDU_LOG_INFO( "VEHTEST edge '%s': %.2f m kerb, %.0f km/h, steer %+.0f -> peak roll %.1f deg, peak height %.2f m, "
+                               "end x %.1f y %.2f %.0f km/h%s\n",
+                               setup.Db.FileName.c_str(), kerbHeight, targetKmh, side, rollMax, yMax, v.getPosition().x,
+                               v.getPosition().y, v.getSpeedKmh(), bFlipped ? " FLIPPED" : "" );
+            }
+        }
+    }
 }
 } // namespace
 

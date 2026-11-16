@@ -157,3 +157,23 @@ Same command as above with `-car Enzo` and `-car H3` (tall SUV), World against s
   file removes. H3 differs little (both file settings stay controlled).
 - Net: the stock file is the better handling feel (fewer spin-outs, sane steering angle at speed) but it
   does not fix roll-over; those are separate problems.
+
+### Road-edge test (2026-11-16)
+
+`-vehtest` also runs `VEHTEST edge`: a 7 m road, a thin kerb box (0.15 / 0.30 m) each side, a ditch 1 m
+lower; full lock at an edge for 1 s at 60 / 100 km/h, both sides. **The kerb box does not stop the car**
+(wheel rays look down only, chassis spheres sit above it; 0.15 and 0.30 m give the same H3 result), so
+this measures leaving the road and dropping 1 m, not a kerb strike. A real kerb strike would need the
+chassis or wheel to collide with a vertical face; not built.
+
+Peak roll (deg), 8 runs per car, World against stock:
+| car | World | stock |
+|---|---|---|
+| Enzo | 71.2 **FLIPPED**, 32.7, 16.5, 16.4, 27.0, 19.4, 55.5, 32.1 (mean 33.8) | 29.6, 32.3, 14.5, 23.9, 30.9, 26.1, 20.5, 19.1 (mean 24.6, max 32.3) |
+| H3 | 10.1, 10.0, 22.4, 22.1 (repeated for both kerb heights) | 8.4, 8.3, 18.8, 18.6 |
+
+Reading [INF]: leaving the road is the first scenario that produces large roll (up to 71 deg and one
+flip on the Enzo at 60 km/h), so the owner's "rolls over too easily" is plausibly a ditch / drop-off
+problem, not tyre grip. The stock file rolls less (Enzo max 32 against 71, H3 about 2 to 3 deg lower),
+consistent with its higher angular damping. Eight chaotic runs are a hint, not proof: one flip in 16.
+Next: a real kerb face and a graded verge, and repeat with several car models.
