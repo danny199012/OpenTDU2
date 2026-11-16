@@ -552,6 +552,7 @@ int WINAPI WinMain( _In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
     wchar_t **argv = CommandLineToArgvW( GetCommandLineW(), &argc );
     bool bHeadless = false;
     Launcher::Page initialPage = Launcher::Page::Play;
+    bool bAskTuner = false;
     for ( int index = 1; index < argc; index++ ) {
         if ( wcscmp( argv[index], L"--selftest" ) == 0 ||
              wcscmp( argv[index], L"--iso-info" ) == 0 ||
@@ -559,6 +560,8 @@ int WINAPI WinMain( _In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
              wcscmp( argv[index], L"--launch-test" ) == 0 ||
              wcscmp( argv[index], L"--install-tuner" ) == 0 ) {
             bHeadless = true;
+        } else if ( wcscmp( argv[index], L"--ask-tuner" ) == 0 ) {
+            bAskTuner = true;
         } else if ( wcscmp( argv[index], L"--page" ) == 0 && index + 1 < argc ) {
             const wchar_t *page = argv[++index];
             if ( wcscmp( page, L"gamedata" ) == 0 ) {
@@ -659,6 +662,9 @@ int WINAPI WinMain( _In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
     Launcher::LauncherApp app;
     app.Initialize( window, gDevice, gContext, dpiScale );
     app.SetPage( initialPage );
+    if ( bAskTuner ) {
+        app.RequestTunerDialog();
+    }
 
     bool done = false;
     while ( !done ) {

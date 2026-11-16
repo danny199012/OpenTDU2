@@ -1972,9 +1972,10 @@ void MapScreen::loadSpots( const std::string &island ) {
             // ETNR_*: the tuner-garage mod's spots (the overlay's spots.bin
             // records) wear the tuning-shop building - their own kind, the
             // tuner garage flow instead (the ESTICK prefix rule).
-            // With the mod off no icon: vanilla shows nothing of the
-            // garage, whatever the overlay holds.
-            if ( startsWith( "ETNR" ) ) { spot.pIcon = TunerModEnabled() ? "tuner" : nullptr; spot.Tab = 3; }
+            // The spots exist only once the launcher built the shops (tuner_install.cpp);
+            // with the mod switched off they stay on the map and can be entered, their
+            // menu is locked (GMFreeRide::openSpotShop).
+            if ( startsWith( "ETNR" ) ) { spot.pIcon = "tuner"; spot.Tab = 3; }
             else { spot.pIcon = "tuning"; spot.Tab = 3; }
             break;
         case 0x05: spot.pIcon = "club"; spot.Tab = 2; break;

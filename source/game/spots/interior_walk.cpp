@@ -359,8 +359,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     // -cineweather uses - the night game weather dims the room's sun, flips
     // the baked lightmap to its night half and raises the neon strength.
     // Every other room resets it (the member is per room, not per mode).
-    scene.setForcedWeather( !bHouse && _strnicmp( houseSpotName.c_str(), "ETNR", 4 ) == 0 &&
-                                    TunerModEnabled() ? "23.20" : "" );
+    scene.setForcedWeather( !bHouse && _strnicmp( houseSpotName.c_str(), "ETNR", 4 ) == 0 ? "23.20" : "" );
     setup.ExteriorBank.clear();
     setup.ExteriorPrefix.clear();
     setup.bWorld = false;

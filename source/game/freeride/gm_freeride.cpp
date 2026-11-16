@@ -4277,7 +4277,7 @@ void GMFreeRide::bindStickerShop() {
 void GMFreeRide::bindTunerGarage() {
     bindTunerGarageCar();
     // The shop's background cars (after the player's own room car holds its place).
-    if ( interiorKind == "tuner" && TunerModEnabled() && interior.isActive() ) {
+    if ( interiorKind == "tuner" && interior.isActive() ) {
         interior.placeRoomCars();
     }
 }
@@ -4384,7 +4384,8 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
         // and the walk continues - true, the refusal was handled (the caller
         // would otherwise stamp its generic "not open yet" over the reason).
         if ( !TunerModEnabled() ) {
-            interior.showMessage( std::string( TunerShopName( spotBank ) ) + " needs the Tuner mod." );
+            interior.showMessage( std::string( TunerShopName( spotBank ) ) +
+                                  " is locked: switch the Tuner garage mod on in the launcher's Mods page." );
             return true;
         }
         if ( !GetTunerParts().isTunerCar( car.getIdCar() ) ) {

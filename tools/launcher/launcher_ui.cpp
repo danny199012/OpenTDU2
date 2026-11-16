@@ -459,6 +459,10 @@ void LauncherApp::Shutdown() {
     SaveSettings();
     mInstall.bCancel = true;
     mUpdate.bCancel = true;
+    mTunerCancel = true;
+    if ( mTunerThread.joinable() ) {
+        mTunerThread.join();
+    }
     if ( mInstallThread.joinable() ) {
         mInstallThread.join();
     }
@@ -914,6 +918,7 @@ void LauncherApp::DrawMainArea() {
 
     DrawFooter();
     DrawProfileModals();
+    DrawTunerInstallModal();
     ImGui::EndChild();
     ImGui::PopStyleVar();
 }
@@ -1311,6 +1316,147 @@ void LauncherApp::DrawProfilesPage() {
     }
     CardEnd();
     ImGui::Dummy( ImVec2( 0.0f, S( 8.0f ) ) );
+}
+
+void LauncherApp::StartTunerInstall() {
+    if ( mTunerBusy.load() ) {
+        return;
+    }
+    if ( mTunerThread.joinable() ) {
+        mTunerThread.join();
+    }
+    TunerInstallOptions options;
+    options.GameRoot = Utf8ToWide( mGameFolder );
+    options.UserData = mEffectiveUserData;
+    options.PackageFolder = JoinPath( JoinPath( JoinPath( mEffectiveUserData, L"mods" ), L"packages" ), L"tuner-garage" );
+    {
+        std::lock_guard<std::mutex> lock( mTunerMutex );
+        mTunerFraction = 0.0f;
+        mTunerWhat = "Starting...";
+        mTunerError.clear();
+    }
+    mTunerCancel = false;
+    mTunerDone = false;
+    mTunerBusy = true;
+    mTunerFinishedHandled = false;
+    mTunerThread = std::thread( [this, options]() {
+        std::string error;
+        const bool bOk = InstallTunerMod(
+            options,
+            [this]( float fraction, const std::string &what ) {
+                std::lock_guard<std::mutex> lock( mTunerMutex );
+                mTunerFraction = fraction;
+                mTunerWhat = what;
+                return !mTunerCancel.load();
+            },
+            error );
+        {
+            std::lock_guard<std::mutex> lock( mTunerMutex );
+            mTunerError = bOk ? std::string() : error;
+        }
+        mTunerDone = true;
+        mTunerBusy = false;
+    } );
+}
+
+// The tuner garage's first-enable dialog: what the install does and that it takes a short while, then
+// the progress. Once it has finished OK the mod is enabled; the install never repeats (the marker) and
+// switching the mod off later leaves the files, so the shops stay enterable (their menus lock).
+void LauncherApp::DrawTunerInstallModal() {
+    if ( mTunerAsk ) {
+        ImGui::OpenPopup( "Install the Tuner garage" );
+        mTunerAsk = false;
+    }
+    const ImGuiViewport *viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos( ImVec2( viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                     viewport->WorkPos.y + viewport->WorkSize.y * 0.5f ),
+                             ImGuiCond_Appearing, ImVec2( 0.5f, 0.5f ) );
+    ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( S( 24.0f ), S( 20.0f ) ) );
+    if ( ImGui::BeginPopupModal( "Install the Tuner garage", nullptr,
+                                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove ) ) {
+        const float wrap = S( 460.0f );
+        const bool bBusy = mTunerBusy.load();
+        if ( !bBusy && !mTunerFinishedHandled && mTunerDone.load() ) {
+            mTunerFinishedHandled = true;
+            if ( mTunerThread.joinable() ) {
+                mTunerThread.join();
+            }
+            std::string finishError;
+            {
+                std::lock_guard<std::mutex> lock( mTunerMutex );
+                finishError = mTunerError;
+            }
+            if ( finishError.empty() ) {
+                for ( ModInfo &mod : mMods ) {
+                    if ( mod.Id == "tuner-garage" ) {
+                        mod.bEnabled = true;
+                    }
+                }
+                std::stable_partition( mMods.begin(), mMods.end(), []( const ModInfo &m ) { return m.bEnabled; } );
+                SaveEnabledMods( mEffectiveUserData, mMods );
+                SetStatus( "Tuner garage installed and enabled - it applies the next time the game starts." );
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        std::string error;
+        float fraction = 0.0f;
+        std::string what;
+        {
+            std::lock_guard<std::mutex> lock( mTunerMutex );
+            error = mTunerError;
+            fraction = mTunerFraction;
+            what = mTunerWhat;
+        }
+        ImGui::PushTextWrapPos( ImGui::GetCursorPos().x + wrap );
+        if ( !bBusy ) {
+            ImGui::TextUnformatted( "The first time you switch this mod on, OpenTDU2 builds its two shops from your own "
+                                    "copy of the game: Wangan Works and the Rev Yard." );
+            ImGui::Spacing();
+            ImGui::TextUnformatted( "This can take a short while (up to a minute or two on a slow disk) and uses roughly "
+                                    "40 MB of your user data folder. It happens once only; nothing is changed in your game "
+                                    "files." );
+            ImGui::Spacing();
+            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+            ImGui::TextUnformatted( "If you switch the mod off again, the two shops stay in the world and you can still walk "
+                                    "in - but their tuning menus are locked until the mod is back on. Parts you bought stay "
+                                    "saved." );
+            ImGui::PopStyleColor();
+            if ( !mGameFolderValid ) {
+                ImGui::Spacing();
+                ImGui::PushStyleColor( ImGuiCol_Text, kRed );
+                ImGui::TextUnformatted( "Your game data folder is not set yet - open the Game data page first." );
+                ImGui::PopStyleColor();
+            }
+            if ( !error.empty() ) {
+                ImGui::Spacing();
+                ImGui::PushStyleColor( ImGuiCol_Text, kRed );
+                ImGui::TextUnformatted( ( "The install did not finish: " + error ).c_str() );
+                ImGui::PopStyleColor();
+            }
+        } else {
+            ImGui::TextUnformatted( "Building the Tuner garage - please wait..." );
+            ImGui::Spacing();
+            ImGui::ProgressBar( fraction, ImVec2( wrap, S( 18.0f ) ) );
+            ImGui::PushStyleColor( ImGuiCol_Text, kDim );
+            ImGui::TextUnformatted( what.c_str() );
+            ImGui::PopStyleColor();
+        }
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        if ( !bBusy ) {
+            if ( AccentButton( error.empty() ? "Install and enable" : "Try again", ImVec2( S( 170.0f ), 0.0f ), mGameFolderValid ) ) {
+                StartTunerInstall();
+            }
+            ImGui::SameLine();
+            if ( GhostButton( "Not now", ImVec2( S( 110.0f ), 0.0f ) ) ) {
+                ImGui::CloseCurrentPopup();
+            }
+        } else if ( GhostButton( "Cancel", ImVec2( S( 110.0f ), 0.0f ) ) ) {
+            mTunerCancel = true;
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
 }
 
 void LauncherApp::DrawProfileModals() {
@@ -2224,8 +2370,12 @@ void LauncherApp::DrawModsPage() {
             ImGui::BeginDisabled( bNeedsImport );
             bool bEnabled = mod.bEnabled && !bNeedsImport;
             if ( ImGui::Checkbox( "##enabled", &bEnabled ) ) {
-                mod.bEnabled = bEnabled;
-                bChanged = true;
+                if ( bEnabled && mod.Id == "tuner-garage" && !TunerInstalled( mEffectiveUserData ) ) {
+                    mTunerAsk = true; // the one-time build runs first (DrawTunerInstallModal); it enables the mod when done
+                } else {
+                    mod.bEnabled = bEnabled;
+                    bChanged = true;
+                }
             }
             ImGui::EndDisabled();
             ImGui::SameLine();

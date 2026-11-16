@@ -1,4 +1,5 @@
 #include "launcher_mods.h"
+#include "tuner_install.h"
 
 #include "launcher_json.h"
 #include "launcher_util.h"
@@ -150,6 +151,9 @@ void EnsureBundledMods( const std::wstring &userData ) {
         const std::wstring source = JoinPath( JoinPath( JoinPath( repoRoot, L"resources" ), L"mods" ),
                                               JoinPath( L"packages", L"tuner-garage" ) );
         SyncFolderInto( fs::path( source ), fs::path( tunerFolder ) );
+        if ( TunerInstalled( userData ) ) {
+            SyncTunerRoomFiles( userData, tunerFolder );
+        }
     }
 }
 

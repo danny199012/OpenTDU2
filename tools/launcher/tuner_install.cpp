@@ -824,6 +824,31 @@ bool CopyFileTo( const fs::path &from, const fs::path &to, std::string &error ) 
 
 } // namespace
 
+void SyncTunerRoomFiles( const std::wstring &userData, const std::wstring &packageFolder ) {
+    const fs::path source = fs::path( packageFolder ) / L"interior";
+    const fs::path target = fs::path( userData ) / L"mods" / L"interior";
+    std::error_code ec;
+    if ( !fs::is_directory( source, ec ) ) {
+        return;
+    }
+    auto copy = [&]( const fs::path &from, const fs::path &to ) {
+        fs::create_directories( to.parent_path(), ec );
+        fs::copy_file( from, to, fs::copy_options::overwrite_existing, ec );
+    };
+    for ( const auto &entry : fs::recursive_directory_iterator( source / L"props", ec ) ) {
+        if ( entry.is_regular_file( ec ) ) {
+            copy( entry.path(), target / L"props" / fs::relative( entry.path(), source / L"props", ec ) );
+        }
+    }
+    for ( const auto &entry : fs::directory_iterator( source, ec ) ) {
+        const std::wstring name = entry.path().filename().wstring();
+        if ( entry.is_regular_file( ec ) && name.size() > 4 && name.compare( name.size() - 4, 4, L".txt" ) == 0 &&
+             ( name.rfind( L"props_", 0 ) == 0 || name.rfind( L"cars_", 0 ) == 0 ) ) {
+            copy( entry.path(), target / name );
+        }
+    }
+}
+
 bool TunerInstalled( const std::wstring &userData ) {
     std::ifstream in( fs::path( userData ) / L"mods" / L"tuner-install.txt" );
     std::string line;
@@ -877,6 +902,7 @@ bool InstallTunerMod( const TunerInstallOptions &options, const TunerProgress &p
     if ( !CopyFileTo( etunExterior, mods / L"islands" / L"ibiza" / L"exterior" / L"etnr_b.bnk", error ) ) return false;
     if ( !CopyFileTo( etunExterior, mods / L"islands" / L"hawai" / L"exterior" / L"etnr_a.bnk", error ) ) return false;
 
+    SyncTunerRoomFiles( options.UserData, options.PackageFolder );
     {
         std::ofstream marker( fs::path( options.UserData ) / L"mods" / L"tuner-install.txt", std::ios::trunc );
         marker << "# Written by the tuner-garage installer (tools/launcher/tuner_install.cpp). Delete to rebuild.\n"

@@ -8,6 +8,7 @@
 #include <d3d11.h>
 
 #include <atomic>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -18,6 +19,7 @@
 #include "launcher_mods.h"
 #include "launcher_settings.h"
 #include "launcher_updater.h"
+#include "tuner_install.h"
 
 struct ImFont;
 struct ImVec2;
@@ -36,6 +38,8 @@ public:
     void Shutdown();
     void Frame();
     bool WantsExit() const { return mExitRequested; }
+    // Test hook (--ask-tuner): open the tuner mod's first-enable dialog at start.
+    void RequestTunerDialog() { mTunerAsk = true; }
 
     LauncherSettings &Settings() { return mSettings; }
     void SaveSettings();
@@ -59,6 +63,8 @@ private:
     bool DrawProfileTile( const ProfileInfo &profile, bool bSelected, const ImVec2 &size );
     bool DrawNewProfileTile( const ImVec2 &size );
     void DrawProfileModals();
+    void DrawTunerInstallModal();
+    void StartTunerInstall();
     void DrawProfilesPage();
     void DrawPlayHero( float width );
 
@@ -143,6 +149,17 @@ private:
     // mods (launcher_mods.h)
     std::vector<ModInfo> mMods;
     bool mModsLoaded = false;
+    // The tuner garage mod's one-time install (tuner_install.h): asked about when its box is first ticked.
+    bool mTunerAsk = false;                 // open the disclaimer popup next frame
+    std::thread mTunerThread;
+    std::atomic<bool> mTunerBusy{ false };
+    std::atomic<bool> mTunerDone{ false };
+    std::atomic<bool> mTunerCancel{ false };
+    std::mutex mTunerMutex;                 // guards the two strings + the fraction below
+    float mTunerFraction = 0.0f;
+    std::string mTunerWhat;
+    std::string mTunerError;
+    bool mTunerFinishedHandled = true;
     double mPageChangeTime = 0.0;     // ImGui time of the last page switch (fade-in)
 
     // launch

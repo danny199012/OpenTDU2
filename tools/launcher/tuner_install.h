@@ -35,6 +35,12 @@ using TunerProgress = std::function<bool( float fraction, const std::string &wha
 // True when the install marker of the current version is in the user's mods folder.
 bool TunerInstalled( const std::wstring &userData );
 
+// Copies the shops' props and layout lists (package interior\props, props_*.txt, cars_*.txt - our own
+// art) into the always-on mods folder, so the rooms keep their furniture and cars when the mod is
+// switched off. Cheap and repeatable: the launcher runs it at start once the install exists, so a
+// refreshed package reaches the game.
+void SyncTunerRoomFiles( const std::wstring &userData, const std::wstring &packageFolder );
+
 // Builds everything above. False + `error` on a missing input / write failure / cancel.
 // Safe to repeat (overwrites its own outputs; an existing spots.bin of the overlay is extended,
 // never replaced, and a spot that is already in it is not added twice).
