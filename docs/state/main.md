@@ -7,6 +7,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 49): clouds v7 - broken up, toned down, higher, faster drift
+
+Owner: v6 "blown out and so joined up ... break up more, tone down, maybe higher, add movement".
+- Deck 2400-3400 m; coverage `0.38c`; stronger cluster map (gaps) in `volclouds.frag`; sun term x0.42 (was 0.55) and forward-scatter cap 1.3 (less clipping); wind x2 (`eden_scene_view.cpp`: 42 / 21 m/s x cloud3dSpeed).
+- Verified: `clouds_v7_viewer.webp`, `clouds_v7_drive.webp`; two drive shots 600 fixed-timestep frames apart differ by (41, 33, 23)/255 in the sky band. Perf and sunset/night unchecked.
+
 ## Session 2026-11-16 (`main`, 48): clouds v6 (smaller / fewer / higher) + the phone-call GPS offer layout
 
 Owner: clouds "slightly off ... way too big / too many ... as if clouds are low down"; phone-call accept/decline "maybe inaccurate" with a 360 capture (Tess: portrait + name, text, `A OK, change my GPS target` / `B No thanks, maybe later...`).

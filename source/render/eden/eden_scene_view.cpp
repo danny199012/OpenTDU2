@@ -2100,7 +2100,7 @@ bool EdenSceneView::fillCloudLayerParams( EdenClouds::Params &p, const EdenScene
     // cross-fade the same way, weather_spec 6.2).
     const std::string name = ToUpper( pWeather->getString( "clouds_cloud3dname", "CLOUD_B" ) );
     const char kind = name.empty() ? 'B' : name.back();
-    float coverage = 0.5f, darkness = 0.0f, base = 1900.0f, top = 3000.0f;
+    float coverage = 0.5f, darkness = 0.0f, base = 2400.0f, top = 3400.0f;
     if ( kind == 'A' ) {
         coverage = 0.42f;
         darkness = 0.15f;
@@ -2131,8 +2131,8 @@ bool EdenSceneView::fillCloudLayerParams( EdenClouds::Params &p, const EdenScene
     // rate; map it to a 12 m/s drift for the fair-weather set and ~2x that in a
     // storm. The measured drift between two frames 3.3 s apart is ~3/255 mean
     // sky difference - the deck is alive, not the static sheet of attempt 2.
-    p.windX = 20.0f * Clamp( speed, 0.0f, 4.0f );
-    p.windZ = 10.0f * Clamp( speed, 0.0f, 4.0f );
+    p.windX = 42.0f * Clamp( speed, 0.0f, 4.0f );
+    p.windZ = 21.0f * Clamp( speed, 0.0f, 4.0f );
     const Vector4f tint = pWeather->getVector4( "clouds_cloud3dcolor", Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ) );
     p.sunColor = Vector3f( params.SunDiffuse.x * ( 0.6f + 0.4f * tint.x ) * 1.15f,
                            params.SunDiffuse.y * ( 0.6f + 0.4f * tint.y ) * 1.15f,

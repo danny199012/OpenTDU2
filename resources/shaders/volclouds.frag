@@ -54,7 +54,7 @@ float density( vec3 p, bool bDetail ) {
     float d = texture( uBase, q ).r;
     // Clusters: positive cmap raises the field, so the threshold carves
     // isolated clouds in the gaps and merges them where cmap is high.
-    d += ( cmap - 0.5 ) * mix( 0.55, 0.25, pc.Right.w );
+    d += ( cmap - 0.5 ) * mix( 0.80, 0.35, pc.Right.w );
     // Coverage: the threshold is a measured quantile of the base-noise field
     // (EdenClouds::thresholdForCoverage, pushed in pc.Fog.w).
     const float threshold = pc.Fog.w;
@@ -144,7 +144,7 @@ void main() {
                 sunLight += pc.SunColor.rgb * max( octave, 0.10 ) * scatter;
                 scatter *= 0.55;
             }
-            sunLight *= 0.55 /* HDR sun: unscaled the lit tops clip to flat white */ * min( phase, 1.6 ) * mix( 1.0, powder, 0.35 );
+            sunLight *= 0.42 /* HDR sun: unscaled the lit tops clip to flat white */ * min( phase, 1.3 ) * mix( 1.0, powder, 0.35 );
             const float h = heightFraction( p.y );
             const vec3 ambient = pc.Ambient.rgb * mix( 0.80, 1.35, h ) * mix( 1.0, 0.45, pc.ToSun.w );
             const float stepTransmittance = exp( -d * stepLength * sigma );
