@@ -14,9 +14,10 @@ class Bank;
 //
 //   AddFESound  "<cue>"  "<wav>"  <volume>
 //
-// (189 cues over 178 wavs: mopen / mclose on menus, move / valid / wrong /
+// (189 cues over 177 wavs: mopen / mclose on menus, move / valid / wrong /
 // back on the lists, ttip on the tooltips, the Med_* media player, the casino's
-// UPMONEY / UPBET / HEARTB ..., see /tmp extract of sounds.ini).
+// UPMONEY / UPBET / HEARTB ...; docs/re/frontend_audio_spec.md, dump the table
+// with `otdu2_bnk_tool extract Euro/bnk/frontend/sounds/fe_snd.bnk <dir>`).
 //
 // The flash movies ask for a cue with FSCommand("sndp:<cue>") — the movie-side
 // name is the first column. The wav plays on the "FrontEnd" bfx client (7), a
