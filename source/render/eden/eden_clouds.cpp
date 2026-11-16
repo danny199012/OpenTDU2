@@ -1,0 +1,335 @@
+#include "shared.h"
+#include "eden_clouds.h"
+
+#include "render/shaders/builtin/volclouds_accum_frag.h"
+#include "render/shaders/builtin/volclouds_composite_frag.h"
+#include "render/shaders/builtin/volclouds_frag.h"
+
+#include <cmath>
+#include <thread>
+#include <vector>
+
+namespace {
+constexpr uint32_t kBaseNoiseSize = 128;  // Perlin-Worley base shape (R8)
+constexpr uint32_t kDetailNoiseSize = 32; // Worley erosion octaves (RGBA8)
+// Shared with volclouds*.frag: the march clamps its distances to this, the
+// hit distance travels packed (0..1) and the composite unpacks it.
+constexpr float kMaxMarchDistance = 60000.0f;
+
+// ---------------------------------------------------------------- noise ---
+
+uint32_t Hash3( int32_t x, int32_t y, int32_t z, uint32_t seed ) {
+    uint32_t h = seed ^ static_cast<uint32_t>( x ) * 0x9E3779B9u;
+    h ^= static_cast<uint32_t>( y ) * 0x85EBCA77u;
+    h ^= static_cast<uint32_t>( z ) * 0xC2B2AE3Du;
+    h = ( h ^ ( h >> 15 ) ) * 0x2545F491u;
+    h ^= h >> 13;
+    return h;
+}
+
+int32_t Wrap( int32_t v, uint32_t frequency ) {
+    const int32_t f = static_cast<int32_t>( frequency );
+    v %= f;
+    return v < 0 ? v + f : v;
+}
+
+float Fade( float t ) {
+    return t * t * t * ( t * ( t * 6.0f - 15.0f ) + 10.0f );
+}
+
+// Perlin's 12 edge directions.
+const float kGradients[12][3] = { { 1, 1, 0 },  { -1, 1, 0 },  { 1, -1, 0 }, { -1, -1, 0 },
+                                  { 1, 0, 1 },  { -1, 0, 1 },  { 1, 0, -1 }, { -1, 0, -1 },
+                                  { 0, 1, 1 },  { 0, -1, 1 },  { 0, 1, -1 }, { 0, -1, -1 } };
+
+// Tileable gradient noise, roughly [-1, 1].
+float TileablePerlin( float x, float y, float z, uint32_t frequency, uint32_t seed ) {
+    const float px = x * static_cast<float>( frequency );
+    const float py = y * static_cast<float>( frequency );
+    const float pz = z * static_cast<float>( frequency );
+    const int32_t ix = static_cast<int32_t>( floorf( px ) );
+    const int32_t iy = static_cast<int32_t>( floorf( py ) );
+    const int32_t iz = static_cast<int32_t>( floorf( pz ) );
+    const float fx = px - static_cast<float>( ix );
+    const float fy = py - static_cast<float>( iy );
+    const float fz = pz - static_cast<float>( iz );
+    const float u = Fade( fx ), v = Fade( fy ), w = Fade( fz );
+    auto dot = [&]( int32_t cx, int32_t cy, int32_t cz, float dx, float dy, float dz ) {
+        const float *g = kGradients[Hash3( Wrap( cx, frequency ), Wrap( cy, frequency ), Wrap( cz, frequency ), seed ) % 12];
+        return g[0] * dx + g[1] * dy + g[2] * dz;
+    };
+    const float n000 = dot( ix, iy, iz, fx, fy, fz );
+    const float n100 = dot( ix + 1, iy, iz, fx - 1.0f, fy, fz );
+    const float n010 = dot( ix, iy + 1, iz, fx, fy - 1.0f, fz );
+    const float n110 = dot( ix + 1, iy + 1, iz, fx - 1.0f, fy - 1.0f, fz );
+    const float n001 = dot( ix, iy, iz + 1, fx, fy, fz - 1.0f );
+    const float n101 = dot( ix + 1, iy, iz + 1, fx - 1.0f, fy, fz - 1.0f );
+    const float n011 = dot( ix, iy + 1, iz + 1, fx, fy - 1.0f, fz - 1.0f );
+    const float n111 = dot( ix + 1, iy + 1, iz + 1, fx - 1.0f, fy - 1.0f, fz - 1.0f );
+    const float x00 = n000 + u * ( n100 - n000 );
+    const float x10 = n010 + u * ( n110 - n010 );
+    const float x01 = n001 + u * ( n101 - n001 );
+    const float x11 = n011 + u * ( n111 - n011 );
+    const float y0 = x00 + v * ( x10 - x00 );
+    const float y1 = x01 + v * ( x11 - x01 );
+    return y0 + w * ( y1 - y0 );
+}
+
+// Tileable Worley F1, returned inverted (1 = at a cell centre, 0 = far).
+float TileableWorley( float x, float y, float z, uint32_t frequency, uint32_t seed ) {
+    const float px = x * static_cast<float>( frequency );
+    const float py = y * static_cast<float>( frequency );
+    const float pz = z * static_cast<float>( frequency );
+    const int32_t cx = static_cast<int32_t>( floorf( px ) );
+    const int32_t cy = static_cast<int32_t>( floorf( py ) );
+    const int32_t cz = static_cast<int32_t>( floorf( pz ) );
+    float best = 8.0f;
+    for ( int32_t dz = -1; dz <= 1; dz++ ) {
+        for ( int32_t dy = -1; dy <= 1; dy++ ) {
+            for ( int32_t dx = -1; dx <= 1; dx++ ) {
+                const int32_t nx = cx + dx, ny = cy + dy, nz = cz + dz;
+                const uint32_t h = Hash3( Wrap( nx, frequency ), Wrap( ny, frequency ), Wrap( nz, frequency ), seed );
+                const float ox = static_cast<float>( nx ) + static_cast<float>( h & 1023 ) / 1023.0f;
+                const float oy = static_cast<float>( ny ) + static_cast<float>( ( h >> 10 ) & 1023 ) / 1023.0f;
+                const float oz = static_cast<float>( nz ) + static_cast<float>( ( h >> 20 ) & 1023 ) / 1023.0f;
+                const float ddx = ox - px, ddy = oy - py, ddz = oz - pz;
+                const float d = ddx * ddx + ddy * ddy + ddz * ddz;
+                if ( d < best ) {
+                    best = d;
+                }
+            }
+        }
+    }
+    return Clamp( 1.0f - sqrtf( best ), 0.0f, 1.0f );
+}
+
+// Perlin-Worley base shape, one octave of large Perlin remapped against a
+// Worley fbm (the Horizon Zero Dawn shaping [INF]).
+void GenerateBaseVolume( std::vector<uint8_t> &out ) {
+    out.resize( static_cast<size_t>( kBaseNoiseSize ) * kBaseNoiseSize * kBaseNoiseSize );
+    auto slice = [&]( uint32_t zBegin, uint32_t zEnd ) {
+        for ( uint32_t z = zBegin; z < zEnd; z++ ) {
+            for ( uint32_t y = 0; y < kBaseNoiseSize; y++ ) {
+                for ( uint32_t x = 0; x < kBaseNoiseSize; x++ ) {
+                    const float u = ( static_cast<float>( x ) + 0.5f ) / static_cast<float>( kBaseNoiseSize );
+                    const float v = ( static_cast<float>( y ) + 0.5f ) / static_cast<float>( kBaseNoiseSize );
+                    const float w = ( static_cast<float>( z ) + 0.5f ) / static_cast<float>( kBaseNoiseSize );
+                    const float perlin = TileablePerlin( u, v, w, 4, 0x5BD1E3F1u );
+                    // Bias above 0.5: the field stays billowy instead of fading to empty.
+                    const float perlin01 = Clamp( perlin * 0.95f + 0.58f, 0.0f, 1.0f );
+                    const float worley = 0.625f * TileableWorley( u, v, w, 4, 0x1F3A9D2Bu ) +
+                                         0.25f * TileableWorley( u, v, w, 8, 0x6C4B7C11u ) +
+                                         0.125f * TileableWorley( u, v, w, 16, 0x2E9F0A47u );
+                    const float pw = ( perlin01 - worley ) / Max( 1.0f - worley, 0.001f );
+                    out[( static_cast<size_t>( z ) * kBaseNoiseSize + y ) * kBaseNoiseSize + x] =
+                        static_cast<uint8_t>( Clamp( pw, 0.0f, 1.0f ) * 255.0f + 0.5f );
+                }
+            }
+        }
+    };
+    const uint32_t threads = Max<uint32_t>( 1, Min<uint32_t>( 8, std::thread::hardware_concurrency() ) );
+    std::vector<std::thread> pool;
+    const uint32_t step = ( kBaseNoiseSize + threads - 1 ) / threads;
+    for ( uint32_t t = 0; t < threads; t++ ) {
+        pool.emplace_back( slice, t * step, Min<uint32_t>( ( t + 1 ) * step, kBaseNoiseSize ) );
+    }
+    for ( std::thread &thread : pool ) {
+        thread.join();
+    }
+}
+
+// Detail texture: one Worley octave per channel, increasing frequency
+// (sampled and summed as a 3-octave fbm by the march shader).
+void GenerateDetailVolume( std::vector<uint8_t> &out ) {
+    out.resize( static_cast<size_t>( kDetailNoiseSize ) * kDetailNoiseSize * kDetailNoiseSize * 4 );
+    for ( uint32_t z = 0; z < kDetailNoiseSize; z++ ) {
+        for ( uint32_t y = 0; y < kDetailNoiseSize; y++ ) {
+            for ( uint32_t x = 0; x < kDetailNoiseSize; x++ ) {
+                const float u = ( static_cast<float>( x ) + 0.5f ) / static_cast<float>( kDetailNoiseSize );
+                const float v = ( static_cast<float>( y ) + 0.5f ) / static_cast<float>( kDetailNoiseSize );
+                const float w = ( static_cast<float>( z ) + 0.5f ) / static_cast<float>( kDetailNoiseSize );
+                uint8_t *pTexel = &out[( ( static_cast<size_t>( z ) * kDetailNoiseSize + y ) * kDetailNoiseSize + x ) * 4];
+                pTexel[0] = static_cast<uint8_t>( TileableWorley( u, v, w, 2, 0x71C9F015u ) * 255.0f + 0.5f );
+                pTexel[1] = static_cast<uint8_t>( TileableWorley( u, v, w, 4, 0x8A2BE211u ) * 255.0f + 0.5f );
+                pTexel[2] = static_cast<uint8_t>( TileableWorley( u, v, w, 8, 0x3D57B9A7u ) * 255.0f + 0.5f );
+                pTexel[3] = static_cast<uint8_t>( TileableWorley( u, v, w, 16, 0x9E1D74C3u ) * 255.0f + 0.5f );
+            }
+        }
+    }
+}
+} // namespace
+
+// ------------------------------------------------------------- lifecycle ---
+
+bool EdenClouds::initialize( RenderDevice &device ) {
+    pDevice = &device;
+    if ( pBaseNoise == nullptr && !generateNoise() ) {
+        pDevice = nullptr;
+        return false;
+    }
+    return true;
+}
+
+bool EdenClouds::generateNoise() {
+    std::vector<uint8_t> base;
+    GenerateBaseVolume( base );
+    std::vector<uint8_t> detail;
+    GenerateDetailVolume( detail );
+    const void *pBaseData = base.data();
+    const uint32_t baseSize = static_cast<uint32_t>( base.size() );
+    const void *pDetailData = detail.data();
+    const uint32_t detailSize = static_cast<uint32_t>( detail.size() );
+    pBaseNoise = pDevice->createTexture( VK_IMAGE_VIEW_TYPE_3D, kBaseNoiseSize, kBaseNoiseSize, kBaseNoiseSize, 1, 1,
+                                         VK_FORMAT_R8_UNORM, &pBaseData, &baseSize, "CloudBaseNoise" );
+    pDetailNoise = pDevice->createTexture( VK_IMAGE_VIEW_TYPE_3D, kDetailNoiseSize, kDetailNoiseSize, kDetailNoiseSize,
+                                           1, 1, VK_FORMAT_R8G8B8A8_UNORM, &pDetailData, &detailSize,
+                                           "CloudDetailNoise" );
+    if ( pBaseNoise == nullptr || pDetailNoise == nullptr ) {
+        OTDU_LOG_ERROR( "EdenClouds: the 3D noise textures failed to create - volumetric clouds disabled\n" );
+        destroy();
+        return false;
+    }
+    return true;
+}
+
+void EdenClouds::destroy() {
+    destroyTargets();
+    if ( pDevice != nullptr ) {
+        pDevice->destroyTexture( pBaseNoise );
+        pDevice->destroyTexture( pDetailNoise );
+    }
+    pBaseNoise = nullptr;
+    pDetailNoise = nullptr;
+    fullscreen.destroy();
+    pDevice = nullptr;
+    bWeatherInitialized = false;
+}
+
+void EdenClouds::ensureTargets( uint32_t sceneWidth, uint32_t sceneHeight ) {
+    if ( pDevice == nullptr ) {
+        return;
+    }
+    const uint32_t width = Max<uint32_t>( 64, ( sceneWidth + 1 ) / 2 );
+    const uint32_t height = Max<uint32_t>( 64, ( sceneHeight + 1 ) / 2 );
+    if ( pMarchTarget != nullptr && pMarchTarget->Width == width && pMarchTarget->Height == height ) {
+        return;
+    }
+    destroyTargets();
+    pMarchTarget = pDevice->createRenderTarget( width, height, VK_FORMAT_R16G16B16A16_SFLOAT, false, "CloudMarch" );
+    pHistory[0] = pDevice->createRenderTarget( width, height, VK_FORMAT_R16G16B16A16_SFLOAT, false, "CloudHistoryA" );
+    pHistory[1] = pDevice->createRenderTarget( width, height, VK_FORMAT_R16G16B16A16_SFLOAT, false, "CloudHistoryB" );
+    bHistoryValid = false; // the history is gone: the next accumulate restarts
+}
+
+void EdenClouds::destroyTargets() {
+    if ( pDevice == nullptr ) {
+        return;
+    }
+    pDevice->destroyRenderTarget( pMarchTarget );
+    pDevice->destroyRenderTarget( pHistory[0] );
+    pDevice->destroyRenderTarget( pHistory[1] );
+    pMarchTarget = nullptr;
+    pHistory[0] = nullptr;
+    pHistory[1] = nullptr;
+    bHistoryValid = false;
+}
+
+void EdenClouds::setWeatherTargets( float newCoverage, float newDarkness, float newBase, float newTop ) {
+    targetCoverage = Clamp( newCoverage, 0.0f, 1.0f );
+    targetDarkness = Clamp( newDarkness, 0.0f, 1.0f );
+    targetBase = Max( newBase, 50.0f );
+    targetTop = Max( newTop, targetBase + 200.0f );
+}
+
+// ---------------------------------------------------------------- passes ---
+
+void EdenClouds::marchAndAccumulate( RenderDevice &device, const Params &params ) {
+    if ( pDevice == nullptr || pBaseNoise == nullptr || pMarchTarget == nullptr || pHistory[0] == nullptr ||
+         pHistory[1] == nullptr ) {
+        return;
+    }
+    pDevice = &device;
+    // The weather parameters approach their targets exponentially: the
+    // string clouds_cloud3dname switches in the middle of a weather blend,
+    // so this is what keeps the coverage / darkness / slab continuous.
+    if ( !bWeatherInitialized ) {
+        coverage = targetCoverage;
+        darkness = targetDarkness;
+        base = targetBase;
+        top = targetTop;
+        bWeatherInitialized = true;
+    } else {
+        const float dt = Clamp( params.frameDelta, 0.0f, 0.1f );
+        const float shape = 1.0f - expf( -dt / 4.0f );
+        const float slab = 1.0f - expf( -dt / 6.0f );
+        coverage += ( targetCoverage - coverage ) * shape;
+        darkness += ( targetDarkness - darkness ) * shape;
+        base += ( targetBase - base ) * slab;
+        top += ( targetTop - top ) * slab;
+    }
+
+    // Pass 1: the march, half res. The camera basis is pre-scaled like the
+    // first volumetric version (right * tanHalf * aspect, up * tanHalf).
+    const float push[32] = {
+        params.camPos.x, params.camPos.y, params.camPos.z, params.time,
+        params.right.x * params.tanHalf * params.aspect, params.right.y * params.tanHalf * params.aspect,
+        params.right.z * params.tanHalf * params.aspect, coverage,
+        params.up.x * params.tanHalf, params.up.y * params.tanHalf, params.up.z * params.tanHalf, base,
+        params.forward.x, params.forward.y, params.forward.z, top,
+        params.toSun.x, params.toSun.y, params.toSun.z, darkness,
+        params.sunColor.x, params.sunColor.y, params.sunColor.z, params.windX,
+        params.ambient.x, params.ambient.y, params.ambient.z, params.windZ,
+        params.fogColor.x, params.fogColor.y, params.fogColor.z, 0.0f,
+    };
+    GPUTexture *pMarchTextures[2] = { pBaseNoise, pDetailNoise };
+    device.beginGpuPass( "clouds" );
+    device.beginRenderTarget( pMarchTarget, false );
+    fullscreen.draw( device, kSPIRV_volclouds_frag, sizeof( kSPIRV_volclouds_frag ), pMarchTextures, 2, push,
+                     sizeof( push ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear );
+    device.endRenderTarget();
+
+    // Pass 2: temporal accumulation. The history is reprojected with the
+    // previous camera; a camera jump (or the first frame) resets it.
+    const Vector3f cameraDelta = params.camPos - prevCamPos;
+    const bool bJump = bHistoryValid && cameraDelta.dot( cameraDelta ) > 2000.0f * 2000.0f;
+    const uint32_t writeIndex = historyIndex ^ 1;
+    GPUTexture *pAccumTextures[2] = { &pMarchTarget->Color, &pHistory[historyIndex]->Color };
+    const float accumPush[32] = {
+        params.camPos.x, params.camPos.y, params.camPos.z, 0.88f, // history weight
+        params.right.x, params.right.y, params.right.z, params.tanHalf,
+        params.up.x, params.up.y, params.up.z, params.aspect,
+        params.forward.x, params.forward.y, params.forward.z, ( !bHistoryValid || bJump ) ? 1.0f : 0.0f,
+        prevCamPos.x, prevCamPos.y, prevCamPos.z, prevTanHalf,
+        prevRight.x, prevRight.y, prevRight.z, prevAspect,
+        prevUp.x, prevUp.y, prevUp.z, 0.0f,
+        prevFwd.x, prevFwd.y, prevFwd.z, 0.0f,
+    };
+    device.beginRenderTarget( pHistory[writeIndex], false );
+    fullscreen.draw( device, kSPIRV_volclouds_accum_frag, sizeof( kSPIRV_volclouds_accum_frag ), pAccumTextures, 2,
+                     accumPush, sizeof( accumPush ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear );
+    device.endRenderTarget();
+    device.endGpuPass();
+    historyIndex = writeIndex;
+    bHistoryValid = true;
+    prevCamPos = params.camPos;
+    prevRight = params.right;
+    prevUp = params.up;
+    prevFwd = params.forward;
+    prevTanHalf = params.tanHalf;
+    prevAspect = params.aspect;
+}
+
+void EdenClouds::composite( RenderDevice &device, const Params &params ) {
+    if ( pDevice == nullptr || !bHistoryValid || pHistory[historyIndex] == nullptr ) {
+        return;
+    }
+    pDevice = &device;
+    GPUTexture *pTexture = &pHistory[historyIndex]->Color;
+    const float push[4] = { params.nearPlane, params.farPlane, 0.0f, 0.0f };
+    // Depth tested (LESS_OR_EQUAL) and depth writing: the fragment writes the
+    // depth of the accumulated hit distance, so terrain nearer than the cloud
+    // hides it and the cloud hides what is behind it. The premultiplied
+    // colour blends over the scene.
+    fullscreen.draw( device, kSPIRV_volclouds_composite_frag, sizeof( kSPIRV_volclouds_composite_frag ), &pTexture, 1,
+                     push, sizeof( push ), eBlendMode::BM_PremultipliedAlpha, eSamplerFilter::SF_Linear, true, true );
+}

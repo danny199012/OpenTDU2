@@ -20,7 +20,9 @@ public:
                const void *pPushConstants = nullptr,
                uint32_t pushConstantsSize = 0,
                eBlendMode blend = eBlendMode::BM_Opaque,
-               eSamplerFilter filter = eSamplerFilter::SF_Linear );
+               eSamplerFilter filter = eSamplerFilter::SF_Linear,
+               bool bDepthTest = false,
+               bool bDepthWrite = false );
 
 private:
     RenderDevice *pDevice;

@@ -19,7 +19,6 @@
 #include "render/shaders/builtin/fsr1_rcas_frag.h"
 #include "render/shaders/builtin/windscreen_frag.h"
 #include "render/shaders/builtin/viewpos_frag.h"
-#include "render/shaders/builtin/volclouds_frag.h"
 #include "system/cmd_line.h"
 #include "debug/coords_overlay.h"
 
@@ -327,6 +326,9 @@ bool EdenSceneView::initialize( const char *pIsland, const Vector3f &streamCente
         ocean.setWaterBaseLevel( world.getIslandBoundsMin().y );
     }
     loadClouds( islandFolder );
+    if ( !volumetricClouds.initialize( gpRender->getDevice() ) ) {
+        OTDU_LOG_ERROR( "EdenSceneView: the volumetric clouds failed to initialize (-oldclouds billboards stand in)\n" );
+    }
     if ( !CmdLine::HasArg( "-norain" ) ) {
         rain.initialize( *pRenderer, islandFolder );
     }
@@ -342,6 +344,7 @@ void EdenSceneView::destroy() {
         occlusion.destroy( gpRender->getDevice() );
     }
     destroyTargets();
+    volumetricClouds.destroy();
     fullscreen.destroy();
     sky.destroy();
     sun.destroy();
@@ -778,6 +781,7 @@ void EdenSceneView::ensureTargets() {
     pSceneTarget = device.createRenderTarget( width, height, VK_FORMAT_UNDEFINED, true, "EdenScene" );
     pViewPosTarget = device.createRenderTarget( width, height, VK_FORMAT_R8G8B8A8_UNORM, false, "gViewPos" );
     pFinalTarget = device.createRenderTarget( width, height, VK_FORMAT_UNDEFINED, false, "EdenSceneFinal" );
+    volumetricClouds.ensureTargets( width, height );
     pDropletTarget = device.createRenderTarget( Max<uint32_t>( 64, width / 2 ), Max<uint32_t>( 64, height / 2 ),
                                                 VK_FORMAT_R8G8B8A8_UNORM, false, "Droplets_Windshield" );
     windscreen.setTarget( pDropletTarget );
@@ -797,6 +801,7 @@ void EdenSceneView::destroyTargets() {
         return;
     }
     RenderDevice &device = gpRender->getDevice();
+    volumetricClouds.destroyTargets();
     device.destroyRenderTarget( pSceneTarget );
     device.destroyRenderTarget( pViewPosTarget );
     device.destroyRenderTarget( pEnvironmentTarget );
@@ -1737,6 +1742,12 @@ void EdenSceneView::renderOffscreen() {
     device.endGpuPass();
     gSceneTimes.mark( SceneTimes::Planar );
     // 1. Opaque scene (blended draws are deferred by the renderer).
+    // The volumetric cloud layer marches + accumulates into its own half-res
+    // history first; the composite draw happens inside the opaque pass below,
+    // after the world (depth tested, see compositeCloudLayer).
+    if ( !bShowcase ) {
+        drawCloudLayer( params );
+    }
     // World map view: the deep sea colour of the island colour map (0, 14, 46)
     // instead of the sky, so the sea continues past the loaded area.
     device.beginGpuPass( "opaque" );
@@ -1754,9 +1765,9 @@ void EdenSceneView::renderOffscreen() {
     if ( !bNoSunFlare && !bShowcase && ( !bMapView || bMapKeepSky ) ) {
         sun.drawHalo( *pRenderer, params, pWeather );
     }
-    // Volumetric clouds right after the sky: later geometry (the world, the car and its cockpit) draws over them.
+    // The billboard clouds of clouds.3dd (-oldclouds; the volumetric layer
+    // composites over the scene after the world below).
     if ( !bShowcase ) {
-        drawVolumetricClouds( params );
         drawClouds( *pRenderer );
     }
     // The same cull as the pre-pass (the blended draws are deferred from this
@@ -1773,6 +1784,13 @@ void EdenSceneView::renderOffscreen() {
     }
     drawObjects( *pRenderer, ePass::Opaque );
     pRenderer->setOcclusionGrid( nullptr );
+    // The volumetric clouds composite after the opaque world, depth tested
+    // against it: a cloud in front of a mountain stays visible, a mountain in
+    // front of a cloud hides it, and the cockpit / car (near depth) never let
+    // clouds through (the first cloud attempt's bug, docs/state 16).
+    if ( !bShowcase ) {
+        compositeCloudLayer( params );
+    }
     static const bool bLogOcclusion = CmdLine::HasArg( "-logocclusion" );
     if ( bLogOcclusion ) {
         static uint32_t frames = 0, sumTested = 0, sumCulled = 0, framesWithGrid = 0;
@@ -2053,12 +2071,15 @@ bool UseVolumetricClouds() {
 }
 } // namespace
 
-void EdenSceneView::drawVolumetricClouds( const EdenSceneParams &params ) {
-    if ( !UseVolumetricClouds() || bMapView || pViewPosTarget == nullptr || pWeather == nullptr ) {
-        return;
+bool EdenSceneView::fillCloudLayerParams( EdenClouds::Params &p, const EdenSceneParams &params ) {
+    if ( !UseVolumetricClouds() || bMapView || !volumetricClouds.isEnabled() || pSceneTarget == nullptr ||
+         pWeather == nullptr ) {
+        return false;
     }
     // clouds_cloud3dname Cloud_A / _B / _R: the three cloud sets of the data. [INF] B is the fair weather
-    // cumulus, A a thinner cover, R the rain / storm overcast (heavier, darker, lower).
+    // cumulus, A a thinner cover, R the rain / storm overcast (heavier, darker, lower). These are only the
+    // TARGETS: EdenClouds approaches them smoothly, so a weather blend never pops (the retail cloud sets
+    // cross-fade the same way, weather_spec 6.2).
     const std::string name = ToUpper( pWeather->getString( "clouds_cloud3dname", "CLOUD_B" ) );
     const char kind = name.empty() ? 'B' : name.back();
     float coverage = 0.5f, darkness = 0.0f, base = 1000.0f, top = 2100.0f;
@@ -2075,32 +2096,48 @@ void EdenSceneView::drawVolumetricClouds( const EdenSceneParams &params ) {
     if ( pCover != nullptr ) {
         coverage = Clamp( static_cast<float>( atof( pCover ) ), 0.0f, 1.0f );
     }
+    volumetricClouds.setWeatherTargets( coverage, darkness, base, top );
+
     const Matrix4x4f cameraWorld = Matrix4x4f::Translation( camera.Position ) *
                                    EdenRotationFromQuaternion( camera.Rotation ) *
                                    Matrix4x4f::Scale( Vector3f( -1.0f, 1.0f, -1.0f ) );
-    const Vector3f right = cameraWorld.transformVector( Vector3f( 1.0f, 0.0f, 0.0f ) );
-    const Vector3f up = cameraWorld.transformVector( Vector3f( 0.0f, 1.0f, 0.0f ) );
-    const Vector3f forward = cameraWorld.transformVector( Vector3f( 0.0f, 0.0f, -1.0f ) );
-    const float tanHalf = tanf( effectiveFov * 0.5f );
-    const float aspect = static_cast<float>( pSceneTarget->Width ) / static_cast<float>( pSceneTarget->Height );
-    const Vector3f toSun = ( params.SunDirection * -1.0f ).normalized();
+    p.camPos = camera.Position;
+    p.right = cameraWorld.transformVector( Vector3f( 1.0f, 0.0f, 0.0f ) );
+    p.up = cameraWorld.transformVector( Vector3f( 0.0f, 1.0f, 0.0f ) );
+    p.forward = cameraWorld.transformVector( Vector3f( 0.0f, 0.0f, -1.0f ) );
+    p.tanHalf = tanf( effectiveFov * 0.5f );
+    p.aspect = static_cast<float>( pSceneTarget->Width ) / static_cast<float>( pSceneTarget->Height );
+    p.toSun = ( params.SunDirection * -1.0f ).normalized();
     const float speed = pWeather->getFloat( "clouds_cloud3dSpeed", 1.0f );
+    p.windX = 4.0f * Clamp( speed, 0.0f, 4.0f );
+    p.windZ = 2.0f * Clamp( speed, 0.0f, 4.0f );
     const Vector4f tint = pWeather->getVector4( "clouds_cloud3dcolor", Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ) );
-    const Vector3f sunColor( params.SunDiffuse.x * ( 0.6f + 0.4f * tint.x ), params.SunDiffuse.y * ( 0.6f + 0.4f * tint.y ),
-                             params.SunDiffuse.z * ( 0.6f + 0.4f * tint.z ) );
-    float push[32] = {
-        camera.Position.x, camera.Position.y, camera.Position.z, params.Time,
-        right.x * tanHalf * aspect, right.y * tanHalf * aspect, right.z * tanHalf * aspect, coverage,
-        up.x * tanHalf, up.y * tanHalf, up.z * tanHalf, base,
-        forward.x, forward.y, forward.z, top,
-        toSun.x, toSun.y, toSun.z, 1.0f,
-        sunColor.x * 1.15f, sunColor.y * 1.15f, sunColor.z * 1.15f, darkness,
-        params.Ambient.x, params.Ambient.y, params.Ambient.z, 4.0f * Clamp( speed, 0.0f, 4.0f ),
-        params.FogColor.x, params.FogColor.y, params.FogColor.z, 2.0f * Clamp( speed, 0.0f, 4.0f ),
-    };
-    GPUTexture *pViewPos = &pViewPosTarget->Color;
-    fullscreen.draw( gpRender->getDevice(), kSPIRV_volclouds_frag, sizeof( kSPIRV_volclouds_frag ), &pViewPos, 1, push, sizeof( push ),
-                     eBlendMode::BM_PremultipliedAlpha, eSamplerFilter::SF_Point );
+    p.sunColor = Vector3f( params.SunDiffuse.x * ( 0.6f + 0.4f * tint.x ) * 1.15f,
+                           params.SunDiffuse.y * ( 0.6f + 0.4f * tint.y ) * 1.15f,
+                           params.SunDiffuse.z * ( 0.6f + 0.4f * tint.z ) * 1.15f );
+    p.ambient = params.Ambient;
+    p.fogColor = params.FogColor;
+    p.time = params.Time;
+    p.nearPlane = camera.Near;
+    p.farPlane = camera.Far;
+    p.frameDelta = frameDelta;
+    return true;
+}
+
+void EdenSceneView::drawCloudLayer( const EdenSceneParams &params ) {
+    EdenClouds::Params p;
+    if ( !fillCloudLayerParams( p, params ) ) {
+        return;
+    }
+    volumetricClouds.marchAndAccumulate( gpRender->getDevice(), p );
+}
+
+void EdenSceneView::compositeCloudLayer( const EdenSceneParams &params ) {
+    EdenClouds::Params p;
+    if ( !fillCloudLayerParams( p, params ) ) {
+        return;
+    }
+    volumetricClouds.composite( gpRender->getDevice(), p );
 }
 
 void EdenSceneView::drawClouds( EdenRenderer &renderer ) {

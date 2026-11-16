@@ -19,15 +19,17 @@ void FullscreenPass::destroy() {
 
 void FullscreenPass::draw( RenderDevice &device, const uint32_t *pFragmentSPIRV, size_t fragmentSize,
                            GPUTexture *const *ppTextures, uint32_t numTextures, const void *pPushConstants,
-                           uint32_t pushConstantsSize, eBlendMode blend, eSamplerFilter filter ) {
+                           uint32_t pushConstantsSize, eBlendMode blend, eSamplerFilter filter, bool bDepthTest,
+                           bool bDepthWrite ) {
     pDevice = &device;
     const VkRenderPass renderPass = device.getCurrentRenderPass();
     if ( renderPass == VK_NULL_HANDLE || numTextures == 0 ) {
         return;
     }
     char key[96];
-    snprintf( key, sizeof( key ), "%p:%p:%u", static_cast<const void *>( pFragmentSPIRV ),
-              static_cast<void *>( renderPass ), static_cast<uint32_t>( blend ) );
+    snprintf( key, sizeof( key ), "%p:%p:%u:%u:%u", static_cast<const void *>( pFragmentSPIRV ),
+              static_cast<void *>( renderPass ), static_cast<uint32_t>( blend ), bDepthTest ? 1u : 0u,
+              bDepthWrite ? 1u : 0u );
     VkPipeline pipeline = VK_NULL_HANDLE;
     auto it = pipelines.find( key );
     if ( it != pipelines.end() ) {
@@ -40,6 +42,8 @@ void FullscreenPass::draw( RenderDevice &device, const uint32_t *pFragmentSPIRV,
         desc.FragmentSPIRVSize = fragmentSize;
         desc.Blend = blend;
         desc.Cull = eCullMode::CM_None;
+        desc.bDepthTest = bDepthTest; // LESS_OR_EQUAL (render_device createPipeline)
+        desc.bDepthWrite = bDepthWrite;
         desc.RenderPass = renderPass;
         pipeline = device.createPipeline( desc );
         pipelines[key] = pipeline;

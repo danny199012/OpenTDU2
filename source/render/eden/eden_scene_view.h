@@ -1,6 +1,7 @@
 #pragma once
 
 #include "filesystem/bank.h"
+#include "render/eden/eden_clouds.h"
 #include "render/eden/eden_model.h"
 #include "render/eden/eden_neons.h"
 #include "render/eden/eden_ocean.h"
@@ -257,6 +258,9 @@ private:
     Bank cloudsBank;
     EdenModel clouds;
     std::string cloudsSuffix;
+    // Port-native volumetric cloud layer (eden_clouds.h): half-res march,
+    // temporal accumulation, depth-tested composite.
+    EdenClouds volumetricClouds;
     FullscreenPass fullscreen;
     const WeatherPreset *pWeather = nullptr;
     Camera camera;
@@ -339,8 +343,15 @@ private:
     void generateViewPos();
     bool loadClouds( const std::string &islandFolder );
     void drawClouds( EdenRenderer &renderer );
-    // Port-native raymarched cloud layer (resources/shaders/volclouds.frag), drawn over the sky after the haze.
-    void drawVolumetricClouds( const EdenSceneParams &params );
+    // Port-native volumetric cloud layer (resources/shaders/volclouds*.frag,
+    // EdenClouds): march + temporal accumulate into the half-res history
+    // before the opaque pass, then a depth-tested composite after the opaque
+    // world so terrain and the clouds occlude each other in both directions.
+    void drawCloudLayer( const EdenSceneParams &params );
+    void compositeCloudLayer( const EdenSceneParams &params );
+    // The per-frame view + weather parameters of the cloud layer (and the
+    // -cloudcover / weather targets); false when the layer is off.
+    bool fillCloudLayerParams( EdenClouds::Params &p, const EdenSceneParams &params );
     void drawObjects( EdenRenderer &renderer, ePass pass );
     void updateLightmapMaterials();
     // Neon set + AnimValue blink update (FUN_009834d0), called by renderOffscreen.
