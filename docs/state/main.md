@@ -8,6 +8,70 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-16 (`main`, 41): 4K High 17.9 -> 15.9 ms (56 -> 63 fps) with the image untouched - shadow far-slice round-robin + per-instance per-frame cache
+
+Owner: "What else can we do to improve performance without cutting down the graphics quality I want you to
+make more improvements please thanks". Picked up `docs/PERF_PLAN.md` §0a's plan-to-60 list; full write-up in
+the new **§0b** there (fresh `-sampleprof` table of everything that is left, with the next steps). Two
+levers landed, both CPU-only, both image-identical by construction and by measurement. Baseline on the
+session's start tree: frame 600 **17.9 ms (56 fps)** at 4K High (env 2.9 / prepass 6.4 / shadows 4.6 /
+opaque 2.2, GPU ~5.5 ms).
+
+### What changed
+- `source/render/eden/eden_shadows.{h,cpp}` - **far-slice round-robin** (PERF_PLAN 2 #3): slice 0 (the car's)
+  renders every frame, slices 1-2 alternate (`-shadowrate <n>` spaces them out, `-noshadowcache` = the old
+  every-slice-every-frame). A skipped slice keeps its map AND its light matrix / texel size / depth range, so
+  `resolve` projects into the map that is actually in the target; the whole cache drops on a config change
+  (generation counter in `setConfig`/`destroy`) or a sun step > ~1.15 degrees (a weather switch must not show
+  a late shadow direction).
+- `source/world/eden_world.{h,cpp}` - **per-instance per-frame cache** (`Sector::InstanceFrame`,
+  `-noinstancecache` = the A/B): the prepass, the shadow slices and the opaque pass submit the same instances
+  3-4x a frame; the LOD pick, the TD_Ground flag and the occlusion verdict are memoized per instance for one
+  camera position (stamp = camera + Draw-Distance scale + LOD factor + drawEpoch). The frustum bits belong to
+  a projection: non-shadow passes own one VP slot (the prepass fills it, the opaque - same projection, same
+  occlusion grid - reads it), shadow-caster passes compute inline and never touch the slot. `drawInstances`
+  now takes a non-const `Sector &` (sole caller passes one).
+
+### Verified
+- Shadow cache: paired 4K High runs (`_perf_sha_on/off.log`) - **shadows 4.8 -> 3.3 ms, GPU 0.90 -> 0.66**;
+  frame-400 pixel diff mean 0.0001/255, 0.001 % of pixels > 2 (max 6) in one 195x348 far-shadow patch (the
+  expected staleness); validation run clean of new VUIDs.
+- Instance cache: clean paired runs (`-clock 02.00 -staticcubemap`, back to back) - **13.9 -> 12.0 ms
+  (72 -> 83 fps)**: prepass 6.6 -> 5.9, shadows 2.8 -> 2.4, opaque 2.2 -> 1.7. Frame-400 diff vs
+  `-noinstancecache`: **pixel-identical** (0 differing pixels). A/A runs of one build: pixel-identical.
+- Combined, default visuals: **17.9 -> 15.9 ms (63 fps)** at 4K High (`_perf_inst.log`).
+
+### Ruled out (with the test that ruled it out)
+- "The image differs" (first cross-build comparison, whole sky): the game clock seeds from the PC wall clock
+  and the weather ramp from spawn is mid-flight for the first seconds - a 02:05 run showed a starry night
+  where a 02:19 run showed a grey deck. Pin every comparison run with **`-clock 02.00` (dot format - a colon
+  parses as :00)**; `-clock` freezes the rate. Cost a confusion cycle; written into PERF_PLAN as a rule.
+- A 470x357 diff patch on the car in the first instance-cache A/B: the env-cube refresh timer
+  (`refreshTimer += frameDelta`) runs on REAL time, so runs with different frame rates refresh the cube on
+  different frames and the paint reflections shift. `-staticcubemap` pins it out; the flag pair is then
+  pixel-identical. The cache itself is pure.
+- GPU instancing of the .pmi draws (PERF_PLAN 2 #2): parked - it needs the world matrix out of the per-draw
+  constants, i.e. a mechanical SPIR-V patch of the 116 shipped shader libraries; retail drew per-instance too.
+- `vkGetInstanceProcAddr` at 7.6 % leaf in the profile: symbolization artefact (volk loads device tables
+  directly; the samples are loader/driver dispatch). Not a call site.
+
+### Not done / next
+- **The grass emit is the next big lever (~22 % of the main thread)**: `buildGrassBatch` 12.2 % +
+  road queries ~8 %. On a drive the camera moves > 2 m/frame, so the 140 m square (~139k .pgr cells)
+  re-walks every frame. The cheap fix (build margin) is NOT image-identical: the density law's keep
+  probability is camera-dependent (the 10-60 m ring). Image-identical option: memoize the road probes
+  (`GrassRoadIndex::nearRoad`, `SampleRoadSurface` - pure functions of world x,z, probe points hash-stable
+  per cell) in a persistent per-run table. Bigger option: make CPU placement camera-independent and move the
+  camera term into the shader (needs the owner's eye).
+- Per-draw resolve ~14 % (`fillConstants` 6.6 + `recordDrawImpl` 5.8 + `FindSmall` 2.0): cache the
+  world-independent part of the constant block per (program, material, fingerprint), write only the
+  world registers per draw.
+- **Pre-existing startup VUID found** (one-shot, frame 0): `vkQueueSubmit` expects an image in
+  SHADER_READ_ONLY, current UNDEFINED (`_sha_valid.log:501`). Fires with `-noshadowcache` too, and session 36
+  measured 0 render VUIDs before clouds v3, so the suspect is the cloud composite's first-frame history
+  sample (860ef3b changed that path after my validation). Repro: the §0a command at 720p +
+  `-vk_enable_validation_layer`; fix the history reset to render (not sample) on frame 0.
+
 ## Session 2026-11-16 (`main`, 40): the retail menu / UI sounds play - `fe_snd.bnk` + its `sounds.ini` cue map + the `sndp:` hook
 
 Owner: *"I want you to start addingsound effects for menu's and in game like collisions etc... thanks

@@ -65,6 +65,17 @@ private:
     Config config;
     Slice slices[kNumSlices];
     float splits[kNumSlices] = {};
+    // Far-slice refresh cadence (PERF_PLAN 2 #3): slice 0 (the car's slice)
+    // every frame, slices 1-2 alternate - one far caster pass per frame. The
+    // far slices hold mostly static world casters, so a 2-frame-old map is
+    // not visible; the resolve reads each map with the light matrix of the
+    // frame that rendered it (Slice fields are kept on skipped frames).
+    // Re-rendered wholesale when the config changes or the sun steps.
+    // -noshadowcache = every slice every frame (the old behaviour).
+    uint64_t casterFrame = 0;
+    uint64_t configGeneration = 1;
+    uint64_t sliceGeneration[kNumSlices] = {}; // 0 = never rendered
+    Vector3f sliceLight[kNumSlices];           // sun direction of the rendered frame
     RenderTarget *pScreenShadow = nullptr;
     RenderTarget *pSliceScreens[kNumSlices] = {}; // slice passes (stencil restriction emulation)
     FullscreenPass combinePass;

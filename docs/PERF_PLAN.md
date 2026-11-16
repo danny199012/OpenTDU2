@@ -4,6 +4,72 @@ A self-contained brief for whoever picks up performance. Read `CLAUDE.md` first 
 "stop only your own exe" rule), then this. Keep the doc tags: `[MEAS]` measured this session, `[CODE]` read from
 our source, `[INF]` inferred.
 
+## 0b. 2026-11-16 (`main`, session 39) — 4K High 17.9 -> 15.9 ms with the image untouched; where the next 5 ms live
+
+Same command as §0a (`-profile high -width 3840 -height 2160 ... -tp 21796.3,24188.1 -snaproad 150 -carlod 4
+-logscenetimes -loggputimes -autoplay "60:hold=accel" -exitframe 620`), frames 360-600, RTX 5070 Ti. **New
+methodology rule: pin the clock on every comparison run (`-clock 02.00`, dot format - `sscanf("%d.%d")`, a
+colon parses as :00).** The game clock seeds from the PC wall clock, and the weather-cycle ramp from spawn is
+mid-flight for the first seconds - two runs minutes apart ramp toward different transitions and the whole sky
+differs at frame 400 (a 02:05 run showed a starry night where a 02:19 run showed a grey deck; that cost this
+session a confusion cycle). With `-clock` the rate freezes, so the whole run is that time of day.
+
+- **Baseline re-measure `[MEAS]`**: frame 600 **17.9 ms (56 fps)**; scene env 2.9 / ocean 0.4 / prepass 6.4 /
+  shadows 4.6 / opaque 2.2 / blended 0.4, GPU ~5.5 ms total. The CPU is still the frame; GPU idles. (Measured
+  on the tree at fceb7b4, before 860ef3b's clouds tuning - the later paired A/Bs are all on the newer tree and
+  internally consistent.)
+- **Shadow far-slice round-robin `[MEAS]`** (`EdenShadows::renderCasters`, `-noshadowcache` = the old every
+  slice every frame, `-shadowrate <n>` spaces the far slices further): slice 0 (the car's) every frame, slices
+  1-2 alternate; a skipped slice keeps its map AND its light matrix / texel / bias, and the resolve projects
+  into the map that is actually in the target. Full re-render when the config changes (generation counter) or
+  the sun steps > ~1.15 degrees. **shadows 4.8 -> 3.3 ms, GPU 0.90 -> 0.66**; frame-400 pixel diff vs the A/B:
+  mean 0.0001/255, 0.001 % of pixels > 2 (max 6), one 195x348 far-shadow patch - the expected staleness.
+  Validation (400 frames FREERIDE): clean except **one startup layout VUID (09600, SHADER_READ_ONLY vs
+  UNDEFINED) that is pre-existing** - it fires with `-noshadowcache` too, and session 36 measured 0 render
+  VUIDs before clouds v3 landed, so the suspect is the cloud composite's first-frame history sample. Next
+  agent: reproduce with `-novolclouds` and fix the history reset to render (not sample) on frame 0.
+- **Per-instance per-frame cache `[MEAS]`** (`EdenWorld::drawInstances`, `Sector::InstanceFrame`,
+  `-noinstancecache` = the A/B): the prepass, the shadow slices and the opaque pass submit the same instances
+  3-4x a frame; the LOD pick, the TD_Ground flag and the occlusion verdict are memoized per instance for one
+  camera position (stamp = camera + draw-distance scale + LOD factor + drawEpoch). The frustum bits belong to
+  a projection: non-shadow passes own one VP slot (the prepass fills, the opaque - the same projection and
+  occlusion grid - reads), shadow-caster passes compute inline and never touch the slot. Frame 600
+  **17.9 -> 15.9 ms (63 fps)** in the paired run (`-clock 02.00 -staticcubemap`); scene shadows 3.3 -> 2.6,
+  opaque 2.4 -> 2.0. Purity check: frame-400 diff vs `-noinstancecache` is **one 470x357 patch on the car**
+  (max 137, mean 0.052) - not the cache: the env-cube refresh timer (`refreshTimer += frameDelta`) runs on
+  real time, so runs with different frame rates refresh the cube on different frames and the paint
+  reflections shift by a frame. With `-staticcubemap` (timer out of the picture) the pair is
+  **pixel-identical** (0 differing pixels), and the clean paired measurement (back to back, pinned clock) is
+  **13.9 -> 12.0 ms (72 -> 83 fps)**: prepass 6.6 -> 5.9, shadows 2.8 -> 2.4, opaque 2.2 -> 1.7 - the cache
+  saves 1.9 ms a frame. The A/A runs of one build are pixel-identical.
+- **Fresh `-sampleprof` of the remaining main thread (frames 360-600) `[MEAS]`** - the next levers, biggest
+  first:
+  1. **The grass emit is ~22 %**: `buildGrassBatch` 12.2 + `GrassRoadIndex::nearRoad` 4.5 + `maybeNear` 1.5 +
+     `SampleRoadSurface` 1.8 + the append lambda 1.5 + `AppendBlade` 0.6. On a drive the camera moves > 2 m
+     per frame, so the 140 m square (~139k .pgr cells) re-walks EVERY frame to refill the 24k card cap. The
+     cheap fix (build with a margin, rebuild less often) is **not** image-identical: the density law's keep
+     probability is camera-dependent (the 10-60 m ring, eden_world.cpp `bDensityLaw`), so a lagged build
+     centre changes which cells keep. Options: (a) make CPU placement camera-independent and move the camera
+     term into the shader (the alphaDist fade already hides the far ring) - changes placement, needs the
+     owner's eye; (b) memoize the road probes - `nearRoad` / `SampleRoadSurface` are pure functions of world
+     (x, z) and the probe points are hash-stable per cell, so a persistent per-run table would turn them into
+     lookups after the first pass. (b) is image-identical and worth ~8-10 % of the frame.
+  2. **The per-draw resolve is ~14 %**: `fillConstants` 6.6 + `recordDrawImpl` 5.8 + `FindSmall` 2.0. Next
+     step: cache the world-independent part of each constant block per (program, material, scene fingerprint)
+     and write only the world-dependent registers per draw (the members are already classified per program -
+     `ShaderConstantMember::Kind`).
+  3. `vkGetInstanceProcAddr` 7.6 % as a LEAF is a symbolization artefact, not a call site: volk loads the
+     device tables directly (`volkLoadDevice`), the samples land in vulkan-1.dll / driver dispatch code and
+     DbgHelp names the nearest export. It is the Vulkan API-call overhead itself - fewer draws shrinks it
+     (the instancing lever below), nothing to patch.
+  4. `_NLG_Return2` 5 % - MSVC EH glue, appears when a sampled frame is inside a function with catch blocks;
+     treat as spread overhead, not a hotspot.
+- **Parked**: GPU instancing of the .pmi draws (§2 item 2 as written) needs the world matrix out of the
+  per-draw constants, i.e. a mechanical SPIR-V patch of the 116 shipped shader libraries - too risky without
+  shader source; retail drew these per-instance as well (pmi_streaming_spec 4, MASSINSTANCE_VIS_MAX caps).
+  The env cube (2.9-3.2 ms) is already throttled (200 ms full, 70 ms rear faces while moving); a longer
+  interval trades reflection lag, which the owner has complained about before - needs their eye.
+
 ## 0a. 2026-11-04 (`win`) — the 4K High baseline, the lost minimap fix, and the road to 60
 
 The owner's goal: **4K 60 fps at max settings as the floor**, with head-room above it (the retail game under DXVK

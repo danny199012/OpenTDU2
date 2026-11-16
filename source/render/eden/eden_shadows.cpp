@@ -189,6 +189,9 @@ void EdenShadows::setConfig( const Config &newConfig ) {
     const uint32_t resolution = config.Resolution;
     config = newConfig;
     config.Resolution = resolution;
+    // Splits / bias change with the config: the far-slice maps are stale
+    // wholesale (renderCasters re-renders every slice for the new generation).
+    configGeneration++;
 }
 
 void EdenShadows::destroy() {
@@ -211,6 +214,13 @@ void EdenShadows::destroy() {
     pScreenShadow = nullptr;
     pVertexBuffer = pIndexBuffer = nullptr;
     bReady = false;
+    // The far-slice cache holds maps of the old targets: force a full
+    // re-render after the next initialize (sliceGeneration != generation).
+    configGeneration++;
+    casterFrame = 0;
+    for ( uint32_t i = 0; i < kNumSlices; i++ ) {
+        sliceGeneration[i] = 0;
+    }
 }
 
 void EdenShadows::setupSceneConstants( EdenSceneParams &scene, const WeatherPreset *pWeather ) const {
@@ -255,6 +265,25 @@ void EdenShadows::renderCasters( EdenRenderer &renderer, const EdenSceneParams &
 
     for ( uint32_t i = 0; i < kNumSlices; i++ ) {
         Slice &slice = slices[i];
+        // Far-slice cadence (the members' comment): slice 0 every frame,
+        // slices 1-2 alternate (-shadowrate <n> spaces them out further,
+        // -noshadowcache = the old every-slice-every-frame). A skipped slice
+        // keeps the map AND its light matrix / texel / depth range, so the
+        // resolve this frame projects into the map that is actually in the
+        // target. Full re-render when the config changed or the sun stepped
+        // more than ~1.15 degrees (a weather switch must not show a 2-frame
+        // late shadow direction).
+        static const bool bNoShadowCache = CmdLine::HasArg( "-noshadowcache" );
+        static const uint32_t kFarRate =
+            static_cast<uint32_t>( Max( 1, CmdLine::GetArgInt( "-shadowrate", 2 ) ) );
+        const bool bDue = bNoShadowCache || i == 0 || sliceGeneration[i] != configGeneration ||
+                          sliceLight[i].dot( light ) < 0.9998f ||
+                          ( casterFrame % kFarRate ) == static_cast<uint32_t>( i - 1 );
+        if ( !bDue ) {
+            continue;
+        }
+        sliceGeneration[i] = configGeneration;
+        sliceLight[i] = light;
         // Slice frustum (FUN_00976300): camera near or the previous split.
         const float sliceNear = i == 0 ? cameraNear : splits[i - 1];
         const float sliceFar = splits[i];
@@ -386,6 +415,7 @@ void EdenShadows::renderCasters( EdenRenderer &renderer, const EdenSceneParams &
         renderer.setShadowCasterMode( false );
         device.endRenderTarget();
     }
+    casterFrame++;
 }
 
 GPUTexture *EdenShadows::resolve( EdenRenderer &renderer, const EdenSceneParams &scene, GPUTexture *pViewPos,

@@ -1301,13 +1301,14 @@ void EdenWorld::updateNeons( const WeatherPreset *pWeather, float deltaTime ) {
     }
 }
 
-void EdenWorld::drawInstances( EdenRenderer &renderer, const Sector &sector, const Vector3f &cameraPosition ) {
+void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vector3f &cameraPosition ) {
     // Frustum planes (Vulkan clip space: -w <= x, y <= w, 0 <= z <= w).
     const Matrix4x4f &vp = renderer.getViewProjection();
     // Quality profiles: the draw distance of the streamed instances relative
     // to the data's own LOD distances (100 % = retail). Read per frame so the
     // Advanced settings row applies without a reload.
     const float distanceScale = static_cast<float>( Clamp( GetGameOptions().DrawDistance, 50, 150 ) ) / 100.0f;
+    const float lodFactor = gpConfig != nullptr ? gpConfig->getVideoSettings().GlobalLodFactor : 1.0f;
     Vector4f planes[6];
     for ( int i = 0; i < 6; i++ ) {
         const int axis = i / 2;
@@ -1319,7 +1320,56 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, const Sector &sector, con
         }
         planes[i] = Vector4f( p[0], p[1], p[2], p[3] );
     }
+    // The per-frame cache (Sector::InstanceFrame): the distance-driven
+    // results (LOD, TD_Ground flag, occlusion) are identical for every pass
+    // that draws the world with the same camera position - the prepass, the
+    // shadow slices and the opaque pass submit the same instances 3-4x a
+    // frame (-sampleprof: drawInstances was ~8 % of the main thread at 4K).
+    // The frustum result belongs to a projection: see the slot rules at
+    // bVisWrite below. Everything stays a memoization of values this
+    // function computed anyway. -noinstancecache is the A/B: the stamp bumps
+    // every call, so every entry is stale and every value recomputes (and
+    // the view-projection slot never matches - the pre-change walk).
+    static const bool bNoInstanceCache = CmdLine::HasArg( "-noinstancecache" );
+    if ( bNoInstanceCache ) {
+        instanceFrameStamp++;
+        instanceFrameCamera = cameraPosition;
+        instanceFrameScale = distanceScale;
+        instanceFrameLodFactor = lodFactor;
+        instanceFrameEpoch = drawEpoch;
+        instanceFrameVpOwned = false;
+    } else if ( instanceFrameStamp == 0 || instanceFrameCamera.x != cameraPosition.x ||
+         instanceFrameCamera.y != cameraPosition.y || instanceFrameCamera.z != cameraPosition.z ||
+         instanceFrameScale != distanceScale || instanceFrameLodFactor != lodFactor ||
+         instanceFrameEpoch != drawEpoch ) {
+        instanceFrameStamp++;
+        instanceFrameCamera = cameraPosition;
+        instanceFrameScale = distanceScale;
+        instanceFrameLodFactor = lodFactor;
+        instanceFrameEpoch = drawEpoch;
+        instanceFrameVpOwned = false;
+    }
+    const uint32_t stamp = instanceFrameStamp;
+    // View-projection slot: the per-instance frustum + occlusion bits are
+    // shared only between passes with the same projection. A shadow-caster
+    // pass (a light projection per slice) computes inline and never touches
+    // the slot. Every other pass owns it: the environment cube face and the
+    // ocean mirror run before the prepass and overwrite it, the prepass
+    // fills it, and the opaque pass - the same projection and occlusion grid
+    // as the prepass - reads it. (Their VPs can never match the main view's:
+    // different cameras by construction.)
+    const bool bVisWrite = !renderer.isShadowCasterMode();
+    const bool bVisCache = bVisWrite && instanceFrameVpOwned &&
+                           memcmp( &vp, &instanceFrameVp, sizeof( Matrix4x4f ) ) == 0;
+    if ( bVisWrite && !bVisCache ) {
+        instanceFrameVp = vp;
+        instanceFrameVpOwned = true;
+    }
+    if ( sector.InstanceFrame.size() != sector.Instances.size() ) {
+        sector.InstanceFrame.resize( sector.Instances.size() );
+    }
     for ( size_t i = 0; i < sector.Instances.size(); i++ ) {
+        Sector::InstanceFrameInfo &info = sector.InstanceFrame[i];
         const PmiInstance &instance = sector.Instances[i];
         const Vector3f center = ( instance.BoxMin + instance.BoxMax ) * 0.5f;
         const Vector3f extent = ( instance.BoxMax - instance.BoxMin ) * 0.5f;
@@ -1340,24 +1390,36 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, const Sector &sector, con
             continue;
         }
         bool bVisible = true;
-        for ( const Vector4f &plane : planes ) {
-            const float d = plane.x * center.x + plane.y * center.y + plane.z * center.z + plane.w;
-            const float r = std::abs( plane.x ) * extent.x + std::abs( plane.y ) * extent.y +
-                            std::abs( plane.z ) * extent.z;
-            if ( d + r < 0.0f ) {
-                bVisible = false;
-                break;
+        bool bOccluded = false;
+        if ( bVisCache && info.Stamp == stamp && info.bVisFilled ) {
+            bVisible = info.bMainVisible;
+            bOccluded = info.bOccluded;
+        } else {
+            for ( const Vector4f &plane : planes ) {
+                const float d = plane.x * center.x + plane.y * center.y + plane.z * center.z + plane.w;
+                const float r = std::abs( plane.x ) * extent.x + std::abs( plane.y ) * extent.y +
+                                std::abs( plane.z ) * extent.z;
+                if ( d + r < 0.0f ) {
+                    bVisible = false;
+                    break;
+                }
+            }
+            // Occlusion cull (EdenOcclusion): hidden behind nearer geometry. The
+            // cube around the bounding sphere, not the box: the far-tree impostor
+            // cards are sized to the sphere and stick out of the box (a 367-pixel
+            // patch of tree card went missing on the 4K drive).
+            if ( bVisible ) {
+                bOccluded = renderer.isOccluded( center - Vector3f( extent.length(), extent.length(), extent.length() ),
+                                                 center + Vector3f( extent.length(), extent.length(), extent.length() ) );
+            }
+            if ( bVisWrite ) {
+                info.bMainVisible = bVisible;
+                info.bOccluded = bOccluded;
+                info.bVisFilled = true;
+                info.Stamp = stamp;
             }
         }
-        if ( !bVisible ) {
-            continue;
-        }
-        // Occlusion cull (EdenOcclusion): hidden behind nearer geometry. The
-        // cube around the bounding sphere, not the box: the far-tree impostor
-        // cards are sized to the sphere and stick out of the box (a 367-pixel
-        // patch of tree card went missing on the 4K drive).
-        if ( renderer.isOccluded( center - Vector3f( extent.length(), extent.length(), extent.length() ),
-                                  center + Vector3f( extent.length(), extent.length(), extent.length() ) ) ) {
+        if ( !bVisible || bOccluded ) {
             continue;
         }
         // Per instance AnimValue (parameter block of (material, instance)).
@@ -1379,11 +1441,22 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, const Sector &sector, con
             pBlinkParams = &blinkParams;
         }
         // TD_Ground instances get their sector's -s map + sectrOff
-        // (night_lighting_spec 2.1; list kind 1 = O, 2 = S).
+        // (night_lighting_spec 2.1; list kind 1 = O, 2 = S). The library
+        // lookup is cached with the LOD (InstanceFrame: the same hash find
+        // repeated by every pass).
+        bool bHasGround = false;
+        if ( instance.Type == 1 || instance.Type == 3 ) {
+            if ( info.Stamp == stamp && info.bGroundValid ) {
+                bHasGround = info.bHasGround;
+            } else {
+                bHasGround = libraryNodeHasGround( sector.InstanceModels[i] );
+                info.bHasGround = bHasGround;
+                info.bGroundValid = true;
+                info.Stamp = stamp;
+            }
+        }
         const EdenDrawParams *pGroundParams =
-            ( instance.Type == 1 || instance.Type == 3 ) && libraryNodeHasGround( sector.InstanceModels[i] )
-                ? &sector.GroundInstanceParams[instance.Type == 1 ? 1 : 2]
-                : nullptr;
+            bHasGround ? &sector.GroundInstanceParams[instance.Type == 1 ? 1 : 2] : nullptr;
         std::optional<EdenDrawParams> mergedStorage; // when both a blink and the ground params apply
         const EdenDrawParams *pInstanceParams = pBlinkParams;
         if ( pGroundParams != nullptr ) {
@@ -1403,34 +1476,43 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, const Sector &sector, con
             // k covers up to lod[k] * 3.160494 * F, F = SET_GLOBAL_LOD_FACTOR
             // (max(F, 1) for the last level, the same rule the cull distance
             // uses). A level whose geometry did not load falls back to the
-            // finest one that did.
+            // finest one that did. Cached per frame (InstanceFrame): every
+            // pass picks the same LOD for the same camera position.
             uint32_t lod = 0;
-            const SceneNode &libraryNode = libraryModel.getScene().getNodes()[sector.InstanceModels[i]];
-            const std::vector<float> &lods = libraryNode.LodDistances;
-            if ( lods.size() > 1 ) {
-                const float lodFactor = gpConfig != nullptr ? gpConfig->getVideoSettings().GlobalLodFactor : 1.0f;
-                for ( uint32_t k = 0; k < lods.size() && k < 3; k++ ) {
-                    if ( lods[k] <= 0.0f ) {
-                        continue;
-                    }
-                    const float factor = ( k + 1 == lods.size() ) ? Max( lodFactor, 1.0f ) : lodFactor;
-                    // Squared threshold, scaled the same way the cull distance
-                    // is (Draw Distance 50..150 %).
-                    const float threshold = lods[k] * 3.160494f * factor * distanceScale * distanceScale;
-                    if ( distanceSquared <= threshold ) {
-                        lod = k;
-                        break;
-                    }
-                    lod = k + 1;
-                }
-                if ( lod > 2 ) {
-                    lod = 2;
-                }
-            }
-            auto range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
-            while ( lod > 0 && range.second == 0 ) {
-                lod--;
+            std::pair<uint32_t, uint32_t> range( 0, 0 );
+            if ( info.Stamp == stamp && info.bComputed ) {
+                lod = info.Lod;
                 range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
+            } else {
+                const SceneNode &libraryNode = libraryModel.getScene().getNodes()[sector.InstanceModels[i]];
+                const std::vector<float> &lods = libraryNode.LodDistances;
+                if ( lods.size() > 1 ) {
+                    for ( uint32_t k = 0; k < lods.size() && k < 3; k++ ) {
+                        if ( lods[k] <= 0.0f ) {
+                            continue;
+                        }
+                        const float factor = ( k + 1 == lods.size() ) ? Max( lodFactor, 1.0f ) : lodFactor;
+                        // Squared threshold, scaled the same way the cull distance
+                        // is (Draw Distance 50..150 %).
+                        const float threshold = lods[k] * 3.160494f * factor * distanceScale * distanceScale;
+                        if ( distanceSquared <= threshold ) {
+                            lod = k;
+                            break;
+                        }
+                        lod = k + 1;
+                    }
+                    if ( lod > 2 ) {
+                        lod = 2;
+                    }
+                }
+                auto range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
+                while ( lod > 0 && range.second == 0 ) {
+                    lod--;
+                    range = libraryModel.getNodeItemRange( sector.InstanceModels[i], lod );
+                }
+                info.Lod = lod;
+                info.bComputed = true;
+                info.Stamp = stamp;
             }
             // The item loop of drawNodeItems with one extra filter: the lamp
             // glow faces (TD_Lamp, c913741cbe17490d) of the SF_Ligh* models

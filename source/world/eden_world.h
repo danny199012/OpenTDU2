@@ -317,6 +317,29 @@ private:
         // InstanceBlinks[InstanceBlinkStart[i] .. InstanceBlinkStart[i + 1]).
         std::vector<uint32_t> InstanceBlinkStart;
         std::vector<std::pair<const EdenMaterial *, EdenNeons::Blink>> InstanceBlinks;
+        // Per-frame draw cache of drawInstances (P2): the chosen LOD and the
+        // TD_Ground flag per instance, computed for one camera position and
+        // reused by every pass that draws the world with it (the prepass, the
+        // shadow slices and the opaque pass submit the same instances 3-4x a
+        // frame; PERF_PLAN 2 #2's cheaper variant - the distance walk and the
+        // per-pass frustum stay inline). Stamp compares EdenWorld's
+        // instanceFrameStamp; the view-projection bits (bMainVisible /
+        // bOccluded) are only written and read by non-shadow-caster passes
+        // (the slot VP in EdenWorld::instanceFrameVp - the opaque after the
+        // prepass); the shadow slices' light projections and any other pass
+        // compute inline. Everything stays a memoization of values this
+        // function computed anyway.
+        struct InstanceFrameInfo {
+            uint32_t Stamp = 0;
+            uint32_t Lod = 0;
+            bool bHasGround = false;
+            bool bComputed = false;   // Lod valid
+            bool bGroundValid = false; // bHasGround valid
+            bool bVisFilled = false;  // bMainVisible / bOccluded valid
+            bool bMainVisible = false;
+            bool bOccluded = false;
+        };
+        std::vector<InstanceFrameInfo> InstanceFrame;
         // OpenTDU2 shore swell: horizontal beach-gradient vector of the
         // sector's TD_backwash foam strip (metres of travel per metre the sea
         // rises, directed uphill); zero when the sector has no foam.
@@ -429,7 +452,7 @@ private:
     static void RegisterNeons( EdenModel &model, uint32_t key, std::vector<EdenMaterial *> &outSet,
                                std::vector<std::pair<EdenMaterial *, EdenNeons::Blink>> &outBlinks );
     int32_t getActorModel( uint64_t hashcode );
-    void drawInstances( EdenRenderer &renderer, const Sector &sector, const Vector3f &cameraPosition );
+    void drawInstances( EdenRenderer &renderer, Sector &sector, const Vector3f &cameraPosition );
     // TD_Impostor batches of the pass being drawn: one per (material, vertex
     // layout), every visible instance's quad transformed to world space on the
     // CPU (the impostor shader has no world matrix). Filled by drawInstances,
@@ -662,4 +685,19 @@ private:
     float instanceHideRadius = 0.0f;
     ModelCallback modelLoadedCallback;
     ModelCallback modelUnloadedCallback;
+    // drawInstances' per-frame cache key (Sector::InstanceFrame): the stamp
+    // bumps when the camera position, the draw-distance / LOD factors or the
+    // drawn sector set change - a new stamp invalidates every entry. The
+    // view-projection slot owns the per-instance bMainVisible / bOccluded
+    // bits: the first pass after a stamp bump (the ocean mirror, a cube face
+    // or the prepass - whichever runs first) claims it and fills, a pass with
+    // the same projection (the opaque after the prepass) reads, every other
+    // projection computes inline without writing.
+    Vector3f instanceFrameCamera;
+    float instanceFrameScale = -1.0f;
+    float instanceFrameLodFactor = -1.0f;
+    uint32_t instanceFrameEpoch = ~0u;
+    uint32_t instanceFrameStamp = 0; // 0 = never filled
+    Matrix4x4f instanceFrameVp;
+    bool instanceFrameVpOwned = false;
 };
