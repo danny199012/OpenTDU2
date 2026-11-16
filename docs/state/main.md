@@ -17,14 +17,23 @@ Task: the handoff's one open bug (obj_mesh / mod_props materials flat white).
 - Whole mod (uncommitted in session 41): tuner.{h,cpp}, tuner_parts, tuner_menu, obj_mesh, make_gt_wing.py, package `tuner-garage`, spot ETNR_A, profile `car_tuner_parts`.
 
 ### Verified
-- Wear run (GTR, `-tp 12615,16658 -heading 90`): dark carbon GT wing on the car, `docs/images/tuner_wing_gt_wear.png`. `-notunermod` A/B: 3,128 pixels differ (wing + map icon gone).
+- Wear run (GTR, `-tp 12615,16658 -heading 90`): dark carbon GT wing on the car, `docs/images/tuner_wing_gt_wear.webp`. `-notunermod` A/B: 3,128 pixels differ (wing + map icon gone).
 - Buy / save / lift flows were verified in session 42's first half (build 201).
 
 ### Ruled out
 - assignTexture, ViewType, missing shader params, texture cache fallback - none was the cause; the Spec bytes were.
 
+### Second pass (same session): the skipped checklist, all green
+- **Ducktail / Street Lip previews** (Ibiza, menu Left/Right): both meshes load and attach live on the room car (log: `part 'wing_ducktail' mesh loaded`, `attached to 'GTR' node 3`, same for street), money untouched on preview. The GTR body carries its own boot-lip spoiler, so the low lips tuck under it - tuner.txt now has a `[car:GTR]` `spoiler_offset = 0 0.82 -2.05` override (z keeps the ducktail's 0.26 m depth inside the body's -2.317). Offsets are first-pass; per-car eyeballing is a data edit.
+- **Non-tuner-car refusal** (starter California at the garage): the hint shows "This is not a tuner car. The garage works on the tuner style: the GT-R, the Zs, the WRX STI, the RX-8..." (`docs/images/tuner_garage_refusal.webp`). `bindTunerGarage` now also gates on `isTunerCar`, so a refused car gets no room car.
+- **Unknown-part-id skip**: renamed `wing_gt` to `wing_gt_old` in the installed tuner.txt, wear run -> `Tuner: 'GTR' part 'wing_gt' is not in the catalog (kept as data, not drawn)`, no crash, `car_tuner_parts` intact in profile.sav, catalog restored after.
+- **Hawaii spot walk-in** (`-travelisland hawai -tp 21130,11500`, the real enter-prompt path, not `-interior`): the hawai overlay spots.bin record drives it - `discovered 'ETNR_A' (tuner)`, the hawai `etnr_a.bnk` exterior + its 294-triangle collision at (21160, 11500), walk to the npc_tuner seller, menu up with the car on the lift, ducktail previewed (`docs/images/tuner_garage_hawai.webp`). Note: the `-interior` hook resolves the spot too early under `-travelisland` (it grabbed the ibiza record) - the enter-prompt path is the real one and is what was verified.
+- **Overlay cleanup**: the session's test leftovers (`mods/props.txt`, `mods/props/cube.*`, `props/red.png`) removed from the userdata; the red test texture was already replaced by the real carbon.png (byte-compared against the repo).
+
 ### Not done / next
-- Checklist items not re-run this pass: ducktail / street-lip previews, non-tuner-car refusal message, unknown-part-id log, Hawaii spot walk-in, cleanup of the userdata test leftovers (`mods/props.txt`, `mods/props/cube.*`, `red.png`). Each is one run from the handoff's command list.
+- Spoiler placement is visual-only (no aero change); the offsets need per-car eyeballing by the owner (data edits).
+- Distribution packaging: the overlay spots.bin record still comes from a manual `add_spot.py` run - a launcher-side generator (a C++ port of the append) is the follow-up.
+- Next parts per the plan: neon/underglow, number plates (all cars), then the mesh-swap parts (body kits, hoods, seats) - each is "author an OBJ + a tuner.txt row" plus slot-specific logic.
 
 ## Session 2026-11-16 (`main`, 41): 4K High 17.9 -> 15.9 ms (56 -> 63 fps) with the image untouched - shadow far-slice round-robin + per-instance per-frame cache
 

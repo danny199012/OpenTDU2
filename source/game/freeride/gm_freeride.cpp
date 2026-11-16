@@ -4277,8 +4277,9 @@ void GMFreeRide::bindStickerShop() {
 void GMFreeRide::bindTunerGarage() {
     // The tuner garage (the mod's ETNR_* spots): the car copy on the room's
     // car place - the live preview the menu edits (the design-studio rule).
-    // Runs at the enter prompt; the menu itself opens at the seller.
-    if ( interiorKind != "tuner" || !TunerModEnabled() ) {
+    // Runs at the enter prompt; the menu itself opens at the seller. A
+    // non-tuner car gets no room car (the seller refuses it with the reason).
+    if ( interiorKind != "tuner" || !TunerModEnabled() || !GetTunerParts().isTunerCar( car.getIdCar() ) ) {
         return;
     }
     GetTunerParts().load();
