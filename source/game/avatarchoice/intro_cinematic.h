@@ -196,6 +196,15 @@ public:
     // Re-types every selectable of type `from` to `to` (a retail dealer room
     // re-purposed as a workshop: its hostess desk, type 1, becomes the tuner
     // seller, type 23). Returns how many changed.
+    // Whether a car already stands on that PosCam (display cars of the room).
+    inline bool isPosCamTaken( const std::string &posCam ) const {
+        for ( const DisplayCar &display : displayCars ) {
+            if ( display.PosCam == posCam ) {
+                return true;
+            }
+        }
+        return false;
+    }
     inline size_t remapSelectableType( int32_t from, int32_t to ) {
         size_t changed = 0;
         for ( Volume &volume : selectables ) {

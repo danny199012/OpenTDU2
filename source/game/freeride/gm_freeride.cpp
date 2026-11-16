@@ -4275,6 +4275,14 @@ void GMFreeRide::bindStickerShop() {
 }
 
 void GMFreeRide::bindTunerGarage() {
+    bindTunerGarageCar();
+    // The shop's background cars (after the player's own room car holds its place).
+    if ( interiorKind == "tuner" && TunerModEnabled() && interior.isActive() ) {
+        interior.placeRoomCars();
+    }
+}
+
+void GMFreeRide::bindTunerGarageCar() {
     // The tuner garage (the mod's ETNR_* spots): the car copy on the room's
     // car place - the live preview the menu edits (the design-studio rule).
     // Runs at the enter prompt; the menu itself opens at the seller. A

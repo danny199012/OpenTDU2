@@ -32,6 +32,11 @@ The owner: *"we made a custom shop using something we already have ... maybe mak
 - Tyre stacks / the wall racks were placed from PosCam offsets and not all seen in a shot; windows show a plain night sky (closed room).
 - The launcher-side installer for the tuner mod still does not exist (session 44): a new machine needs `add_spot.py` ETNR_A/ETNR_B, `make_tuner_interior.py`, `make_revyard_interior.py` and the `interior/props` copy.
 
+### Addendum (same session): spot checked from the road, background cars in
+- **Spot check:** `-travelisland ibiza -tp 12600,16640`: the car stands on a dirt track in a grass field beside a shed, the **ENTER prompt shows** and `press=validate` walks into Rev Yard through the real door path (17 props, `ETNR_B (interior/itnr_b.bnk)`). The exterior is the small Wangan stand-in among trees: acceptable, not pretty; a proper exterior is open.
+- **Background cars:** `InteriorWalk::placeRoomCars()` reads `interior/cars_<bank>.txt` (`PosCam carFileName [paint]`, name -> id through `gpDatabase->findCarPhysics`), called from `GMFreeRide::bindTunerGarage()` (now a wrapper around `bindTunerGarageCar()`) AFTER the player's room car holds its place, so display car 0 stays the player's (placeStickerCar returns display car 0). A place the player's car holds is skipped (`IntroCinematic::isPosCamTaken`). `-noroomcars` A/B. Shipped list: GTR, 370Z, 350Z_CPE, Impreza WRX STI, RX8, Delta Integrale, Escort (the player's GT-R took D_CAR_07 in the test, so the Escort was skipped), GTR. Evidence: `docs/images/revyard_cars_s45.png`, `revyard_cars2_s45.png`. Cars stand at floor level in the bays (not on the lifts: raised PosCams would be needed).
+- Still open: online bays (no netcode), cars on lifts, mechanics, the F4 teleport end to end.
+
 ## Session 2026-11-16 (`main`, 45): the despawn/flicker is FIXED - a shadowed `range` plus the slot-VP reuse
 
 The owner: the perf work caused buildings despawning and trees flickering.

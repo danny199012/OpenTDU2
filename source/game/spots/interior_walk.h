@@ -73,6 +73,11 @@ public:
     // retail design studio shows it in the room, not outside). Returns the
     // room's car (nullptr: the room has no place for one).
     CinematicCar *placeStickerCar( int32_t carId );
+    // The tuner mod's background cars: interior/cars_<bank>.txt, lines
+    // "PosCam carFileName [paintIndex]" (the bank's D_CAR_* places; a place
+    // the player's car already holds is skipped). Call after the player's own
+    // room car is placed. Returns the number parked.
+    size_t placeRoomCars();
 
     // The dealer menu's preview: the display car carId in paint row
     // paintIndex (-1: keep), seen from its PosCam camera. endPreview puts the

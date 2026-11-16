@@ -10,6 +10,7 @@
 #include "game/house_shop.h"
 #include "game/spots/house_furniture.h"
 #include "game/freeride/tuner.h"
+#include "database/gs_database.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
 #include "system/cmd_line.h"
@@ -157,6 +158,53 @@ size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds ) {
     }
     OTDU_LOG_INFO( "InteriorWalk: %zu display car(s) of %zu, %zu place(s) in the shop\n", placed, carIds.size(),
                    posCams.size() );
+    return placed;
+}
+
+size_t InteriorWalk::placeRoomCars() {
+    if ( !bActive || CmdLine::HasArg( "-noroomcars" ) || gpFile == nullptr || gpDatabase == nullptr ) {
+        return 0;
+    }
+    const std::string roomPath = InteriorBankFor( spotBank );
+    const size_t slash = roomPath.find_last_of( "/\\" );
+    std::string stem = roomPath.substr( slash == std::string::npos ? 0 : slash + 1 );
+    stem = stem.substr( 0, stem.find( '.' ) );
+    std::vector<uint8_t> list;
+    if ( !gpFile->loadFile( ( "interior/cars_" + stem + ".txt" ).c_str(), list ) ) {
+        return 0;
+    }
+    const std::string text( list.begin(), list.end() );
+    size_t placed = 0, pos = 0;
+    while ( pos < text.size() ) {
+        size_t end = text.find( '\n', pos );
+        if ( end == std::string::npos ) {
+            end = text.size();
+        }
+        std::string line = text.substr( pos, end - pos );
+        pos = end + 1;
+        if ( line.empty() || line[0] == '#' ) {
+            continue;
+        }
+        char posCam[64] = {}, fileName[128] = {};
+        int paint = 0;
+        if ( sscanf( line.c_str(), "%63s %127s %d", posCam, fileName, &paint ) < 2 ) {
+            continue;
+        }
+        if ( scene.isPosCamTaken( posCam ) ) {
+            continue; // the player's car stands here
+        }
+        CarPhysicsData data;
+        CinematicCar::Desc desc;
+        if ( !gpDatabase->findCarPhysics( fileName, data ) || !CinematicCar::DescFromDatabase( data.CarId, desc ) ) {
+            OTDU_LOG_WARN( "InteriorWalk: room car '%s' is not in the database\n", fileName );
+            continue;
+        }
+        const int32_t numPaints = Max( 1, CinematicCar::CountDatabasePaints( data.CarId ) );
+        if ( scene.addDisplayCar( desc, posCam, paint % numPaints ) ) {
+            placed++;
+            OTDU_LOG_INFO( "InteriorWalk: room car '%s' on %s (paint %d)\n", fileName, posCam, paint );
+        }
+    }
     return placed;
 }
 

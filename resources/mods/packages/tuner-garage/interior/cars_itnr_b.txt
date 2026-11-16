@@ -1,0 +1,10 @@
+# The Rev Yard's background cars: PosCam carFileName [paintIndex]
+# (D_CAR_* are the room's 8 car places; the one the player's car holds is skipped)
+D_CAR_01 GTR 0
+D_CAR_02 370Z 1
+D_CAR_03 350Z_CPE 2
+D_CAR_04 Impreza_WRX_STI_2007 3
+D_CAR_05 RX8_Cpe 1
+D_CAR_06 Delta_Integrale_Evo_2 2
+D_CAR_07 Escort_RS_Cosworth 0
+D_CAR_08 GTR 4

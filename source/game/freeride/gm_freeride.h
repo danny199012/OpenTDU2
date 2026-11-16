@@ -273,6 +273,7 @@ private:
     bool bTunerApplied = false; // the driven car wears its saved parts
     float tunerCamYaw = 0.6f;   // the room turntable
     void bindTunerGarage();
+    void bindTunerGarageCar();
     // The sticker editor's car view: the native place mode or the movie's
     // stsh:mcin .. stsh:mcou span.
     bool stickerCarView() const;
