@@ -31,6 +31,10 @@ Tuning, once it was on screen: coverage is now a **measured quantile of the gene
 - Cost: `[perf] frame 240` **7.8 ms** with the layer vs **8.6 ms** `-novolclouds`; frame 360 9.1 vs 9.0 ms - within run-to-run noise.
 - `-novolclouds` / `-oldclouds` still draw the `clouds.3dd` billboards.
 
+> Build note: every capture above was taken on **build 194 (`fceb7b4+dirty`)**,
+> which is the exact source state of commit `860ef3b`; the rebuild after the
+> commit only changes the stamp (`195`, `860ef3b+dirty`), not the code.
+
 ### Ruled out (with the test)
 
 - "The noise is empty": `-showclouds` was bright; `-showcloudmarchalpha` (`-showcloudhist`) showed the march alpha reaching 1.0.
