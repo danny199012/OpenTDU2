@@ -147,9 +147,12 @@ void RenderBackend::LogResolved( eRenderBackend backend ) {
                    IsCompiledIn( eRenderBackend::D3D11 ) ? ", d3d11" : "",
                    IsCompiledIn( eRenderBackend::D3D9 ) ? ", d3d9" : "" );
     if ( IsDirect3D( backend ) && !CanRenderScene( backend ) ) {
-        OTDU_LOG_WARN( "Renderer %s presents the swapchain only: the scene, the 2D UI and "
-                       "Flash still come from the Vulkan path until the port of "
-                       "docs/backends.md lands\n",
+        // Precise on purpose: the 2D layer and the scene's pipelines exist on
+        // D3D12 (docs/backends.md phases 3a / 3b step 1); what is missing is the
+        // Eden scene, i.e. the 3D game modes.
+        OTDU_LOG_WARN( "Renderer %s covers the 2D layer (Flash front end, font, HUD) but not the "
+                       "3D scene yet: Eden still draws through the Vulkan device, so the 3D game "
+                       "modes stay refused (docs/backends.md phase 3b step 2)\n",
                        GetName( backend ) );
     }
 }
