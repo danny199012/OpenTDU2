@@ -24,6 +24,44 @@ bool GSRender::initialize( TestDriveGameInstance *pInstance ) {
 }
 
 bool GSRender::createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation ) {
+    // Which backend draws this run (docs/backends.md): -renderer <name>, then
+    // OTDU_RENDERER, then Vulkan. Resolved once, before any device exists.
+    backend = RenderBackend::Resolve();
+    RenderBackend::LogResolved( backend );
+
+    if ( backend == eRenderBackend::D3D12 ) {
+        // Device, queue, flip model swapchain and frame pacing.
+        if ( !d3d12Device.create( pWindow, bVSync, bValidation ) ) {
+            OTDU_LOG_ERROR( "Failed to create the Direct3D 12 device\n" );
+            return false;
+        }
+        // The 2D layer (docs/backends.md phase 3): the textures the .2db and
+        // Flash paths create, and the batcher that draws them. -d3d12-no2d is
+        // the A/B (the frames stay clear colour only).
+        const bool bNo2D = CmdLine::HasArg( "-d3d12-no2d" );
+        if ( !bNo2D ) {
+            textureCache.initialize( &d3d12Device );
+            if ( renderer2D.initializeD3D12( &d3d12Device, textureCache.getWhiteTexture() ) ) {
+                OTDU_LOG_INFO( "Renderer d3d12: 2D layer ready (HLSL via D3DCompile, "
+                               "%u stencil modes, %u px upload ring per frame)\n",
+                               static_cast<uint32_t>( eStencilMode::SM_Count ),
+                               static_cast<uint32_t>( D3D12UI::kUploadBytesPerFrame ) );
+            } else {
+                OTDU_LOG_WARN( "Renderer d3d12: the 2D layer is unavailable; the frame is the "
+                               "clear colour only (docs/backends.md)\n" );
+            }
+        }
+        // The overlay is opt-in on D3D12: imgui_impl_dx12's first real draw
+        // stalls on the NVIDIA driver here (WARP and everything else are fine,
+        // docs/backends.md section 6), so the default run presents the
+        // swapchain alone and stays responsive.
+        bD3D12Ui = CmdLine::HasArg( "-d3d12-ui" );
+        OTDU_LOG_INFO( "Renderer d3d12: device created (%s)%s\n",
+                       canDraw2D() ? "2D layer" : "swapchain only",
+                       bD3D12Ui ? "; the ImGui overlay is on (-d3d12-ui)" : "" );
+        return true;
+    }
+
     // Options > Advanced, ray tracing. The device is created once, so the
     // choice is made here; -nort still overrides it for a headless A/B run.
     device.setRayTracingEnabled( GetGameOptions().RayTracing != 0 && !CmdLine::HasArg( "-nort" ) );
@@ -61,6 +99,12 @@ bool GSRender::createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation 
 }
 
 void GSRender::terminate() {
+    if ( backend == eRenderBackend::D3D12 ) {
+        renderer2D.destroy();
+        textureCache.destroy();
+        d3d12Device.destroy();
+        return;
+    }
     device.waitIdle();
     if ( pRtTlas != nullptr ) {
         rayTracing.destroyTlas( pRtTlas );
@@ -75,6 +119,15 @@ void GSRender::terminate() {
 }
 
 bool GSRender::beginFrame() {
+    if ( backend == eRenderBackend::D3D12 ) {
+        bFrameActive = d3d12Device.beginFrame( clearColor );
+        if ( bFrameActive ) {
+            // The 2D layer's upload ring for this frame slot is free once
+            // beginFrame waited for the slot's fence.
+            renderer2D.beginD3D12Frame();
+        }
+        return bFrameActive;
+    }
     if ( bRtWorld ) {
         // A frame draws many scenes (the environment cube, the shadow casters,
         // the reflections, the main pass): the instance list is per frame, not
@@ -88,11 +141,63 @@ bool GSRender::beginFrame() {
 void GSRender::endFrame() {
     if ( bFrameActive ) {
         updateRayTracing();
-        // Age the retire ring: terrain BLASes unloaded this frame are
-        // destroyed here once no in-flight frame can still read them.
-        rayTracing.retireTick();
-        device.endFrame();
+        // -d3d12-uitest: one opaque green quad through the whole 2D path (ring,
+        // HLSL, blend, raster), drawn over whatever the frame already holds. A
+        // black screenshot with this flag on means the draw itself, not the
+        // game's art, is at fault.
+        if ( backend == eRenderBackend::D3D12 && renderer2D.isD3D12Ready() &&
+             CmdLine::HasArg( "-d3d12-uitest" ) ) {
+            renderer2D.begin( 1280.0f, 720.0f );
+            renderer2D.drawRect( Rect2D( 20.0f, 20.0f, 200.0f, 150.0f ), 0xff00ff00 );
+            renderer2D.drawQuad( textureCache.find( "fla_0180" ) != nullptr
+                                     ? textureCache.find( "fla_0180" )
+                                     : textureCache.getWhiteTexture(),
+                                 Rect2D( 240.0f, 20.0f, 360.0f, 270.0f ), 0xffffffff );
+            renderer2D.drawQuad( textureCache.find( "flash_gradient" ) != nullptr
+                                     ? textureCache.find( "flash_gradient" )
+                                     : textureCache.getWhiteTexture(),
+                                 Rect2D( 620.0f, 20.0f, 360.0f, 270.0f ), 0xffffffff );
+            renderer2D.end();
+        }
+        if ( backend == eRenderBackend::D3D12 ) {
+            d3d12Device.endFrame();
+        } else {
+            // Age the retire ring: terrain BLASes unloaded this frame are
+            // destroyed here once no in-flight frame can still read them.
+            rayTracing.retireTick();
+            device.endFrame();
+        }
         bFrameActive = false;
+    }
+}
+
+void GSRender::beginMainPass() {
+    if ( !canDrawScene() ) {
+        // The Direct3D backends open their pass inside beginFrame (the clear is
+        // the whole frame so far).
+        return;
+    }
+    device.beginMainPass();
+}
+
+void GSRender::requestScreenshot( const char *pPath ) {
+    if ( backend == eRenderBackend::D3D12 ) {
+        d3d12Device.requestScreenshot( pPath );
+    } else {
+        device.requestScreenshot( pPath );
+    }
+}
+
+bool GSRender::hasDeviceLost() const {
+    return backend == eRenderBackend::D3D12 ? d3d12Device.hasDeviceLost()
+                                            : device.hasDeviceLost();
+}
+
+void GSRender::waitIdle() {
+    if ( backend == eRenderBackend::D3D12 ) {
+        d3d12Device.waitIdle();
+    } else {
+        device.waitIdle();
     }
 }
 

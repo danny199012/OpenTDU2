@@ -4,11 +4,57 @@
 #include "filesystem/bank.h"
 #include "filesystem/gs_file.h"
 #include "render/2db.h"
+#include "render/d3d12/d3d12_device.h"
 #include "system/cmd_line.h"
 
 #include <filesystem>
 
+#if defined( OTDU_D3D12 )
+#include <dxgiformat.h>
+#endif
+
 namespace {
+#if defined( OTDU_D3D12 )
+// The .2db formats that upload as they are on D3D12. D3D9's A8R8G8B8 has the
+// same byte order as DXGI's B8G8R8A8, the block formats are BC1/BC2/BC3, and
+// ATI2 is BC5 (both 16 bytes per 4x4 block, which CalcMipSize already counts).
+// Everything else goes through ConvertToRGBA8 first, exactly as on Vulkan.
+uint32_t GetDXGIFormat( eViewFormat format, bool &bNative ) {
+    bNative = true;
+    switch ( format ) {
+    case VF_DXT1:
+    case VF_SRGB_DXT1:
+        return DXGI_FORMAT_BC1_UNORM;
+    case VF_DXT2:
+    case VF_DXT3:
+    case VF_SRGB_DXT2:
+    case VF_SRGB_DXT3:
+        return DXGI_FORMAT_BC2_UNORM;
+    case VF_DXT4:
+    case VF_DXT5:
+    case VF_SRGB_DXT4:
+    case VF_SRGB_DXT5:
+        return DXGI_FORMAT_BC3_UNORM;
+    case VF_ATI2:
+        return DXGI_FORMAT_BC5_UNORM;
+    case VF_A8R8G8B8:
+    case VF_X8R8G8B8:
+    case VF_SRGB_A8R8G8B8:
+    case VF_SRGB_X8R8G8B8:
+        return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case VF_R8G8B8A8:
+    case VF_SRGB_R8G8B8A8:
+        return DXGI_FORMAT_R8G8B8A8_UNORM;
+    default:
+        // A8 / L8 keep the Vulkan conversion (white rgb + alpha), because the
+        // font atlas reads texel.r and an A8_UNORM view would put it in the
+        // alpha channel instead.
+        bNative = false;
+        return DXGI_FORMAT_R8G8B8A8_UNORM;
+    }
+}
+#endif
+
 VkFormat GetVulkanFormat( eViewFormat format, bool bSupportsBC ) {
     switch ( format ) {
     case VF_DXT1:
@@ -111,6 +157,7 @@ TextureCache::~TextureCache() {}
 
 void TextureCache::initialize( RenderDevice *pRenderDevice ) {
     pDevice = pRenderDevice;
+    pD3D12Device = nullptr;
 
     const uint32_t white[16] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
                                  0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -130,6 +177,94 @@ void TextureCache::initialize( RenderDevice *pRenderDevice ) {
                                       "OTDU_Checker" );
 }
 
+void TextureCache::initialize( D3D12Device *pRenderDevice ) {
+    pDevice = nullptr;
+    pD3D12Device = pRenderDevice;
+    if ( pD3D12Device == nullptr ) {
+        return;
+    }
+
+    const uint32_t white[16] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+                                 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+                                 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+                                 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
+    pWhiteTexture = createFromRGBA( 4, 4, reinterpret_cast<const uint8_t *>( white ),
+                                    "OTDU_White" );
+    std::vector<uint32_t> checker( 64 * 64 );
+    for ( uint32_t y = 0; y < 64; y++ ) {
+        for ( uint32_t x = 0; x < 64; x++ ) {
+            bool bDark = ( ( x / 8 ) + ( y / 8 ) ) & 1;
+            checker[y * 64 + x] = bDark ? 0xff505050 : 0xff707070;
+        }
+    }
+    pCheckerTexture = createFromRGBA( 64, 64, reinterpret_cast<const uint8_t *>( checker.data() ),
+                                      "OTDU_Checker" );
+}
+
+void TextureCache::destroyTexture( GPUTexture *pTexture ) {
+    if ( pTexture == nullptr ) {
+        return;
+    }
+    if ( pD3D12Device != nullptr ) {
+        D3D12Device::Texture texture;
+        texture.pResource = pTexture->D3D12Resource;
+        texture.SrvCpu = pTexture->D3D12SrvCpu;
+        texture.SrvGpu = pTexture->D3D12SrvGpu;
+        pD3D12Device->destroyTexture( texture );
+        delete pTexture;
+        return;
+    }
+    if ( pDevice != nullptr ) {
+        pDevice->destroyTexture( pTexture );
+    }
+}
+
+GPUTexture *TextureCache::createD3D12Texture( uint32_t width,
+                                              uint32_t height,
+                                              uint32_t numMips,
+                                              uint32_t dxgiFormat,
+                                              const void *const *ppMipData,
+                                              const uint32_t *pMipSizes,
+                                              const char *pName ) {
+    if ( pD3D12Device == nullptr ) {
+        return getPlaceholder();
+    }
+    D3D12Device::Texture uploaded;
+    if ( !pD3D12Device->createTexture2D( width, height, numMips, dxgiFormat, ppMipData, pMipSizes,
+                                         uploaded, pName ) ) {
+        static bool bLoggedFailure = false;
+        if ( !bLoggedFailure ) {
+            bLoggedFailure = true;
+            OTDU_LOG_WARN( "TextureCache (d3d12): upload failed for '%s' (%ux%u, format %u, %u "
+                           "mips) - the placeholder stands in\n",
+                           pName != nullptr ? pName : "?", width, height, dxgiFormat, numMips );
+        }
+        return getPlaceholder();
+    }
+    static uint32_t numUploaded = 0;
+    if ( numUploaded < 8 && CmdLine::HasArg( "-d3d12-logui" ) ) {
+        const uint8_t *pBytes = ppMipData != nullptr
+                                    ? static_cast<const uint8_t *>( ppMipData[0] )
+                                    : nullptr;
+        OTDU_LOG_INFO( "TextureCache (d3d12): '%s' %ux%u, format %u, %u mips, mip0 %u bytes "
+                       "(%02x %02x %02x %02x ...)\n",
+                       pName != nullptr ? pName : "?", width, height, dxgiFormat, numMips,
+                       pMipSizes != nullptr ? pMipSizes[0] : 0,
+                       pBytes != nullptr ? pBytes[0] : 0, pBytes != nullptr ? pBytes[1] : 0,
+                       pBytes != nullptr ? pBytes[2] : 0, pBytes != nullptr ? pBytes[3] : 0 );
+        numUploaded++;
+    }
+    GPUTexture *pTexture = new GPUTexture();
+    pTexture->Width = width;
+    pTexture->Height = height;
+    pTexture->NumMips = numMips;
+    pTexture->Name = pName != nullptr ? pName : "";
+    pTexture->D3D12Resource = uploaded.pResource;
+    pTexture->D3D12SrvCpu = uploaded.SrvCpu;
+    pTexture->D3D12SrvGpu = uploaded.SrvGpu;
+    return pTexture;
+}
+
 void TextureCache::destroy() {
     for ( OwnerTextures &owner : owners ) {
         destroyOwnerTextures( owner );
@@ -140,8 +275,16 @@ void TextureCache::destroy() {
     owners.clear();
     retired.clear();
     borrows.clear();
-    pDevice->destroyTexture( pWhiteTexture );
-    pDevice->destroyTexture( pCheckerTexture );
+    if ( pDevice == nullptr && pD3D12Device == nullptr ) {
+        // Nothing was ever uploaded (no device): only the placeholder.
+        delete pPlaceholder;
+        pPlaceholder = nullptr;
+        pWhiteTexture = nullptr;
+        pCheckerTexture = nullptr;
+        return;
+    }
+    destroyTexture( pWhiteTexture );
+    destroyTexture( pCheckerTexture );
     pWhiteTexture = nullptr;
     pCheckerTexture = nullptr;
 }
@@ -162,19 +305,53 @@ GPUTexture *TextureCache::createFromRGBA( uint32_t width,
                                           uint32_t height,
                                           const uint8_t *pPixels,
                                           const char *pName ) {
+#if defined( OTDU_D3D12 )
+    if ( pD3D12Device != nullptr ) {
+        const void *pData = pPixels;
+        const uint32_t size = width * height * 4;
+        return createD3D12Texture( width, height, 1, DXGI_FORMAT_R8G8B8A8_UNORM, &pData, &size,
+                                   pName );
+    }
+#endif
+    if ( pDevice == nullptr ) {
+        // No device at all: the callers still need a non-null handle to
+        // remember, and nothing draws with it, so one shared placeholder
+        // stands in for every texture.
+        return getPlaceholder();
+    }
     const void *pData = pPixels;
     const uint32_t size = width * height * 4;
     return pDevice->createTexture2D( width, height, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size,
                                      pName );
 }
 
+GPUTexture *TextureCache::getPlaceholder() {
+    if ( pPlaceholder == nullptr ) {
+        pPlaceholder = new GPUTexture();
+        pPlaceholder->Width = 1;
+        pPlaceholder->Height = 1;
+        pPlaceholder->Name = "OTDU_NoRenderer";
+    }
+    return pPlaceholder;
+}
+
 GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *pName ) {
-    const bool bSupportsBC = pDevice->supportsBC();
-    const VkFormat format = GetVulkanFormat( texture.Format, bSupportsBC );
+    if ( pDevice == nullptr && pD3D12Device == nullptr ) {
+        return getPlaceholder();
+    }
+    const bool bD3D12 = pD3D12Device != nullptr;
+    const bool bSupportsBC = pDevice != nullptr ? pDevice->supportsBC() : true;
+    const VkFormat format = bD3D12 ? VK_FORMAT_UNDEFINED : GetVulkanFormat( texture.Format, bSupportsBC );
+    bool bNativeD3D12 = false;
+#if defined( OTDU_D3D12 )
+    const uint32_t dxgiFormat = bD3D12 ? GetDXGIFormat( texture.Format, bNativeD3D12 ) : 0;
+#else
+    const uint32_t dxgiFormat = 0;
+#endif
     const bool bBlockCompressed = IsBlockCompressedFormat( texture.Format );
-    const bool bNativeLayout =
-        ( bBlockCompressed && bSupportsBC ) || format == VK_FORMAT_B8G8R8A8_UNORM ||
-        texture.Format == VF_R8G8B8A8 || texture.Format == VF_SRGB_R8G8B8A8;
+    const bool bNativeLayout = bD3D12 ? bNativeD3D12
+        : ( ( bBlockCompressed && bSupportsBC ) || format == VK_FORMAT_B8G8R8A8_UNORM ||
+            texture.Format == VF_R8G8B8A8 || texture.Format == VF_SRGB_R8G8B8A8 );
 
     // Only keep mips down to the 4x4 block size for compressed formats.
     uint32_t numMips = texture.NumMips;
@@ -244,14 +421,28 @@ GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *
     }
 
     if ( bCube ) {
+        if ( bD3D12 ) {
+            // Cube maps are an Eden / 3D feature; the Direct3D 2D layer never
+            // samples one, so they are not uploaded yet.
+            return nullptr;
+        }
         return pDevice->createTexture( VK_IMAGE_VIEW_TYPE_CUBE, texture.Width, texture.Height, 1, 6, numMips, format,
                                        mipData.data(), mipSizes.data(), pName );
+    }
+    if ( bD3D12 ) {
+        return createD3D12Texture( texture.Width, texture.Height, numMips, dxgiFormat,
+                                   mipData.data(), mipSizes.data(), pName );
     }
     return pDevice->createTexture2D( texture.Width, texture.Height, numMips, format,
                                      mipData.data(), mipSizes.data(), pName );
 }
 
 uint32_t TextureCache::loadBankTextures( const Bank &bank, const char *pOwner ) {
+    if ( pDevice == nullptr && pD3D12Device == nullptr ) {
+        // No device to upload to: the .2db files are not even parsed, so no
+        // owner is registered and releaseOwner has nothing to free.
+        return 0;
+    }
     OwnerTextures &owner = getOwner( pOwner );
     // One more holder of this bank path: the textures already in the owner are
     // skipped below (two views of the same island share them), and releaseOwner
@@ -426,8 +617,10 @@ uint32_t TextureCache::loadBankTextures( const Bank &bank, const char *pOwner ) 
 }
 
 void TextureCache::destroyOwnerTextures( OwnerTextures &owner ) {
-    for ( auto &entry : owner.Textures ) {
-        pDevice->destroyTexture( entry.second );
+    if ( pDevice != nullptr || pD3D12Device != nullptr ) {
+        for ( auto &entry : owner.Textures ) {
+            destroyTexture( entry.second );
+        }
     }
     owner.Textures.clear();
     owner.Aliases.clear();

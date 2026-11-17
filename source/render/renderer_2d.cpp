@@ -2,9 +2,11 @@
 #include "renderer_2d.h"
 
 #include "game/game_options.h"
+#include "render/d3d12/d3d12_device.h"
 #include "render/font.h"
 #include "render/shaders/builtin/ui2d_frag.h"
 #include "render/shaders/builtin/ui2d_vert.h"
+#include "system/cmd_line.h"
 
 #include "imgui.h"
 
@@ -27,6 +29,7 @@ void BuildOrthographic( float left, float right, float top, float bottom, float 
 
 Renderer2D::Renderer2D()
     : pDevice( nullptr ),
+      pD3D12Device( nullptr ),
       pWhite( nullptr ),
       pipeline( VK_NULL_HANDLE ),
       pCurrentTexture( nullptr ),
@@ -43,12 +46,36 @@ Renderer2D::Renderer2D()
 Renderer2D::~Renderer2D() {}
 
 uint32_t Renderer2D::targetWidth() const {
-    return overrideWidth != 0 ? overrideWidth : pDevice->getBackbufferWidth();
+    if ( overrideWidth != 0 ) {
+        return overrideWidth;
+    }
+    if ( pD3D12Device != nullptr ) {
+        return pD3D12Device->getBackbufferWidth();
+    }
+    return pDevice->getBackbufferWidth();
 }
 
 uint32_t Renderer2D::targetHeight() const {
-    return overrideHeight != 0 ? overrideHeight : pDevice->getBackbufferHeight();
+    if ( overrideHeight != 0 ) {
+        return overrideHeight;
+    }
+    if ( pD3D12Device != nullptr ) {
+        return pD3D12Device->getBackbufferHeight();
+    }
+    return pDevice->getBackbufferHeight();
 }
+
+bool Renderer2D::initializeD3D12( D3D12Device *pD3D12, GPUTexture *pWhiteTexture ) {
+    // The batcher state (canvas scale, the vertex list, the clip rectangle) is
+    // backend agnostic: only the flush goes somewhere else.
+    pD3D12Device = pD3D12;
+    pDevice = nullptr;
+    pWhite = pWhiteTexture;
+    vertices.reserve( 4096 );
+    return d3d12UI.initialize( pD3D12 );
+}
+
+void Renderer2D::beginD3D12Frame() { d3d12UI.beginFrame(); }
 
 bool Renderer2D::initialize( RenderDevice *pRenderDevice, GPUTexture *pWhiteTexture ) {
     pDevice = pRenderDevice;
@@ -79,6 +106,13 @@ bool Renderer2D::initialize( RenderDevice *pRenderDevice, GPUTexture *pWhiteText
 }
 
 void Renderer2D::destroy() {
+    if ( pD3D12Device != nullptr ) {
+        d3d12UI.destroy();
+        pD3D12Device = nullptr;
+        pWhite = nullptr;
+        vertices.clear();
+        return;
+    }
     if ( pDevice != nullptr ) {
         flashPipeline.destroy();
         for ( uint32_t mode = 1; mode < static_cast<uint32_t>( eStencilMode::SM_Count ); mode++ ) {
@@ -379,12 +413,42 @@ void Renderer2D::flush() {
         scissor.offset = { x0, y0 };
         scissor.extent = { static_cast<uint32_t>( x1 - x0 ), static_cast<uint32_t>( y1 - y0 ) };
     }
+    if ( pD3D12Device != nullptr ) {
+        // The Direct3D 12 layer takes the same projection, scissor and stencil
+        // state; the textures are SRVs the TextureCache uploaded.
+        //
+        // Signs: the Vulkan clip space this projection was written for has +Y
+        // down, Direct3D's has +Y up, so the row the canvas Y lives in is
+        // negated. The vertices are mirrored as a whole, which keeps the
+        // canvas' top-left origin and the texture V direction consistent.
+        float d3dProjection[16];
+        memcpy( d3dProjection, projection, sizeof( d3dProjection ) );
+        // Column-major storage: row 1 is projection[1], [5], [9], [13]. The
+        // orthographic projection only fills [5] (the Y scale) and [13] (the Y
+        // translation), so those are the two signs to turn.
+        d3dProjection[5] = -d3dProjection[5];
+        d3dProjection[13] = -d3dProjection[13];
+        d3d12UI.draw( vertices.data(), static_cast<uint32_t>( vertices.size() ), pCurrentTexture,
+                      d3dProjection, scissor.offset.x, scissor.offset.y,
+                      static_cast<int32_t>( scissor.extent.width ),
+                      static_cast<int32_t>( scissor.extent.height ), bCurrentAlphaOnly,
+                      currentSaturation,
+                      CmdLine::HasArg( "-d3d12-nostencil" ) ? 0u
+                                                           : static_cast<uint32_t>( currentStencil ),
+                      currentStencilReference );
+        vertices.clear();
+        return;
+    }
     recordDraw( vertices.data(), static_cast<uint32_t>( vertices.size() ), nullptr, 0,
                 pCurrentTexture, bCurrentAlphaOnly, projection, scissor );
     vertices.clear();
 }
 
 void Renderer2D::drawImGui( ImDrawData *pDrawData, GPUTexture *pFontTexture ) {
+    if ( pD3D12Device != nullptr ) {
+        // ImGui has its own D3D12 backend (d3d12_imgui.cpp): nothing to do here.
+        return;
+    }
     flush();
     if ( pDrawData == nullptr || pDrawData->CmdListsCount == 0 ) {
         return;

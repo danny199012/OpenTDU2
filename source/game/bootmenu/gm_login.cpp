@@ -53,6 +53,13 @@ GMLogin::GMLogin() : GameMode( eGameMode::GM_Login ) {}
 GMLogin::~GMLogin() {}
 
 void GMLogin::loadTitleScene( int32_t cinematicIndex ) {
+    // The title cinematic is a 3D EdenWorld: a backend that cannot draw the
+    // scene yet must not touch it at all - neither the load (eden's device
+    // calls) nor the unload of a scene that was never built (docs/backends.md).
+    // "-notitlescene" is the same escape hatch, applied automatically here.
+    if ( gpRender == nullptr || !gpRender->canDrawScene() ) {
+        return;
+    }
     titleScene.unload();
     if ( !CmdLine::HasArg( "-notitlescene" ) ) {
         titleScene.load( island.c_str(), cinematicIndex );
@@ -62,7 +69,10 @@ void GMLogin::loadTitleScene( int32_t cinematicIndex ) {
 bool GMLogin::enter( TestDriveGameInstance *pInstance ) {
     GameMode::enter( pInstance );
     gpRender->setClearColor( ColorRGBA( 0.0f, 0.0f, 0.0f, 1.0f ) );
-    if ( gpAudio != nullptr ) {
+    // -noaudio leaves gpAudio built but without a device: nothing to play into,
+    // and starting the front end music anyway is what made the teardown race
+    // (the device was closed a moment after it opened). isReady() gates both.
+    if ( gpAudio != nullptr && gpAudio->isReady() ) {
         gpAudio->setGameMode( "LOGIN" );
         // FlashSounds::PlayFrontEndMusic "LOGIN" (FUN_00d85280): the music
         // entry of the sound/musics folder (a loose wav on the PC build).

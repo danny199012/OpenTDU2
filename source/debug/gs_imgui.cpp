@@ -5,6 +5,10 @@
 #include "system/cmd_line.h"
 #include "tdu_instance.h"
 
+#if defined( OTDU_D3D12 )
+#include "render/d3d12/d3d12_imgui.h"
+#endif
+
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 
@@ -68,6 +72,34 @@ bool GSImGui::initialize( TestDriveGameInstance *pInstance ) {
     }
     detectScale();
 
+    // The renderer half depends on the backend chosen for this run: the Vulkan
+    // path draws through Renderer2D, the D3D12 path through imgui_impl_dx12
+    // (source/render/d3d12/d3d12_imgui.cpp).
+    if ( gpRender != nullptr && gpRender->getBackend() == eRenderBackend::D3D12 ) {
+#if defined( OTDU_D3D12 )
+        if ( !CmdLine::HasArg( "-d3d12-ui" ) ) {
+            // Opt-in: imgui_impl_dx12's first real draw stalls on the NVIDIA
+            // driver here, so a plain -renderer d3d12 run does not build those
+            // objects at all (docs/backends.md section 6).
+            OTDU_LOG_INFO( "ImGui: the overlay is off on Direct3D 12 (-d3d12-ui turns it "
+                           "on, docs/backends.md)\n" );
+            bInitialized = false;
+            return true; // the service is fine, the overlay is simply not wanted
+        }
+        if ( !D3D12ImGui::initialize( pInstance->getWindow() ) ) {
+            OTDU_LOG_WARN( "ImGui: the Direct3D 12 backend is unavailable, the UI "
+                           "overlay is off\n" );
+            bInitialized = false;
+            return true;
+        }
+        bInitialized = true;
+        return true;
+#else
+        OTDU_LOG_WARN( "ImGui: this build has no Direct3D 12 backend\n" );
+        return true;
+#endif
+    }
+
     ImGui_ImplSDL3_InitForVulkan( pInstance->getWindow() );
     bInitialized = true;
     return true;
@@ -75,6 +107,22 @@ bool GSImGui::initialize( TestDriveGameInstance *pInstance ) {
 
 void GSImGui::terminate() {
     if ( !bInitialized ) {
+        // A Direct3D 12 run without -d3d12-ui never started a backend, but the
+        // context exists (it is created in initialize): drop it here.
+        if ( gpRender != nullptr && gpRender->getBackend() == eRenderBackend::D3D12 &&
+             ImGui::GetCurrentContext() != nullptr ) {
+            ImGui::DestroyContext();
+        }
+        return;
+    }
+    if ( gpRender != nullptr && gpRender->getBackend() == eRenderBackend::D3D12 ) {
+#if defined( OTDU_D3D12 )
+        // imgui_impl_dx12 owns its textures and descriptors: it frees them on
+        // shutdown, nothing goes through the Vulkan device here.
+        D3D12ImGui::shutdown();
+#endif
+        ImGui::DestroyContext();
+        bInitialized = false;
         return;
     }
     for ( ImTextureData *pTexture : ImGui::GetPlatformIO().Textures ) {
@@ -179,6 +227,14 @@ void GSImGui::beginFrame( float deltaTime ) {
 }
 
 void GSImGui::updateTexture( ImTextureData *pTexture ) {
+    if ( gpRender != nullptr && gpRender->getBackend() == eRenderBackend::D3D12 ) {
+#if defined( OTDU_D3D12 )
+        // imgui_impl_dx12 uploads into its own resources and sets the TexID;
+        // it needs the request, not our TextureCache (a Vulkan object).
+        D3D12ImGui::updateTexture( pTexture );
+#endif
+        return;
+    }
     RenderDevice &device = gpRender->getDevice();
     if ( pTexture->Status == ImTextureStatus_WantDestroy ) {
         device.destroyTexture( reinterpret_cast<GPUTexture *>( pTexture->TexID ) );
@@ -215,6 +271,14 @@ void GSImGui::updateTexture( ImTextureData *pTexture ) {
 void GSImGui::endFrame() {
     ImGui::Render();
     ImDrawData *pDrawData = ImGui::GetDrawData();
+    if ( gpRender != nullptr && gpRender->getBackend() == eRenderBackend::D3D12 ) {
+#if defined( OTDU_D3D12 )
+        // Textures are the backend's business here: it updates them from
+        // ImDrawData::Textures itself, in the same command list.
+        D3D12ImGui::render( pDrawData );
+#endif
+        return;
+    }
     if ( pDrawData->Textures != nullptr ) {
         for ( ImTextureData *pTexture : *pDrawData->Textures ) {
             if ( pTexture->Status != ImTextureStatus_OK ) {

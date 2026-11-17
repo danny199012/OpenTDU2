@@ -1,10 +1,12 @@
 #pragma once
 
+#include "render/d3d12/d3d12_ui.h"
 #include "render/shaders/flash_shader_pipeline.h"
 #include "render/vulkan/render_device.h"
 
 class Font;
 struct ImDrawData;
+class D3D12Device;
 
 struct Rect2D {
     float X = 0.0f, Y = 0.0f, Width = 0.0f, Height = 0.0f;
@@ -38,6 +40,15 @@ public:
     ~Renderer2D();
 
     bool initialize( RenderDevice *pDevice, GPUTexture *pWhiteTexture );
+    // The Direct3D 12 layer (docs/backends.md phase 3): the same batcher, drawn
+    // through D3D12UI instead of the Vulkan pipeline. Only one of the two is
+    // ever initialised in a run.
+    bool initializeD3D12( D3D12Device *pD3D12, GPUTexture *pWhiteTexture );
+    // The Direct3D 12 path's per frame hook: after the device opened the frame.
+    void beginD3D12Frame();
+    // True when the Direct3D 12 layer is the one drawing.
+    inline bool isD3D12() const { return pD3D12Device != nullptr; }
+    inline bool isD3D12Ready() const { return d3d12UI.isReady(); }
     void destroy();
 
     // bCover: scale to the backbuffer width (crop vertically) instead of
@@ -103,6 +114,9 @@ private:
     uint32_t targetWidth() const;
     uint32_t targetHeight() const;
     RenderDevice *pDevice;
+    // The Direct3D 12 backend (nullptr on Vulkan) and its 2D layer.
+    D3D12Device *pD3D12Device = nullptr;
+    D3D12UI d3d12UI;
     GPUTexture *pWhite;
     VkPipeline pipeline;
     VkPipeline stencilPipelines[static_cast<size_t>( eStencilMode::SM_Count )] = {};

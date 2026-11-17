@@ -131,6 +131,14 @@ bool TitleScene::load( const char *pIsland, int32_t cinematicIndex ) {
 }
 
 void TitleScene::unload() {
+    if ( !bLoaded ) {
+        // Never built (a backend that cannot draw the scene, or a load that
+        // failed): the Eden objects below were never created, and destroying
+        // them talks to a device that may not exist (docs/backends.md).
+        pressStartBank.unload();
+        scenes.clear();
+        return;
+    }
     view.destroy();
     car.unload();
     pressStartBank.unload();

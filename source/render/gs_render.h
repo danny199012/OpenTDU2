@@ -1,9 +1,11 @@
 #pragma once
 
 #include "game/gs_base.h"
+#include "render/d3d12/d3d12_device.h"
 #include "render/eden/eden_renderer.h"
 #include "render/eden/eden_surface_fx.h"
 #include "render/renderer_2d.h"
+#include "render/rhi/render_backend.h"
 #include "render/rt/ray_tracing.h"
 #include "render/texture_cache.h"
 #include "render/vulkan/render_device.h"
@@ -40,18 +42,78 @@ public:
 
     bool createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation );
 
+    // The backend this run uses: -renderer <name> / OTDU_RENDERER
+    // (docs/backends.md), Vulkan when neither is given.
+    inline eRenderBackend getBackend() const { return backend; }
+    // True when the backend can draw the game (scene, 2D UI, Flash). The
+    // Direct3D backends present the swapchain only for now, so the frame loop
+    // asks this before drawing anything (tdu_instance.cpp).
+    inline bool canDrawScene() const { return RenderBackend::CanRenderScene( backend ); }
+    // True when the 2D layer (the Flash front end, the HUD, the 2D debug
+    // layers) can draw: always on Vulkan, on D3D12 when the 2D pipeline came up
+    // (docs/backends.md phase 3).
+    inline bool canDraw2D() const {
+        return backend == eRenderBackend::Vulkan ||
+               ( backend == eRenderBackend::D3D12 && renderer2D.isD3D12Ready() );
+    }
+    // True when the ImGui overlay can draw (the debug UI, the build watermark,
+    // the Options panels): Vulkan through the 2D renderer, D3D12 through
+    // imgui_impl_dx12 - which is opt-in with -d3d12-ui until the driver stall
+    // in docs/backends.md section 6 is understood.
+    inline bool canDrawUI() const {
+        return backend == eRenderBackend::Vulkan ||
+               ( backend == eRenderBackend::D3D12 && bD3D12Ui );
+    }
+    // The D3D12 device, or nullptr on another backend.
+    inline D3D12Device *getD3D12Device() {
+        return backend == eRenderBackend::D3D12 ? &d3d12Device : nullptr;
+    }
+    // The presented size, whichever backend runs: the Flash stage layout and the
+    // ImGui viewport need it (they used to read the Vulkan device directly).
+    inline uint32_t getBackbufferWidth() const {
+        return backend == eRenderBackend::D3D12 ? d3d12Device.getBackbufferWidth()
+                                                : device.getBackbufferWidth();
+    }
+    inline uint32_t getBackbufferHeight() const {
+        return backend == eRenderBackend::D3D12 ? d3d12Device.getBackbufferHeight()
+                                                : device.getBackbufferHeight();
+    }
+    // Same question, from a backend pointer that does not know what it drives.
+    inline const char *getBackendName() const { return RenderBackend::GetName( backend ); }
+
     bool beginFrame();
     void endFrame();
+    // The main (swapchain) pass of the frame, whichever backend runs it.
+    void beginMainPass();
+    // -autoplay shot=<path> / the photo camera: the backend writes the file.
+    void requestScreenshot( const char *pPath );
+    // A lost device (Vulkan or Direct3D): the game loop leaves on it.
+    bool hasDeviceLost() const;
+    // Waits for the GPU (game mode changes, teardown).
+    void waitIdle();
+
     // Ray tracing (-rtworld): builds the frame's top level structure from what
     // the scene recorded and traces a probe ray from the camera. A no-op
     // unless -rtworld was passed.
     void updateRayTracing();
 
     void setClearColor( const ColorRGBA &color ) { clearColor = color; }
-    void onWindowResized() { device.requestSwapchainRecreation(); }
+    void onWindowResized() {
+        if ( backend == eRenderBackend::D3D12 ) {
+            d3d12Device.onWindowResized();
+        } else {
+            device.requestSwapchainRecreation();
+        }
+    }
 
 private:
+    // Vulkan: the complete renderer. Direct3D: the swapchain only, so far.
+    eRenderBackend backend = eRenderBackend::Vulkan;
+    // -d3d12-ui: draw the ImGui overlay on the D3D12 backend (opt-in, see
+    // docs/backends.md section 6).
+    bool bD3D12Ui = false;
     RenderDevice device;
+    D3D12Device d3d12Device;
     TextureCache textureCache;
     Renderer2D renderer2D;
     EdenRenderer edenRenderer;

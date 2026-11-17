@@ -143,5 +143,11 @@ add_library( otdu_imgui STATIC
     "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
     "${imgui_SOURCE_DIR}/imgui_demo.cpp"
     "${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp" )
+# The Direct3D 12 renderer backend: its shaders ship as precompiled DXBC, so the
+# overlay draws on D3D12 without a shader toolchain (docs/backends.md).
+if( WIN32 AND OTDU_ENABLE_D3D12 )
+    target_sources( otdu_imgui PRIVATE "${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp" )
+    target_link_libraries( otdu_imgui PUBLIC d3d12 )
+endif()
 target_include_directories( otdu_imgui PUBLIC "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends" )
 target_link_libraries( otdu_imgui PUBLIC SDL3::SDL3-static )

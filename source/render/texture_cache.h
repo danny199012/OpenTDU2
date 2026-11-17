@@ -3,6 +3,7 @@
 #include "render/vulkan/render_device.h"
 
 class Bank;
+class D3D12Device;
 struct Texture2DB;
 
 // Owns the GPU textures created from .2DB resources. Textures are looked up by
@@ -14,6 +15,9 @@ public:
     ~TextureCache();
 
     void initialize( RenderDevice *pDevice );
+    // The Direct3D 12 upload path (docs/backends.md phase 3): the same .2db
+    // decode, uploaded as DXGI textures the 2D layer samples.
+    void initialize( D3D12Device *pDevice );
     void destroy();
 
     GPUTexture *createFrom2DB( const Texture2DB &texture, const char *pName );
@@ -45,6 +49,11 @@ public:
     // materials still drew with (VUID-vkCmdDrawIndexed-None-08114, then
     // VK_ERROR_DEVICE_LOST).
     GPUTexture *findForOwner( const char *pBorrower, uint64_t hashcode );
+    // Frees a texture this cache created (the .2db owners, or a caller's own
+    // createFromRGBA), whichever backend uploaded it. Vulkan hands the texture
+    // to the device's deferred delete; Direct3D releases the resource and its
+    // SRV and deletes the wrapper.
+    void destroyTexture( GPUTexture *pTexture );
     GPUTexture *getWhiteTexture() const { return pWhiteTexture; }
     GPUTexture *getCheckerTexture() const { return pCheckerTexture; }
 
@@ -65,6 +74,12 @@ private:
     };
 
     RenderDevice *pDevice;
+    // The Direct3D 12 device of a -renderer d3d12 run (nullptr on Vulkan).
+    D3D12Device *pD3D12Device = nullptr;
+    // Stands in for every texture while there is no Vulkan device (a Direct3D
+    // backend run): callers get a handle, nothing draws with it.
+    GPUTexture *getPlaceholder();
+    GPUTexture *pPlaceholder = nullptr;
     std::vector<OwnerTextures> owners; // Load order
     // Released while borrowed: not findable, destroyed once unborrowed.
     std::vector<OwnerTextures> retired;
@@ -74,6 +89,16 @@ private:
     OwnerTextures &getOwner( const char *pOwner );
     bool isBorrowed( const std::string &lender ) const;
     void destroyOwnerTextures( OwnerTextures &owner );
+    // Uploads one texture through the D3D12 device and wraps it as a
+    // GPUTexture (the Vulkan handles stay null; D3D12Resource / D3D12Srv* carry
+    // the surface the 2D layer samples).
+    GPUTexture *createD3D12Texture( uint32_t width,
+                                    uint32_t height,
+                                    uint32_t numMips,
+                                    uint32_t dxgiFormat,
+                                    const void *const *ppMipData,
+                                    const uint32_t *pMipSizes,
+                                    const char *pName );
     GPUTexture *pWhiteTexture;
     GPUTexture *pCheckerTexture;
 };

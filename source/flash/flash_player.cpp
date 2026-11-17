@@ -67,8 +67,8 @@ void FlashCanvasToStage( float canvasX, float canvasY, float stageWidth, float s
     // the UI layout option (GetUiCanvasRect and FlashStageRect). At 16:9 both
     // are the full window and this is the retail 1:1 band math (mode 1:
     // stage y = canvas y + 120).
-    const float backbufferWidth = gpRender != nullptr ? static_cast<float>( gpRender->getDevice().getBackbufferWidth() ) : 1280.0f;
-    const float backbufferHeight = gpRender != nullptr ? static_cast<float>( gpRender->getDevice().getBackbufferHeight() ) : 720.0f;
+    const float backbufferWidth = gpRender != nullptr ? static_cast<float>( gpRender->getBackbufferWidth() ) : 1280.0f;
+    const float backbufferHeight = gpRender != nullptr ? static_cast<float>( gpRender->getBackbufferHeight() ) : 720.0f;
     float cx0, cy0, cw, ch;
     GetUiCanvasRect( backbufferWidth, backbufferHeight, cx0, cy0, cw, ch );
     const float windowX = cx0 + ( canvasX / 1280.0f ) * cw;
@@ -82,8 +82,8 @@ void FlashCanvasToStage( float canvasX, float canvasY, float stageWidth, float s
 
 void FlashStageToCanvas( float stageX, float stageY, float stageWidth, float stageHeight,
                          float &outCanvasX, float &outCanvasY ) {
-    const float backbufferWidth = gpRender != nullptr ? static_cast<float>( gpRender->getDevice().getBackbufferWidth() ) : 1280.0f;
-    const float backbufferHeight = gpRender != nullptr ? static_cast<float>( gpRender->getDevice().getBackbufferHeight() ) : 720.0f;
+    const float backbufferWidth = gpRender != nullptr ? static_cast<float>( gpRender->getBackbufferWidth() ) : 1280.0f;
+    const float backbufferHeight = gpRender != nullptr ? static_cast<float>( gpRender->getBackbufferHeight() ) : 720.0f;
     const int32_t ratio = GetEffectiveScreenRatio();
     float sx0, sy0, sw, sh;
     FlashStageRect( ratio, stageWidth, stageHeight, backbufferWidth, backbufferHeight, sx0, sy0, sw, sh );
@@ -2737,8 +2737,8 @@ bool FlashPlayer::sendMouseRelease( float screenX, float screenY ) {
     }
     float x0, y0, width, height;
     stageRect( x0, y0, width, height );
-    const float backbufferWidth = static_cast<float>( gpRender->getDevice().getBackbufferWidth() );
-    const float backbufferHeight = static_cast<float>( gpRender->getDevice().getBackbufferHeight() );
+    const float backbufferWidth = static_cast<float>( gpRender->getBackbufferWidth() );
+    const float backbufferHeight = static_cast<float>( gpRender->getBackbufferHeight() );
     const float stageX = ( screenX / backbufferWidth - x0 ) / width * pMovie->getVMF().getStageWidth();
     const float stageY = ( screenY / backbufferHeight - y0 ) / height * pMovie->getVMF().getStageHeight();
     const bool bHandled = sendMouseToClip( root, FlashMatrix(), stageX, stageY );
@@ -2754,8 +2754,8 @@ void FlashPlayer::stageRect( float &x0, float &y0, float &width, float &height )
         return;
     }
     FlashStageRect( GetEffectiveScreenRatio(), stageWidth, stageHeight,
-                    static_cast<float>( gpRender->getDevice().getBackbufferWidth() ),
-                    static_cast<float>( gpRender->getDevice().getBackbufferHeight() ), x0, y0, width, height );
+                    static_cast<float>( gpRender->getBackbufferWidth() ),
+                    static_cast<float>( gpRender->getBackbufferHeight() ), x0, y0, width, height );
 }
 
 void FlashPlayer::beginStage( Renderer2D &renderer ) const {

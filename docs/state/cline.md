@@ -16,6 +16,260 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-17 (ninety-second, `cline`): the Flash front end draws on Direct3D 12 - the 2D layer (HLSL, .2db textures, stencil masks) and a pixel-level match against Vulkan
+
+Continuation of the entry below on *"I Want you to continue with Direct X 12 support
+please just commit and never push thanks"*: phase 3a, the draw path for the 2D layer -
+`docs/backends.md` section 5 item 3.
+
+### What changed
+
+- `source/render/d3d12/d3d12_ui.{h,cpp}` (new) - `D3D12UI`: one HLSL pair compiled **at run
+  time with `D3DCompile`** (SM 5.0 DXBC, which D3D12 accepts, so no `dxc` and no SPIRV-Cross
+  step is needed for the 2D layer), a root signature (SRV table + root CBV + static
+  linear/clamp sampler), **four PSOs** (none / INCR_SAT / DECR_SAT / EQUAL - the Flash masks'
+  increment-decrement scheme, the mask batches writing no colour), and a mapped upload ring
+  per frame slot (4 MB: 256-byte-aligned constants, then vertices).
+- `source/render/d3d12/d3d12_device.{h,cpp}` - `D24_UNORM_S8_UINT` depth-stencil + DSV (made
+  and destroyed with the swapchain, cleared every frame, attached in `beginFrame`);
+  `createTexture2D` (full mip chain, per-subresource 512-byte alignment, blocking upload list,
+  SRV from the shader-visible heap) and `destroyTexture`; `kSrvDescriptors` 64 -> 8192 (the
+  front end uploads one SRV per `.2db` bitmap and font); `getFrameSlot()`.
+- `source/render/texture_cache.{h,cpp}` - the D3D12 branch: `initialize( D3D12Device* )`,
+  `GetDXGIFormat` (BC1/BC2/BC3 natively, **BC5 for ATI2**, `B8G8R8A8` for D3D9's A8R8G8B8,
+  `R8G8B8A8`, everything else through the existing CPU conversion; `A8`/`L8` deliberately keep
+  the RGBA8 conversion because the font atlas shader reads `texel.r`), `createD3D12Texture`
+  (wraps the device's `Texture` in a `GPUTexture`), and a public `destroyTexture` so the Flash
+  teardown no longer calls the Vulkan device (cube maps are not uploaded - Eden only).
+- `source/render/renderer_2d.{h,cpp}` - the D3D12 branch: `initializeD3D12`, `beginD3D12Frame`,
+  the batcher state unchanged, `flush()` builds the projection and hands the batch to
+  `D3D12UI`. **The projection's Y row is negated** (`[5]` and `[13]`) because Direct3D's clip
+  space is +Y up and Vulkan's is +Y down; `drawImGui` returns early (ImGui has its own D3D12
+  backend).
+- `source/render/gs_render.{h,cpp}` - builds the 2D stack on D3D12, `canDraw2D()`,
+  `beginD3D12Frame` after the device opened the frame, teardown in the right order, `-d3d12-no2d`
+  (the A/B) and `-d3d12-uitest` (three test quads: flat colour, a BC3 `.2db` texture, a
+  gradient).
+- `source/tdu_instance.cpp` - the frame loop draws the active mode's 2D layer when
+  `canDraw2D()` (it was `canDrawScene()`), `drawOffscreen`/3D stay on `canDrawScene()`.
+- `source/game/uiviewer/gm_ui_viewer.cpp` - the backbuffer size through
+  `GSRender::getBackbufferWidth/Height()` (it read the Vulkan device directly).
+- `CMakeLists.txt` - `d3dcompiler` on the D3D12 link line.
+- `docs/backends.md` - status matrix, the new flags, section 3.1's two-backend recipe,
+  section 4's "D3DCompile/DXBC for 2D, SPIR-V -> DXIL for the scene", section 6 rewritten
+  (the Y-flip trap, the stencil, the texture upload, the frame-number trap).
+- `PROGRESS.md` - the D3D12 row moved to phase 3a done, next = phase 3b (the Eden scene).
+
+### Verified (build 218 (28fc056+dirty) · cline)
+
+The Flash front end on D3D12, compared with Vulkan's Flash layer at the same movie time:
+
+    -renderer d3d12 ... -exitframe 9000 -autoplay 8000:shot=E:/Cline/_dx2d_final.ppm
+    -renderer vulkan -notitlescene ... -exitframe 320 -autoplay 300:shot=E:/Cline/_vk.ppm
+
+| | non-black | distinct colours | pixel difference |
+|---|---|---|---|
+| D3D12 | 27.55 % | 16997 | |
+| Vulkan `-notitlescene` | 27.96 % | 17098 | mean 0.60/255, **99.26 % within 8 levels** |
+
+- `Renderer d3d12: 2D layer ready (HLSL via D3DCompile, 4 stencil modes, 4194304 px upload
+  ring per frame)`; `-d3d12-logui`: `D3D12 UI: frame N: 22 batches (20 colour), 972 vertices`.
+- `-d3d12-uitest`: the BC3 `.2db` quad reads back 2034 distinct colours (blues like
+  `60,102,154`) - the mip upload and the SRV are right, not a uniform black texture.
+- Vulkan regression on the same build: the Flash-only frame is 27.96 % / 17098 colours, and
+  against the pre-change frame mean 0.12/255, 99.81 % within 8 levels.
+- The D3D12 self test is unchanged; the debug layer (`-d3d12-debug`) reports **no** message
+  for the whole 2D stream.
+
+### Ruled out (with the test that ruled it out)
+
+- **"The 2D layer draws nothing"** - the first screenshots were pure black at *three*
+  different frame counts. The cause was timing, not the pipeline: D3D12 runs at ~2600 fps
+  here and Vulkan at ~120, so `-autoplay 300` is 0.1 s of movie on D3D12 and 2.5 s on Vulkan;
+  the login movie's intro is black for the first second. Section 6 has the trap in writing.
+- The Y-flip sign, twice: negating `[4..7]` and `[12..13]` (the naive "row 1" reading) put the
+  whole layer off screen; only `[5]` and `[13]` are in row 1 of a column-major matrix.
+- Stencil (`-d3d12-nostencil`) changes nothing in the frame coverage, so the mask PSOs are not
+  hiding geometry.
+- The textures are not zero: forcing the white texture (a temporary `-d3d12-uitest-white`,
+  since removed) made the same batches fill 16.67 % of the frame, and the BC3 quad renders its
+  art.
+- The teardown/permission-denied trap is now written down: a stopped run can leave a zombie
+  `opentdu2-cline` whose lock fails the next link (`failed to write output ... permission
+  denied`); wait and rebuild.
+
+### Next
+
+Phase 3b, the Eden scene: `source/render/eden/eden_shader_system.cpp` (the `.sob` pipeline
+creation: SPIR-V -> HLSL through SPIRV-Cross, then `dxc` - note `dxc.exe` is **not** in this
+machine's Windows SDK 10.0.26100, so it has to be shipped or built) and
+`EdenRenderer::fillConstants`' 128-byte push-constant block as a root CBV, so `EdenWorld` /
+`EdenSceneView` can be pointed at a D3D12 device the way `TextureCache` and `Renderer2D` are
+now. That is what lifts the 3D game-mode refusal.
+
+## Session 2026-11-16 (ninety-first, `cline`): the game itself boots on Direct3D 12 - front end, real frames, screenshots, and the ImGui overlay drawing (opt-in)
+
+Continuation of the entry below, on the owner's *"Yes please continue on getting it to work"*:
+lift the in-game refusal from the first pass, i.e. make `-renderer d3d12` drive the game.
+
+### What changed
+
+- `source/render/texture_cache.{h,cpp}` - null-device safe: `createFromRGBA` / `createFrom2DB`
+  return one shared placeholder (`OTDU_NoRenderer`), `loadBankTextures` loads nothing,
+  `destroy` / `destroyOwnerTextures` skip the device. This is what made `GSFlash::initialize`
+  stop faulting (it was the reason for first pass's refusal).
+- `source/game/bootmenu/gm_login.cpp`, `title_scene.cpp` - the 3D press-start cinematic is
+  skipped when `!canDrawScene()` (it blocked inside eden's device calls), and
+  `TitleScene::unload()` is inert when nothing was loaded (its `view.destroy()` blocked the
+  *exit* path - found by tracing `terminate()`, not by guessing).
+- `source/flash/flash_player.cpp`, `flash_movie.cpp` - the Flash stage reads the presented size
+  from `GSRender::getBackbufferWidth/Height()` instead of the Vulkan device (0x0 meant division
+  by zero risk), and the movie texture teardown is Vulkan-only.
+- `source/render/d3d12/d3d12_imgui.{h,cpp}` (new) - Dear ImGui on D3D12 through
+  `imgui_impl_dx12` (precompiled DXBC shaders, no toolchain work): init / render / texture
+  seams, an SRV allocator over the device's shader-visible heap
+  (`D3D12Device::allocateSrv` / `freeSrv`, 64 descriptors).
+- `source/render/d3d12/d3d12_device.{h,cpp}` - that SRV heap, `getDevice` / `getCommandQueue` /
+  `getCommandList`, a debug-layer drain on the first frames (`-d3d12-debug`).
+- `source/debug/gs_imgui.cpp` - the D3D12 branch of initialize / terminate / endFrame, and the
+  disabled overlay no longer counts as a service failure.
+- `source/render/gs_render.{h,cpp}` - `canDrawUI()` (Vulkan always, D3D12 with `-d3d12-ui`),
+  `getD3D12Device()`, `getBackbufferWidth/Height()`; `onWindowResized`/`waitIdle` dispatch.
+- `source/tdu_instance.cpp` - the frame loop draws the ImGui overlay whenever `canDrawUI()`
+  (game-mode UI still `canDrawScene()`), `-noimgui` as the A/B, `switchToNextGameMode` refuses
+  3D modes with one precise line instead of faulting, and the first pass's exit-code-2 refusal
+  is gone.
+- `cmake/Dependencies.cmake` - `imgui_impl_dx12.cpp` into `otdu_imgui` (Windows + OTDU_ENABLE_D3D12).
+- `docs/backends.md` - status matrix, the new flags, the in-game verification recipe, and
+  section 6 rewritten around what the two traps actually are.
+
+### Verified (build 217 (39267ed) · cline)
+
+The game on D3D12, no workarounds:
+
+    build-cline\bin\opentdu2-cline.exe -renderer d3d12 -game C:\TDU2-Gamedata\TestDrive2 ^
+        -userdata E:\Cline\_ud-dxR -nopad -exitframe 4000 -autoplay 2000:shot=...ppm
+
+    Renderer d3d12: device created, presenting the swapchain only (docs/backends.md)
+    ...service 'Service : Flash' successfully initialized.
+    |              GAME MODE : LOGIN
+    [perf] frame 3960: avg 0.2 ms (fps 5258)
+    Screenshot saved to 'E:/Cline/_dx_final.ppm'        (1280x720 PPM, 2764816 bytes)
+
+The ImGui overlay on D3D12 (WARP, because of the driver stall below):
+
+    -renderer d3d12 -d3d12-ui -d3d12-warp ... -exitframe 4000 -autoplay 2000:shot=...
+    D3D12 ImGui: backend ready (OpenTDU2 Direct3D 12 (Microsoft Basic Render Driver (WARP)))
+    [perf] frame 3960: avg 0.8 ms (fps 1258)
+    -> the screenshot carries the build watermark: 57 distinct colours, 735 non-black samples
+
+Vulkan unchanged: `-renderer vulkan ... -exitframe 20` still renders through eden
+(33 914 draws) and exits cleanly; the D3D12 self test still passes 45/45 frames with the
+eight colour bars exact.
+
+### Ruled out (with the test that ruled it out)
+
+- **Output pipe / console back-pressure** - the same hang happens with no stdout redirection.
+- **VSync / Present** - `-novsync` hangs identically; `-noimgui` runs at 4319 fps.
+- **ImGui's font upload (its `INFINITE` fence wait)** - `ImGui_ImplDX12_CreateDeviceObjects()`
+  succeeds at init and the atlas is already `OK` on the hanging frame (`0 pending textures`).
+- **A second frame's vertex-buffer allocation** - pinning `NumFramesInFlight = 1` changes
+  nothing.
+- **The audio teardown** - it was real once: the front end started music on a device opened a
+  moment earlier. `GMLogin::enter` now gates it on `GSAudio::isReady()`. The *remaining* stall
+  is bigger and not audio: see "Not done / next".
+
+### Not done / next
+
+Two things, in order:
+
+1. **The process teardown stall on D3D12** (open, flaky): after the last frame the process
+   sometimes stays alive with an idle CPU; it reproduces with `-noaudio` and `-nolog`, and the
+   watchdog's own lines stop with it, so some thread holds a shared resource. Next step:
+   `TestDriveGameInstance::terminate` - one `Logger::WriteTagged` (non-blocking) before each
+   step (waitIdle, the game mode exit, each service, `SDL_DestroyWindow`, `SDL_Quit`) to find
+   the holder. Everything the game itself does is unaffected; automation can `Stop-Process`.
+2. **The D3D12 draw path for game content**: `Renderer2D` (the Flash login art, all 2D UI) and
+   the Eden scene, i.e. SPIR-V -> HLSL (SPIRV-Cross) -> DXIL (`dxc`) plus `TextureCache` on
+   `createTexture2D`. That also unblocks the ImGui driver stall (same PSO/heap code path) and
+   removes the 3D game-mode refusal.
+
+
+
+The owner: *"work on Direct X 9, 11 & 12 support start with 12 work down doesn't need
+to all happen in 1 go"*, with the clone moved to `E:\Cline\OpenTDU2` and *"add -cline to
+your build so agents don't kill it if you run tests"* (the tree builds
+`build-cline\bin\opentdu2-cline.exe`, branch `cline`).
+
+The renderer is Vulkan-only and not abstracted (`EdenRenderer` holds `VkDescriptorPool`
+members), so the backends are added **around** it, newest first, instead of behind a
+big-bang RHI rewrite. `docs/backends.md` is the plan, the status board and the flags.
+
+### What changed
+
+- `source/render/rhi/render_backend.{h,cpp}` - `eRenderBackend`, the name parser
+  (`-renderer d3d12` / `-renderer=d3d12` / `OTDU_RENDERER`), what is compiled in, the
+  "can this backend draw the scene" query, and `-renderer-selftest`.
+- `source/render/d3d12/d3d12_device.{h,cpp}` (new) - DXGI 1.6 factory (high-performance
+  adapter, WARP fallback, `-d3d12-warp`), `ID3D12Device`, direct queue, 3-buffer
+  `DXGI_SWAP_EFFECT_FLIP_DISCARD` swapchain for the SDL window's HWND, RTV heap, 2 frames
+  in flight with allocator/list/fence, clear + viewport + scissor, resize, minimise,
+  device-removed reporting with DRED breadcrumbs (`-d3d12-debug`), PPM screenshot readback.
+- `source/render/gs_render.{h,cpp}` - the backend is resolved once in `createDevice`;
+  `beginFrame`/`endFrame`/`beginMainPass`/`requestScreenshot`/`hasDeviceLost`/`waitIdle`
+  dispatch to it, and `canDrawScene()` is the gate the frame loop asks.
+- `source/tdu_instance.cpp` - `-renderer-selftest` runs before `TestDriveGameInstance`
+  (no game data); the draw section is skipped when the backend cannot draw; the four
+  `getDevice()` call sites that only needed a dispatch go through `GSRender`;
+  in-game `-renderer d3d12` is refused with a precise message (see below).
+- `CMakeLists.txt` - `OTDU_ENABLE_D3D12` (ON, Windows), `_D3D11` / `_D3D9` (OFF), the
+  `OTDU_D3D12` define and `d3d12 dxgi dxguid`.
+- `docs/backends.md` (new) - seam, status matrix, flags, verification recipe, the shader
+  plan per backend (SPIR-V -> HLSL via SPIRV-Cross -> DXIL via the SDK's `dxc` for 12/11;
+  the original D3D9 bytecode as-is for 9) and the next step with file + function.
+
+### Verified (build 215 (947c66b) · cline)
+
+Self test on the RTX 5070 Ti, exit 0:
+
+    build-cline\bin\opentdu2-cline.exe -renderer d3d12 -renderer-selftest 60 -renderer-shot E:\Cline\_dx12.ppm
+
+    D3D12: adapter 'NVIDIA GeForce RTX 5070 Ti' (15995 MB)
+    D3D12: binding tier 3, heap tier 2, conservative raster tier 3
+    D3D12: device 'NVIDIA GeForce RTX 5070 Ti', 1280x720, 3 buffers, vsync off, tearing available
+    D3D12 self test: 60 frame(s) presented on 'NVIDIA GeForce RTX 5070 Ti' (1280x720)
+    -renderer-selftest: PASSED
+
+The screenshot was checked numerically, not by eye - the eight bar centres of the PPM
+(1280x720, row 360, x = 80..1200) read back exactly `255,255,255` / `255,255,0` /
+`0,255,255` / `0,255,0` / `255,0,255` / `255,0,0` / `0,0,255` / `0,0,0`: eight of eight.
+`-renderer=d3d12` (the `=` form) and `-renderer-window` (a visible window) also pass, 45
+and 30 frames.
+
+Vulkan regression, same build: `-renderer vulkan -gm FREERIDE -skipcine -nopad -noaudio
+-exitframe 45` runs the real renderer (`EdenRenderer: 249077 draws`, `pipeline cache saved
+(7404 KB)`) and exits cleanly - the default path is untouched.
+
+### Ruled out (with the test that ruled it out)
+
+- **In-game `-renderer d3d12`**: the run stops inside `GSFlash::initialize` (no crash
+  message, the log just ends) - `GSFlash` -> `TextureCache::createFromRGBA` ->
+  `RenderDevice::createTexture2D` on the uninitialised Vulkan device. So the backend
+  cannot drive the service graph yet; `InitAndRun` now refuses it up front with exit
+  code 2 and names what does work. Making `TextureCache` / `flash_movie.cpp`
+  null-device safe is part of phase 2, not a fix on its own.
+- `-renderer d3d11` / `d3d9`: parsed and refused ("not compiled in, OTDU_ENABLE_D3D11=OFF")
+  rather than silently ignored - the switch is in place for their phase.
+
+### Not done / next
+
+Phase 2, one step: `source/render/d3d12/d3d12_device.cpp`, `createCommandQueue` - add the
+CBV/SRV/UAV + sampler descriptor heaps and a root signature, then a `createTexture2D`
+that mirrors `RenderDevice`'s signature so `TextureCache` (and with it `GSFlash`) can be
+pointed at the D3D12 device. That is what lifts the refusal. **No build stamp on a D3D12
+screenshot** until the 2D UI draws there (RULES §6): quote the log banner instead.
+
+
 ## Session 2026-11-03 (eighty-eighth, `cline`): world foliage verified — the V/O `.pmi` vegetation draws, and the old LOD0-only gap is closed (LOD1/2 impostors load and switch by distance)
 
 The owner: *"can we try get world foiliage working grass, flowers etc..."*. The vegetation was

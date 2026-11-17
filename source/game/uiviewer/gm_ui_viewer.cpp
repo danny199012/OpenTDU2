@@ -815,9 +815,9 @@ void GMUiViewer::draw() {
     } else {
         // -nopanel: the movie alone, fitted to the screen with its own aspect.
         const float backbufferWidth = static_cast<float>(
-            gpRender->getDevice().getBackbufferWidth() );
+            gpRender->getBackbufferWidth() );
         const float backbufferHeight = static_cast<float>(
-            gpRender->getDevice().getBackbufferHeight() );
+            gpRender->getBackbufferHeight() );
         const float stageAspect = stageWidth / Max( 1.0f, stageHeight );
         const float screenAspect =
             backbufferWidth / Max( 1.0f, backbufferHeight );
@@ -1014,9 +1014,9 @@ void GMUiViewer::drawUI() {
             const ImVec2 framebufferScale =
                 ImGui::GetIO().DisplayFramebufferScale;
             const float backbufferWidth = static_cast<float>(
-                gpRender->getDevice().getBackbufferWidth() );
+                gpRender->getBackbufferWidth() );
             const float backbufferHeight = static_cast<float>(
-                gpRender->getDevice().getBackbufferHeight() );
+                gpRender->getBackbufferHeight() );
             movieRect[0] = imageMin.x * framebufferScale.x /
                            Max( 1.0f, backbufferWidth );
             movieRect[1] = imageMin.y * framebufferScale.y /
