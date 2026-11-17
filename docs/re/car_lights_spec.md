@@ -6,7 +6,9 @@ Tags: **[CODE]** readable x86 (VA >= 0x6c1000) · **[DATA]** game files · **[SH
 Related: `california_spec.md` (node slots, LOD), `car_glass_spec.md`. The light driver shipped in
 `source/game/cinematic/cinematic_car.{h,cpp}` (`collectLights` / `updateLights` / `applyLights`) is a port of
 the upstream `335759a` implementation (`docs/re/upstream_335759a.md`), with the traffic half (section 6)
-OpenTDU2's own.
+OpenTDU2's own. **The §2.2 per-frame functions below are `[ENC]` in retail — decoded from the Apr 2012
+dev build in `dev_build_car_lights.md` §3 (channel law confirmed, dev table 0x19ca470) + §1 there for the
+DBCarPhysicsData light fields (14 columns incl. the rear break/reverse ones).**
 
 ## 1. Why the first cut (MATPARAM) was wrong
 

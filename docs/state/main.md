@@ -6,6 +6,53 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-17 (`main`, 51): the dev-build car-lighting dig - the [ENC] lamp functions decoded, the light data found, the dashboard mechanism named
+
+Owner: *"dig the dev build see if you find any car lighting data head lights, tail lights, interior dash
+etc"* (before a ray-tracing pass). Research only, no code. **`docs/re/dev_build_car_lights.md`** is the
+write-up; `_lights_dig/` (scratch, uncommitted) has the python XMB reader (`xmb.py`, cpr decrypt +
+full XMBF walk - the retail `-dumpdbtables` log line truncates at 2 KB, the python dump does not) and
+the decoded shader folders.
+
+### Found ([CODE-dev] = TestDrive2DEV.exe via tools/devbuild_disasm.py, [DATA] = game files)
+- **DBCarPhysicsData carries 14 light columns** (the `-dumpdbtables` log hides them all but 5):
+  front headlight + rear break ("Break", the data's spelling) + rear reverse, each
+  projectionangle / apertureanglewidth / apertureangleheight / activatecaustics, plus
+  `_headlightsorientation` (10 on every car - pop-ups are NOT in the DB) and `_islightcarwashable`
+  (Ferrari-brand cars = the car-wash "light car"). All cars ship the same angles (46/176/63 front,
+  69/180|141/86 rear): global defaults, not per-car art.
+- **The retail per-frame lamp functions decoded** (car_lights_spec §2.2's [ENC] table):
+  dev table 0x19ca470 (initializer 0x1462410, ~50 x 8-byte slots). brake 0x71fdd0 -> GLOSSFCT r,
+  reverse 0x720e50 -> g, headlights 0x721ad0 / position 0x721dc0 -> b, blinkers 0x720a50/0x720c40 ->
+  1-a - the channel law guessed from the masks is confirmed. Shape: groups {1,0,3,4,6,2,5}, pair
+  vector at car+0x783C + g*12 (retail offset confirmed), a per-function state cache (+0xb0 / +0xb4)
+  and a force-every-frame debug byte at 0x1660800.
+- **The retail head-light projection system named**: "HEADLIGHTS BLIT" + "HeadLightsRT" (RT chain
+  created at 0x4fd240, format via a HeadLightsRT config flag) - s15's G/B IS the projected head-light
+  buffer (rain_shadow_spec B.7's [INF] now [CODE-dev]); texture ids 13/14/15 = breakcaustics /
+  reversecaustics / headlightcaustics (registered at 0x716b77); head-light receiver volume test =
+  config globals HeadLightFront/Back/LateralDistance = 120/30/30 m.
+- **The interior dashboard light**: TD_DashBoard.sob (caca000000000010) and TD_flashdashboard.sob
+  (7dad16b47eb51337) both carry Var_PS `IlumParam` / `IlumColor` / `HeadlightsIntensity` + sample s15;
+  the dev collector 0x71a680 gathers the HEADLIGHTSINTENSITY param pointers of exactly those two
+  shaders into car+0x77e8. The port already dumps these params (`-logcar`) but nothing drives them -
+  that wiring is the port work this dig feeds. Also: a scene object named "DASHBOARD" with an
+  ILUMCOLOR param in 8 interior banks; `mng_dashboard` = the Flash GAUGES movie manager (2D overlay).
+- Dev-only strings: the HeadLight debug block (beam / front / break / reverse caustics / spot light /
+  HeadLightAttributes), HEADLIGHTS SWITCH DISTANCE, "All cars toggle headlights",
+  `avatar_car_night_reflection_factor` (unported weather key).
+
+### Not done / next
+- The remaining ~40 table slots (0x722310..0x728910, glow-node / flare writers) not decoded one by
+  one; the pop-up headlight function (retail FUN_00c67280 twin) not found yet.
+- The per-frame writer of car+0x77e8 (dashboard intensity) + the flash trigger not chased to its
+  caller - that is step 1 of the port work (write HEADLIGHTSINTENSITY on TD_DashBoard materials in
+  CinematicCar instead of the port-native night-dash hack).
+- Ray tracing (the owner's other ask) untouched this session - see ray_tracing.md step 4 (RT sun
+  shadows, needs the terrain in the structures).
+
+
+
 
 ## Session 2026-11-16 (`main`, 49): clouds v7 - broken up, toned down, higher, faster drift
 
