@@ -30,12 +30,16 @@ native `ClothesMenu` stays the default until they work.
 - Not done: Eyebrows page (`EyebrowsType/Color` need the avatar's eyebrow atlas), live preview (no avatar in view), the `C_BUY_HAIR`
   cinematic, DLC hair (`HairDLC`), the casino salon (`EHAIR_CA`, same code path - untested).
 
-## 3. Clothes shop (`-clothesui`) - title bar only
-- `clothes_shop` label (frame 194) shows "Clothes Shop". The seller (`Seller_area`, type 22 `goodies`) was not selected by
-  `-walkaim goodies` in the first run (`validate on ''`) - check the aim distance / that the selectable is reachable.
-- Pages: `cl_in` 221, `cl_stop` 226, `item_selection_in` 240, `item_selection_stop` 256; commands seen in the movie: `clin`,
-  `neit`, `prit`, `seit`, `nsit`, `buit`, `clre` (the house closet already answers `clin/neit/prit/seit` in
-  `InteriorWalk::onUiCommand` - the same HOME-style dressing protocol; reuse it with the shop's price + DBCarShop brand stock).
+## 3. Clothes shop (`-clothesui`, opt-in) - browsing works, buying does not
+- Walk aim: `-walkaim Seller_area` (the type-name aim `goodies` found nothing). A on the seller sends `csin`, `camn`, `came`, `clin`.
+- The movie runs the HOUSE closet's dressing protocol: the category squares (Hats, Glasses, Tops, Bottoms, Shoes, Gloves) send
+  `clin` (the key in `/:BtValid`), the item card pages with `neit` / `prit` and shows `n / total` from `/:Nb_Items`
+  (`InteriorWalk::onUiCommand`, shared with `bHomeUi`); in the shop `closetItems` is the DBCarShop brand's stock of the part
+  (verified: Hats 1/7, 2/7 -> the shop's brand items). Screenshots in the session log only.
+- **Not working**: A on an item plays `sndp:wrong` and sends nothing, so the buy never reaches `seit` (the buy code is in
+  `onUiCommand` "seit": charge + `OwnedClothes` + wear). The card also shows only the brand tag - no name / price. Next: dump the
+  item card's variables (`/:ItemName`, price, `LockItem`, `EnoughMoney`, `ItemBuyable`... resolve with `tools/vmf_disasm.py`
+  around the `cl_stop` / `item_selection_stop` buttons) and set them in `updateClosetItem`; then make it default.
 
 ## 4. The clothes-shop mirror (fixed)
 Owner: "the mirror doesn't reflect the characters". The `MIRROR` GSReflection projector already drew the room (session 45) and

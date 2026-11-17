@@ -6,6 +6,11 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-17 (`main`, 57): clothes shop on the retail movie - browsing works, buy does not (opt-in `-clothesui`)
+
+Shop mode reuses the house closet protocol (`clin/neit/prit/seit`) with the brand stock; `-walkaim Seller_area`. A on an item is refused by
+the movie (`sndp:wrong`) - next step in `docs/re/avatar_shops_spec.md` s3. Native menu stays the default.
+
 ## Session 2026-11-17 (`main`, 56): the hairdresser runs the RETAIL screen
 
 The owner: *"Yes, hairdresser"*. Root cause of the blank hair page: **`GetProperty(_target)` was unimplemented in the AVM1 runtime**

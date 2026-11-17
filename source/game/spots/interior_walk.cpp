@@ -7,6 +7,7 @@
 #include "filesystem/gs_file.h"
 #include "flash/flash_player.h"
 #include "game/clothes_shop.h"
+#include "game/car_shop.h"
 #include "game/house_shop.h"
 #include "game/spots/house_furniture.h"
 #include "game/freeride/tuner.h"
@@ -360,7 +361,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
         } else if ( ( _strnicmp( houseSpotName.c_str(), "EHD", 3 ) == 0 || _strnicmp( houseSpotName.c_str(), "EHAIR", 5 ) == 0 ) &&
                    !CmdLine::HasArg( "-nohairui" ) ) { // -nohairui: the native ClothesMenu (A/B)
             avatarLabel = "hairdresser";
-        } else if ( _strnicmp( houseSpotName.c_str(), "EAS", 3 ) == 0 && CmdLine::HasArg( "-clothesui" ) ) { // opt-in until the item grid is wired
+        } else if ( _strnicmp( houseSpotName.c_str(), "EAS", 3 ) == 0 && CmdLine::HasArg( "-clothesui" ) ) { // opt-in: browsing works, the buy (A) is refused by the movie - see avatar_shops_spec 3
             avatarLabel = "clothes_shop";
         }
     }
@@ -1062,9 +1063,11 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
         if ( commandSink ) {
             commandSink( command, args );
         }
-        return;
-    }
-    if ( !bHomeUi ) {
+        // The clothes shop shares the house closet's dressing protocol (clin / neit / prit / seit) [DATA].
+        if ( !( bAvatarUi && avatarLabel == "clothes_shop" ) ) {
+            return;
+        }
+    } else if ( !bHomeUi ) {
         return;
     }
     FlashPlayer &ui = scene.getUi();
@@ -1110,6 +1113,23 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
                 closetItems.push_back( id );
             }
         }
+        if ( bAvatarUi ) {
+            // The shop sells its brand's stock of the part (not the owned list) [DATA: DBCarShop _clothesshopbrand].
+            uint64_t brand = 0;
+            for ( const CarShop &shop : GetCarShops() ) {
+                if ( StringCmpI( shop.SpotName.c_str(), spotBank.c_str() ) == 0 && shop.ClothesBrand != 0 ) {
+                    brand = shop.ClothesBrand;
+                    break;
+                }
+            }
+            closetItems.clear();
+            for ( const ClotheItem &item : GetClothes() ) {
+                if ( item.PartType == closetPartType && ( item.Sex == sex || sex == 0 ) && item.Price < 999999 &&
+                     ( brand != 0 ? item.BrandHashcode == brand : !item.Brand.empty() ) ) {
+                    closetItems.push_back( item.Id );
+                }
+            }
+        }
         closetIndex = 0;
         auto worn = profile.WornClothes.find( closetPartType );
         for ( size_t i = 0; worn != profile.WornClothes.end() && i < closetItems.size(); i++ ) {
@@ -1129,6 +1149,22 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
         updateClosetItem();
     } else if ( command == "seit" ) {
         if ( closetIndex >= 0 && closetIndex < static_cast<int32_t>( closetItems.size() ) ) {
+            if ( bAvatarUi ) {
+                // Shop: buy first (owned items are free to wear again).
+                const int32_t id = closetItems[static_cast<size_t>( closetIndex )];
+                const ClotheItem *pBuy = FindClothe( id );
+                const bool bOwned = std::find( profile.OwnedClothes.begin(), profile.OwnedClothes.end(), id ) != profile.OwnedClothes.end();
+                if ( pBuy != nullptr && !bOwned ) {
+                    if ( profile.Money < pBuy->Price ) {
+                        showMessage( "Not enough money" );
+                        return;
+                    }
+                    profile.Money -= pBuy->Price;
+                    profile.OwnedClothes.push_back( id );
+                    OTDU_LOG_INFO( "InteriorWalk: clothes shop: bought %d '%s' for $%d (money now $%d)\n", id, pBuy->Name.c_str(), pBuy->Price,
+                                   profile.Money );
+                }
+            }
             profile.WornClothes[closetPartType] = closetItems[static_cast<size_t>( closetIndex )];
             const ClotheItem *pItem = FindClothe( closetItems[static_cast<size_t>( closetIndex )] );
             OTDU_LOG_INFO( "InteriorWalk: wearing %d '%s' (_parttype %d)\n", closetItems[static_cast<size_t>( closetIndex )],
