@@ -16,6 +16,125 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-17 (ninety-fourth, `cline`): every Eden shader stage on Direct3D 12 - the `-d3d12-shadertest` tally (7744 / 7744) and the three compiler defects it found
+
+Continuation of the entry below on *"please continue with Direct X 12 support
+thanks"*: phase 3b **step 1b**, the measurement the last entry named as the next
+step (*"compile **every** `.sob` permutation in `Euro/Shaders` through
+`D3D12ShaderCompiler` and count the failures"*), plus the fixes it turned up
+(`docs/backends.md` sections 3.5, 4 and 6).
+
+### What changed
+
+- `source/render/d3d12/d3d12_scene.{h,cpp}` - **`-d3d12-shadertest [<text>]`**
+  (`D3D12RunShaderTest`): every vertex and pixel stage of every `.sob` library in
+  `Euro/Shaders` through DXSO -> SPIR-V -> HLSL (SPIRV-Cross) -> DXBC
+  (`D3DCompile`); a line per library, the tally (libraries, permutations, stages,
+  compiled, translate failures, compile failures, seconds), the limits (max
+  textures vs the root signature's table, max push constants) and a PASSED /
+  FAILED **exit code**. `<text>` keeps only libraries whose name contains it (one
+  family while iterating; a bare flag leaves the next token alone - `-game` is not
+  a filter), `-verbose` prints one line per stage (push constant size/register,
+  cbuffers, textures, samplers, DXBC bytes) and every cbuffer's original set and
+  binding, and `-d3d12-dump-shaders <dir>` writes the HLSL - failing stages
+  included. It beats the watchdog (the pass takes minutes).
+  `D3D12Scene::kTextureTableSize` is public now (the tally reports stages that
+  ask for more textures than a draw can bind) and grew **8 -> 16**, the measured
+  maximum being 10.
+- `source/tdu_instance.{h,cpp}` - the hook. The test needs `Euro/Shaders` and
+  nothing else - no window, no device, no frame - so it runs in the bootstrap
+  right after the file-system service, ends the run there, and its verdict is the
+  exit code (`isShaderTestOnly` / `getShaderTestPassed`).
+- `source/render/eden/eden_shader_system.h` - `getLibraries()`, so the tally can
+  walk every library (a material always arrives with a GUID).
+- `source/render/d3d12/d3d12_shader.{h,cpp}` - **three defects fixed**, each one
+  found by a run of the tally (the numbers are in section 3.5):
+  1. **SM 5.1, not 5.0** (`shader_model = 51`, `vs_5_1` / `ps_5_1` targets): DXSO
+     emits `NonUniformResourceIndex` for D3D9's register-selected sampler and
+     SPIRV-Cross refuses it below 5.1 - 5523 of 7744 stages failed on that line.
+     SM 5.1 DXBC is valid D3D12 input (its floor is FL11_0).
+  2. **`D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES`**: the SM 5.1 HLSL declares
+     DXSO's runtime sampler array unbounded and FXC rejects that by default
+     (X3596).
+  3. **The push constants moved to b13, register space 1**
+     (`D3D12ShaderCompiler::kPushConstantSpace`): SPIRV-Cross keys resource remaps
+     by the *original* (set, binding) and DXSO numbers images by D3D9 sampler slot,
+     so a shader sampling `s13` owned the key the push constant block used and the
+     root constants silently landed at b0 - where the D3D9 constant file lives
+     (X4610) or, worse, compiled with garbage constants. `D3D12Scene`'s root
+     signature names the same space.
+- `docs/backends.md` - status matrix; the new flag; **section 3.5** (the tally,
+  the three runs, the 1146-of-1470 HLSL dump that found defect 3, and the two
+  sizing numbers); section 4 rewritten for SM 5.1 / space 1 / unbounded tables,
+  plus the still-open **sampler heap**; section 5 (step 1b, and the next step);
+  section 6 (four new traps); section 3.3's frame numbers re-measured and the
+  byte-identical hash recorded.
+- `PROGRESS.md` - the D3D12 row.
+
+
+
+### Verified (build 221 (242afdd+dirty) - cline)
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-shadertest `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx -log E:\Cline\_dx_shadertest.log
+```
+
+```
+D3D12 shadertest: 116 libraries, 31470 permutation(s), 7744 stage(s): 7744 compiled, 0 translate failure(s), 0 HLSL/D3DCompile failure(s) in 488.5 s
+D3D12 shadertest: limits - 10 texture(s) max (0 stage(s) over the 16-entry root signature table), 96 B push constants max (24 root constant(s))
+D3D12 shadertest: PASSED (7744 of 7744 stages translated)
+```
+
+(The same run before the table grew 8 -> 16 read `482.3 s` and `13 stage(s) over
+the 8-entry root signature table`; nothing else differed.)
+
+- The first run (SM 5.0, step 1's setting) compiled **2221** and failed 5523, all
+  with the same `NonUniformResourceIndex` line; the second (SM 5.1, no flag) was
+  stopped once every dumped stage showed X3596; the third (SM 5.1 + the flag)
+  exposed the b0 collision, and fixing that is where the 7744 comes from.
+- Exit codes: a filter that matches (`-d3d12-shadertest TD_GPS`) exits 0, a filter
+  that matches nothing exits 1.
+- **No regression in the drawn frame**: `-d3d12-scenetest -renderer-selftest 30
+  -renderer-shot ...` passes with a silent debug layer and the same root signature
+  (`b13 space1 root constants, t0..t15`), and the PPM is **byte-identical** to the
+  pre-change build (`SHA256 E505B37F0063C775...778CEB`, `Get-FileHash` on the old
+  `_dx_scenetest.ppm` and the new one) - checked again after the table grew to 16.
+  Its numbers: 10.26 % of the pixels differ from the clear colour, 28992 distinct
+  colours (checker + lighting; mean neighbour difference 6.2/765 - not noise).
+- The Flash front end still draws on D3D12: the documented timing (`-exitframe
+  9000 -autoplay 8000:shot=...`) gives 17029 distinct colours, 97.76 %
+  non-background, matching the 17039 of the previous session.
+
+### Ruled out (with the test that ruled it out)
+
+- **"SM 5.0 is enough - the scene test passed"** - it passed because the engine's
+  own GLSL shaders never index a sampler dynamically; 5523 of Eden's 7744 stages
+  do not compile at 5.0 at all.
+- **"The b0 root constants are a compiler quirk"** - the same family compiled at
+  b13 or b0 depending only on whether it samples through `s13`; `-verbose` printed
+  the images' original bindings (0..15, the D3D9 sampler slots) and
+  `TD_Building_ps_343`'s cbuffers at 10 / 12 / 31, which pointed at the remap key.
+- **"The frame numbers changed, so the port regressed"** - the PPM from the SM 5.0
+  build hashes identically to the new one; the `135 colours` in the old notes came
+  from a different statistic, not from a different frame.
+
+### Next
+
+1. **The sampler heap** - the one thing between "all shaders compile" and an Eden
+   draw: DXSO's sampler is `SamplerState sampler_heap[] : register(s0, space0)`, a
+   runtime descriptor array indexed by a push-constant value, and D3D12 cannot
+   index *static* samplers dynamically. `D3D12Scene` needs a shader-visible
+   sampler descriptor heap, a per-material fill (the Vulkan
+   `EdenRenderer::samplerHeap` equivalent) and a sampler range as the last root
+   parameter.
+2. Then step 2 proper: `EdenRenderer::createProgram` -> `D3D12Scene::getPipeline`,
+   `recordPacket` -> `D3D12Scene::draw` (`fillConstants` into the b13 space1 root
+   constants), `EdenWorld`/`EdenSceneView`, the render targets / shadow /
+   reflection passes, and the 3D game modes.
+3. Still open from before: the ImGui-on-NVIDIA stall (`-d3d12-ui`; WARP is fine)
+   and the flaky process teardown (section 6).
+
 ## Session 2026-11-17 (ninety-third, `cline`): the scene's shader path on Direct3D 12 - SPIR-V to HLSL to DXBC, and a real lit, textured, depth tested draw
 
 Continuation of the entry below on *"please continue with Direct X 12 support

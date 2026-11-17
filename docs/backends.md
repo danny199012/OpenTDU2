@@ -27,8 +27,9 @@ with no shippable step in between. The backends are therefore added
 | Textures from `.2db` / RGBA | done | **done** | - | - |
 | Game boots (services, Flash logic, login) | done | **done** | - | - |
 | 2D layer (Flash front end, font atlas, clip rects, stencil masks) | done | **done** (HLSL, section 6) | - | - |
-| Scene shader path (SPIR-V -> HLSL -> SM 5.0 DXBC) | n/a (SPIR-V) | **done** (section 4) | - | - |
+| Scene shader path (SPIR-V -> HLSL -> SM 5.1 DXBC) | n/a (SPIR-V) | **done** (section 4) | - | - |
 | Scene pipelines / meshes / texture tables | done | **done** (one root signature, section 4) | - | - |
+| Every Eden shader stage compiled (`-d3d12-shadertest`) | n/a | **done** (section 3.5) | - | - |
 | ImGui overlay / build watermark | done | **done, opt-in** `-d3d12-ui` (driver stall, section 6) | - | - |
 | Scene (eden), 3D game modes | done | not yet (phase 3b step 2) | - | - |
 
@@ -58,6 +59,7 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-notitlescene` | skip the 3D press-start cinematic (applied automatically when the backend cannot draw 3D) |
 | `-renderer-selftest [frames]` | the self test below: no game, no data, exit 0/1 |
 | `-d3d12-scenetest` | with the self test: the scene path instead of the colour bars (section 3.3) |
+| `-d3d12-shadertest [<text>]` | in the game bootstrap (`-game`): every `.sob` stage through the scene shader path, with a tally; `<text>` keeps only libraries whose name contains it (section 3.5) |
 | `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
 | `-renderer-shot <path.ppm>` | with the self test: write the last frame |
 | `-renderer-window` | with the self test: show the window instead of hiding it |
@@ -182,12 +184,24 @@ D3D12 scene: pipeline 1 (4 attributes, 1 stream(s), blend 0, cull 0, depth test+
 D3D12 scene test: 30 frame(s) of a 36 index cube on 'NVIDIA GeForce RTX 5070 Ti' (1280x720)
 ```
 
-The frame is checked by numbers, not by eye: **13.94 % of the pixels differ from
-the clear colour, 135 distinct colours**, and the three visible faces carry
+The frame is checked by numbers, not by eye: **10.26 % of the pixels differ from
+the clear colour, 28992 distinct colours**, and the three visible faces carry
 different brightness (the `+Y` face lit, the two sides dimmer) - i.e. the vertex
 layout, the 128-byte root constant block, the texture table with its static
 sampler and the depth test all work. `docs/images/d3d12_scene_test.webp` is that
-frame.
+frame. The 28992 colours are the 64x64 checker through linear filtering plus the
+per-pixel lighting, not noise: the mean difference between neighbouring pixels
+inside the cube is 6.2/765.
+
+The same frame is **byte-identical** (`SHA256 E505B37F...778CEB`) before and after
+the SM 5.0 -> 5.1 switch and the push constants' move to register space 1 (section
+4) - the compiler changed, the pixels did not. Reproduce the numbers with:
+
+```python
+from PIL import Image
+im = Image.open(r'E:\Cline\_dx_scenetest.ppm').convert('RGB'); px = list(im.getdata()); bg = px[0]
+print('distinct', len(set(px)), 'diff %.2f%%' % (100.0 * sum(1 for p in px if p != bg) / len(px)), bg)
+```
 
 `-d3d12-dump-shaders <dir>` writes the HLSL next to the run; reading
 `pipeline1_vs.hlsl` is how the first "black frame" was diagnosed as a
@@ -198,6 +212,78 @@ frame.
 The scene path above is the *mechanism*, not the game: `EdenRenderer` still talks
 to the Vulkan device, so `canDrawScene()` is false on D3D12 and the 3D modes stay
 refused. Wiring Eden onto `D3D12Scene` is phase 3b step 2 (section 5).
+
+### 3.5 The shader tally (`-d3d12-shadertest`)
+
+The measurement that sizes phase 3b step 2 - *can the Direct3D 12 path carry
+Eden's shaders at all?* - is the game bootstrap without the game. It needs the
+game data (`Euro/Shaders`) and nothing else: no window, no device, no frame.
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-shadertest `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx -log E:\Cline\_dx_shadertest.log
+```
+
+Every vertex and pixel stage of every `.sob` library goes through DXSO -> SPIR-V
+-> HLSL (SPIRV-Cross) -> SM 5.1 DXBC (`D3DCompile`), one log line per library, a
+tally, the limits, and **exit 0 only when every stage compiled** (1 otherwise;
+`-d3d12-shadertest <text>` keeps only libraries whose name contains `<text>`, so
+one family can be iterated on). `-verbose` adds a line per stage (push constant
+size/register, cbuffer count, textures, samplers, DXBC size) and the cbuffer
+remap; `-d3d12-dump-shaders <dir>` writes the HLSL of every stage, failures
+included. The pass takes minutes: it beats the watchdog (like `-scantunnels`), so
+the default 60 s kill threshold is not a problem.
+
+Measured (RTX 5070 Ti is not involved - this is `D3DCompile` on the CPU; build
+`221 (242afdd+dirty) - cline`, 2026-11-17):
+
+```
+D3D12 shadertest: TD_Building                  11376 permutation(s), 1328 stage(s), 0 failed
+D3D12 shadertest: TD_Gouraud                    3968 permutation(s),  596 stage(s), 0 failed
+...
+D3D12 shadertest: 116 libraries, 31470 permutation(s), 7744 stage(s): 7744 compiled, 0 translate failure(s), 0 HLSL/D3DCompile failure(s) in 488.5 s
+D3D12 shadertest: limits - 10 texture(s) max (0 stage(s) over the 16-entry root signature table), 96 B push constants max (24 root constant(s))
+D3D12 shadertest: PASSED (7744 of 7744 stages translated)
+```
+
+`in 482.3 s ... 13 stage(s) over the 8-entry root signature table` was the
+identical run before the table grew to 16 (below). A library's stage count is its
+VS attribs plus its PS attribs and its permutation count is its `Item` table -
+31470 permutations across 7744 compiled stages, i.e. most permutations share a
+stage.
+
+**Every one of the 7744 stages compiles** - and it took three runs and three real
+fixes to get there. The tally's value was that each failure was a *silent* defect
+in the step-1 code:
+
+| Run | Compiled | What stopped the rest |
+|---|---|---|
+| SM 5.0 (step 1's setting) | 2221 | 5523 x SPIRV-Cross *"Shader model 5.1 or higher is required to use bindless resources or NonUniformResourceIndex"* |
+| SM 5.1, no extra flag (stopped early) | 0 of the first ~1500 | every stage X3596: *"unbounded size descriptor tables are disabled ... use /enable_unbounded_descriptor_tables"* |
+| SM 5.1 + unbounded tables + space 1 | **7744** | - (488.5 s; the 99 s of the first run was short because 5523 stages failed before `D3DCompile` was reached) |
+
+The third failure was the quiet one and the reason this section exists: with SM
+5.1 and the flag, `TD_Building_ps_343` failed with X4610 (*cbuffer binding ranges
+overlap*) while `TD_Accessories2_ps_0` compiled. Dumping the HLSL of both showed
+the root constant block at `b0` in the first and `b13` in the second - 1146 of the
+first 1470 dumped stages were wrong. The cause is in SPIRV-Cross's remap: its key
+is the *original* (set, binding), DXSO numbers images by D3D9 sampler slot, and a
+shader that samples `s13` therefore owns the key the push constant block uses. The
+fix is register space 1 (section 4) - and a shader that compiled with the root
+constants at b0 would have drawn with garbage constants in step 2, with no error
+at all.
+
+What the tally sizes for the rest of the Eden work:
+
+* **10 textures** is the maximum any stage asks for. The table was 8 entries
+  (`D3D12Scene::kTextureTableSize`) when the tally first measured it, and **13
+  stages wanted more** (that run's limits line); it is 16 now - the compiler's
+  per-stage ceiling (`D3D12ShaderCompiler::kMaxResources`) and enough for the
+  measured maximum - and the re-run prints `0 stage(s) over`.
+* **96 B of push constants** (24 root constants) is the maximum, well inside the
+  128 B / 32-dword budget the Vulkan path uses.
+* ...and the sampler is the open item: DXSO declares it as a *runtime descriptor
+  array*, which D3D12's static samplers cannot serve (section 4).
 
 ## 4. The shader path
 
@@ -210,8 +296,8 @@ inputs already exist in the tree:
 
 | Backend | Path | Notes |
 |---|---|---|
-| D3D12 | SPIR-V -> HLSL (SPIRV-Cross) -> **SM 5.0 DXBC** (`D3DCompile`) | done, `D3D12ShaderCompiler`; DXIL / `dxc` not needed (nothing a D3D9 shader expresses needs SM 6) |
-| D3D11 | SPIR-V -> HLSL -> SM 5.0 (`dxc` or `D3DCompile`) | same output as D3D12 |
+| D3D12 | SPIR-V -> HLSL (SPIRV-Cross) -> **SM 5.1 DXBC** (`D3DCompile`) | done, `D3D12ShaderCompiler`; DXIL / `dxc` not needed (nothing a D3D9 shader expresses needs SM 6) |
+| D3D11 | SPIR-V -> HLSL -> SM 5.1 (`dxc` or `D3DCompile`) | same output as D3D12 |
 | D3D9 | the **original bytecode directly** (`vs_3_0` / `ps_3_0`) | no translation at all for Eden's shaders; the engine's own GLSL would have to be hand-ported to SM 3.0 (lossy: no MRT, no integer ops) |
 
 The 2D layer did not need that pipeline: it is **one HLSL pair compiled at run
@@ -224,15 +310,19 @@ time by `D3DCompile`** (`d3dcompiler_47.dll`, which every Windows has) to SM 5.0
 1. SPIR-V -> HLSL through **SPIR-V Cross**, vendored in `third_party/spirv_cross`
    (Apache-2.0, pinned to the `vulkan-sdk-1.4.350.0` tag - the same release the
    tree's Vulkan-Headers / SPIRV-Headers / volk come from, so it builds offline
-   like the dxvk subset does). `options.shader_model = 50`, plus
+   like the dxvk subset does). `options.shader_model = 51`: **5.1, not 5.0**,
+   because DXSO emits `NonUniformResourceIndex` (D3D9 selects its sampler with a
+   register operand) and SPIRV-Cross refuses that below 5.1. Plus
    `point_size_compat` / `point_coord_compat`, which is what the D3D9 point
    sprites in `.sob` shaders need (HLSL has neither builtin).
-2. HLSL -> **SM 5.0 DXBC** through `D3DCompile`. SM 5.0 DXBC is valid D3D12 input,
-   so `dxc` / DXIL is **not** on the critical path. (`dxc.exe` does exist on this
-   machine after all - `C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\dxc.exe`
-   and `C:\VulkanSDK\1.4.350.0\Bin\dxc.exe` both exist - the earlier note that it
-   was missing was wrong. It is simply not needed: nothing the D3D9 shader model
-   can express needs SM 6.)
+2. HLSL -> **SM 5.1 DXBC** through `D3DCompile` with
+   `D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES` - the SM 5.1 HLSL declares the
+   dynamically indexed sampler table unbounded, and FXC rejects that by default
+   (error X3596). `d3dcompiler_47` writes 5.1 DXBC, D3D12 accepts 5.1 DXBC (its
+   floor is feature level 11_0 / SM 5.1), so `dxc` / DXIL is **not** on the
+   critical path. (`dxc.exe` does exist on this machine -
+   `C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\dxc.exe` and
+   `C:\VulkanSDK\1.4.350.0\Bin\dxc.exe` - it is simply not needed.)
 
 The register convention is fixed, so **one root signature serves every program**
 (`D3D12Scene::createRootSignature`):
@@ -240,17 +330,38 @@ The register convention is fixed, so **one root signature serves every program**
 | | | |
 |---|---|---|
 | b0 (VS) / b0 (PS) | CBV | the stage's constant buffers, remapped to b0..bN per stage |
-| b13 | 32-bit root constants | the D3D9 push constants, up to 32 dwords (128 B, `RenderDevice::kPushConstantsSize`) |
-| t0..t7 | SRV table | the material's textures, remapped in SPIR-V resource order |
-| s0..s7 | static samplers | linear / wrap / mip linear (D3D9's default state) |
+| b13 **space1** | 32-bit root constants | the D3D9 push constants, up to 32 dwords (128 B, `RenderDevice::kPushConstantsSize`) |
+| t0..t15 | SRV table | the material's textures, remapped in SPIR-V resource order |
+| s0..s15 | static samplers | linear / wrap / mip linear (D3D9's default state) |
 
 * **b13, not b15**: SM 5.0 has exactly 14 constant buffer slots (b0..b13) and
   `D3DCompile` rejects `register(b15)` with *"maximum cbuffer exceeded. target has
   14 slots"*. The push constant block therefore lands on the last slot.
+* **...and in register space 1, not space 0.** SPIRV-Cross keys its resource
+  remaps by the *original* (set, binding), and DXSO numbers its images by D3D9
+  sampler slot - so a shader that samples through `s13` has a resource at (set 0,
+  binding 13), the exact key of the push constant block. The lookup then takes
+  the *image's* (unset) cbv remap and moves the root constants to b0, where they
+  collide with the D3D9 constant file (FXC error X4610) or, worse, compile with
+  garbage constants. The tally caught it: **1146 of the first 1470 dumped stages
+  had b0 instead of b13**. Register space 1 is free for the purpose and costs
+  nothing - a D3D12 root parameter carries its own space.
 * **Vertex inputs are `TEXCOORD<location>`**: SPIRV-Cross writes that semantic for
   every SPIR-V location, so `D3D12Scene`'s input layout uses the same rule and a
   `.sob` shader's `dcl` slot needs no lookup table.
-* The HLSL text is kept per stage; `-d3d12-dump-shaders <dir>` writes it out.
+* The HLSL text is kept per stage: `-d3d12-dump-shaders <dir>` writes it out, and
+  a failed stage's HLSL is dumped too (section 3.5).
+
+**Still open for step 2: the sampler heap.** DXSO declares its samplers as one
+*runtime descriptor array* (`SamplerState sampler_heap[] : register(s0, space0)`,
+`_SetupSamplerArray` in `dxso_compiler.cpp`) indexed by a value the shader reads
+out of the push constant block (`render_state_s0_s1_idx` ...). D3D12 cannot index
+*static* samplers dynamically, so the scene's eight static samplers can carry the
+engine's own GLSL shaders and the 2D layer but not an Eden draw: the port needs
+the Vulkan renderer's **sampler heap** equivalent - a shader-visible sampler
+descriptor heap, filled per material (`EdenRenderer`'s `samplerHeap` on Vulkan),
+bound as a sampler descriptor table, with the root signature's table at
+`s0`, space 0.
 
 Then, per backend: bindings (root signature / CBV+SRV+sampler heaps vs
 descriptor sets), the push-constant block (`kPushConstantsSize` = 128 B) becomes
@@ -267,13 +378,20 @@ root constants or a CBV, and the pipeline state (blend / cull / depth / stencil 
    D3D12 branch. The Flash front end draws - 99.26 % of its pixels match the Vulkan
    `-notitlescene` frame within 8 levels (section 3.1).
 4. **D3D12 scene (phase 3b)** - step 1 done (2026-11-17): `D3D12ShaderCompiler`
-   (SPIR-V -> HLSL -> SM 5.0 DXBC) and `D3D12Scene` (one root signature for every
+   (SPIR-V -> HLSL -> SM 5.1 DXBC) and `D3D12Scene` (one root signature for every
    program, pipeline cache, upload-heap meshes, per-draw texture tables) draw a real
-   engine shader (`-d3d12-scenetest`, section 3.3). Step 2, the Eden scene itself:
+   engine shader (`-d3d12-scenetest`, section 3.3). Same day, step 1b: the
+   **measurement of the whole `.sob` set** (`-d3d12-shadertest`, section 3.5)
+   pushed all 7744 stages of the 116 libraries through the path and found three
+   real defects - SM 5.0 vs `NonUniformResourceIndex`, FXC's X3596 on unbounded
+   sampler tables, and the b13/space 0 remap collision - all fixed in the compiler
+   (section 4). Step 2, the Eden scene itself:
    `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
-   `EdenProgram` -> pipeline cache, `fillConstants` into the b13 root constants, the
-   constants UBO as the b0 CBV), then the render targets / shadow / reflection / post
-   passes, and then the 3D game modes (still refused with one log line).
+   `EdenProgram` -> pipeline cache, `fillConstants` into the b13 space1 root
+   constants, the constants UBO as the b0 CBV, and the **sampler heap** as a
+   sampler descriptor table - section 4's last paragraph), then the render targets
+   / shadow / reflection / post passes, and then the 3D game modes (still refused
+   with one log line).
 5. **D3D11**: the same translated HLSL, a thin device; it is the cheap one once (4) exists.
 6. **D3D9**: the original bytecode path (a near pass-through), with SM 3.0 limits documented
    where the engine's own shaders cannot follow.
@@ -281,10 +399,11 @@ root constants or a CBV, and the pipeline state (blend / cull / depth / stencil 
 Next step, precisely: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
 `PipelineDesc` handed to `D3D12Scene::getPipeline` and `recordPacket`'s push constants
 handed to `D3D12Scene::draw`, with `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`)
-going through `D3D12ShaderCompiler`. Before that, one measurement that decides the size
-of the job: compile **every** `.sob` permutation in `Euro/Shaders` through
-`D3D12ShaderCompiler` and count the failures (`-d3d12-shadertest` is the hook to add -
-the loop is `EdenShaderSystem`'s `findLibrary` + `ShaderLibrary::getTranslatedShader`).
+going through `D3D12ShaderCompiler`. The tally (section 3.5) has already answered the
+question that came before it - the shaders compile - and it added one item to the
+same work: the **sampler heap** (a shader-visible sampler descriptor heap plus a
+sampler range in the root signature), because DXSO's sampler is a runtime descriptor
+array and D3D12 cannot index static samplers dynamically.
 
 ## 6. Known gaps and traps
 
@@ -305,6 +424,34 @@ the loop is `EdenShaderSystem`'s `findLibrary` + `ShaderLibrary::getTranslatedSh
   mistake.
 - **SM 5.0 has 14 constant buffer slots (b0..b13).** `register(b15)` fails to
   compile (`maximum cbuffer exceeded`), so the push constant block lives at b13.
+- **A D3D9 shader will not translate at SM 5.0.** DXSO selects its sampler with a
+  register operand, so its SPIR-V uses `NonUniformResourceIndex`, and SPIRV-Cross
+  refuses that below 5.1 (*"Shader model 5.1 or higher is required to use bindless
+  resources or NonUniformResourceIndex"*). At SM 5.0 **5523 of 7744** `.sob` stages
+  failed on exactly that line; SM 5.1 DXBC is valid D3D12 input, so the fix costs
+  nothing. (Section 3.5 has the runs.)
+- **FXC rejects the SM 5.1 sampler table by default** - error X3596,
+  *"By default, unbounded size descriptor tables are disabled to support frame
+  captures in graphics tools ... can be enabled ... using switch:
+  /enable_unbounded_descriptor_tables"*. SPIRV-Cross declares DXSO's sampler as a
+  runtime (unbounded) descriptor array, so `D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES`
+  is required, not optional.
+- **The push constant register is also a SPIRV-Cross remap key.** DXSO numbers its
+  images by D3D9 sampler slot (0..15), so any shader that samples through `s13` has
+  a resource at (set 0, binding 13) - the same key as the push constant block - and
+  `to_resource_register()` takes the image's unset cbv remap: the root constants
+  land at **b0**, colliding with the constant file (FXC X4610) or compiling with
+  silently wrong constants. The block therefore lives at **b13, register space 1**
+  (`D3D12ShaderCompiler::kPushConstantSpace`), and the root signature's
+  `32BIT_CONSTANTS` parameter names the same space. Found by the tally: 1146 of the
+  first 1470 dumped stages had b0.
+- **DXSO's sampler is a runtime descriptor array, so static samplers cannot draw
+  Eden.** `SamplerState sampler_heap[] : register(s0, space0)` indexed by a value
+  from the push constant block (`render_state_s0_s1_idx` ...) is the D3D9 sampler
+  set; D3D12 cannot index static samplers dynamically. The scene's eight static
+  samplers are enough for the engine's GLSL shaders and the 2D layer, and step 2
+  needs the Vulkan `samplerHeap` equivalent: a shader-visible sampler descriptor
+  heap, a per-material fill, and a sampler range as the last root parameter.
 - **The front face is decided in screen space, where Y points down.** A Vulkan
   pipeline with `frontFace = counter-clockwise` maps to
   `D3D12_RASTERIZER_DESC::FrontCounterClockwise = FALSE`. Not yet exercised: the

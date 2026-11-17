@@ -80,6 +80,14 @@ public:
     ShaderLibrary *findLibrary( uint64_t guid );
     ShaderLibrary *findLibrary( const char *pName );
 
+    // Every library of Euro/Shaders, in load order. A material never walks the
+    // list (it comes with a GUID); -d3d12-shadertest does - it pushes every
+    // stage of every library through the Direct3D 12 shader path
+    // (docs/backends.md section 3.5).
+    inline const std::vector<std::unique_ptr<ShaderLibrary>> &getLibraries() const {
+        return libraries;
+    }
+
     // Permutation of a material (nullptr if the family is unknown).
     const EdenProgram *getProgram( uint64_t guid, const uint8_t *pSpec );
     // Explicit attribs (screen space / helper shaders).

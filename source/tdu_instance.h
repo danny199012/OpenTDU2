@@ -33,6 +33,10 @@ public:
     inline GameMode *getActiveGameModeInstance() const { return pActiveGameMode.get(); }
     inline void requestExit() { bRequestedExit = true; }
     inline bool hasRequestedExit() const { return bRequestedExit; }
+    // -d3d12-shadertest: the bootstrap ran the Eden shader measurement and the
+    // run ends without a frame (docs/backends.md section 3.5).
+    inline bool isShaderTestOnly() const { return bShaderTestOnly; }
+    inline bool getShaderTestPassed() const { return bShaderTestPassed; }
     inline float getTotalTime() const { return totalTime; }
     inline uint64_t getFrameIndex() const { return frameIndex; }
     // Previous game mode (DAT_00fd5080 +0x12c, the mode before the current
@@ -60,6 +64,9 @@ private:
     eGameMode previousGameMode = eGameMode::GM_None;
     bool bRequestedExit;
     bool bShowDebugUI;
+    // -d3d12-shadertest (see the accessors above).
+    bool bShaderTestOnly;
+    bool bShaderTestPassed;
     float totalTime;
     uint64_t frameIndex;
 

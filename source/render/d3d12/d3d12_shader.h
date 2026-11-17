@@ -15,11 +15,14 @@ struct TranslatedShader;
 // engine's own shaders are GLSL built to SPIR-V at build time and embedded as
 // `uint32_t` arrays. Both inputs are SPIR-V, so both take this same route:
 //
-//      SPIR-V --(SPIRV-Cross)--> HLSL --(D3DCompile)--> SM 5.0 DXBC
+//      SPIR-V --(SPIRV-Cross)--> HLSL --(D3DCompile)--> SM 5.1 DXBC
 //
-// SM 5.0 DXBC is valid D3D12 input (the 2D layer already ships it), so no dxc
-// and no DXIL is on the critical path. The HLSL text is kept: `-d3d12-dump-shaders`
-// writes it out, which is what turns "the draw is black" into a readable shader.
+// SM 5.1 DXBC is valid D3D12 input (D3D12's floor is feature level 11_0 / SM
+// 5.1), so no dxc and no DXIL is on the critical path. 5.1 rather than 5.0
+// because DXSO emits `NonUniformResourceIndex` for D3D9's dynamically indexed
+// samplers and SPIRV-Cross refuses that below 5.1. The HLSL text is kept:
+// `-d3d12-dump-shaders` writes it out, which is what turns "the draw is black"
+// into a readable shader.
 //
 // The register convention below is fixed for every program, so ONE root
 // signature serves all of them (D3D12Scene):
@@ -32,7 +35,7 @@ struct TranslatedShader;
 //   t0..t15   textures, in SPIR-V resource order
 //   s0..s15   their samplers (static samplers in the root signature)
 struct D3D12ShaderStage {
-    std::vector<uint8_t> Bytecode; // vs_5_0 / ps_5_0 DXBC
+    std::vector<uint8_t> Bytecode; // vs_5_1 / ps_5_1 DXBC
     std::string HLSL;
     std::string Error;
     bool bReady = false;
@@ -49,11 +52,23 @@ struct D3D12ShaderStage {
 class D3D12ShaderCompiler {
 public:
     // Every emitted shader declares its D3D9 push constants at this register;
-    // the root signature has one 32-bit-constants parameter for it. b13 is the
-    // last constant buffer SM 5.0 has (b0..b13 - 14 slots, "maximum cbuffer
-    // exceeded" is what b14/b15 produce), and the material blocks above start
-    // at b0, so it is also the safest choice.
+    // the root signature has one 32-bit-constants parameter for it. SM 5.0 has
+    // b0..b13 - 14 constant buffer slots - and the material blocks start at b0,
+    // so the last slot is the one that stays clear of them; SM 5.1 does not
+    // need to move it, and keeping one convention means a 5.0 fallback would
+    // still line up.
     static constexpr uint32_t kPushConstantRegister = 13;
+    // ...and in register space 1, because register space 0 is also the remap key
+    // SPIRV-Cross looks up for every resource it rebinds. DXSO numbers its images
+    // by D3D9 sampler slot (0..15), so a shader that samples through s13 has a
+    // resource at (set 0, binding 13) - the exact key of the push constant block -
+    // and to_resource_register() would take the *image's* unset cbv remap and
+    // quietly move the root constants to b0 (where they collide with the
+    // constant file: FXC error X4610, or worse, silently wrong constants).
+    // A separate space cannot collide: D3D12 root parameters carry their own
+    // register space, so this costs nothing. (Found by -d3d12-shadertest: 1146 of
+    // 1470 dumped stages had b0 instead of b13.)
+    static constexpr uint32_t kPushConstantSpace = 1;
     static constexpr uint32_t kMaxResources = 16;
     // SPIRV-Cross names the entry point `main`.
     static constexpr const char *kEntryPoint = "main";

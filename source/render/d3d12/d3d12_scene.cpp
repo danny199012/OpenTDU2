@@ -5,9 +5,12 @@
 
 #include "render/d3d12/d3d12_device.h"
 #include "render/d3d12/d3d12_shader.h"
+#include "render/eden/eden_shader_system.h"
 #include "render/shaders/builtin/mesh_frag.h"
 #include "render/shaders/builtin/mesh_vert.h"
 #include "render/shaders/dxso_translator.h"
+#include "core/watchdog.h"
+#include "filesystem/gs_file.h"
 #include "system/cmd_line.h"
 
 #include <windows.h>
@@ -15,6 +18,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <chrono>
 #include <cmath>
 
 namespace {
@@ -84,10 +88,11 @@ bool D3D12Scene::createRootSignature() {
     params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     params[1].Descriptor.ShaderRegister = 0;
     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    // 2: the D3D9 push constants as root constants (d3d12_shader.h's b13).
+    // 2: the D3D9 push constants as root constants (d3d12_shader.h's b13, in
+    // register space 1 so the remap key cannot collide with a D3D9 sampler slot).
     params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     params[2].Constants.ShaderRegister = D3D12ShaderCompiler::kPushConstantRegister;
-    params[2].Constants.RegisterSpace = 0;
+    params[2].Constants.RegisterSpace = D3D12ShaderCompiler::kPushConstantSpace;
     params[2].Constants.Num32BitValues = kMaxRootConstants;
     params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     // 3: the material's textures.
@@ -167,8 +172,9 @@ bool D3D12Scene::createRootSignature() {
     srvTableCpuStart = pHeap->GetCPUDescriptorHandleForHeapStart().ptr;
     srvTableGpuStart = pHeap->GetGPUDescriptorHandleForHeapStart().ptr;
     srvDescriptorSize = pD3D12Device->GetDescriptorHandleIncrementSize( D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
-    OTDU_LOG_INFO( "D3D12 scene: root signature ready (b0 constants, b%u root constants, t0..t%u)\n",
-                   D3D12ShaderCompiler::kPushConstantRegister, kTextureTableSize - 1 );
+    OTDU_LOG_INFO( "D3D12 scene: root signature ready (b0 constants, b%u space%u root constants, t0..t%u)\n",
+                   D3D12ShaderCompiler::kPushConstantRegister,
+                   D3D12ShaderCompiler::kPushConstantSpace, kTextureTableSize - 1 );
     return true;
 }
 
@@ -743,6 +749,147 @@ bool D3D12RunSceneTest( D3D12Device &device, uint32_t frames, const ColorRGBA &c
                    device.getDeviceName(), device.getBackbufferWidth(), device.getBackbufferHeight(),
                    device.hasDeviceLost() ? " - DEVICE LOST" : "" );
     return presented > 0 && !device.hasDeviceLost();
+}
+
+// -d3d12-shadertest (docs/backends.md section 3.5): the measurement that
+// decides how much of Eden's shader work the Direct3D 12 path can already
+// carry. Every vertex and pixel stage of every .sob library in Euro/Shaders
+// makes the full trip - DXSO -> SPIR-V -> HLSL (SPIRV-Cross) -> SM 5.0 DXBC
+// (D3DCompile) - and the tally says how many made it. The two failure counts
+// are kept apart on purpose: a stage DXSO cannot translate is a Vulkan problem
+// too (and already logged there), while a stage that translates but will not
+// compile is specific to this backend.
+bool D3D12RunShaderTest() {
+    if ( gpFile == nullptr ) {
+        OTDU_LOG_ERROR( "D3D12 shadertest: the game file system is not up\n" );
+        return false;
+    }
+    EdenShaderSystem shaderSystem;
+    if ( !shaderSystem.initialize() ) {
+        OTDU_LOG_ERROR( "D3D12 shadertest: no shader library under %s\n", gpFile->getShaderFolder().c_str() );
+        return false;
+    }
+    const std::vector<std::unique_ptr<ShaderLibrary>> &libraries = shaderSystem.getLibraries();
+    const char *pDumpDir = CmdLine::GetArgValue( "-d3d12-dump-shaders" );
+    // "-d3d12-shadertest <text>": only libraries whose name contains <text>, so
+    // one family can be iterated on without compiling the other 115. A bare flag
+    // leaves the next token to be another switch (-game ...), which is not a
+    // filter: CmdLine::GetArgValue does not look at the leading '-'.
+    const char *pFilterArg = CmdLine::GetArgValue( "-d3d12-shadertest" );
+    const char *pFilter = ( pFilterArg != nullptr && pFilterArg[0] != '-' ) ? pFilterArg : nullptr;
+
+    uint32_t numPermutations = 0;
+    uint32_t numStages = 0;
+    uint32_t numLibraries = 0;
+    uint32_t numTranslated = 0;
+    uint32_t numCompiled = 0;
+    uint32_t numTranslateFailures = 0;
+    uint32_t numCompileFailures = 0;
+    uint32_t numOverTextureTable = 0;
+    uint32_t maxTextures = 0;
+    uint32_t maxPushConstants = 0;
+    uint32_t numDumped = 0;
+    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
+    // The HLSL is what turns "this stage does not compile" into something
+    // readable; the dump directory is the scene test's -d3d12-dump-shaders.
+    auto dumpShader = [&]( const std::string &debugName, const D3D12ShaderStage &stage ) {
+        if ( pDumpDir == nullptr || stage.HLSL.empty() ) {
+            return;
+        }
+        std::string name = debugName;
+        for ( char &c : name ) {
+            if ( c == ':' || c == '/' || c == '\\' || c == ' ' || c == '\t' ) {
+                c = '_';
+            }
+        }
+        const std::string path = std::string( pDumpDir ) + "/shadertest_" + name + ".hlsl";
+        FILE *pFile = fopen( path.c_str(), "wb" );
+        if ( pFile == nullptr ) {
+            OTDU_LOG_WARN( "D3D12 shadertest: cannot write '%s'\n", path.c_str() );
+            return;
+        }
+        fwrite( stage.HLSL.data(), 1, stage.HLSL.size(), pFile );
+        fclose( pFile );
+        numDumped++;
+    };
+    for ( const std::unique_ptr<ShaderLibrary> &pLibrary : libraries ) {
+        if ( pFilter != nullptr && pFilter[0] != '\0' ) {
+            if ( ToLower( pLibrary->getName() ).find( ToLower( pFilter ) ) == std::string::npos ) {
+                continue;
+            }
+        }
+        numLibraries++;
+        uint32_t libraryStages = 0;
+        uint32_t libraryFailed = 0;
+        for ( const ShaderLibrary::Profile &profile : pLibrary->getProfiles() ) {
+            const bool bVertex = profile.ID == ShaderLibrary::SP_VertexShader;
+            if ( !bVertex && profile.ID != ShaderLibrary::SP_PixelShader ) {
+                continue;
+            }
+            const ShaderLibrary::eProfile profileId =
+                bVertex ? ShaderLibrary::SP_VertexShader : ShaderLibrary::SP_PixelShader;
+            for ( uint32_t attribIndex = 0; attribIndex < static_cast<uint32_t>( profile.Attribs.size() );
+                  attribIndex++ ) {
+                const std::string debugName = pLibrary->getName() + ( bVertex ? "_vs_" : "_ps_" ) +
+                                              std::to_string( attribIndex );
+                numStages++;
+                libraryStages++;
+                // Compiling every library blocks the boot for a while: the
+                // watchdog's kill guard must see that the thread is alive.
+                Watchdog::Beat( "shadertest", numStages );
+
+                const TranslatedShader *pShader = pLibrary->getTranslatedShader( profileId, attribIndex );
+                if ( pShader == nullptr || pShader->SPIRV.empty() ) {
+                    numTranslateFailures++;
+                    libraryFailed++;
+                    OTDU_LOG_WARN( "D3D12 shadertest: %s: DXSO -> SPIR-V failed\n", debugName.c_str() );
+                    continue;
+                }
+                numTranslated++;
+
+                D3D12ShaderStage stage;
+                if ( !D3D12ShaderCompiler::compile( *pShader, stage, debugName.c_str() ) ) {
+                    numCompileFailures++;
+                    libraryFailed++;
+                    OTDU_LOG_WARN( "D3D12 shadertest: %s: %s\n", debugName.c_str(), stage.Error.c_str() );
+                    dumpShader( debugName, stage );
+                    continue;
+                }
+                numCompiled++;
+                if ( stage.NumTextures > maxTextures ) {
+                    maxTextures = stage.NumTextures;
+                }
+                if ( stage.PushConstantsSize > maxPushConstants ) {
+                    maxPushConstants = stage.PushConstantsSize;
+                }
+                if ( stage.NumTextures > D3D12Scene::kTextureTableSize ) {
+                    numOverTextureTable++;
+                }
+                dumpShader( debugName, stage );
+            }
+        }
+        numPermutations += pLibrary->getNumPermutations();
+        OTDU_LOG_INFO( "D3D12 shadertest: %-28s %4u permutation(s), %4u stage(s), %u failed\n",
+                       pLibrary->getName().c_str(), pLibrary->getNumPermutations(), libraryStages,
+                       libraryFailed );
+    }
+
+    const double seconds =
+        std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+    OTDU_LOG_INFO( "D3D12 shadertest: %u libraries, %u permutation(s), %u stage(s): %u compiled, "
+                   "%u translate failure(s), %u HLSL/D3DCompile failure(s) in %.1f s\n",
+                   numLibraries, numPermutations, numStages, numCompiled, numTranslateFailures,
+                   numCompileFailures, seconds );
+    OTDU_LOG_INFO( "D3D12 shadertest: limits - %u texture(s) max (%u stage(s) over the %u-entry root "
+                   "signature table), %u B push constants max (%u root constant(s))%s\n",
+                   maxTextures, numOverTextureTable, D3D12Scene::kTextureTableSize, maxPushConstants,
+                   ( maxPushConstants + 3 ) / 4, numDumped > 0 ? ", HLSL dumped" : "" );
+    const bool bPassed = numStages > 0 && numTranslateFailures == 0 && numCompileFailures == 0;
+    OTDU_LOG_INFO( "D3D12 shadertest: %s (%u of %u stages translated)\n",
+                   bPassed ? "PASSED" : "FAILED", numTranslated, numStages );
+    shaderSystem.destroy();
+    return bPassed;
 }
 
 #endif // OTDU_D3D12

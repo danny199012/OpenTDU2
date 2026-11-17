@@ -29,8 +29,8 @@ struct D3D12ShaderStage;
 //   0  CBV          b0        vertex stage constants (unused yet)
 //   1  CBV          b0        pixel stage constants (unused yet)
 //   2  32-bit const b13       the D3D9 push constants (render state)
-//   3  SRV table    t0..t7    the material's textures
-//   static samplers s0..s7    linear / wrap / mip linear (D3D9's default state)
+//   3  SRV table    t0..t15   the material's textures
+//   static samplers s0..s15   linear / wrap / mip linear (D3D9's default state)
 //
 // Everything else is per pipeline state: blend, cull, depth, the vertex layout.
 class D3D12Scene {
@@ -83,6 +83,14 @@ public:
     void destroy();
     inline bool isReady() const { return pRootSignature != nullptr; }
 
+    // The SRV table size of the one root signature (t0..t15). Public because the
+    // shader measurement (-d3d12-shadertest) reports how many Eden stages ask
+    // for more textures than a draw can bind. 16 is the compiler's per-stage
+    // ceiling (D3D12ShaderCompiler::kMaxResources) and covers the 10 textures
+    // the whole .sob set asks for at most - 13 stages wanted more than the 8
+    // this was before the tally measured it.
+    static constexpr uint32_t kTextureTableSize = 16;
+
     // Created on first use and cached by the full descriptor (the same program
     // drawn with two blend modes is two pipelines, exactly like the Vulkan
     // renderer's pipeline cache). nullptr when the state cannot be built.
@@ -113,7 +121,6 @@ public:
     inline void setShaderDumpDir( const char *pDir ) { shaderDumpDir = pDir != nullptr ? pDir : ""; }
 
 private:
-    static constexpr uint32_t kTextureTableSize = 8;
     static constexpr uint32_t kMaxRootConstants = 32; // 128 bytes, the Vulkan budget
     // The table heap: a bump allocator over shader-visible SRV descriptors,
     // reset when the frame slot changes (the slot's fence has retired it).
@@ -142,3 +149,16 @@ private:
 // HLSL -> DXBC), presents it and reports whether the frame holds geometry.
 // Runs inside -renderer-selftest's device/window (D3D12RunSelfTest).
 bool D3D12RunSceneTest( D3D12Device &device, uint32_t frames, const ColorRGBA &clearColor );
+
+// -d3d12-shadertest: the measurement that sizes the Eden port (docs/backends.md
+// section 3.5). Every vertex and pixel stage of every .sob library in
+// Euro/Shaders goes through the full scene shader path - DXSO -> SPIR-V ->
+// HLSL (SPIRV-Cross) -> SM 5.0 DXBC (D3DCompile) - and the tally is logged:
+// libraries, permutations, stages, the two failure counts, the largest push
+// constant block and texture count any stage asks for, and the wall time.
+//
+// It needs the game data (Euro/Shaders) and nothing else - no window, no
+// device - so it runs in the game bootstrap (tdu_instance.cpp) right after the
+// file system service, not in -renderer-selftest, which reads no -game. Returns
+// true when every stage of every library compiled.
+bool D3D12RunShaderTest();

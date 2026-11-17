@@ -18,6 +18,7 @@
 #include "input/gs_input.h"
 #include "physics/gs_physics.h"
 #include "render/gs_render.h"
+#include "render/d3d12/d3d12_scene.h"
 #include "render/rhi/render_backend.h"
 #include "system/cmd_line.h"
 
@@ -109,7 +110,13 @@ int32_t TestDrive::InitAndRun( const char **pCmdLineArgs,
     TestDriveGameInstance instance;
     int32_t exitCode = 0;
     if ( instance.initialize() ) {
-        instance.mainLoop();
+        if ( instance.isShaderTestOnly() ) {
+            // -d3d12-shadertest: the measurement already ran during the
+            // bootstrap; its verdict is the exit code (docs/backends.md).
+            exitCode = instance.getShaderTestPassed() ? 0 : 1;
+        } else {
+            instance.mainLoop();
+        }
     } else {
         exitCode = 1;
     }
@@ -125,6 +132,8 @@ TestDriveGameInstance::TestDriveGameInstance()
       nextGameMode( eGameMode::GM_None ),
       bRequestedExit( false ),
       bShowDebugUI( false ),
+      bShaderTestOnly( false ),
+      bShaderTestPassed( false ),
       totalTime( 0.0f ),
       frameIndex( 0 ),
       autoExitFrame( -1 ),
@@ -213,10 +222,10 @@ bool TestDriveGameInstance::createWindow() {
     char title[256];
     if ( const char *pTester = CmdLine::GetArgValue( "-tester" ) ) {
         std::snprintf( title, sizeof( title ),
-                       "OpenTDU2 - Test Drive Unlimited 2 — %s · %s", pTester,
+                       "OpenTDU2 - Test Drive Unlimited 2 â€” %s Â· %s", pTester,
                        OTDU_BUILD_FULL_STRING );
     } else {
-        std::snprintf( title, sizeof( title ), "OpenTDU2 - Test Drive Unlimited 2 — %s",
+        std::snprintf( title, sizeof( title ), "OpenTDU2 - Test Drive Unlimited 2 â€” %s",
                        OTDU_BUILD_FULL_STRING );
     }
 
@@ -253,6 +262,22 @@ bool TestDriveGameInstance::initialize() {
         OTDU_LOG_INFO( "...service '%s' successfully initialized.\n",
                        pService->getName() );
 
+        // -d3d12-shadertest: the Eden shader measurement (docs/backends.md
+        // section 3.5). It needs the game data and nothing else - no
+        // window, no device - so it runs as soon as the file system can list
+        // Euro/Shaders, and the run ends there (InitAndRun reads the verdict).
+        if ( pService == pFile.get() && CmdLine::HasArg( "-d3d12-shadertest" ) ) {
+            bShaderTestOnly = true;
+#if defined( OTDU_D3D12 )
+            bShaderTestPassed = D3D12RunShaderTest();
+#else
+            OTDU_LOG_ERROR( "-d3d12-shadertest needs the Direct3D 12 backend "
+                            "(OTDU_ENABLE_D3D12=OFF)\n" );
+            bShaderTestPassed = false;
+#endif
+            return true;
+        }
+
         // The window and the render device are created once the config is
         // known (window size, vsync...).
         if ( pService == pConfig.get() ) {
@@ -282,7 +307,7 @@ bool TestDriveGameInstance::initialize() {
     }
     // The frontend (menu) sounds: fe_snd.bnk + its sounds.ini cue map, played
     // on the "FrontEnd" bfx client. Every flash movie asks for a cue with
-    // FSCommand("sndp:<name>"), so the hook is global — the boot menu, the
+    // FSCommand("sndp:<name>"), so the hook is global â€” the boot menu, the
     // pause menu, the HUD and the shops all deliver theirs here.
     pFrontEndAudio = std::make_unique<FrontEndAudio>();
     if ( !CmdLine::HasArg( "-noaudio" ) ) {
