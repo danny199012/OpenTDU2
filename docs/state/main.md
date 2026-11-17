@@ -6,6 +6,28 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-17 (`main`, 54): the clinic runs the RETAIL SHOPSAVATAR surgeon screen
+
+The owner: *"that isn't the correct menu UI - I would like to try get the true menus if possible"*. The native
+list (session 53) is now only the `-nosurgeryui` A/B: an `ESUR*` room loads `shopsavatar.vmf`, goes to its `surgeon` label and
+answers its `surg:` FSCommands. Full protocol, variables and the slider-range finding (`/:NbNotches` is the max) are
+in `docs/re/surgery_spec.md` section 5. Screenshots `docs/images/surgery_retail_ui.webp`.
+
+### What changed
+- `interior_walk.{h,cpp}`: `bAvatarUi` (+ `getAvatarUi()`), the surgeon A (`ItemType('valid')`, bandage gate 4405),
+  `surg:cine:intr` -> `openMenuSurgeon`, the dialog box shares the sticker path (`DialogBoxSource` SHOPSAVATAR).
+- `freeride/surgery_ui.{h,cpp}` (new): the game's half of the protocol; `gm_freeride.cpp` binds it on the surgeon's A.
+- Verified headless (`-gm FREERIDE -skipcine -nopad -fixedtimestep -interior ESUR_A -autoplay ...`): square menu
+  (Head / Face / Skin / Random / Cancel / Valid) -> Face -> Eyes sliders move (`EyesOpening = 11, 12, 13`), price
+  `$ 100`, confirm dialog, `surg:edit:vali` -> `paid $100`, saved `face_params` slot 10 (C_Eyes_opening) = 20, bandage
+  refusal on the next A.
+
+### Not done / next
+- Hairdresser (`hairdresser` label, `hadr:*` commands, `/:Lock*`), clothes (`clothes_shop`, `cl_in`, `item_selection_*`), realtor are
+  the SAME movie: copy `SurgeryUi` for each. The performance (tuning) shop is SHOPSCAR's tuning page: not decoded.
+- Not verified: the edited face on screen; Skin page (Tint / Age / Freckle) and the Head page in the movie; EyesColor
+  choicebox; Random; the C_OBSERVE cinematic.
+
 ## Session 2026-11-17 (`main`, 53): the cosmetic clinic (surgery) menu - first of the shop-menu pass
 
 The owner's report: *"a few shops may not be using the correct menus - the performance upgrade shop

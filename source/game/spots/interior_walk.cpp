@@ -10,6 +10,7 @@
 #include "game/house_shop.h"
 #include "game/spots/house_furniture.h"
 #include "game/freeride/tuner.h"
+#include "game/freeride/surgery_menu.h"
 #include "database/gs_database.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
@@ -348,10 +349,16 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     // st_stop; the seller's A opens its menu) [DATA]; -nostickerui keeps the
     // native PaintMenu (the A/B).
     bStickUi = !bHouse && _strnicmp( houseSpotName.c_str(), "ESTICK", 6 ) == 0 && !CmdLine::HasArg( "-nostickerui" );
+    // The avatar shops' rooms run SHOPSAVATAR.vmf's own pages (surgeon /
+    // hairdresser / clothes_shop root labels [DATA]); -nosurgeryui keeps the
+    // native SurgeryMenu (the A/B).
+    bAvatarUi = !bHouse && !bStickUi && _strnicmp( houseSpotName.c_str(), "ESUR", 4 ) == 0 && !CmdLine::HasArg( "-nosurgeryui" );
     bWalkInput = true;
     bLeaveRequested = false;
     if ( bStickUi ) {
         setup.UiMovie = "shopscar";
+    } else if ( bAvatarUi ) {
+        setup.UiMovie = "shopsavatar";
     }
     setup.HouseIsland = island;
     // The tuner garage's rooms walk in at NIGHT (the mod's dark / neon /
@@ -435,7 +442,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     }
     spotBank = houseSpotName.empty() ? path : houseSpotName;
     bActive = true;
-    if ( bStickUi ) {
+    if ( bStickUi || bAvatarUi ) {
         // The sticker pages poll their loading flag from an onEnterFrame.
         scene.getUi().setEnterFrameHandlers( true );
     }
@@ -655,6 +662,7 @@ void InteriorWalk::exit() {
     bHouse = false;
     bInGarage = false;
     bStickUi = false;
+    bAvatarUi = false;
     bWalkInput = true;
     bLeaveRequested = false;
     bDialogOpen = false;
@@ -704,6 +712,11 @@ void InteriorWalk::startWalk( const char *pPreferredCamera ) {
         bWalkInput = true;
         scene.getUi().setVariableNumber( "/:IsBike", 0.0 );
         scene.getUi().gotoLabel( "/", "st_open", true );
+    } else if ( bAvatarUi ) {
+        // SHOPSAVATAR's surgeon page: the title bar and the cursor, then
+        // surgeon_stop (the walk waits for the surgeon's A) [DATA].
+        bWalkInput = true;
+        scene.getUi().gotoLabel( "/", "surgeon", true );
     } else if ( bHomeUi ) {
         homePage.clear();
         scene.getUi().setVariableBool( "/:InGarage", bInGarage );
@@ -830,7 +843,7 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         }
         return eResult::None;
     }
-    if ( bStickUi && !bWalkInput ) {
+    if ( ( bStickUi || bAvatarUi ) && !bWalkInput ) {
         // One of the movie's own pages is up (wmof): the pad drives it, the
         // walk and the exit are the movie's to give back (wmon).
         routeHomeInput();
@@ -903,6 +916,17 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
             scene.getUi().invoke( "/", "ItemType", { "valid" } );
             return eResult::None;
         }
+        if ( bAvatarUi && strcmp( pType, "surgeon" ) == 0 ) {
+            // The surgeon: the movie's own A (ItemType valid -> openMenuSurgeon) [DATA].
+            // Bandaged: the retail refusal, text 4405 (surgery_spec.md 1.5).
+            if ( SurgeryMenu::IsBandaged() ) {
+                const char *pText = gpDatabase != nullptr ? gpDatabase->getString( 4405 ) : nullptr;
+                showMessage( pText != nullptr && *pText != 0 ? pText : "You still have your bandages!" );
+                return eResult::None;
+            }
+            scene.getUi().invoke( "/", "ItemType", { "valid" } );
+            return eResult::None;
+        }
         if ( bHouse ) {
             // The house rooms: the Garage selectable of the living room loads
             // the garage (your cars on its slots), the Living selectable of
@@ -946,6 +970,10 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     return eResult::None;
 }
 
+FlashPlayer *InteriorWalk::getAvatarUi() {
+    return bActive && bAvatarUi ? &scene.getUi() : nullptr;
+}
+
 void InteriorWalk::tickBackground( float deltaTime ) {
     if ( bActive ) {
         scene.tick( deltaTime );
@@ -967,7 +995,7 @@ void InteriorWalk::draw() {
 
 void InteriorWalk::onUiCommand( const std::string &command, const std::string &args ) {
     OTDU_LOG_INFO( "InteriorWalk: FSCommand %s %s (page '%s')\n", command.c_str(), args.c_str(), homePage.c_str() );
-    if ( bStickUi ) {
+    if ( bStickUi || bAvatarUi ) {
         FlashPlayer &ui = scene.getUi();
         if ( command == "wmof" || command == "camn" ) {
             // wmof FUN_0094fb30: walk off; camn FUN_00952300: the selected
@@ -978,12 +1006,18 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             walk.clearSelection( scene );
         } else if ( command == "gofr" ) {
             bLeaveRequested = true;
+        } else if ( bAvatarUi && command == "surg:cine:intr" ) {
+            // The surgeon's A: retail plays the intro cinematic (C_OBSERVE) and then
+            // calls the movie's openMenuSurgeon [DATA: surgeon_stop's script]; the
+            // cinematic is not played yet, the menu opens straight away [INF].
+            bWalkInput = false;
+            ui.invoke( "/", "openMenuSurgeon", {} );
         } else if ( command == "dbxo" ) {
             FlashPlayer &general = scene.getGeneral();
             for ( const char *pVariable : { "/:Msg1Txt", "/:Msg2Txt", "/:Msg1Type", "/:Msg2Type", "/:YesNo" } ) {
                 general.setVariable( pVariable, ui.getVariable( pVariable ) );
             }
-            general.setVariable( "/:DialogBoxSource", "SHOPSCAR" );
+            general.setVariable( "/:DialogBoxSource", bAvatarUi ? "SHOPSAVATAR" : "SHOPSCAR" );
             scene.setDialogBoxVisible( true );
             bDialogOpen = true;
             general.invoke( "/", "DialogBox", {} );
@@ -1175,7 +1209,7 @@ void InteriorWalk::routeHomeInput() {
     if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
         ui.sendKey( 2 );
     }
-    if ( bStickUi && gpInput->wasMouseClicked() ) {
+    if ( ( bStickUi || bAvatarUi ) && gpInput->wasMouseClicked() ) {
         ui.sendMouseRelease( gpInput->getMouseX(), gpInput->getMouseY() );
     }
     if ( bStickUi ) {

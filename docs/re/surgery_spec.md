@@ -147,3 +147,31 @@ game-hours it lasts) is in the encrypted PC band [ENC]; the PS3 save serializer
 - Whether `TINT` is SkinID or the SkinDiffuse RGB [INF above].
 - The shopsavatar surgeon screen layout (the port will not need it with a native
   menu; only if the owner wants the real movie driven).
+
+
+## 5. The retail screen, driven (2026-11-17, `main`, session 54)
+
+The owner: *"that isn't the correct menu UI - I would like to try get the true menus"*. The native
+`SurgeryMenu` (section 3) stays as the `-nosurgeryui` A/B; the clinic now runs the retail movie.
+Screenshots: `docs/images/surgery_retail_ui.webp`. Tags as elsewhere.
+
+- **Where**: `Euro/Bnk/FrontEnd/HiRes/shopsavatar.bnk` -> `shopsavatar.vmf` (1280x960, 426 frames), disassembled with
+  `tools/vmf_disasm.py` [DATA]. Root labels: `surgeon` 272 (title bar + cursor), `surgeon_stop` 291 (the walk waits),
+  `surgeon_edit` 305, `surgeon_block` 317, `close_surgeon` 329; the same movie holds `hairdresser` 120 /
+  `hairdresser_stop` / `hairdresser_edit` / `close_hairdresser`, `clothes_shop` 194 (`cl_in`, `cl_stop`,
+  `item_selection_in`), `realtor`, `photographer`.
+- **How the room runs it**: `InteriorWalk::bAvatarUi` (an `ESUR*` room; `UiMovie = "shopsavatar"`, `gotoLabel("/", "surgeon")`), A on the
+  `surgeon` selectable = `ItemType('valid')`, bandaged = text 4405 instead. The movie's `surg:cine:intr` is answered
+  with `openMenuSurgeon` (retail plays the `C_OBSERVE` cinematic in between - not played yet [INF]).
+- **The protocol** (`source/game/freeride/surgery_ui.cpp`) [DATA]: `surg:edit:open` / `surg:edit:<part>:open`
+  (the sliders read their `_root.<Name>` right after this command: the game pushes every value), `surg:edit:chpa`
+  (`/:VarToFocus` names the focused `_root.<Name>`), `surg:edit:<part>:<code>:slid:updt` (the slider wrote its
+  value into that root var), `surg:edit:rand|canc|vali`, plus the walk's `wmof`/`wmon` and the dialog box `dbxo`/`dbxc`
+  (the confirm "Do you want to change your appearance?" is the movie's `surg_valid` dialog; `vali` comes after OK).
+  Variables the game owns: `/:NbNotches` (**the slider maximum**, `initSlider(cmd, value, _root.NbNotches)` - not a change
+  count), `/:TotalPriceStr`, `/:MyMoneyStr` (`$ 999 999 999` grouping), `/:EnoughMoney`, `/:Lock*`.
+- **Slider -> face**: 38 root vars (`HeadDepth`, `EyesOpening`, `NoseTallorSmall`, `Age`, `Freckle` ...) map by name to the
+  FaceFX custom nodes / the age + freckle floats (table in `surgery_ui.cpp`, [INF] pairing); 20 notches = 10 of the
+  -100..100 register each [INF]. Paid per changed row at the `DBSurgeryCost` price.
+- **Open**: `EyesColor` / `EyebrowsType` / `Tint` (choice boxes), the `Lock*` flags, the preview camera (`C_HEAD` / `C_360`),
+  Random's real range, the `C_OBSERVE` cinematic, and seeing the edited face (needs the mirror / the camera).

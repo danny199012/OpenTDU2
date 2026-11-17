@@ -701,7 +701,22 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     loadOccupants();
     // The sticker shop rooms' movie: its stsh: FSCommands come to the shop UI.
     interior.setCommandSink( [this]( const std::string &command, const std::string & ) {
-        stickerShop.onCommand( command );
+        if ( command == "surg:cine:intr" && interior.getAvatarUi() != nullptr ) {
+            // The surgeon's A: this visit's baseline face (the saved edit, else the preset).
+            const PlayerProfile &profile = GetPlayerProfile();
+            int8_t baseParams[49] = {};
+            float baseAge = 0.0f, baseFreckle = 0.0f;
+            avatars.readPresetFace( profile.AvatarConfig.c_str(), baseParams, baseAge, baseFreckle );
+            if ( profile.FaceParams.size() == 49 ) {
+                memcpy( baseParams, profile.FaceParams.data(), sizeof( baseParams ) );
+            }
+            surgeryUi.bind( interior.getAvatarUi(), baseParams, profile.FaceAge >= 0.0f ? profile.FaceAge : baseAge,
+                            profile.FaceFreckle >= 0.0f ? profile.FaceFreckle : baseFreckle );
+            GetPlayerProfile().PhoneState["BeenInSurgeryShop"] = 1;
+        }
+        if ( !surgeryUi.onCommand( command ) ) {
+            stickerShop.onCommand( command );
+        }
     } );
     // -stickershop: the paint / sticker shop menu over the freeride scene at
     // spawn (a test hook: the retail flow walks into an ESTICK interior and

@@ -103,6 +103,8 @@ public:
     // the dialog box, the walk on / off) come to the game through this sink
     // (GMFreeRide's StickerShopUi). -nostickerui keeps the native PaintMenu.
     inline bool isStickUi() const { return bActive && bStickUi; }
+    class FlashPlayer *getAvatarUi(); // the SHOPSAVATAR movie (null outside an avatar shop)
+    inline bool isAvatarUi() const { return bActive && bAvatarUi; } // SHOPSAVATAR.vmf's pages (surgeon ...)
     using CommandSink = std::function<void( const std::string &, const std::string & )>;
     void setCommandSink( CommandSink sink ) { commandSink = std::move( sink ); }
     // The walk input is off while the movie's own pages are up (wmof / wmon).
@@ -168,6 +170,7 @@ private:
     bool bHomeUi = false;
     // The sticker shop's retail UI (SHOPSCAR.vmf, the stickers page).
     bool bStickUi = false;
+    bool bAvatarUi = false;
     bool bWalkInput = true;
     bool bLeaveRequested = false;
     CommandSink commandSink;
