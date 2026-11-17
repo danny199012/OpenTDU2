@@ -88,6 +88,9 @@ bool GSRender::beginFrame() {
 void GSRender::endFrame() {
     if ( bFrameActive ) {
         updateRayTracing();
+        // Age the retire ring: terrain BLASes unloaded this frame are
+        // destroyed here once no in-flight frame can still read them.
+        rayTracing.retireTick();
         device.endFrame();
         bFrameActive = false;
     }
@@ -139,10 +142,10 @@ void GSRender::updateRayTracing() {
 
     // Probe rays from the camera of the scene the instances came from: straight
     // down (the ground is right below) and straight up. The hit distances are
-    // the check that the structures really hold the world: the terrain
-    // heightfield is *not* in them (it carries heights, not positions), so a
-    // downward ray only hits what a model provides, and its distance is the
-    // height above whatever that is.
+    // the check that the structures really hold the world: the loaded sectors'
+    // terrain sheets are in them as generated XYZ buffers (see
+    // EdenWorld::buildHeightfieldBlas), so a downward ray hits the ground at
+    // the drive height (the coarse area / island sheets are not included).
     const Vector3f cameraPosition = edenRenderer.getRtCameraPosition();
     RayTracing::ProbeResult down;
     RayTracing::ProbeResult up;

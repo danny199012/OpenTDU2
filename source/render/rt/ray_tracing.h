@@ -65,6 +65,13 @@ public:
     Blas *createTriangleBlas( VkDeviceAddress vertexAddress, uint32_t vertexStride, VkFormat vertexFormat,
                               uint32_t vertexCount, VkDeviceAddress indexAddress, uint32_t indexCount );
     void destroyBlas( Blas *pBlas );
+    // A structure a frame in flight still reads (the sector terrain BLASes:
+    // the frame TLAS holds their addresses until the next build): retireBlas
+    // parks it and retireTick — one call per GSRender::endFrame — destroys it
+    // once three ticks have passed (every in-flight fence has been waited).
+    // The same shape as GSRender's pRtTlasRetired.
+    void retireBlas( Blas *pBlas );
+    void retireTick();
 
     Tlas *createTlas( uint32_t maxInstances );
     void destroyTlas( Tlas *pTlas );
@@ -107,6 +114,12 @@ private:
     // still holds (a model unloaded after the renderer has gone).
     std::vector<Blas *> blases;
     std::vector<Tlas *> tlases;
+    // The retired structures waiting for their three ticks (retireBlas).
+    struct RetiredBlas {
+        Blas *pBlas;
+        uint32_t Age = 0;
+    };
+    std::vector<RetiredBlas> retiredBlases;
     VkDescriptorSetLayout probeSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout probePipelineLayout = VK_NULL_HANDLE;
     VkPipeline probePipeline = VK_NULL_HANDLE;

@@ -1623,6 +1623,7 @@ void EdenWorld::destroy() {
     }
     for ( auto &pSector : sectors ) {
         device.destroyBuffer( pSector->Terrain.pBuffer );
+        destroyHeightfieldRt( pSector->Terrain );
         gpRender->getTextureCache().releaseOwner( pSector->BankPath.c_str() );
     }
     for ( auto &pArea : areas ) {
@@ -1983,6 +1984,10 @@ bool EdenWorld::loadSector( const SectorId &id ) {
     const std::string name = SectorName( id );
     loadHeightfield( pSector->SectorBank, name.c_str(), path, pSector->Terrain );
     stage( "heightfield" );
+    // The sector Spacing is the 3 m default (loadHeightfield leaves it), so
+    // the BLAS can be built here (-rtworld only; rebuilt by
+    // updateCarveBuffers once the carve has decided).
+    buildHeightfieldBlas( pSector->Terrain );
     // Sector shadow map (-s.2db) on the SHADOW slot of the objects.
     // FUN_00982af0 (end of the sector setup FUN_00986760) [CODE]: for the
     // sector materials of TD_Road (every SHADOW slot) and TD_Ground /
@@ -2367,6 +2372,7 @@ uint32_t EdenWorld::unloadFar( const Vector3f &position, const Vector3f &ahead, 
             modelUnloadedCallback( ( *it )->Objects );
         }
         device.destroyBuffer( ( *it )->Terrain.pBuffer );
+        destroyHeightfieldRt( ( *it )->Terrain );
         destroyCarveBuffers( **it );
         gpRender->getTextureCache().releaseOwner( ( *it )->BankPath.c_str() );
         it = sectors.erase( it );
@@ -2953,6 +2959,9 @@ void EdenWorld::updateCarveBuffers( Sector &sector ) {
             terrain.bCarveMaterialDirty = false;
         }
     }
+    // The carve is final for this sector: the structure now reads the drawn
+    // sheet (the split list) instead of the full grid it was built with.
+    buildHeightfieldBlas( terrain );
 }
 
 void EdenWorld::destroyCarveBuffers( Sector &sector ) {
@@ -2961,6 +2970,57 @@ void EdenWorld::destroyCarveBuffers( Sector &sector ) {
     device.destroyBuffer( sector.Terrain.pCarvedIndices );
     sector.Terrain.pSplitIndices = sector.Terrain.pCarvedIndices = nullptr;
     sector.Terrain.NumSplitIndices = sector.Terrain.NumCarvedIndices = 0;
+}
+
+void EdenWorld::buildHeightfieldBlas( Heightfield &terrain ) {
+    RayTracing &rayTracing = gpRender->getRayTracing();
+    if ( !IsRayTracingWorldEnabled() || !rayTracing.isReady() || terrain.Heights.empty() ) {
+        return;
+    }
+    destroyHeightfieldRt( terrain ); // a rebuild over an existing structure
+    // The sheet as XYZ, heightfield local (the draw's World translation adds
+    // the sector / area origin; the TD_HeightMap vertex shader builds the
+    // same positions from the grid coords * Spacing + the heights).
+    const uint32_t numVertices = kHeightfieldSize * kHeightfieldSize;
+    std::vector<float> positions;
+    positions.reserve( numVertices * 3 );
+    for ( uint32_t z = 0; z < kHeightfieldSize; z++ ) {
+        for ( uint32_t x = 0; x < kHeightfieldSize; x++ ) {
+            positions.push_back( static_cast<float>( x ) * terrain.Spacing );
+            positions.push_back( terrain.Heights[static_cast<size_t>( z ) * kHeightfieldSize + x] );
+            positions.push_back( static_cast<float>( z ) * terrain.Spacing );
+        }
+    }
+    const VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | RayTracing::getBuildInputUsage();
+    terrain.pRtPositions =
+        gpRender->getDevice().createBuffer( positions.size() * sizeof( float ), usage, positions.data() );
+    if ( terrain.pRtPositions == nullptr ) {
+        return;
+    }
+    // The quads the carve removed stay out of the structure like out of the
+    // opaque draw: the split list when the carve decided, else the full grid.
+    GPUBuffer *pIndices = terrain.pSplitIndices != nullptr ? terrain.pSplitIndices : pGridIndices;
+    const uint32_t numIndices = terrain.pSplitIndices != nullptr ? terrain.NumSplitIndices : numGridIndices;
+    RenderDevice &device = gpRender->getDevice();
+    terrain.pBlas = rayTracing.createTriangleBlas(
+        device.getBufferDeviceAddress( terrain.pRtPositions ), 12, VK_FORMAT_R32G32B32_SFLOAT, numVertices,
+        device.getBufferDeviceAddress( pIndices ), numIndices );
+    if ( terrain.pBlas != nullptr ) {
+        terrain.Mesh.BlasAddress = terrain.pBlas->Address;
+    }
+}
+
+void EdenWorld::destroyHeightfieldRt( Heightfield &terrain ) {
+    RayTracing &rayTracing = gpRender->getRayTracing();
+    if ( terrain.pBlas != nullptr ) {
+        rayTracing.retireBlas( terrain.pBlas );
+        terrain.pBlas = nullptr;
+    }
+    terrain.Mesh.BlasAddress = 0;
+    if ( terrain.pRtPositions != nullptr ) {
+        gpRender->getDevice().destroyBuffer( terrain.pRtPositions );
+        terrain.pRtPositions = nullptr;
+    }
 }
 
 void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
@@ -3050,6 +3110,7 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
                 EdenDrawParams immediate;
                 mesh.pIndexBuffer = sector.Terrain.pCarvedIndices;
                 mesh.IndexCount = sector.Terrain.NumCarvedIndices;
+                mesh.BlasAddress = 0; // the carved quads are not in the BLAS
                 renderer.draw( mesh, sector.Terrain.Materials[1], world, &immediate );
             }
             mesh.pIndexBuffer = sector.Terrain.pSplitIndices != nullptr ? sector.Terrain.pSplitIndices

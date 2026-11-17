@@ -56,6 +56,9 @@ void RayTracing::destroy() {
         while ( !blases.empty() ) {
             destroyBlas( blases.back() );
         }
+        while ( !retiredBlases.empty() ) {
+            destroyBlas( retiredBlases.back().pBlas );
+        }
         while ( !tlases.empty() ) {
             destroyTlas( tlases.back() );
         }
@@ -236,6 +239,33 @@ void RayTracing::destroyBlas( Blas *pBlas ) {
     }
     blases.erase( std::remove( blases.begin(), blases.end(), pBlas ), blases.end() );
     delete pBlas;
+}
+
+void RayTracing::retireBlas( Blas *pBlas ) {
+    if ( pBlas == nullptr ) {
+        return;
+    }
+    // Already waiting: keep the oldest age.
+    for ( RetiredBlas &retired : retiredBlases ) {
+        if ( retired.pBlas == pBlas ) {
+            return;
+        }
+    }
+    blases.erase( std::remove( blases.begin(), blases.end(), pBlas ), blases.end() );
+    retiredBlases.push_back( { pBlas, 0 } );
+}
+
+void RayTracing::retireTick() {
+    for ( size_t i = 0; i < retiredBlases.size(); ) {
+        RetiredBlas &retired = retiredBlases[i];
+        if ( ++retired.Age >= 3 ) {
+            Blas *pBlas = retired.pBlas;
+            retiredBlases.erase( retiredBlases.begin() + i );
+            destroyBlas( pBlas );
+            continue;
+        }
+        ++i;
+    }
 }
 
 RayTracing::Tlas *RayTracing::createTlas( uint32_t maxInstances ) {

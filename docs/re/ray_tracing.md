@@ -5,8 +5,10 @@ can carry a ray traced pass, and the record of the ones that exist.
 **Status: steps 3 and 6 — the world's meshes are in the acceleration structures,
 rays are traced against them, and the first consumer exists: `-rtao <samples>`
 (screen space ray traced ambient occlusion, the step 6 pass, done before step 4
-because it needs no terrain in the structures to be usable).** RT sun shadows
-(step 4) is still the pass that would *replace* CPU work.
+because it needs no terrain in the structures to be usable). 2026-11-17: the
+loaded sectors' terrain sheets joined the structures (generated XYZ buffers, see
+§3a) — the step-4 blocker is solved and the AO ground contact is real now.**
+RT sun shadows (step 4) is still the pass that would *replace* CPU work.
 
 ## 1. What exists [INF: written for this project]
 
@@ -82,15 +84,12 @@ case.
   `gViewPos` (`FullscreenPass` + `viewpos.frag`), the haze, the projected shadow
   boxes and the sun shadow resolve (`eden_scene_view.cpp`). A ray origin per
   pixel is therefore nearly free.
-- **The terrain heightfield is NOT usable as triangles** (found in step 3, and
-  the biggest remaining item). The level mesh (`eden_world.cpp`, `loadHeightfield`)
-  keeps **one R32 height per vertex** and the shader rebuilds the positions from
-  the grid coordinates, so there is no position stream for a BLAS to read
-  (`VAF_POSITION_R32_SFLOAT` -> `GetBlasPositionFormat` returns
-  `VK_FORMAT_UNDEFINED` and the mesh is skipped). The terrain is therefore absent
-  from the TLAS and a downward ray hits only what a *model* provides. RT shadows
-  over the terrain need either a generated XYZ position buffer (the heights are
-  already there) or per-cell AABBs (`VK_GEOMETRY_TYPE_AABBS_KHR`).
+- **~~The terrain heightfield is NOT usable as triangles~~ (solved, see §3a)**. The
+  level mesh (`eden_world.cpp`, `loadHeightfield`) keeps **one R32 height per
+  vertex** and the shader rebuilds the positions from the grid coordinates, so
+  there is no position stream for a BLAS to read — the loader now generates one
+  (the heights are already there; per-cell AABBs
+  (`VK_GEOMETRY_TYPE_AABBS_KHR`) were the other option and not needed).
 - **Model meshes are all fine.** In the Ibiza sector test every model mesh got a
   BLAS with nothing skipped (`library.3dd`: 1539 of 1539), so the two position
   formats the models use (`R32G32B32_SFLOAT`, `R16G16B16A16_SFLOAT`) both work.
@@ -156,13 +155,54 @@ why deferred host operations are enabled.
    (see §3) — that is the first thing step 4 has to solve.
 4. **RT sun shadows** — the only step with a measured reason to exist. A
    `rt_shadow.comp` ray query writing a visibility mask, bound through the
-   existing `setShadowRealTimeTexture` override. A/B against `-noshadows`. It
-   needs the terrain (see §3) or its shadows will be wrong wherever the ground
-   should be the occluder.
+   existing `setShadowRealTimeTexture` override. A/B against `-noshadows`. The
+   terrain blocker is solved (§3a).
 5. **RT reflections** — `rt_reflection.comp` feeding `ProjectiveSlot`, and the
    ocean mirror camera.
 6. **RT ambient occlusion** — **done (session 50, `-rtao <samples>`)**, done
    before step 4 because it needs no terrain in the structures to be usable.
+   The terrain has since joined the structures (§3a): ground contact and hill
+   folds occlude now (the first known edge below is gone).
+
+### 3a. The terrain in the structures (2026-11-17) — `EdenWorld::buildHeightfieldBlas`
+
+The heightfield loader builds, when `-rtworld` is on, an XYZ position buffer from
+the heights it already parsed (sector local: x = column * Spacing, y = height,
+z = row * Spacing — the same law the TD_HeightMap vertex shader applies to the
+grid coords; the draw's World translation carries the sector origin, and the
+existing `RtInstance` capture picks the terrain draw up like any model draw). One
+BLAS per loaded sector sheet (257x257 verts, up to 131072 tris over 768 m at the
+3 m spacing), built once at load and **rebuilt by `updateCarveBuffers` once the
+carve has decided** — the carve split list is the index buffer, so the quads
+inside tunnels / bridges stay out of the structure exactly like out of the
+opaque draw (the carved immediate draw zeroes `Mesh.BlasAddress` so the capture
+does not duplicate the instance). `RayTracing::retireBlas` / `retireTick` (one
+call in `GSRender::endFrame`) destroy an unloaded sector's structure three frames
+later — the same shape as the `pRtTlasRetired` ring, because a frame in flight
+still reads it through the TLAS.
+
+Costs, measured (the same FREERIDE spawn as the §6 table, build 216):
+
+- Startup: the frame-0 stall grows 3.4 s -> 6.5 s (~30 sector sheets: upload +
+  one-time-submit build each). Opt-in, only under `-rtworld`.
+- Steady state: frame avg 13.3 ms / 75 fps unchanged; the per-frame TLAS build
+  is 0.4-0.8 ms (18 ms once when capacity grows to 696 instances / 3259 KB).
+- Streaming hitches while driving: comparable to the model BLAS builds already
+  there (112-131 ms update on a new sector's first frame).
+- The coarse far sheets are NOT in the structures (area 24 m / island 384 m
+  grids): inside a loaded sector the 3 m sheet would z-fight them in ray space,
+  and outside one there is nothing to ray against — same as before. Adding them
+  means rebuilding their BLAS whenever `updateAreaIndices` /
+  `updateIslandIndices` change the drawn quads.
+
+Verification (all headless, 0 VUIDs): the camera probe "down ray" now hits the
+ground at the drive height (it reported whatever a model provided before); the
+carve rebuild exercised at the spawn sector (19 covered-road carve volumes,
+sector-3-3-3-5) with no validation complaints; `-rttest` still PASSED; the
+`-showaomask` A/B at `35700,3,5600` pitch 4 shows the terrain contribution
+(`docs/images/rt_terrain_ao_mask.webp`: the ground shadow band under the tree and the hill
+fold darkening) and the color view at `-rtao 16` is unchanged against
+`-rtao 0` (`_x/rt_ao_color.png` / `_x/rt_ao_off.png`).
 
 ### Step 6: `-rtao <samples>` — ray traced ambient occlusion
 
@@ -196,8 +236,8 @@ cost crosses the ~35 ms CPU frame. The owner's "stress the GPU" question
 CPU frame is untouched by the ray count (one dispatch call).
 
 Known edges, all observed not guessed:
-- **The terrain is not in the TLAS** (§3), so ground contact gets less occlusion
-  than it should; ground pixels only occlude against model meshes.
+- ~~**The terrain is not in the TLAS**~~ — solved (§3a): ground contact and hill
+  folds occlude now.
 - **Under dense tree canopy the road goes near-black**: physically consistent
   (the canopy is a dense occluder in the TLAS) but heavy; visual tuning (distance
   falloff, a strength clamp like `mix(1, ao, 0.6)`) is polish, not done.

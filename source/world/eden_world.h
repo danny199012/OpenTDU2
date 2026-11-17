@@ -4,6 +4,7 @@
 #include "filesystem/bank.h"
 #include "render/eden/eden_model.h"
 #include "render/eden/eden_neons.h"
+#include "render/rt/ray_tracing.h"
 #include "world/pmi.h"
 #include "world/sign_text.h"
 
@@ -248,6 +249,23 @@ private:
     // Frees the split / carved index buffers (unloadFar, the survey).
     static void destroyCarveBuffers( Sector &sector );
 
+    struct Heightfield;
+    // Ray tracing (-rtworld, docs/re/ray_tracing.md step 3): the heightfield
+    // sheet as triangles. The mesh's streams carry R32 heights + grid coords
+    // (the shader rebuilds the positions from them), which an acceleration
+    // structure cannot read, so this builds the XYZ position buffer the BLAS
+    // reads (sector local: x = column * Spacing, y = height, z = row *
+    // Spacing; the draw's World translation carries the sector origin into
+    // the world, and the RtInstance capture records it like any model draw).
+    // Call once per heightfield after its Spacing is final (it is set by the
+    // caller of loadHeightfield), and again from updateCarveBuffers once the
+    // carve decides which quads survive (the split list is the drawn sheet;
+    // the carved cells stay out of the structure like out of the draw).
+    void buildHeightfieldBlas( Heightfield &terrain );
+    // The BLAS through the retire ring (frames in flight still read it via
+    // the TLAS), the position buffer through the deferred buffer deletes.
+    void destroyHeightfieldRt( Heightfield &terrain );
+
     struct Heightfield {
         EdenMesh Mesh;
         uint32_t MaterialIndex = 0;
@@ -267,6 +285,11 @@ private:
         uint32_t NumCarvedIndices = 0;
         bool bCarveIndicesDirty = true;
         bool bCarveMaterialDirty = true;
+        // The ray tracing structure of this sheet (0 Mesh.BlasAddress when
+        // -rtworld is off or the build failed). Owned by RayTracing (retired
+        // on unload), pRtPositions by us.
+        RayTracing::Blas *pBlas = nullptr;
+        GPUBuffer *pRtPositions = nullptr;
     };
 
     struct Sector {

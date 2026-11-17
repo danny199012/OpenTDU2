@@ -6,6 +6,61 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-17 (`main`, 52): ray tracing step 3 completed - the terrain is in the acceleration structures
+
+The owner's other ask ("work on ray tracing also if possible"). `ray_tracing.md`
+listed the terrain heightfield as the blocker for step 4 (RT sun shadows): the
+level mesh keeps one R32 height per vertex and the shader rebuilds the positions
+from grid coordinates, so a BLAS had nothing to read. Solved:
+
+### What changed
+- `EdenWorld::buildHeightfieldBlas` / `destroyHeightfieldRt` (eden_world.{h,cpp}):
+  when `-rtworld` is on, the heightfield loader builds an XYZ position buffer
+  from the heights it already parsed (sector local, the TD_HeightMap vertex
+  shader's own law: x = column * Spacing, y = height, z = row * Spacing; the
+  draw's World translation carries the sector origin) and a BLAS over the
+  shared grid indices - one per loaded sector sheet (up to 131072 tris, 768 m at
+  3 m). The existing `RtInstance` capture picks the terrain draw up unchanged.
+- **Carve aware**: the BLAS is built from the full grid at load and REBUILT by
+  `updateCarveBuffers` from the split list once the carve decides (the quads
+  inside tunnels / bridges stay out of the structure like out of the opaque
+  draw; the carved immediate draw zeroes `Mesh.BlasAddress` so the capture does
+  not duplicate the instance). Exercised at the spawn sector (19 covered-road
+  carve volumes) with 0 VUIDs.
+- `RayTracing::retireBlas` / `retireTick` (ray_tracing.{h,cpp}, called from
+  `GSRender::endFrame`): an unloaded sector's structure is destroyed three
+  frames later - the `pRtTlasRetired` shape, because a frame in flight still
+  reads it through the TLAS. `destroy()` flushes the ring.
+- The sector unload (`unloadFar`) and `EdenWorld::destroy` free the positions
+  buffer + retire the structure. The coarse far sheets (area 24 m / island
+  384 m) are deliberately NOT included (ray-space z-fighting under the 3 m
+  sheet; would need a rebuild hook in updateArea/updateIslandIndices).
+
+### Verified (headless, build 216, 0 VUIDs everywhere)
+- The camera probe "down ray" now hits the ground at the drive height (before it
+  reported whatever a model provided): `Ray tracing world: down ray -> hit 1,
+  t 1.43 m` at the `-tp 21796.3,24188.1` spawn.
+- `-rttest` still PASSED (hit / miss / rotated rays).
+- `-showaomask` A/B at `35700,3,5600` pitch 4: the mask now shows the terrain
+  self-occlusion (ground shadow band under the tree base, the hill fold
+  darkening) - `_x/rt_mask_ground.png`; the color view is unchanged at
+  `-rtao 16` vs `-rtao 0` (`rt_ao_color.png` / `rt_ao_off.png`).
+- Costs (opt-in, `-rtworld` only): the frame-0 startup stall grows
+  3.4 s -> 6.5 s (~30 sheets uploaded + built); steady state unchanged
+  (13.3 ms avg / 75 fps at the spawn, TLAS 0.4-0.8 ms per frame, 3259 KB at
+  696 instances); streaming hitches on new sectors (112-131 ms) comparable to
+  the model BLAS builds already there.
+
+### Not done / next
+- Step 4 itself (RT sun shadows, `rt_shadow.comp` through the
+  `setShadowRealTimeTexture` override) is now unblocked - the next RT session's
+  work.
+- The owner's nvoglv64.dll access violations (STATE session 23) still keep RT
+  non-default.
+- The remaining ~40 dev-build light functions (the other session-51 dig) and
+  the dashboard intensity wiring are the lighting port work.
+
+
 ## Session 2026-11-17 (`main`, 51): the dev-build car-lighting dig - the [ENC] lamp functions decoded, the light data found, the dashboard mechanism named
 
 Owner: *"dig the dev build see if you find any car lighting data head lights, tail lights, interior dash
