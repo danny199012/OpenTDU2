@@ -260,6 +260,8 @@ void IntroCinematic::unload() {
     ui.unload();
     general.unload();
     bLogoTv = bLogoSc = false;
+    bMirrorPlayer = false;
+    bPlayerMirrorOnly = false;
     view.clearPlanarReflections();
     view.clearLightmapMaterials();
     view.destroy();
@@ -1342,6 +1344,55 @@ bool IntroCinematic::startPlayerSelfView() {
     return true;
 }
 
+bool IntroCinematic::ensureStandClip() {
+    if ( bStandClip ) {
+        return true;
+    }
+    if ( !player.Avatar ) {
+        return false;
+    }
+    const std::string path = gpFile->getBankFolder() + "scenarics/avatars/avatarsdriver.bnk";
+    if ( driverBank.getEntries().empty() && !driverBank.load( path.c_str() ) ) {
+        return false;
+    }
+    const char *pStand = player.Avatar->isWoman() ? "co_stand-w.anm" : "co_stand-m.anm";
+    const BankEntry *pEntry = driverBank.findEntry( pStand );
+    bStandClip = pEntry != nullptr && standClip.parse( pEntry->pData, pEntry->Size );
+    return bStandClip;
+}
+
+void IntroCinematic::setMirrorPlayer( const Vector3f &floorPosition, float headingY ) {
+    if ( CmdLine::HasArg( "-nomirrorplayer" ) ) {
+        return;
+    }
+    bMirrorPlayer = true;
+    if ( !bPlayerEmote ) {
+        playerEmoteFloor = floorPosition;
+        playerEmoteHeading = headingY;
+    }
+}
+
+void IntroCinematic::updateMirrorPlayer() {
+    player.bVisible = false;
+    bPlayerMirrorOnly = false;
+    if ( !player.Avatar || !ensureStandClip() ) {
+        return;
+    }
+    const EdenSkeleton &skeleton = player.Avatar->getSkeleton();
+    std::vector<BoneTransform> locals( skeleton.getNumBones() );
+    for ( uint32_t b = 0; b < skeleton.getNumBones(); b++ ) {
+        locals[b] = skeleton.getBindLocal( b );
+    }
+    standClip.sample( skeleton, playerEmoteTime, true, locals );
+    skeleton.computeSkinMatrices( locals, player.WorldBones, player.Skin );
+    player.World = sceneOrigin * Matrix4x4f::Translation( playerEmoteFloor ) *
+                   Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), playerEmoteHeading ) );
+    player.bVisible = true;
+    bPlayerMirrorOnly = true;
+    computeAvatarLighting( player.World.getTranslation(), player.Lighting );
+    playerEmoteTime += lastDeltaTime;
+}
+
 void IntroCinematic::stopPlayerEmote() {
     bPlayerEmote = false;
     playerEmoteIndex = -1;
@@ -1948,7 +1999,8 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
         }
     }
     const Vector3f carSphereOffset( 0.0f, 0.8f, 0.0f );
-    if ( player.Avatar && player.bVisible &&
+    const bool bMirrorPass = pass == EdenSceneView::ePass::ProjectorScene || pass == EdenSceneView::ePass::ProjectorActors;
+    if ( player.Avatar && player.bVisible && ( !bPlayerMirrorOnly || bMirrorPass ) &&
          renderer.isSphereVisible( player.World.getTranslation() + Vector3f( 0.0f, 1.0f, 0.0f ), 1.4f ) ) {
         // Seated under the game camera (cockpit view, camera mode 23): the
         // head and what is worn on it are not drawn (the eye is inside the
@@ -4579,8 +4631,12 @@ void IntroCinematic::updatePnjs() {
     } else if ( bPlayerEmote ) {
         // The walk-mode self view / emote (playPlayerEmote): posed from the
         // walk place, not from a .sce actor.
+        bPlayerMirrorOnly = false;
         updateEmotePlayer();
+    } else if ( bMirrorPlayer ) {
+        updateMirrorPlayer();
     } else {
+        bPlayerMirrorOnly = false;
         update( player, "Avatar" );
         // The casino slot machines' cutscenes (icasslo1.bnk *_totem) name the
         // player "Avatar_" (entity 0x6666666666666666, like "Avatar") [DATA].

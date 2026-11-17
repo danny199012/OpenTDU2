@@ -352,7 +352,18 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     // The avatar shops' rooms run SHOPSAVATAR.vmf's own pages (surgeon /
     // hairdresser / clothes_shop root labels [DATA]); -nosurgeryui keeps the
     // native SurgeryMenu (the A/B).
-    bAvatarUi = !bHouse && !bStickUi && _strnicmp( houseSpotName.c_str(), "ESUR", 4 ) == 0 && !CmdLine::HasArg( "-nosurgeryui" );
+    // ESUR clinics -> "surgeon", EHD hairdressers -> "hairdresser", EAS clothes shops -> "clothes_shop".
+    avatarLabel.clear();
+    if ( !bHouse && !bStickUi && !CmdLine::HasArg( "-nosurgeryui" ) ) {
+        if ( _strnicmp( houseSpotName.c_str(), "ESUR", 4 ) == 0 ) {
+            avatarLabel = "surgeon";
+        } else if ( _strnicmp( houseSpotName.c_str(), "EHD", 3 ) == 0 && CmdLine::HasArg( "-hairui" ) // opt-in until the hair lists are wired ) {
+            avatarLabel = "hairdresser";
+        } else if ( _strnicmp( houseSpotName.c_str(), "EAS", 3 ) == 0 && CmdLine::HasArg( "-clothesui" ) // opt-in until the item grid is wired ) {
+            avatarLabel = "clothes_shop";
+        }
+    }
+    bAvatarUi = !avatarLabel.empty();
     bWalkInput = true;
     bLeaveRequested = false;
     if ( bStickUi ) {
@@ -716,7 +727,7 @@ void InteriorWalk::startWalk( const char *pPreferredCamera ) {
         // SHOPSAVATAR's surgeon page: the title bar and the cursor, then
         // surgeon_stop (the walk waits for the surgeon's A) [DATA].
         bWalkInput = true;
-        scene.getUi().gotoLabel( "/", "surgeon", true );
+        scene.getUi().gotoLabel( "/", avatarLabel.c_str(), true );
     } else if ( bHomeUi ) {
         homePage.clear();
         scene.getUi().setVariableBool( "/:InGarage", bInGarage );
@@ -916,11 +927,17 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
             scene.getUi().invoke( "/", "ItemType", { "valid" } );
             return eResult::None;
         }
-        if ( bAvatarUi && strcmp( pType, "surgeon" ) == 0 ) {
+        if ( bAvatarUi && ( strcmp( pType, "surgeon" ) == 0 || strcmp( pType, "hairdresser" ) == 0 || strcmp( pType, "goodies" ) == 0 ) ) {
             // The surgeon: the movie's own A (ItemType valid -> openMenuSurgeon) [DATA].
             // Bandaged: the retail refusal, text 4405 (surgery_spec.md 1.5).
-            if ( SurgeryMenu::IsBandaged() ) {
+            if ( strcmp( pType, "surgeon" ) == 0 && SurgeryMenu::IsBandaged() ) {
                 const char *pText = gpDatabase != nullptr ? gpDatabase->getString( 4405 ) : nullptr;
+                showMessage( pText != nullptr && *pText != 0 ? pText : "You still have your bandages!" );
+                return eResult::None;
+            }
+            if ( strcmp( pType, "hairdresser" ) == 0 && SurgeryMenu::IsBandaged() ) {
+                // text 7169: no hairdresser while the bandages are on
+                const char *pText = gpDatabase != nullptr ? gpDatabase->getString( 7169 ) : nullptr;
                 showMessage( pText != nullptr && *pText != 0 ? pText : "You still have your bandages!" );
                 return eResult::None;
             }
@@ -1012,6 +1029,11 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             // cinematic is not played yet, the menu opens straight away [INF].
             bWalkInput = false;
             ui.invoke( "/", "openMenuSurgeon", {} );
+        } else if ( bAvatarUi && command == "hadr:open" ) {
+            // The hairdresser's A: the movie waits for openMenuHairDresser (retail
+            // plays C_BUY_HAIR first - not played yet [INF]).
+            bWalkInput = false;
+            ui.invoke( "/", "openMenuHairDresser", {} );
         } else if ( command == "dbxo" ) {
             FlashPlayer &general = scene.getGeneral();
             for ( const char *pVariable : { "/:Msg1Txt", "/:Msg2Txt", "/:Msg1Type", "/:Msg2Type", "/:YesNo" } ) {

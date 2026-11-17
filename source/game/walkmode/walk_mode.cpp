@@ -436,6 +436,11 @@ void WalkMode::update( IntroCinematic &scene, float deltaTime, bool bInputEnable
     }
     controller.update( deltaTime, bInputEnabled );
     resume( scene );
+    {
+        // The body the mirrors show (IntroCinematic::setMirrorPlayer): the feet under the eye, facing the walk yaw.
+        const Vector3f forward = controller.getForward();
+        scene.setMirrorPlayer( controller.getPosition() - Vector3f( 0.0f, eyeHeight, 0.0f ), std::atan2( forward.x, forward.z ) );
+    }
     // -logwalk: eye position + PNJ proximity every 0.5 s (body collisions).
     static const bool bLogWalk = CmdLine::HasArg( "-logwalk" );
     if ( bLogWalk ) {

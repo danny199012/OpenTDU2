@@ -171,6 +171,7 @@ private:
     // The sticker shop's retail UI (SHOPSCAR.vmf, the stickers page).
     bool bStickUi = false;
     bool bAvatarUi = false;
+    std::string avatarLabel; // SHOPSAVATAR root label of this room (surgeon / hairdresser / clothes_shop)
     bool bWalkInput = true;
     bool bLeaveRequested = false;
     CommandSink commandSink;

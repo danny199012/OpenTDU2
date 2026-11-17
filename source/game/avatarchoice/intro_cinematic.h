@@ -435,6 +435,9 @@ public:
     // The walk-mode floor place of the avatar (island world position of the
     // feet, heading in radians); fed every frame while the self view is on.
     void setPlayerEmotePlace( const Vector3f &floorPosition, float headingY );
+    // The first-person walker's body for the mirrors (see bMirrorPlayer): call each walk frame.
+    void setMirrorPlayer( const Vector3f &floorPosition, float headingY );
+    inline void clearMirrorPlayer() { bMirrorPlayer = false; }
     // SHOP "Enter" (FUN_00a519b0): the player avatar on the driver seat of a
     // showroom car (index of addShowCar) instead of the scene car; -1 = the
     // scene car (default).
@@ -753,6 +756,13 @@ private:
     EdenAnimation standClip;        // co_stand-<sex>, the idle base pose
     bool bStandClip = false;
     void updateEmotePlayer();
+    // The walk's first-person body in a mirror: the player avatar stands at the
+    // walker's feet (stand idle) and is drawn ONLY by the projector passes
+    // (the wall mirror of a clothes shop) - never by the main camera.
+    bool bMirrorPlayer = false;
+    bool bPlayerMirrorOnly = false;
+    void updateMirrorPlayer();
+    bool ensureStandClip();
     CineSubtitles subtitles;        // the authored captions of the main cinematic
     bool bSubtitles = true;         // -subtitles 0|1 (default on when a file exists)
     std::string weatherName;
