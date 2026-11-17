@@ -6,6 +6,7 @@
 #include "render/d3d12/d3d12_device.h"
 #include "render/d3d12/d3d12_shader.h"
 #include "render/eden/eden_shader_system.h"
+#include "render/sampler_heap.h"
 #include "render/shaders/builtin/mesh_frag.h"
 #include "render/shaders/builtin/mesh_vert.h"
 #include "render/shaders/dxso_translator.h"
@@ -80,7 +81,14 @@ bool D3D12Scene::createRootSignature() {
     srvRange.RegisterSpace = 0;
     srvRange.OffsetInDescriptorsFromTableStart = 0;
 
-    D3D12_ROOT_PARAMETER params[4] = {};
+    D3D12_DESCRIPTOR_RANGE samplerRange = {};
+    samplerRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    samplerRange.NumDescriptors = kSamplerTableSize;
+    samplerRange.BaseShaderRegister = 0;
+    samplerRange.RegisterSpace = 0;
+    samplerRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_ROOT_PARAMETER params[5] = {};
     // 0 / 1: the stage constant buffers (Eden's material block lands here).
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     params[0].Descriptor.ShaderRegister = 0;
@@ -100,33 +108,22 @@ bool D3D12Scene::createRootSignature() {
     params[3].DescriptorTable.NumDescriptorRanges = 1;
     params[3].DescriptorTable.pDescriptorRanges = &srvRange;
     params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-
-    // D3D9's default sampler state (linear filtering, wrap both ways). Eden
-    // picks a sampler per material on the Vulkan path; a per-material variant of
-    // this signature is a later step, and this one is what the front end and
-    // most world materials use.
-    D3D12_STATIC_SAMPLER_DESC samplers[kTextureTableSize] = {};
-    for ( uint32_t i = 0; i < kTextureTableSize; i++ ) {
-        samplers[i].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        samplers[i].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samplers[i].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samplers[i].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samplers[i].MipLODBias = 0.0f;
-        samplers[i].MaxAnisotropy = 1;
-        samplers[i].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-        samplers[i].BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-        samplers[i].MinLOD = 0.0f;
-        samplers[i].MaxLOD = D3D12_FLOAT32_MAX;
-        samplers[i].ShaderRegister = i;
-        samplers[i].RegisterSpace = 0;
-        samplers[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    }
+    // 4: the D3D9 sampler set, as a table rather than static samplers. DXSO
+    // gives every Eden shader a *runtime* sampler array whose index is read from
+    // the push constants; a static sampler cannot be indexed dynamically, so the
+    // table is what makes an Eden draw possible at all (docs/backends.md
+    // section 4). Its entries are filled by createSamplerHeap.
+    params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[4].DescriptorTable.NumDescriptorRanges = 1;
+    params[4].DescriptorTable.pDescriptorRanges = &samplerRange;
+    params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_ROOT_SIGNATURE_DESC desc = {};
-    desc.NumParameters = 4;
+    desc.NumParameters = 5;
     desc.pParameters = params;
-    desc.NumStaticSamplers = kTextureTableSize;
-    desc.pStaticSamplers = samplers;
+    // No static samplers: registers s0..s15 belong to the sampler table above.
+    desc.NumStaticSamplers = 0;
+    desc.pStaticSamplers = nullptr;
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
                  D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
                  D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
@@ -172,9 +169,66 @@ bool D3D12Scene::createRootSignature() {
     srvTableCpuStart = pHeap->GetCPUDescriptorHandleForHeapStart().ptr;
     srvTableGpuStart = pHeap->GetGPUDescriptorHandleForHeapStart().ptr;
     srvDescriptorSize = pD3D12Device->GetDescriptorHandleIncrementSize( D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
-    OTDU_LOG_INFO( "D3D12 scene: root signature ready (b0 constants, b%u space%u root constants, t0..t%u)\n",
+
+    if ( !createSamplerHeap() ) {
+        return false;
+    }
+    OTDU_LOG_INFO( "D3D12 scene: root signature ready (b0 constants, b%u space%u root constants, "
+                   "t0..t%u, s0..s%u sampler table, %u heap entries)\n",
                    D3D12ShaderCompiler::kPushConstantRegister,
-                   D3D12ShaderCompiler::kPushConstantSpace, kTextureTableSize - 1 );
+                   D3D12ShaderCompiler::kPushConstantSpace, kTextureTableSize - 1,
+                   kSamplerTableSize - 1, kSamplerHeapSize );
+    return true;
+}
+
+// The D3D9 sampler set as a shader-visible sampler heap. Filled once: the
+// per-material choice is the index the shader reads out of the push constants,
+// so nothing here is rewritten per draw (the Vulkan sampler set is written once
+// for the same reason, EdenRenderer::writeSamplerSet).
+bool D3D12Scene::createSamplerHeap() {
+    ID3D12Device *pD3D12Device = pDevice->getDevice();
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    heapDesc.NumDescriptors = kSamplerTableSize;
+    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ID3D12DescriptorHeap *pHeap = nullptr;
+    if ( FAILED( pD3D12Device->CreateDescriptorHeap( &heapDesc, IID_PPV_ARGS( &pHeap ) ) ) ) {
+        OTDU_LOG_ERROR( "D3D12 scene: the sampler heap could not be created\n" );
+        return false;
+    }
+    const uint32_t descriptorSize =
+        pD3D12Device->GetDescriptorHandleIncrementSize( D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER );
+    const D3D12_CPU_DESCRIPTOR_HANDLE base = pHeap->GetCPUDescriptorHandleForHeapStart();
+    for ( uint32_t i = 0; i < kSamplerTableSize; i++ ) {
+        // Out of range entries (s14/s15, or a stale material index) are linear
+        // wrap - D3D9's default state.
+        const SamplerHeapState state = GetSamplerHeapState( i );
+        const D3D12_TEXTURE_ADDRESS_MODE addressU = state.AddressU == 2   ? D3D12_TEXTURE_ADDRESS_MODE_CLAMP
+                                                    : state.AddressU == 1 ? D3D12_TEXTURE_ADDRESS_MODE_MIRROR
+                                                                          : D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        const D3D12_TEXTURE_ADDRESS_MODE addressV = state.AddressV == 2   ? D3D12_TEXTURE_ADDRESS_MODE_CLAMP
+                                                    : state.AddressV == 1 ? D3D12_TEXTURE_ADDRESS_MODE_MIRROR
+                                                                          : D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        D3D12_SAMPLER_DESC sampler = {};
+        sampler.Filter = state.bPoint ? D3D12_FILTER_MIN_MAG_MIP_POINT : D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        sampler.AddressU = addressU;
+        sampler.AddressV = addressV;
+        sampler.AddressW = addressU;
+        sampler.MipLODBias = 0.0f;
+        sampler.MaxAnisotropy = 1;
+        sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        sampler.BorderColor[0] = 0.0f;
+        sampler.BorderColor[1] = 0.0f;
+        sampler.BorderColor[2] = 0.0f;
+        sampler.BorderColor[3] = 0.0f;
+        sampler.MinLOD = 0.0f;
+        sampler.MaxLOD = D3D12_FLOAT32_MAX;
+        D3D12_CPU_DESCRIPTOR_HANDLE destination = base;
+        destination.ptr += static_cast<SIZE_T>( i ) * descriptorSize;
+        pD3D12Device->CreateSampler( &sampler, destination );
+    }
+    pSamplerHeap = pHeap;
+    samplerHeapGpuStart = pHeap->GetGPUDescriptorHandleForHeapStart().ptr;
     return true;
 }
 
@@ -197,8 +251,10 @@ void D3D12Scene::destroy() {
         SafeRelease( pPipeline );
     }
     pipelines.clear();
+    SafeRelease( reinterpret_cast<ID3D12DescriptorHeap *&>( pSamplerHeap ) );
     SafeRelease( reinterpret_cast<ID3D12DescriptorHeap *&>( pSrvTable ) );
     SafeRelease( reinterpret_cast<ID3D12RootSignature *&>( pRootSignature ) );
+    samplerHeapGpuStart = 0;
     srvTableCpuStart = 0;
     srvTableGpuStart = 0;
     srvCursor = 0;
@@ -452,6 +508,22 @@ void D3D12Scene::draw( const void *pPipeline,
     // error (D3D12 error #708), and the driver does not always survive it.
     pList->SetGraphicsRootSignature( static_cast<ID3D12RootSignature *>( pRootSignature ) );
 
+    // Both heaps, every draw: the 2D layer and ImGui each bind a heap of their
+    // own, so the set this draw needs has to be re-established here (a table is
+    // only valid while its heap is bound). D3D12 allows one shader-visible heap
+    // of each type at a time, which is exactly these two.
+    ID3D12DescriptorHeap *ppHeaps[2] = {};
+    uint32_t numHeaps = 0;
+    if ( pSrvTable != nullptr ) {
+        ppHeaps[numHeaps++] = static_cast<ID3D12DescriptorHeap *>( pSrvTable );
+    }
+    if ( pSamplerHeap != nullptr ) {
+        ppHeaps[numHeaps++] = static_cast<ID3D12DescriptorHeap *>( pSamplerHeap );
+    }
+    if ( numHeaps > 0 ) {
+        pList->SetDescriptorHeaps( numHeaps, ppHeaps );
+    }
+
     // The texture table: a material's SRVs are at unrelated offsets in the
     // device's shader-visible heap, and a descriptor table has to be
     // contiguous. The copies come from the shader-opaque mirror of those
@@ -462,7 +534,6 @@ void D3D12Scene::draw( const void *pPipeline,
         if ( index == 0xFFFFFFFFu ) {
             return;
         }
-        ID3D12DescriptorHeap *pHeap = static_cast<ID3D12DescriptorHeap *>( pSrvTable );
         ID3D12Device *pD3D12Device = pDevice->getDevice();
         const D3D12_CPU_DESCRIPTOR_HANDLE base = CpuHandle( srvTableCpuStart + index * srvDescriptorSize );
         for ( uint32_t i = 0; i < count; i++ ) {
@@ -471,8 +542,13 @@ void D3D12Scene::draw( const void *pPipeline,
                 CpuHandle( base.ptr + static_cast<SIZE_T>( i ) * srvDescriptorSize );
             pD3D12Device->CopyDescriptorsSimple( 1, destination, source, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
         }
-        pList->SetDescriptorHeaps( 1, &pHeap );
         pList->SetGraphicsRootDescriptorTable( 3, GpuHandle( srvTableGpuStart + index * srvDescriptorSize ) );
+    }
+
+    // The sampler heap: the same table for every draw. Which entry a sample uses
+    // is the shader's business (it indexes the array with a push constant).
+    if ( pSamplerHeap != nullptr ) {
+        pList->SetGraphicsRootDescriptorTable( 4, GpuHandle( samplerHeapGpuStart ) );
     }
 
     if ( pConstants != nullptr && constantsBytes > 0 ) {
@@ -749,6 +825,234 @@ bool D3D12RunSceneTest( D3D12Device &device, uint32_t frames, const ColorRGBA &c
                    device.getDeviceName(), device.getBackbufferWidth(), device.getBackbufferHeight(),
                    device.hasDeviceLost() ? " - DEVICE LOST" : "" );
     return presented > 0 && !device.hasDeviceLost();
+}
+
+// -d3d12-samplertest (docs/backends.md section 4): the sampler heap, proved.
+//
+// The scene test draws through a *static* sampler register; an Eden draw does
+// not - DXSO hands it `sampler_heap[]` and the shader picks the entry with a
+// value from the push constant block. The probe here is the same access in
+// hand-written HLSL: one 2x1 two-colour texture, the same UVs in [0,2] on both
+// quads, and the only difference between the two draws is the heap index -
+// linear wrap (0) on the left, linear clamp/clamp (SH_LinearUV + 8, 13) on the
+// right. With wrap the texture repeats twice across the UV range, with clamp
+// the last texel stretches, so the halves' mean colours differ by ~47 levels on
+// R and B; a heap index that never reaches the sampler would make them equal.
+bool D3D12RunSamplerTest( D3D12Device &device, uint32_t frames, const ColorRGBA &clearColor ) {
+    constexpr uint32_t kDXGI_R32G32_FLOAT = 16;
+    constexpr uint32_t kDXGI_R8G8B8A8_UNORM = 28;
+
+    // Both stages declare the block the scene binds at b13 space1 - two dwords
+    // are used, the other two pad the constant buffer to 16 bytes.
+    static const char *kProbeHLSLHeader =
+        "cbuffer ProbeConstants : register(b13, space1)\n"
+        "{\n"
+        "    uint gSamplerIndex;\n"
+        "    float gOffsetX;\n"
+        "    float2 gUnused;\n"
+        "};\n";
+    static const char *kProbeVSBody =
+        "struct VSIn  { float2 pos : TEXCOORD0; float2 uv : TEXCOORD1; };\n"
+        "struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };\n"
+        "VSOut main( VSIn input )\n"
+        "{\n"
+        "    VSOut output;\n"
+        "    output.pos = float4( input.pos.x * 0.45 + gOffsetX, input.pos.y * 0.45, 0.5, 1.0 );\n"
+        "    output.uv = input.uv;\n"
+        "    return output;\n"
+        "}\n";
+    // The dynamic-index access itself: exactly what SPIRV-Cross emits for DXSO's
+    // runtime sampler array (`NonUniformResourceIndex` included).
+    static const char *kProbePSBody =
+        "Texture2D<float4> gTexture : register(t0);\n"
+        "SamplerState gSamplerHeap[] : register(s0, space0);\n"
+        "struct PSIn { float4 pos : SV_Position; float2 uv : TEXCOORD0; };\n"
+        "float4 main( PSIn input ) : SV_Target\n"
+        "{\n"
+        "    return gTexture.Sample( gSamplerHeap[NonUniformResourceIndex( gSamplerIndex )], input.uv );\n"
+        "}\n";
+    const std::string vsSource = std::string( kProbeHLSLHeader ) + kProbeVSBody;
+    const std::string psSource = std::string( kProbeHLSLHeader ) + kProbePSBody;
+
+    D3D12Scene scene;
+    if ( !scene.initialize( &device ) ) {
+        OTDU_LOG_ERROR( "D3D12 sampler test: the scene could not be initialised\n" );
+        return false;
+    }
+    if ( const char *pDump = CmdLine::GetArgValue( "-d3d12-dump-shaders" ) ) {
+        scene.setShaderDumpDir( pDump );
+    }
+
+    D3D12ShaderStage vs;
+    D3D12ShaderStage ps;
+    if ( !D3D12ShaderCompiler::compileHlsl( vsSource.c_str(), eShaderType::ST_Vertex, vs, "sampler_probe.vert" ) ||
+         !D3D12ShaderCompiler::compileHlsl( psSource.c_str(), eShaderType::ST_Pixel, ps, "sampler_probe.frag" ) ) {
+        OTDU_LOG_ERROR( "D3D12 sampler test: shader compile failed: %s %s\n", vs.Error.c_str(),
+                        ps.Error.c_str() );
+        scene.destroy();
+        return false;
+    }
+
+    struct ProbeVertex {
+        float Position[2];
+        float Texcoord[2];
+    };
+    const ProbeVertex quad[4] = {
+        { { -1.0f, -1.0f }, { 0.0f, 1.0f } },
+        { { -1.0f, 1.0f }, { 0.0f, 0.0f } },
+        { { 1.0f, 1.0f }, { 2.0f, 0.0f } },
+        { { 1.0f, -1.0f }, { 2.0f, 1.0f } },
+    };
+    const uint32_t indices[6] = { 0, 1, 2, 0, 2, 3 };
+    const uint32_t stride = sizeof( ProbeVertex );
+
+    D3D12Scene::Attribute attributes[2] = {
+        { 0, 0, kDXGI_R32G32_FLOAT, 0 },
+        { 1, 0, kDXGI_R32G32_FLOAT, 8 },
+    };
+    D3D12Scene::PipelineDesc pipelineDesc;
+    pipelineDesc.pVS = &vs;
+    pipelineDesc.pPS = &ps;
+    pipelineDesc.pAttributes = attributes;
+    pipelineDesc.NumAttributes = 2;
+    pipelineDesc.pStrides = &stride;
+    pipelineDesc.NumStreams = 1;
+    pipelineDesc.Blend = eBlendMode::BM_Opaque;
+    pipelineDesc.Cull = eCullMode::CM_None;
+    pipelineDesc.bDepthTest = true;
+    pipelineDesc.bDepthWrite = true;
+    const void *pPipeline = scene.getPipeline( pipelineDesc );
+    if ( pPipeline == nullptr ) {
+        OTDU_LOG_ERROR( "D3D12 sampler test: the pipeline could not be created\n" );
+        scene.destroy();
+        return false;
+    }
+
+    D3D12Scene::Mesh mesh;
+    if ( !scene.createMesh( quad, sizeof( quad ), stride, indices, 6, mesh ) ) {
+        OTDU_LOG_ERROR( "D3D12 sampler test: the quad could not be uploaded\n" );
+        scene.destroy();
+        return false;
+    }
+
+    // Two texels, two clearly different colours: wrap shows each one for half of
+    // the [0,2] UV range, clamp stretches the second one over three quarters.
+    const uint8_t texels[2 * 4] = { 230, 40, 40, 255, 40, 40, 230, 255 };
+    D3D12Device::Texture texture = {};
+    const void *pMip = texels;
+    const uint32_t mipSize = sizeof( texels );
+    if ( !device.createTexture2D( 2, 1, 1, kDXGI_R8G8B8A8_UNORM, &pMip, &mipSize, texture,
+                                  "sampler_probe" ) ) {
+        OTDU_LOG_ERROR( "D3D12 sampler test: the texture could not be uploaded\n" );
+        scene.destroyMesh( mesh );
+        scene.destroy();
+        return false;
+    }
+
+    struct ProbeConstants {
+        uint32_t SamplerIndex;
+        float OffsetX;
+        uint32_t Pad0;
+        uint32_t Pad1;
+    };
+    const ProbeConstants left = { SH_LinearWrap, -0.5f, 0, 0 };
+    const ProbeConstants right = { SH_LinearUV + 8, 0.5f, 0, 0 }; // clamp / clamp
+
+    bool bQuit = false;
+    uint32_t presented = 0;
+    for ( uint32_t i = 0; i < frames && !bQuit; i++ ) {
+        SDL_Event event;
+        while ( SDL_PollEvent( &event ) ) {
+            if ( event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ) {
+                bQuit = true;
+            }
+        }
+        if ( bQuit || !device.beginFrame( clearColor ) ) {
+            break;
+        }
+        scene.draw( pPipeline, mesh, &left, sizeof( left ), &texture.SrvStorageCpu, 1 );
+        scene.draw( pPipeline, mesh, &right, sizeof( right ), &texture.SrvStorageCpu, 1 );
+        if ( i + 1 == frames ) {
+            // endFrame copies the frame it just recorded (before Present).
+            device.requestReadback();
+        }
+        device.endFrame();
+        presented++;
+        if ( device.hasDeviceLost() ) {
+            break;
+        }
+    }
+    device.waitIdle();
+    const std::vector<uint8_t> &pixels = device.getLastReadback();
+
+    scene.destroyMesh( mesh );
+    device.destroyTexture( texture );
+    scene.destroy();
+
+    if ( presented == 0 || device.hasDeviceLost() ) {
+        OTDU_LOG_ERROR( "D3D12 sampler test: no frame was presented%s\n",
+                        device.hasDeviceLost() ? " (DEVICE LOST)" : "" );
+        return false;
+    }
+    if ( pixels.empty() ) {
+        OTDU_LOG_ERROR( "D3D12 sampler test: the frame could not be read back\n" );
+        return false;
+    }
+
+    // Measure the two halves over the pixels the quads cover: anything far from
+    // the clear colour is a quad pixel (the texture's colours are saturated).
+    const uint32_t pixelWidth = device.getBackbufferWidth();
+    const uint32_t pixelHeight = device.getBackbufferHeight();
+    const int background[3] = { static_cast<int>( clearColor.r * 255.0f + 0.5f ),
+                                static_cast<int>( clearColor.g * 255.0f + 0.5f ),
+                                static_cast<int>( clearColor.b * 255.0f + 0.5f ) };
+    double sum[2][3] = {};
+    uint32_t covered[2] = {};
+    for ( uint32_t y = 0; y < pixelHeight; y++ ) {
+        for ( uint32_t x = 0; x < pixelWidth; x++ ) {
+            const uint8_t *pPixel = &pixels[( static_cast<size_t>( y ) * pixelWidth + x ) * 4];
+            const int dr = static_cast<int>( pPixel[0] ) - background[0];
+            const int dg = static_cast<int>( pPixel[1] ) - background[1];
+            const int db = static_cast<int>( pPixel[2] ) - background[2];
+            if ( dr * dr + dg * dg + db * db < 12 * 12 ) {
+                continue;
+            }
+            const uint32_t half = x < pixelWidth / 2 ? 0 : 1;
+            sum[half][0] += pPixel[0];
+            sum[half][1] += pPixel[1];
+            sum[half][2] += pPixel[2];
+            covered[half]++;
+        }
+    }
+
+    const uint32_t halfPixels = ( pixelWidth / 2 ) * pixelHeight;
+    const uint32_t minCoverage = Max<uint32_t>( 1, halfPixels / 50 ); // 2 % of a half
+    if ( covered[0] < minCoverage || covered[1] < minCoverage ) {
+        OTDU_LOG_ERROR( "D3D12 sampler test: the quads did not draw (left %u px, right %u px of %u)\n",
+                        covered[0], covered[1], halfPixels );
+        return false;
+    }
+
+    float mean[2][3] = {};
+    for ( uint32_t half = 0; half < 2; half++ ) {
+        for ( uint32_t channel = 0; channel < 3; channel++ ) {
+            mean[half][channel] = static_cast<float>( sum[half][channel] ) / covered[half];
+        }
+    }
+    const float deltaR = std::fabs( mean[0][0] - mean[1][0] );
+    const float deltaB = std::fabs( mean[0][2] - mean[1][2] );
+    const bool bPassed = deltaR >= 20.0f && deltaB >= 20.0f;
+
+    OTDU_LOG_INFO( "D3D12 sampler test: %u frame(s) of two quads on '%s' (%ux%u); wrap mean "
+                   "%.1f/%.1f/%.1f (%u px), clamp mean %.1f/%.1f/%.1f (%u px), dR %.1f dB %.1f\n",
+                   presented, device.getDeviceName(), pixelWidth, pixelHeight, mean[0][0], mean[0][1],
+                   mean[0][2], covered[0], mean[1][0], mean[1][1], mean[1][2], covered[1], deltaR,
+                   deltaB );
+    OTDU_LOG_INFO( "D3D12 sampler test: %s (dynamic sampler-heap indexing %s)\n",
+                   bPassed ? "PASSED" : "FAILED",
+                   bPassed ? "reaches the sampler"
+                           : "produced identical halves - the index is not reaching the sampler" );
+    return bPassed;
 }
 
 // -d3d12-shadertest (docs/backends.md section 3.5): the measurement that

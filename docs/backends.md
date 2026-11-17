@@ -29,6 +29,7 @@ with no shippable step in between. The backends are therefore added
 | 2D layer (Flash front end, font atlas, clip rects, stencil masks) | done | **done** (HLSL, section 6) | - | - |
 | Scene shader path (SPIR-V -> HLSL -> SM 5.1 DXBC) | n/a (SPIR-V) | **done** (section 4) | - | - |
 | Scene pipelines / meshes / texture tables | done | **done** (one root signature, section 4) | - | - |
+| Sampler heap (DXSO's runtime sampler array) | sampler set (`samplerHeap`) | **done** (`-d3d12-samplertest`, section 3.6) | - | - |
 | Every Eden shader stage compiled (`-d3d12-shadertest`) | n/a | **done** (section 3.5) | - | - |
 | ImGui overlay / build watermark | done | **done, opt-in** `-d3d12-ui` (driver stall, section 6) | - | - |
 | Scene (eden), 3D game modes | done | not yet (phase 3b step 2) | - | - |
@@ -59,6 +60,7 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-notitlescene` | skip the 3D press-start cinematic (applied automatically when the backend cannot draw 3D) |
 | `-renderer-selftest [frames]` | the self test below: no game, no data, exit 0/1 |
 | `-d3d12-scenetest` | with the self test: the scene path instead of the colour bars (section 3.3) |
+| `-d3d12-samplertest` | with the self test: a shader that indexes the D3D9 sampler heap dynamically, two quads, read back and measured (section 3.6) |
 | `-d3d12-shadertest [<text>]` | in the game bootstrap (`-game`): every `.sob` stage through the scene shader path, with a tally; `<text>` keeps only libraries whose name contains it (section 3.5) |
 | `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
 | `-renderer-shot <path.ppm>` | with the self test: write the last frame |
@@ -178,24 +180,29 @@ Measured (RTX 5070 Ti, build 219): the debug layer reports **no** message for th
 whole stream, and the log reads
 
 ```
-D3D12 scene: root signature ready (b0 constants, b13 root constants, t0..t7)
-D3D12 scene test: mesh.vert -> 1720 B DXBC (32 root constants), mesh.frag -> 2564 B DXBC (1 texture(s), 0 sampler(s))
+D3D12 scene: root signature ready (b0 constants, b13 space1 root constants, t0..t15, s0..s15 sampler table, 14 heap entries)
+D3D12 scene test: mesh.vert -> 1780 B DXBC (32 root constants), mesh.frag -> 2660 B DXBC (1 texture(s), 0 sampler(s))
 D3D12 scene: pipeline 1 (4 attributes, 1 stream(s), blend 0, cull 0, depth test+write)
 D3D12 scene test: 30 frame(s) of a 36 index cube on 'NVIDIA GeForce RTX 5070 Ti' (1280x720)
 ```
 
+(Both log lines are from the sampler-heap build 223; the DXBC sizes grew with the
+SM 5.1 switch of step 1b, the frame did not - see below.)
+
 The frame is checked by numbers, not by eye: **10.26 % of the pixels differ from
 the clear colour, 28992 distinct colours**, and the three visible faces carry
 different brightness (the `+Y` face lit, the two sides dimmer) - i.e. the vertex
-layout, the 128-byte root constant block, the texture table with its static
-sampler and the depth test all work. `docs/images/d3d12_scene_test.webp` is that
+layout, the 128-byte root constant block, the texture table with its sampler heap
+and the depth test all work. `docs/images/d3d12_scene_test.webp` is that
 frame. The 28992 colours are the 64x64 checker through linear filtering plus the
 per-pixel lighting, not noise: the mean difference between neighbouring pixels
 inside the cube is 6.2/765.
 
 The same frame is **byte-identical** (`SHA256 E505B37F...778CEB`) before and after
-the SM 5.0 -> 5.1 switch and the push constants' move to register space 1 (section
-4) - the compiler changed, the pixels did not. Reproduce the numbers with:
+the SM 5.0 -> 5.1 switch, the push constants' move to register space 1 (section
+4) and the static samplers' replacement by the sampler heap (section 3.6) - the
+compiler and the sampler plumbing changed, the pixels did not. Reproduce the
+numbers with:
 
 ```python
 from PIL import Image
@@ -282,8 +289,56 @@ What the tally sizes for the rest of the Eden work:
   measured maximum - and the re-run prints `0 stage(s) over`.
 * **96 B of push constants** (24 root constants) is the maximum, well inside the
   128 B / 32-dword budget the Vulkan path uses.
-* ...and the sampler is the open item: DXSO declares it as a *runtime descriptor
-  array*, which D3D12's static samplers cannot serve (section 4).
+* the sampler - DXSO declares it as a *runtime descriptor array*, which D3D12's
+  static samplers cannot serve - was the open item this tally left; it is a
+  sampler descriptor heap now (section 3.6).
+
+### 3.6 The sampler heap (`-d3d12-samplertest`)
+
+The tally proved every shader *compiles*; it cannot prove one *draws*, and the
+one access it cannot even compile into a static-sampler pipeline is the one every
+Eden draw makes: DXSO hands the shader `sampler_heap[]` (a runtime descriptor
+array) and the shader picks the entry with a value from the push constants.
+D3D12 cannot index a static sampler dynamically, so `D3D12Scene` serves the same
+fourteen entries from a shader-visible **sampler descriptor heap** bound as the
+root signature's last parameter (s0..s15, section 4).
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-samplertest -d3d12-debug `
+    -renderer-selftest 120 -renderer-shot E:\Cline\_st_sampler.ppm -log E:\Cline\_st_sampler.log
+```
+
+The test is a measurement, not a look: one 2x1 two-colour texture
+(`230,40,40` / `40,40,230`), one quad mesh, the same UVs in **[0,2]** for both
+draws, and the *only* difference between the two draws is the heap index in the
+root constants - **linear wrap (0)** on the left, **linear clamp/clamp (13)** on
+the right. Wrap repeats the texture twice across the UV range, clamp stretches
+the second texel over three quarters of it, so the halves' mean colours have to
+differ; if the index never reached the sampler they would be identical. The frame
+is read back (`D3D12Device::readbackBackbuffer`, the screenshot's own path) and
+the two halves are measured.
+
+Measured (build `223 (51af9d2+dirty) - cline`, 1280x720, debug layer on and
+silent, exit 0):
+
+```
+D3D12 sampler test: 120 frame(s) of two quads on 'NVIDIA GeForce RTX 5070 Ti' (1280x720);
+  wrap mean 135.0/40.0/135.0 (186624 px), clamp mean 87.5/40.0/182.5 (186624 px), dR 47.5 dB 47.5
+D3D12 sampler test: PASSED (dynamic sampler-heap indexing reaches the sampler)
+```
+
+- The means are what the arithmetic predicts: 50/50 of the two texels for wrap
+  (135/40/135) and 25/75 for clamp (87.5/40/182.5); the difference is 47.5 levels
+  on R and B, and the pass threshold is 20.
+- `186624` covered pixels is `576 x 324` - two 0.9-NDC quads of the 1280x720
+  frame, i.e. the coverage check is exact, not approximate.
+- The **same numbers on WARP** (`-d3d12-warp`: 135.0/40.0/135.0 and
+  87.6/40.0/182.4), so the result is the API contract and not one driver's
+  behaviour.
+- No regression in the frame that was already there: the scene test's PPM is
+  **byte-identical** to the pre-sampler-heap build
+  (`SHA256 E505B37F...778CEB`), because its shader samples through s0, which is
+  entry 0 - linear wrap - exactly what the static sampler it used to get was.
 
 ## 4. The shader path
 
@@ -332,7 +387,7 @@ The register convention is fixed, so **one root signature serves every program**
 | b0 (VS) / b0 (PS) | CBV | the stage's constant buffers, remapped to b0..bN per stage |
 | b13 **space1** | 32-bit root constants | the D3D9 push constants, up to 32 dwords (128 B, `RenderDevice::kPushConstantsSize`) |
 | t0..t15 | SRV table | the material's textures, remapped in SPIR-V resource order |
-| s0..s15 | static samplers | linear / wrap / mip linear (D3D9's default state) |
+| s0..s15 | sampler table | the D3D9 sampler set (14 entries, `render/sampler_heap.h`): a runtime descriptor array, not static samplers |
 
 * **b13, not b15**: SM 5.0 has exactly 14 constant buffer slots (b0..b13) and
   `D3DCompile` rejects `register(b15)` with *"maximum cbuffer exceeded. target has
@@ -352,16 +407,25 @@ The register convention is fixed, so **one root signature serves every program**
 * The HLSL text is kept per stage: `-d3d12-dump-shaders <dir>` writes it out, and
   a failed stage's HLSL is dumped too (section 3.5).
 
-**Still open for step 2: the sampler heap.** DXSO declares its samplers as one
-*runtime descriptor array* (`SamplerState sampler_heap[] : register(s0, space0)`,
-`_SetupSamplerArray` in `dxso_compiler.cpp`) indexed by a value the shader reads
-out of the push constant block (`render_state_s0_s1_idx` ...). D3D12 cannot index
-*static* samplers dynamically, so the scene's eight static samplers can carry the
-engine's own GLSL shaders and the 2D layer but not an Eden draw: the port needs
-the Vulkan renderer's **sampler heap** equivalent - a shader-visible sampler
-descriptor heap, filled per material (`EdenRenderer`'s `samplerHeap` on Vulkan),
-bound as a sampler descriptor table, with the root signature's table at
-`s0`, space 0.
+**The sampler heap exists** (2026-11-17, `-d3d12-samplertest`, section 3.6).
+DXSO declares its samplers as one *runtime descriptor array*
+(`SamplerState sampler_heap[] : register(s0, space0)`, `_SetupSamplerArray` in
+`dxso_compiler.cpp`) indexed by a value the shader reads out of the push constant
+block (`render_state_s0_s1_idx` ...), and D3D12 cannot index *static* samplers
+dynamically. `D3D12Scene` therefore has **no static samplers at all**: its fourth
+root parameter is a sampler descriptor table over s0..s15, and its heap
+(`D3D12Scene::createSamplerHeap`) is filled once with the same fourteen entries as
+the Vulkan `EdenRenderer::samplerHeap`, in the same order, from the same table -
+`source/render/sampler_heap.h`, which both backends include. The per-material
+choice is the *index* in the push constants (as it already was on Vulkan), so the
+heap itself is never rewritten per draw.
+
+`sampler_heap.h` is the part that keeps the two backends honest: the index values
+are material data (`EdenMaterial::SamplerIndex`, written at push-constant byte 64)
+and a table that drifted between the backends would sample one material's texels
+with the other's addressing, silently. `-d3d12-samplertest` measures the D3D12
+side of that contract; the Vulkan side is the sampler set the front end and the
+world already draw with.
 
 Then, per backend: bindings (root signature / CBV+SRV+sampler heaps vs
 descriptor sets), the push-constant block (`kPushConstantsSize` = 128 B) becomes
@@ -385,7 +449,11 @@ root constants or a CBV, and the pipeline state (blend / cull / depth / stencil 
    pushed all 7744 stages of the 116 libraries through the path and found three
    real defects - SM 5.0 vs `NonUniformResourceIndex`, FXC's X3596 on unbounded
    sampler tables, and the b13/space 0 remap collision - all fixed in the compiler
-   (section 4). Step 2, the Eden scene itself:
+   (section 4). Same day, step 1c: **the sampler heap** (`-d3d12-samplertest`,
+   section 3.6) - a shader-visible sampler descriptor heap in the root
+   signature's last parameter, the same fourteen entries as the Vulkan sampler
+   set (`render/sampler_heap.h`), so a shader can index the D3D9 sampler set the
+   way DXSO emits it. Step 2, the Eden scene itself:
    `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
    `EdenProgram` -> pipeline cache, `fillConstants` into the b13 space1 root
    constants, the constants UBO as the b0 CBV, and the **sampler heap** as a
@@ -399,11 +467,9 @@ root constants or a CBV, and the pipeline state (blend / cull / depth / stencil 
 Next step, precisely: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
 `PipelineDesc` handed to `D3D12Scene::getPipeline` and `recordPacket`'s push constants
 handed to `D3D12Scene::draw`, with `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`)
-going through `D3D12ShaderCompiler`. The tally (section 3.5) has already answered the
-question that came before it - the shaders compile - and it added one item to the
-same work: the **sampler heap** (a shader-visible sampler descriptor heap plus a
-sampler range in the root signature), because DXSO's sampler is a runtime descriptor
-array and D3D12 cannot index static samplers dynamically.
+going through `D3D12ShaderCompiler`. The two questions that came before it are
+answered: the shaders all compile (section 3.5) and the sampler heap they index
+draws with the right state (section 3.6).
 
 ## 6. Known gaps and traps
 
@@ -445,13 +511,21 @@ array and D3D12 cannot index static samplers dynamically.
   (`D3D12ShaderCompiler::kPushConstantSpace`), and the root signature's
   `32BIT_CONSTANTS` parameter names the same space. Found by the tally: 1146 of the
   first 1470 dumped stages had b0.
-- **DXSO's sampler is a runtime descriptor array, so static samplers cannot draw
-  Eden.** `SamplerState sampler_heap[] : register(s0, space0)` indexed by a value
-  from the push constant block (`render_state_s0_s1_idx` ...) is the D3D9 sampler
-  set; D3D12 cannot index static samplers dynamically. The scene's eight static
-  samplers are enough for the engine's GLSL shaders and the 2D layer, and step 2
-  needs the Vulkan `samplerHeap` equivalent: a shader-visible sampler descriptor
-  heap, a per-material fill, and a sampler range as the last root parameter.
+- **DXSO's sampler is a runtime descriptor array, so the scene has no static
+  samplers.** `SamplerState sampler_heap[] : register(s0, space0)` indexed by a
+  value from the push constant block (`render_state_s0_s1_idx` ...) is the D3D9
+  sampler set, and D3D12 cannot index *static* samplers dynamically. The fix is a
+  sampler descriptor table (s0..s15) plus a shader-visible sampler heap
+  (section 4); a static sampler and a descriptor range cannot share a register, so
+  the old static set had to go with it. `-d3d12-samplertest` (section 3.6) is the
+  proof that the index reaches the sampler.
+- **`SetDescriptorHeaps` replaces the whole set, per command list.** The scene
+  binds its SRV table heap *and* its sampler heap on every draw
+  (`D3D12Scene::draw`), because the 2D layer (`D3D12UI`) and ImGui each call
+  `SetDescriptorHeaps` with their own heap in between - a table is only valid
+  while its heap is in the current set, and a stale table is error #646 at draw
+  time, not at the `SetGraphicsRootDescriptorTable` call. One heap of each type
+  may be bound at once, so the scene's two are exactly SRV + SAMPLER.
 - **The front face is decided in screen space, where Y points down.** A Vulkan
   pipeline with `frontFace = counter-clockwise` maps to
   `D3D12_RASTERIZER_DESC::FrontCounterClockwise = FALSE`. Not yet exercised: the

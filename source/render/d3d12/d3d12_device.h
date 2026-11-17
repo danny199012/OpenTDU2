@@ -134,6 +134,12 @@ public:
     bool saveScreenshot( const char *pPath );
     void requestScreenshot( const char *pPath ) { pendingScreenshot = pPath; }
 
+    // The same readback without a file: the next endFrame copies the frame it
+    // just recorded into getLastReadback() (tightly packed R8G8B8A8). For the
+    // tests that have to measure pixels (-d3d12-samplertest); a no-op otherwise.
+    void requestReadback() { bPendingReadback = true; }
+    inline const std::vector<uint8_t> &getLastReadback() const { return lastReadback; }
+
     // Presents 'frames' frames of the test pattern and returns whether the
     // device, the swapchain and Present all worked (-renderer-selftest).
     bool runSelfTest( uint32_t frames, const ColorRGBA &clearColor );
@@ -156,6 +162,9 @@ private:
     // Copies the current backbuffer out as a binary PPM (no dependency, the
     // same format RenderDevice::saveScreenshot writes).
     bool captureBackbuffer( const char *pPath );
+    // The backbuffer -> tightly packed R8G8B8A8, for captureBackbuffer and the
+    // tests that measure pixels.
+    bool readbackBackbuffer( std::vector<uint8_t> &outPixels );
     // The self test pattern: eight vertical colour bars, cleared with
     // ClearRenderTargetView so the screenshot proves the swapchain really is
     // ours (a flat clear could be a stale buffer).
@@ -191,6 +200,8 @@ private:
     uint64_t frameNumber = 0;
     std::string deviceName;
     std::string pendingScreenshot;
+    bool bPendingReadback = false;
+    std::vector<uint8_t> lastReadback;
     bool bVSync = true;
     bool bTearing = false;
     bool bSwapchainDirty = false;

@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include "eden_material_handlers.h"
 
+#include "render/sampler_heap.h"
 #include "render/texture_cache.h"
 #include "system/cmd_line.h"
 
@@ -37,17 +38,11 @@ constexpr uint32_t kPushAlphaRefOffset = 24;
 // GetPushSamplerOffset(0) = MaxSharedPushDataSize
 constexpr uint32_t kPushSamplerOffset = 64;
 
-enum eSamplerHeapIndex : uint8_t {
-    SH_LinearWrap = 0,
-    SH_LinearClamp,
-    SH_PointWrap,
-    SH_PointClamp,
-    SH_LinearMirror,
-    // 2DM per-slot addressing (MaterialTextureSlot::AddressU / V): linear,
-    // SH_LinearUV + 3 * u + v with 0 wrap, 1 mirror, 2 clamp.
-    SH_LinearUV,
-    SH_Count = SH_LinearUV + 9
-};
+// The sampler heap's entries (eSamplerHeapIndex, the 2DM address mapping) are
+// shared with the Direct3D 12 backend, so the two cannot drift: render/sampler_heap.h.
+// The index values are written into the push constant block from the material,
+// so the order is a data contract, not a preference.
+
 
 // 2DM slot address byte -> 0 wrap, 1 mirror, 2 clamp. 1 wrap and 2 mirror are
 // verified (the avatar LUT / implant mirror, skin_zones_spec 1.7). 3 is NOT
@@ -71,6 +66,19 @@ uint32_t AddressIndex( uint8_t d3dAddress ) {
         return bClamp3 ? 2 : 0;
     default:
         return 0;
+    }
+}
+
+// A sampler-heap address byte (0 wrap, 1 mirror, 2 clamp) as the device's enum.
+// The enum's own order is not this one (SA_Clamp = 0), so the mapping is explicit.
+eSamplerAddress SamplerAddressMode( uint8_t mode ) {
+    switch ( mode ) {
+    case 1:
+        return eSamplerAddress::SA_Mirror;
+    case 2:
+        return eSamplerAddress::SA_Clamp;
+    default:
+        return eSamplerAddress::SA_Wrap;
     }
 }
 
@@ -304,21 +312,13 @@ GPUTexture *EdenRenderer::createWhiteTexture( VkImageViewType viewType, const ch
 }
 
 void EdenRenderer::fillSamplerHeap() {
-    samplerHeap.resize( SH_Count );
-    samplerHeap[SH_LinearWrap] = pDevice->getSampler( eSamplerFilter::SF_Linear, eSamplerAddress::SA_Wrap );
-    samplerHeap[SH_LinearClamp] = pDevice->getSampler( eSamplerFilter::SF_Linear, eSamplerAddress::SA_Clamp );
-    samplerHeap[SH_PointWrap] = pDevice->getSampler( eSamplerFilter::SF_Point, eSamplerAddress::SA_Wrap );
-    samplerHeap[SH_PointClamp] = pDevice->getSampler( eSamplerFilter::SF_Point, eSamplerAddress::SA_Clamp );
-    samplerHeap[SH_LinearMirror] = pDevice->getSampler( eSamplerFilter::SF_Linear, eSamplerAddress::SA_Mirror );
-    static const eSamplerAddress kAddress[3] = { eSamplerAddress::SA_Wrap, eSamplerAddress::SA_Mirror,
-                                                 eSamplerAddress::SA_Clamp };
-    for ( uint32_t u = 0; u < 3; u++ ) {
-        for ( uint32_t v = 0; v < 3; v++ ) {
-            samplerHeap[SH_LinearUV + 3 * u + v] =
-                pDevice->getSampler( eSamplerFilter::SF_Linear, kAddress[u], kAddress[v] );
-        }
+    samplerHeap.resize( kSamplerHeapSize );
+    for ( uint32_t i = 0; i < kSamplerHeapSize; i++ ) {
+        const SamplerHeapState state = GetSamplerHeapState( i );
+        samplerHeap[i] = pDevice->getSampler( state.bPoint ? eSamplerFilter::SF_Point : eSamplerFilter::SF_Linear,
+                                              SamplerAddressMode( state.AddressU ),
+                                              SamplerAddressMode( state.AddressV ) );
     }
-
 }
 
 void EdenRenderer::writeSamplerSet() {

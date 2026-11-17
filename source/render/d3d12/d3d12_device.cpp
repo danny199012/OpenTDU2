@@ -515,6 +515,12 @@ void D3D12Device::endFrame() {
     ID3D12CommandList *ppLists[] = { frame.pList };
     pQueue->ExecuteCommandLists( 1, ppLists );
 
+    if ( bPendingReadback ) {
+        // Behind the frame on the same queue, like the screenshot below.
+        readbackBackbuffer( lastReadback );
+        bPendingReadback = false;
+    }
+
     if ( !pendingScreenshot.empty() ) {
         // Queued behind the frame on the same queue, so the image copied out is
         // the one just drawn.
@@ -670,7 +676,12 @@ void D3D12Device::recordTestPattern( ID3D12GraphicsCommandList *pList, uintptr_t
     }
 }
 
-bool D3D12Device::captureBackbuffer( const char *pPath ) {
+// Copies the backbuffer the frame just drew into 'outPixels' as tightly packed
+// R8G8B8A8 (width * height * 4) - the one readback path, used by the screenshot
+// and by the tests that need numbers instead of a file (-d3d12-samplertest).
+// Waits for the GPU, so it is not a per-frame operation.
+bool D3D12Device::readbackBackbuffer( std::vector<uint8_t> &outPixels ) {
+    outPixels.clear();
     if ( pDevice == nullptr || pBackbuffers[imageIndex] == nullptr || pQueue == nullptr ) {
         return false;
     }
@@ -757,31 +768,19 @@ bool D3D12Device::captureBackbuffer( const char *pPath ) {
         }
     }
 
-    bool bSaved = false;
+    bool bRead = false;
     void *pMapped = nullptr;
     D3D12_RANGE readRange = { 0, static_cast<SIZE_T>( totalBytes ) };
     if ( SUCCEEDED( pReadback->Map( 0, &readRange, &pMapped ) ) && pMapped != nullptr ) {
-        const uint32_t pixelWidth = width;
-        const uint32_t pixelHeight = height;
         const uint8_t *pPixels = static_cast<const uint8_t *>( pMapped );
-        std::vector<uint8_t> row( static_cast<size_t>( pixelWidth ) * 3 );
-        std::ofstream stream( pPath, std::ios::binary );
-        if ( stream ) {
-            stream << "P6\n" << pixelWidth << " " << pixelHeight << "\n255\n";
-            for ( uint32_t y = 0; y < pixelHeight; y++ ) {
-                // RowPitch, not width * 4: the copy is padded (to 256 bytes).
-                const uint8_t *pRow =
-                    pPixels + static_cast<size_t>( y ) * footprint.Footprint.RowPitch;
-                for ( uint32_t x = 0; x < pixelWidth; x++ ) {
-                    row[x * 3 + 0] = pRow[x * 4 + 0];
-                    row[x * 3 + 1] = pRow[x * 4 + 1];
-                    row[x * 3 + 2] = pRow[x * 4 + 2];
-                }
-                stream.write( reinterpret_cast<const char *>( row.data() ),
-                              static_cast<std::streamsize>( row.size() ) );
-            }
-            bSaved = true;
+        outPixels.resize( static_cast<size_t>( width ) * height * 4 );
+        for ( uint32_t y = 0; y < height; y++ ) {
+            // RowPitch, not width * 4: the copy is padded (to 256 bytes).
+            const uint8_t *pRow = pPixels + static_cast<size_t>( y ) * footprint.Footprint.RowPitch;
+            memcpy( &outPixels[static_cast<size_t>( y ) * width * 4], pRow,
+                    static_cast<size_t>( width ) * 4 );
         }
+        bRead = true;
         D3D12_RANGE writeRange = { 0, 0 };
         pReadback->Unmap( 0, &writeRange );
     }
@@ -789,6 +788,37 @@ bool D3D12Device::captureBackbuffer( const char *pPath ) {
     SafeRelease( pList );
     SafeRelease( pAllocator );
     SafeRelease( pReadback );
+    if ( !bRead ) {
+        outPixels.clear();
+    }
+    return bRead;
+}
+
+bool D3D12Device::captureBackbuffer( const char *pPath ) {
+    std::vector<uint8_t> pixels;
+    if ( !readbackBackbuffer( pixels ) ) {
+        OTDU_LOG_WARN( "D3D12: the screenshot '%s' could not be read back\n", pPath );
+        return false;
+    }
+
+    // R8G8B8A8 -> the PPM's RGB rows (a binary PPM has no alpha).
+    bool bSaved = false;
+    std::vector<uint8_t> row( static_cast<size_t>( width ) * 3 );
+    std::ofstream stream( pPath, std::ios::binary );
+    if ( stream ) {
+        stream << "P6\n" << width << " " << height << "\n255\n";
+        for ( uint32_t y = 0; y < height; y++ ) {
+            const uint8_t *pRow = &pixels[static_cast<size_t>( y ) * width * 4];
+            for ( uint32_t x = 0; x < width; x++ ) {
+                row[x * 3 + 0] = pRow[x * 4 + 0];
+                row[x * 3 + 1] = pRow[x * 4 + 1];
+                row[x * 3 + 2] = pRow[x * 4 + 2];
+            }
+            stream.write( reinterpret_cast<const char *>( row.data() ),
+                          static_cast<std::streamsize>( row.size() ) );
+        }
+        bSaved = true;
+    }
 
     if ( bSaved ) {
         OTDU_LOG_INFO( "Screenshot saved to '%s'\n", pPath );
@@ -947,7 +977,12 @@ bool D3D12RunSelfTest() {
         // A dark clear colour under the bars, so a black bar cannot be confused
         // with an uninitialised buffer.
         const ColorRGBA clearColor( 0.05f, 0.06f, 0.08f, 1.0f );
-        if ( CmdLine::HasArg( "-d3d12-scenetest" ) ) {
+        if ( CmdLine::HasArg( "-d3d12-samplertest" ) ) {
+            // The sampler heap (docs/backends.md section 4): a shader that
+            // indexes the D3D9 sampler set dynamically, which is the access
+            // every Eden draw makes.
+            bOk = D3D12RunSamplerTest( device, static_cast<uint32_t>( frames ), clearColor );
+        } else if ( CmdLine::HasArg( "-d3d12-scenetest" ) ) {
             // The scene path (docs/backends.md phase 3b): shader compilation,
             // one pipeline, a textured cube, a depth tested draw.
             bOk = D3D12RunSceneTest( device, static_cast<uint32_t>( frames ), clearColor );

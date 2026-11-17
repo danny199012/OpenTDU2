@@ -28,9 +28,16 @@ struct D3D12ShaderStage;
 //
 //   0  CBV          b0        vertex stage constants (unused yet)
 //   1  CBV          b0        pixel stage constants (unused yet)
-//   2  32-bit const b13       the D3D9 push constants (render state)
+//   2  32-bit const b13 space1  the D3D9 push constants (render state)
 //   3  SRV table    t0..t15   the material's textures
-//   static samplers s0..s15   linear / wrap / mip linear (D3D9's default state)
+//   4  sampler table s0..s15  the D3D9 sampler set (render/sampler_heap.h)
+//
+// The samplers are a descriptor table, not static samplers: DXSO hands every
+// Eden shader a *runtime* sampler array (`sampler_heap[] : register(s0, space0)`)
+// whose index comes out of the push constant block, and D3D12 cannot index a
+// static sampler dynamically (docs/backends.md section 4). The heap holds the
+// same entries, in the same order, as EdenRenderer's Vulkan sampler set, so a
+// material samples the same texels on both backends.
 //
 // Everything else is per pipeline state: blend, cull, depth, the vertex layout.
 class D3D12Scene {
@@ -91,6 +98,12 @@ public:
     // this was before the tally measured it.
     static constexpr uint32_t kTextureTableSize = 16;
 
+    // The sampler table size of the same root signature (s0..s15 - D3D9's 16
+    // sampler slots). The first kSamplerHeapSize entries are the Eden sampler
+    // set (render/sampler_heap.h); the rest stay linear wrap, so an engine shader
+    // that names s14/s15 still resolves.
+    static constexpr uint32_t kSamplerTableSize = 16;
+
     // Created on first use and cached by the full descriptor (the same program
     // drawn with two blend modes is two pipelines, exactly like the Vulkan
     // renderer's pipeline cache). nullptr when the state cannot be built.
@@ -109,6 +122,9 @@ public:
     // 'pTextureSrvs' are the *storage-heap* SRV handles of t0.. in order
     // (D3D12Device::Texture::SrvStorageCpu, GPUTexture::D3D12SrvStorageCpu) -
     // a shader-visible descriptor is not a legal copy source for the table.
+    // Both descriptor heaps (the SRV table and the sampler heap) are made the
+    // command list's set here, because a descriptor table is only valid while
+    // its heap is bound.
     void draw( const void *pPipeline,
                const Mesh &mesh,
                const void *pConstants,
@@ -134,11 +150,17 @@ private:
     uint64_t srvCursor = 0;
     uint32_t srvFrameSlot = 0xFFFFFFFFu;
     uint32_t srvDescriptorSize = 0;
+    // The sampler heap: filled once with the Eden sampler set (render/sampler_heap.h)
+    // and never rewritten - the per-material choice is the *index* the shader
+    // reads out of the push constants, exactly like the Vulkan sampler set.
+    void *pSamplerHeap = nullptr;
+    uint64_t samplerHeapGpuStart = 0;
     std::unordered_map<std::string, void *> pipelines;
     std::string shaderDumpDir;
     uint32_t dumpedShaders = 0;
 
     bool createRootSignature();
+    bool createSamplerHeap();
     // Reserves 'count' contiguous descriptors and returns their base index.
     uint32_t allocateTable( uint32_t count );
     void dumpShader( const char *pName, const D3D12ShaderStage &stage );
@@ -149,6 +171,17 @@ private:
 // HLSL -> DXBC), presents it and reports whether the frame holds geometry.
 // Runs inside -renderer-selftest's device/window (D3D12RunSelfTest).
 bool D3D12RunSceneTest( D3D12Device &device, uint32_t frames, const ColorRGBA &clearColor );
+
+// -d3d12-samplertest: the one thing the scene test cannot prove - that a shader
+// can *index the sampler heap dynamically*, which is the access every Eden draw
+// makes (DXSO's `sampler_heap[]`, docs/backends.md section 4). Two quads of the
+// same 2x1 two-colour texture and the same UVs in [0,2] are drawn with two
+// different heap indices (linear wrap and linear clamp/clamp); the frame is read
+// back and the two halves' mean colours are compared - wrap shows both texels
+// half of the time, clamp stretches the edge one, so the halves can only match
+// if the index is not reaching the sampler. Returns false on a device loss or
+// when the measured colours do not differ.
+bool D3D12RunSamplerTest( D3D12Device &device, uint32_t frames, const ColorRGBA &clearColor );
 
 // -d3d12-shadertest: the measurement that sizes the Eden port (docs/backends.md
 // section 3.5). Every vertex and pixel stage of every .sob library in

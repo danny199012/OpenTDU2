@@ -16,6 +16,114 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-17 (ninety-fifth, `cline`): the Direct3D 12 sampler heap - dynamic sampler indexing draws, measured on the RTX 5070 Ti and on WARP
+
+Continuation of the entry below on *"please continue with Direct X 12 support
+thanks"*: phase 3b **step 1c**, the item that entry named as the next step
+(*"the sampler heap - the one thing between 'all shaders compile' and an Eden
+draw"*): DXSO hands every Eden shader a *runtime* sampler array and D3D12 cannot
+index static samplers dynamically (`docs/backends.md` sections 3.6, 4, 5, 6).
+
+### What changed
+
+- `source/render/sampler_heap.h` (new) - `eSamplerHeapIndex` and
+  `GetSamplerHeapState()`. The heap's 14 entries and their address mapping are
+  **material data**: `EdenRenderer::fillConstants` writes each slot's index into
+  the push constant block at byte 64, so one backend's order is the other's. The
+  file now exists once, and both backends build their native samplers from it.
+- `source/render/eden/eden_renderer.cpp` - the local `eSamplerHeapIndex` is gone;
+  `fillSamplerHeap()` loops over the shared table. The Vulkan set is unchanged
+  entry for entry (five named entries + the 3x3 UV combinations, 0 wrap / 1
+  mirror / 2 clamp), and `SamplerAddressMode()` does the byte -> `eSamplerAddress`
+  mapping explicitly because that enum's own order is `SA_Clamp = 0`.
+- `source/render/d3d12/d3d12_scene.{h,cpp}` - the root signature's **fifth**
+  parameter is a `D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER` table over s0..s15 and the
+  sixteen static samplers are **gone** (a static sampler and a descriptor range
+  cannot share a register, so one had to go). `createSamplerHeap()` creates a
+  shader-visible `D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER` heap and fills it once
+  (`CreateSampler`) with the 14 Eden entries plus linear-wrap padding for s14/s15;
+  `draw()` binds **both** heaps (SRV table + sampler heap) through one
+  `SetDescriptorHeaps` on every draw, because `D3D12UI` and ImGui each replace the
+  set with a heap of their own, and sets the sampler table (parameter 4) every
+  time.
+- `source/render/d3d12/d3d12_scene.cpp` - **`-d3d12-samplertest`**
+  (`D3D12RunSamplerTest`). Two quads, one 2x1 two-colour texture, the same UVs in
+  [0,2] on both, and the only difference between the draws is the heap index in
+  the root constants (0 linear wrap, 13 linear clamp/clamp). The frame is read
+  back and the halves' mean colours compared - wrap has to show both texels half
+  of the time, clamp stretches one over three quarters.
+- `source/render/d3d12/d3d12_shader.{h,cpp}` - `D3D12ShaderCompiler::compileHlsl()`
+  (the same flags the generated HLSL gets), because the probe is hand-written HLSL:
+  no built-in SPIR-V indexes a sampler.
+- `source/render/d3d12/d3d12_device.{h,cpp}` - `readbackBackbuffer()` split out of
+  `captureBackbuffer()` (one readback path for both), `requestReadback()` /
+  `getLastReadback()` and the `endFrame` hook (before Present, like the
+  screenshot), and `-d3d12-samplertest` dispatched ahead of `-d3d12-scenetest`.
+- `docs/backends.md` - status matrix row, the new flag, **section 3.6** (the test,
+  the numbers, WARP), section 3.3's log lines re-measured and the "byte-identical"
+  claim extended to the sampler change, section 4's open item rewritten as what
+  exists, section 5 step 1c, section 6 (the static-sampler trap rewritten; a new
+  one: `SetDescriptorHeaps` replaces the whole set).
+- `PROGRESS.md` - the D3D12 row.
+
+### Verified (build 223 (51af9d2+dirty) - cline)
+
+```powershell
+# the sampler heap, hardware (debug layer on)
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-samplertest -d3d12-debug `
+    -renderer-selftest 120 -renderer-shot E:\Cline\_st_sampler.ppm -log E:\Cline\_st_sampler.log
+# ... and on the software adapter
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-samplertest -d3d12-warp -d3d12-debug `
+    -renderer-selftest 30 -log E:\Cline\_st_sampler_warp.log
+```
+
+```
+D3D12 sampler test: 120 frame(s) of two quads on 'NVIDIA GeForce RTX 5070 Ti' (1280x720);
+  wrap mean 135.0/40.0/135.0 (186624 px), clamp mean 87.5/40.0/182.5 (186624 px), dR 47.5 dB 47.5
+D3D12 sampler test: PASSED (dynamic sampler-heap indexing reaches the sampler)
+```
+
+- WARP: wrap `135.0/40.0/135.0`, clamp `87.6/40.0/182.4`, dR/dB 47.4 - the same
+  result, so it is the API contract, not one driver. Debug layer silent on both.
+- `186624` covered pixels per half is exactly `576 x 324` (two 0.9-NDC quads of a
+  1280x720 frame), so the coverage check is exact. The means are the arithmetic:
+  50/50 of the texels for wrap, 25/75 for clamp.
+- **No regression**: `-d3d12-scenetest` still passes and its PPM is
+  **byte-identical** to the pre-change build (`SHA256
+  E505B37F0063C775...C3F778CEB`) - its shader samples through s0, i.e. heap entry
+  0, which is the linear-wrap sampler it used to get statically.
+- The Flash front end still draws on D3D12 (17037 distinct colours, 97.76 %
+  non-background) and the Vulkan `-notitlescene` reference frame is unchanged
+  (17096 distinct colours against the documented 17095; the movie-time
+  difference is the run's frame count, not the sampler set).
+- `-d3d12-shadertest TD_GPS` still compiles 2/2 stages, exit 0 - the compiler is
+  untouched apart from the added `compileHlsl` entry point.
+
+### Ruled out (with the test that ruled it out)
+
+- **"the sampler heap needs a per-material fill"** - no: on Vulkan the sampler set
+  is written once (`writeSamplerSet`) and the *material* choice is the index in
+  the push constants; D3D12's heap is filled once for the same reason, and the
+  measured means prove the index alone picks the state.
+- **"replacing the static samplers changes the scene test's frame"** - the PPM
+  hashes identically; entry 0 is the old static state.
+- **"the index is compiled in, so the two quads are one sampler"** - two draws,
+  one pipeline, one mesh, one texture; only the root constants differ, and the
+  halves differ by 47.5 levels on R and B.
+
+### Next
+
+1. **Step 2 proper**: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
+   `PipelineDesc` handed to `D3D12Scene::getPipeline`, `recordPacket`'s push
+   constants to `D3D12Scene::draw`, `EdenProgram`'s `pVS`/`pPS` through
+   `D3D12ShaderCompiler`, with the mesh / texture-table plumbing
+   `D3D12Scene::Mesh` and `GPUTexture::D3D12SrvStorageCpu` already provide. Then
+   the render targets / shadow / reflection passes and the 3D game modes.
+2. Still open from before: the ImGui-on-NVIDIA stall (`-d3d12-ui`; WARP is fine)
+   and the flaky process teardown (section 6).
+
+
+
 ## Session 2026-11-17 (ninety-fourth, `cline`): every Eden shader stage on Direct3D 12 - the `-d3d12-shadertest` tally (7744 / 7744) and the three compiler defects it found
 
 Continuation of the entry below on *"please continue with Direct X 12 support

@@ -185,6 +185,24 @@ bool CompileHLSL( const std::string &hlsl,
 
 const char *D3D12ShaderCompiler::vertexSemantic( uint32_t ) { return "TEXCOORD"; }
 
+bool D3D12ShaderCompiler::compileHlsl( const char *pHlsl,
+                                       eShaderType type,
+                                       D3D12ShaderStage &outStage,
+                                       const char *pDebugName ) {
+    outStage = D3D12ShaderStage();
+    outStage.Type = type;
+    if ( pHlsl == nullptr || pHlsl[0] == '\0' ) {
+        outStage.Error = "no HLSL";
+        return false;
+    }
+    outStage.HLSL = pHlsl;
+    if ( !CompileHLSL( outStage.HLSL, type, pDebugName, outStage.Bytecode, outStage.Error ) ) {
+        return false;
+    }
+    outStage.bReady = true;
+    return true;
+}
+
 bool D3D12ShaderCompiler::compile( const TranslatedShader &shader,
                                    D3D12ShaderStage &outStage,
                                    const char *pDebugName ) {

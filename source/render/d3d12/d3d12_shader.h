@@ -33,7 +33,8 @@ struct TranslatedShader;
 //             root constants in D3D12, the same 128-byte budget the Vulkan path
 //             spends on `vkCmdPushConstants`
 //   t0..t15   textures, in SPIR-V resource order
-//   s0..s15   their samplers (static samplers in the root signature)
+//   s0..s15   their samplers, in a sampler descriptor table (the DXSO sampler
+//             set is a runtime array - see render/sampler_heap.h)
 struct D3D12ShaderStage {
     std::vector<uint8_t> Bytecode; // vs_5_1 / ps_5_1 DXBC
     std::string HLSL;
@@ -77,6 +78,16 @@ public:
     // exception or the compiler's first line) - the caller logs it, one line
     // per shader, because a scene that silently loses a program is unreadable.
     static bool compile( const TranslatedShader &shader, D3D12ShaderStage &outStage, const char *pDebugName );
+
+    // Compiles HLSL text straight to DXBC with the same flags the generated
+    // HLSL gets (SM 5.1, unbounded descriptor tables), and fills Bytecode /
+    // HLSL / bReady. For the backends' own shaders - the 2D layer compiles its
+    // pair this way, and -d3d12-samplertest needs a shader that indexes the
+    // sampler heap, which no built-in SPIR-V does.
+    static bool compileHlsl( const char *pHlsl,
+                             eShaderType type,
+                             D3D12ShaderStage &outStage,
+                             const char *pDebugName );
 
     // The semantic of a vertex input at a SPIR-V location: SPIRV-Cross writes
     // `TEXCOORD<location>`, and D3D12Scene's input layout says the same, so the
