@@ -486,6 +486,10 @@ void LoadProfile() {
             profile.FaceAge = static_cast<float>( atof( value.c_str() ) );
         } else if ( key == "face_freckle" ) {
             profile.FaceFreckle = static_cast<float>( atof( value.c_str() ) );
+        } else if ( key == "hair_color" ) {
+            profile.HairColor = number;
+        } else if ( key == "beard_color" ) {
+            profile.BeardColor = number;
         } else if ( key == "nb_surgeries" ) {
             profile.NbSurgeries = number;
         } else if ( key == "bandage_until" ) {
@@ -895,6 +899,7 @@ bool SaveProfile( const char *pReason ) {
             file << ( i > 0 ? "," : "" ) << static_cast<int32_t>( profile.FaceParams[i] );
         }
         file << "\nface_age = " << profile.FaceAge << "\nface_freckle = " << profile.FaceFreckle << "\n";
+        file << "hair_color = " << profile.HairColor << "\nbeard_color = " << profile.BeardColor << "\n";
         file << "nb_surgeries = " << profile.NbSurgeries << "\nbandage_until = " << profile.BandageUntil << "\n";
         file << "furniture_choices = ";
         for ( const auto &furniture : profile.FurnitureChoices ) {

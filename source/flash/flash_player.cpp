@@ -1402,6 +1402,15 @@ FlashPlayer::Value FlashPlayer::getProperty( Clip *pClip, int32_t index ) {
     }
     case 13:
         return Value::MakeString( pInstance != nullptr ? pInstance->Name : "" );
+    case 11: {
+        // _target: the clip's slash path ("/hair_menu/Hair0"); the root is "/". SetTarget2
+        // resolves it again (shopsavatar's setHairMenu saves it and returns to it).
+        std::string path;
+        for ( Clip *pWalk = pClip; pWalk != nullptr && pWalk->pParent != nullptr; pWalk = pWalk->pParent ) {
+            path = "/" + ( pWalk->pInstance != nullptr ? pWalk->pInstance->Name : std::string() ) + path;
+        }
+        return Value::MakeString( path.empty() ? "/" : path );
+    }
     default:
         return Value();
     }

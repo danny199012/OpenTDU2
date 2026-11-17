@@ -328,7 +328,7 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
             const char *pSlot;
             int32_t PartType;
         } kParts[] = { { "bottom", 1 }, { "glasses", 2 }, { "hair", 3 },  { "gloves", 4 },       { "helmet", 5 },
-                       { "shoes", 6 },  { "top", 7 },     { "dress", 8 }, { "accessories", 10 } };
+                       { "shoes", 6 },  { "top", 7 },     { "dress", 8 }, { "beard", 9 }, { "accessories", 10 } };
         for ( const auto &part : kParts ) {
             if ( strcmp( part.pSlot, pSlot ) == 0 ) {
                 return part.PartType;
@@ -393,7 +393,13 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
                 file = swapped;
             }
         }
-        worn.push_back( { file, static_cast<int32_t>( pnj[( std::string( "_" ) + pSlot + "_color" ).c_str()].asInt() ),
+        int32_t slotColor = static_cast<int32_t>( pnj[( std::string( "_" ) + pSlot + "_color" ).c_str()].asInt() );
+        if ( bPlayer && strcmp( pSlot, "hair" ) == 0 && profile.HairColor >= 0 ) {
+            slotColor = profile.HairColor; // the hairdresser's tint
+        } else if ( bPlayer && strcmp( pSlot, "beard" ) == 0 && profile.BeardColor >= 0 ) {
+            slotColor = profile.BeardColor;
+        }
+        worn.push_back( { file, slotColor,
                           strcmp( pSlot, "hair" ) == 0 || strcmp( pSlot, "beard" ) == 0, bHead } );
     }
 

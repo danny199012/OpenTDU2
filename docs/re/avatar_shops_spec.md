@@ -10,20 +10,25 @@ Tags as in `CLAUDE.md`. Disassembly: `python tools/vmf_disasm.py shopsavatar.vmf
 (clothes), 27 `surgeon`. **Surgeon: default, done.** Hair and clothes are **opt-in** (`-hairui`, `-clothesui`): the
 native `ClothesMenu` stays the default until they work.
 
-## 2. Hairdresser (`-hairui`) - reached, list page NOT working
-- Title bar "Hairdresser" shows. A on the stylist sends `hadr:open`; answering with `openMenuHairDresser` opens the square
-  menu (Hair / Eyebrows / [Pilosity] / Cancel / Valid): `hadr:edit:open`, then Hair -> `hadr:edit:maha:open`
-  (`woha:` for women, `pilo:` facial hair, `eybr:` eyebrows).
-- **The game must set `/:isWoman`** before the squares (they pick `manhaircut` / `womanhaircut` from it) - done in `HairUi::bind`.
-- `setHairMenu(category)` builds three rows: `_root.HairType` (icon choice box: short / long / afro; women short / attached /
-  afro), `_root.HairCut` (the big choice box, command `...:cuts`), `_root.HairColor` (`...:colo`); facial hair
-  `PilosityType` (goatee / moustache / beard / shaved) / `PilosityCut` / `PilosityColor`; eyebrows `EyebrowsType` /
-  `EyebrowsColor`. Choice boxes send `<prefix>:scne` / `:scpr` (next / previous) and read `_root.<Var>`.
-- **Where it stops**: after `hadr:edit:maha:open` the hair page draws nothing (the whole menu is blank). Not yet found:
-  the variables the page needs (`HairDLC` / `isHairDLC` / `popup_dlc` appear in the same function, `LockHair*`, `HairStyle`).
-  Next: log `getVariable` of those on `maha:open` (`-loghair` prints the known ones), set them, and see which makes the
-  rows appear; then answer `:scne/:scpr`, the price (`/:TotalPriceStr` / `EnoughMoney`) and `hadr:edit:vali` like `SurgeryUi`.
-- The haircut data is the `HAIR` brand of DBClothe (`_parttype` 3) - the native menu sells it already.
+## 2. Hairdresser (default; `-nohairui` = native menu) - DONE (Hair page; Pilosity same code; Eyebrows not)
+- Title bar "Hairdresser"; the stylist's A sends `hadr:open`, answered with `openMenuHairDresser` (`InteriorWalk`); square menu
+  `hadr:edit:open` needs **`/:isWoman`** (picks `manhaircut` / `womanhaircut`). Pages: `maha:` men's hair, `woha:` women's, `pilo:`
+  facial hair, `eybr:` eyebrows; each page's `<page>:open` is where the game writes the row values.
+- **The blocker was the AVM1 runtime**: `GetProperty(_target)` (property 11) returned undefined, so `setHairMenu`'s
+  save-the-target / `SetTarget2` returned to the root and `GoToLabel('open')` never reached `hair_menu` (blank page).
+  `FlashPlayer::getProperty` now returns the clip's slash path.
+- **Rows** (`HairType` icon box; `HairCut` big box `...:cuts`; `HairColor` `...:colo`; `PilosityType/Cut/Color`): a choice box
+  shows the text of the `_root` variable `VarToFocus` names, read back after it sends `<page>:<row>:scne|scpr` - so the game answers
+  by writing the new display text into `/:HairCut` / `/:HairColor`. The icon box writes `/:HairType` itself (`short|long|afro`,
+  women `w_short|w_attached|w_afro`; facial `goatee|moustache|beard|shave`).
+- Data: haircuts = DBClothe `_parttype` 3 of the player's `_sex` (grouped by name: Afro / Long+Attached+Half-length / Short+Shaved),
+  facial hair = `_parttype` 9 (men) - grouped Goatee / Mustache / Beard; price = the row's `_price` (one price when a look changes;
+  a colour-only change is free [INF]); tint = HAIR_MAT palette index 0..13 (`DBPNJ _hair_color` column). Saved as
+  `worn_clothes` 3 / 9 + `hair_color` / `beard_color` (`PlayerProfile::HairColor/BeardColor`), applied by `EdenAvatar::load`.
+- Flow verified: Hair -> Style / Haircuts ("Shaved head 2/3") / Tint ("Color 3") -> `$ 250` -> square menu Save -> the dialog "Make
+  changes to your look?" -> `hadr:edit:vali` -> `paid $250` (`docs/images/hairdresser_retail_ui.webp`).
+- Not done: Eyebrows page (`EyebrowsType/Color` need the avatar's eyebrow atlas), live preview (no avatar in view), the `C_BUY_HAIR`
+  cinematic, DLC hair (`HairDLC`), the casino salon (`EHAIR_CA`, same code path - untested).
 
 ## 3. Clothes shop (`-clothesui`) - title bar only
 - `clothes_shop` label (frame 194) shows "Clothes Shop". The seller (`Seller_area`, type 22 `goodies`) was not selected by

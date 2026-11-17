@@ -357,7 +357,8 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     if ( !bHouse && !bStickUi && !CmdLine::HasArg( "-nosurgeryui" ) ) {
         if ( _strnicmp( houseSpotName.c_str(), "ESUR", 4 ) == 0 ) {
             avatarLabel = "surgeon";
-        } else if ( _strnicmp( houseSpotName.c_str(), "EHD", 3 ) == 0 && CmdLine::HasArg( "-hairui" ) ) { // opt-in until the hair lists are wired
+        } else if ( ( _strnicmp( houseSpotName.c_str(), "EHD", 3 ) == 0 || _strnicmp( houseSpotName.c_str(), "EHAIR", 5 ) == 0 ) &&
+                   !CmdLine::HasArg( "-nohairui" ) ) { // -nohairui: the native ClothesMenu (A/B)
             avatarLabel = "hairdresser";
         } else if ( _strnicmp( houseSpotName.c_str(), "EAS", 3 ) == 0 && CmdLine::HasArg( "-clothesui" ) ) { // opt-in until the item grid is wired
             avatarLabel = "clothes_shop";

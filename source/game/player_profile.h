@@ -270,6 +270,9 @@ std::map<int32_t, TunerCarParts> OwnedCarTunerParts;
     std::vector<int8_t> FaceParams;
     float FaceAge = -1.0f;
     float FaceFreckle = -1.0f;
+    // The hairdresser's colour picks (HAIR_MAT palette index, -1 = the preset's).
+    int32_t HairColor = -1;
+    int32_t BeardColor = -1;
     int32_t NbSurgeries = 0;
     int64_t BandageUntil = 0;
     // The MyTDUHouse furniture choices (houses_spec.md 11): "<house spot>:<slot

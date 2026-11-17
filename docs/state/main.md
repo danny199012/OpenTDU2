@@ -6,6 +6,17 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-17 (`main`, 56): the hairdresser runs the RETAIL screen
+
+The owner: *"Yes, hairdresser"*. Root cause of the blank hair page: **`GetProperty(_target)` was unimplemented in the AVM1 runtime**
+(`flash_player.cpp getProperty` case 11 now returns the clip's slash path) - `setHairMenu` saves `_target`, edits child clips and
+`SetTarget2`s back, so `GoToLabel('open')` had hit the root. Then `HairUi` (new `freeride/hair_ui.*`) answers the page: values on
+`<page>:open`, `:scne/:scpr` by writing display text into `/:HairCut` / `/:HairColor`, price vars, `vali` pays, `canc` reverts.
+Default now (`-nohairui` = native). Profile: `HairColor` / `BeardColor`, `EdenAvatar` applies them + the beard slot (part 9) for the player.
+Verified headless (`-interior EHD_B -walkaim hairdresser`, `docs/images/hairdresser_retail_ui.webp`): `paid $250 (hair 261 colour 2)`,
+saved `worn_clothes = 3:261`, `hair_color = 2`. Details in `docs/re/avatar_shops_spec.md` section 2.
+Not done: Eyebrows page, seeing the new hair on screen (no avatar in the room view), casino salon untested; clothes shop (next), tuning.
+
 ## Session 2026-11-17 (`main`, 55): clothes-shop mirror shows the player; hair / clothes on the retail movie reached, not finished
 
 The owner: *"Both if we can [hairdresser + clothes] ... also in clothes shop the mirror doesn't reflect the characters"*.
