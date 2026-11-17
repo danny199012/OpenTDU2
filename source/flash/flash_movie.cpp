@@ -139,10 +139,10 @@ void FlashMovie::unload() {
     pages.clear();
     // The mods flash-art overrides are owned here (createFromRGBA registers
     // no owner).
-    if ( gpRender != nullptr && gpRender->canDrawScene() ) {
+    if ( gpRender != nullptr ) {
         for ( auto &entry : modOverrides ) {
             if ( entry.second.pTexture != nullptr ) {
-                gpRender->getDevice().destroyTexture( entry.second.pTexture );
+                gpRender->getTextureCache().destroyTexture( entry.second.pTexture );
             }
         }
     }

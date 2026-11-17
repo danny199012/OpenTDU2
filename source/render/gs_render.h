@@ -49,6 +49,13 @@ public:
     // Direct3D backends present the swapchain only for now, so the frame loop
     // asks this before drawing anything (tdu_instance.cpp).
     inline bool canDrawScene() const { return RenderBackend::CanRenderScene( backend ); }
+    // True when the 2D layer (the Flash front end, the HUD, the 2D debug
+    // layers) can draw: always on Vulkan, on D3D12 when the 2D pipeline came up
+    // (docs/backends.md phase 3).
+    inline bool canDraw2D() const {
+        return backend == eRenderBackend::Vulkan ||
+               ( backend == eRenderBackend::D3D12 && renderer2D.isD3D12Ready() );
+    }
     // True when the ImGui overlay can draw (the debug UI, the build watermark,
     // the Options panels): Vulkan through the 2D renderer, D3D12 through
     // imgui_impl_dx12 - which is opt-in with -d3d12-ui until the driver stall

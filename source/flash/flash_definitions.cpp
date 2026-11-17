@@ -267,7 +267,7 @@ bool FlashDefinitions::build( const VMFFile &vmf, FlashMovie *pMovie ) {
 void FlashDefinitions::destroy() {
     if ( gpRender != nullptr ) {
         for ( GPUTexture *pTexture : gradientTextures ) {
-            gpRender->getDevice().destroyTexture( pTexture );
+            gpRender->getTextureCache().destroyTexture( pTexture );
         }
     }
     gradientTextures.clear();

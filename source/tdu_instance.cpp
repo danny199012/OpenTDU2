@@ -646,6 +646,9 @@ void TestDriveGameInstance::mainLoop() {
             // is its clear. Everything below draws through Vulkan objects, so
             // it is skipped rather than run against an uninitialised device.
             const bool bDrawScene = pRender->canDrawScene();
+            // The 2D layer (the Flash front end, the debug 2D): Vulkan always,
+            // D3D12 when its HLSL pipeline came up (docs/backends.md phase 3).
+            const bool bDraw2D = pRender->canDraw2D();
             // -noimgui: the overlay off entirely (an A/B for a UI-side stall,
             // like the -no3d / -noshadows family).
             const bool bDrawUI = pRender->canDrawUI() && !CmdLine::HasArg( "-noimgui" );
@@ -657,7 +660,7 @@ void TestDriveGameInstance::mainLoop() {
                           frequency * 1000.0;
             sectionStart = SDL_GetPerformanceCounter();
             pRender->beginMainPass();
-            if ( bDrawScene && pActiveGameMode != nullptr ) {
+            if ( bDraw2D && pActiveGameMode != nullptr ) {
                 pActiveGameMode->draw();
             }
 

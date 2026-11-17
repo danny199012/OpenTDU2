@@ -76,9 +76,12 @@ public:
     // DXGI_FORMAT_R8G8B8A8_UNORM, as a plain integer so the header stays free
     // of dxgiformat.h.
     static constexpr uint32_t kSwapchainFormatDXGI = 28;
-    static constexpr uint32_t kSrvDescriptors = 64;
+    // Enough for the front end's whole movie library (the .2db bitmaps and the
+    // fonts upload one SRV each) plus ImGui's font atlas and textures.
+    static constexpr uint32_t kSrvDescriptors = 8192;
 
-    // Shader visible SRV heap (ImGui's font atlas is the first client).
+    // Shader visible SRV heap (ImGui's font atlas and every uploaded texture are
+    // clients).
     bool createSrvHeap();
     // The debug layer's pending messages (-d3d12-debug): a consumer backend can
     // fail silently otherwise (the ImGui font upload waits on a fence).
@@ -87,6 +90,38 @@ public:
     // that callers which only forward them need no d3d12.h.
     bool allocateSrv( uintptr_t &cpuHandle, uintptr_t &gpuHandle );
     void freeSrv( uintptr_t cpuHandle );
+
+    // A 2D texture the game uploaded (TextureCache), as plain integers for the
+    // same reason.
+    struct Texture {
+        void *pResource = nullptr;
+        uint64_t SrvCpu = 0;
+        uint64_t SrvGpu = 0;
+        uint32_t Width = 0;
+        uint32_t Height = 0;
+    };
+    // Uploads a full mip chain and creates its SRV. Blocks (the upload list is
+    // executed and its fence waited), so it is for load time, not for a frame.
+    // 'dxgiFormat' is a DXGI_FORMAT value; BC1/BC2/BC3/BC5, R8/R8G8B8A8 and
+    // B8G8R8A8 are the formats the game's .2db files map to.
+    bool createTexture2D( uint32_t width,
+                          uint32_t height,
+                          uint32_t numMips,
+                          uint32_t dxgiFormat,
+                          const void *const *ppMipData,
+                          const uint32_t *pMipSizes,
+                          Texture &texture,
+                          const char *pName );
+    void destroyTexture( Texture &texture );
+
+    // The framebuffer the 2D pipelines match: R8G8B8A8_UNORM colour (the
+    // swapchain) and D24_UNORM_S8_UINT depth-stencil (the Flash masks count in
+    // the stencil buffer).
+    static constexpr uint32_t kDepthStencilFormatDXGI = 45; // DXGI_FORMAT_D24_UNORM_S8_UINT
+    // Which of frames[kFramesInFlight] is being recorded: the per frame upload
+    // rings of the 2D path are indexed by it (device.beginFrame has already
+    // waited for that slot's fence).
+    inline uint32_t getFrameSlot() const { return frameIndex; }
 
     bool saveScreenshot( const char *pPath );
     void requestScreenshot( const char *pPath ) { pendingScreenshot = pPath; }
@@ -103,6 +138,10 @@ private:
     void destroySwapchain();
     bool createFrameResources();
     bool createRtvHeap();
+    // D24S8 depth-stencil for the 2D pipelines (Flash masks); freed and made
+    // again with the swapchain.
+    bool createDepthStencil();
+    void destroyDepthStencil();
     bool recreateSwapchain();
     // Presents; returns false when the device is gone.
     bool present();
@@ -126,6 +165,8 @@ private:
     void *hFenceEvent = nullptr;
     ID3D12DescriptorHeap *pRtvHeap = nullptr;
     ID3D12DescriptorHeap *pSrvHeap = nullptr;
+    ID3D12Resource *pDepthStencil = nullptr;
+    ID3D12DescriptorHeap *pDsvHeap = nullptr;
     uint32_t srvDescriptorSize = 0;
     std::vector<bool> srvUsed;
     ID3D12Resource *pBackbuffers[kSwapchainBuffers] = {};

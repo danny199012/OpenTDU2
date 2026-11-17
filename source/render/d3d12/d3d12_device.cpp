@@ -34,6 +34,10 @@ std::string WideToUtf8( const wchar_t *pWide ) {
     return text;
 }
 
+UINT64 AlignUp( UINT64 value, UINT64 alignment ) {
+    return ( value + alignment - 1 ) & ~( alignment - 1 );
+}
+
 D3D12_RESOURCE_BARRIER MakeTransition( ID3D12Resource *pResource,
                                        D3D12_RESOURCE_STATES before,
                                        D3D12_RESOURCE_STATES after ) {
@@ -230,6 +234,9 @@ bool D3D12Device::create( SDL_Window *pWindow, bool bVSync, bool bValidation ) {
     if ( !createFrameResources() ) {
         return false;
     }
+    if ( !createDepthStencil() ) {
+        return false;
+    }
 
     OTDU_LOG_INFO( "D3D12: device '%s', %ux%u, %u buffers, vsync %s, tearing %s\n",
                    deviceName.c_str(), width, height, kSwapchainBuffers,
@@ -339,6 +346,56 @@ bool D3D12Device::createRtvHeap() {
     return true;
 }
 
+bool D3D12Device::createDepthStencil() {
+    if ( pDevice == nullptr || width == 0 || height == 0 ) {
+        return false;
+    }
+    D3D12_HEAP_PROPERTIES heapProperties = {};
+    heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heapProperties.CreationNodeMask = 1;
+    heapProperties.VisibleNodeMask = 1;
+
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width;
+    desc.Height = height;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = static_cast<DXGI_FORMAT>( kDepthStencilFormatDXGI );
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_CLEAR_VALUE clearValue = {};
+    clearValue.Format = static_cast<DXGI_FORMAT>( kDepthStencilFormatDXGI );
+    clearValue.DepthStencil.Depth = 1.0f;
+    clearValue.DepthStencil.Stencil = 0;
+
+    if ( FAILED( pDevice->CreateCommittedResource( &heapProperties, D3D12_HEAP_FLAG_NONE, &desc,
+                                                   D3D12_RESOURCE_STATE_DEPTH_WRITE, &clearValue,
+                                                   IID_PPV_ARGS( &pDepthStencil ) ) ) ) {
+        OTDU_LOG_ERROR( "D3D12: the depth-stencil buffer could not be created\n" );
+        return false;
+    }
+
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    heapDesc.NumDescriptors = 1;
+    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    if ( FAILED( pDevice->CreateDescriptorHeap( &heapDesc, IID_PPV_ARGS( &pDsvHeap ) ) ) ) {
+        OTDU_LOG_ERROR( "D3D12: the DSV heap could not be created\n" );
+        return false;
+    }
+    pDevice->CreateDepthStencilView( pDepthStencil, nullptr,
+                                     pDsvHeap->GetCPUDescriptorHandleForHeapStart() );
+    return true;
+}
+
+void D3D12Device::destroyDepthStencil() {
+    SafeRelease( pDepthStencil );
+    SafeRelease( pDsvHeap );
+}
+
 bool D3D12Device::createFrameResources() {
     for ( uint32_t i = 0; i < kFramesInFlight; i++ ) {
         FrameData &frame = frames[i];
@@ -399,10 +456,23 @@ bool D3D12Device::beginFrame( const ColorRGBA &clearColor ) {
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = { pRtvHeap->GetCPUDescriptorHandleForHeapStart().ptr +
                                         static_cast<SIZE_T>( imageIndex ) * rtvDescriptorSize };
-    frame.pList->OMSetRenderTargets( 1, &rtv, FALSE, nullptr );
+    // The depth-stencil comes with the swapchain (the 2D pipelines' stencil
+    // modes and the Flash masks need it); without one the frame still clears,
+    // it just cannot mask.
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE *pDsv = nullptr;
+    if ( pDsvHeap != nullptr ) {
+        dsv = pDsvHeap->GetCPUDescriptorHandleForHeapStart();
+        pDsv = &dsv;
+    }
+    frame.pList->OMSetRenderTargets( 1, &rtv, FALSE, pDsv );
 
     const float clear[4] = { clearColor.r, clearColor.g, clearColor.b, clearColor.a };
     frame.pList->ClearRenderTargetView( rtv, clear, 0, nullptr );
+    if ( pDsv != nullptr ) {
+        frame.pList->ClearDepthStencilView( dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+                                            1.0f, 0, 0, nullptr );
+    }
 
     // The viewport and scissor a pass needs; harmless for a clear, required
     // the moment the first real draw lands.
@@ -495,6 +565,8 @@ bool D3D12Device::recreateSwapchain() {
     }
 
     waitIdle();
+    destroyDepthStencil();
+
     for ( uint32_t i = 0; i < kSwapchainBuffers; i++ ) {
         SafeRelease( pBackbuffers[i] );
     }
@@ -509,6 +581,9 @@ bool D3D12Device::recreateSwapchain() {
         return false;
     }
     if ( !createRtvHeap() ) {
+        return false;
+    }
+    if ( !createDepthStencil() ) {
         return false;
     }
 
@@ -545,6 +620,7 @@ void D3D12Device::destroy() {
         SafeRelease( pBackbuffers[i] );
     }
     SafeRelease( pRtvHeap );
+    destroyDepthStencil();
     SafeRelease( pSrvHeap );
     srvUsed.clear();
     SafeRelease( pSwapchain );
@@ -872,6 +948,194 @@ bool D3D12RunSelfTest() {
 
     OTDU_LOG_INFO( "-renderer-selftest: %s\n", bOk ? "PASSED" : "FAILED" );
     return bOk;
+}
+
+bool D3D12Device::createTexture2D( uint32_t width,
+                                   uint32_t height,
+                                   uint32_t numMips,
+                                   uint32_t dxgiFormat,
+                                   const void *const *ppMipData,
+                                   const uint32_t *pMipSizes,
+                                   Texture &texture,
+                                   const char *pName ) {
+    if ( pDevice == nullptr || width == 0 || height == 0 || numMips == 0 ||
+         ppMipData == nullptr ) {
+        return false;
+    }
+    const char *pLabel = pName != nullptr ? pName : "?";
+
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width;
+    desc.Height = height;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = static_cast<UINT16>( numMips );
+    desc.Format = static_cast<DXGI_FORMAT>( dxgiFormat );
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    D3D12_HEAP_PROPERTIES heapProperties = {};
+    heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heapProperties.CreationNodeMask = 1;
+    heapProperties.VisibleNodeMask = 1;
+
+    ID3D12Resource *pTexture = nullptr;
+    if ( FAILED( pDevice->CreateCommittedResource( &heapProperties, D3D12_HEAP_FLAG_NONE, &desc,
+                                                   D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                   IID_PPV_ARGS( &pTexture ) ) ) ) {
+        OTDU_LOG_WARN( "D3D12: texture '%s' (%ux%u, format %u) could not be created\n", pLabel,
+                       width, height, dxgiFormat );
+        return false;
+    }
+
+    // The staging copy: one footprint per mip inside a single upload buffer
+    // (GetCopyableFootprints keeps the 512 byte alignment between them).
+    std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints( numMips );
+    std::vector<UINT> rowCounts( numMips );
+    std::vector<UINT64> rowSizes( numMips );
+    UINT64 totalBytes = 0;
+    for ( uint32_t mip = 0; mip < numMips; mip++ ) {
+        // Every subresource starts at a 512 byte placement boundary.
+        totalBytes = AlignUp( totalBytes, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT );
+        UINT64 rowSize = 0;
+        UINT64 mipBytes = 0;
+        pDevice->GetCopyableFootprints( &desc, mip, 1, totalBytes, &footprints[mip],
+                                        &rowCounts[mip], &rowSize, &mipBytes );
+        rowSizes[mip] = rowSize;
+        totalBytes += mipBytes;
+    }
+
+    D3D12_HEAP_PROPERTIES uploadProperties = {};
+    uploadProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
+    uploadProperties.CreationNodeMask = 1;
+    uploadProperties.VisibleNodeMask = 1;
+
+    D3D12_RESOURCE_DESC bufferDesc = {};
+    bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    bufferDesc.Width = totalBytes;
+    bufferDesc.Height = 1;
+    bufferDesc.DepthOrArraySize = 1;
+    bufferDesc.MipLevels = 1;
+    bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+    bufferDesc.SampleDesc.Count = 1;
+    bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    ID3D12Resource *pUpload = nullptr;
+    if ( FAILED( pDevice->CreateCommittedResource( &uploadProperties, D3D12_HEAP_FLAG_NONE,
+                                                   &bufferDesc, D3D12_RESOURCE_STATE_GENERIC_READ,
+                                                   nullptr, IID_PPV_ARGS( &pUpload ) ) ) ) {
+        OTDU_LOG_WARN( "D3D12: the upload buffer for texture '%s' could not be created\n", pLabel );
+        SafeRelease( pTexture );
+        return false;
+    }
+
+    uint8_t *pMapped = nullptr;
+    if ( FAILED( pUpload->Map( 0, nullptr, reinterpret_cast<void **>( &pMapped ) ) ) ) {
+        SafeRelease( pUpload );
+        SafeRelease( pTexture );
+        return false;
+    }
+    for ( uint32_t mip = 0; mip < numMips; mip++ ) {
+        const uint8_t *pSource = static_cast<const uint8_t *>( ppMipData[mip] );
+        if ( pSource == nullptr ) {
+            continue;
+        }
+        uint8_t *pDestination = pMapped + footprints[mip].Offset;
+        const uint32_t rowPitch = footprints[mip].Footprint.RowPitch;
+        // A mip whose bytes are short of the footprint copies what it has and
+        // leaves the rest as cleared memory.
+        const uint64_t sourceSize = pMipSizes != nullptr ? pMipSizes[mip] : rowSizes[mip] * rowCounts[mip];
+        for ( UINT row = 0; row < rowCounts[mip]; row++ ) {
+            const uint64_t sourceOffset = static_cast<uint64_t>( row ) * rowSizes[mip];
+            if ( sourceOffset >= sourceSize ) {
+                break;
+            }
+            const uint64_t rowBytes =
+                Min<uint64_t>( rowSizes[mip], sourceSize - sourceOffset );
+            memcpy( pDestination + static_cast<size_t>( row ) * rowPitch, pSource + sourceOffset,
+                    static_cast<size_t>( rowBytes ) );
+        }
+    }
+    pUpload->Unmap( 0, nullptr );
+
+    ID3D12CommandAllocator *pAllocator = nullptr;
+    ID3D12GraphicsCommandList *pList = nullptr;
+    const bool bCreated =
+        SUCCEEDED( pDevice->CreateCommandAllocator( D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                    IID_PPV_ARGS( &pAllocator ) ) ) &&
+        SUCCEEDED( pDevice->CreateCommandList( 0, D3D12_COMMAND_LIST_TYPE_DIRECT, pAllocator,
+                                               nullptr, IID_PPV_ARGS( &pList ) ) );
+    if ( !bCreated ) {
+        OTDU_LOG_WARN( "D3D12: the texture upload list for '%s' could not be created\n", pLabel );
+        SafeRelease( pList );
+        SafeRelease( pAllocator );
+        SafeRelease( pUpload );
+        SafeRelease( pTexture );
+        return false;
+    }
+
+    for ( uint32_t mip = 0; mip < numMips; mip++ ) {
+        D3D12_TEXTURE_COPY_LOCATION destination = {};
+        destination.pResource = pTexture;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        destination.SubresourceIndex = mip;
+
+        D3D12_TEXTURE_COPY_LOCATION source = {};
+        source.pResource = pUpload;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint = footprints[mip];
+        pList->CopyTextureRegion( &destination, 0, 0, 0, &source, nullptr );
+    }
+
+    D3D12_RESOURCE_BARRIER barrier = MakeTransition( pTexture, D3D12_RESOURCE_STATE_COPY_DEST,
+                                                     D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE );
+    pList->ResourceBarrier( 1, &barrier );
+    pList->Close();
+
+    ID3D12CommandList *ppLists[] = { pList };
+    pQueue->ExecuteCommandLists( 1, ppLists );
+    waitIdle();
+
+    SafeRelease( pList );
+    SafeRelease( pAllocator );
+    SafeRelease( pUpload );
+
+    // The SRV lives in the device's shader visible heap, so the 2D draw binds it
+    // with a descriptor table and nothing else.
+    uintptr_t srvCpu = 0;
+    uintptr_t srvGpu = 0;
+    if ( !createSrvHeap() || !allocateSrv( srvCpu, srvGpu ) ) {
+        SafeRelease( pTexture );
+        return false;
+    }
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = desc.Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Texture2D.MipLevels = numMips;
+    D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = { srvCpu };
+    pDevice->CreateShaderResourceView( pTexture, &srvDesc, srvHandle );
+
+    texture.pResource = pTexture;
+    texture.SrvCpu = srvCpu;
+    texture.SrvGpu = srvGpu;
+    texture.Width = width;
+    texture.Height = height;
+    return true;
+}
+
+void D3D12Device::destroyTexture( Texture &texture ) {
+    if ( texture.pResource != nullptr ) {
+        static_cast<ID3D12Resource *>( texture.pResource )->Release();
+        texture.pResource = nullptr;
+    }
+    freeSrv( static_cast<uintptr_t>( texture.SrvCpu ) );
+    texture.SrvCpu = 0;
+    texture.SrvGpu = 0;
+    texture.Width = 0;
+    texture.Height = 0;
 }
 
 bool D3D12Device::createSrvHeap() {

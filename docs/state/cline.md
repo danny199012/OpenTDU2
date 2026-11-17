@@ -16,6 +16,97 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-17 (ninety-second, `cline`): the Flash front end draws on Direct3D 12 - the 2D layer (HLSL, .2db textures, stencil masks) and a pixel-level match against Vulkan
+
+Continuation of the entry below on *"I Want you to continue with Direct X 12 support
+please just commit and never push thanks"*: phase 3a, the draw path for the 2D layer -
+`docs/backends.md` section 5 item 3.
+
+### What changed
+
+- `source/render/d3d12/d3d12_ui.{h,cpp}` (new) - `D3D12UI`: one HLSL pair compiled **at run
+  time with `D3DCompile`** (SM 5.0 DXBC, which D3D12 accepts, so no `dxc` and no SPIRV-Cross
+  step is needed for the 2D layer), a root signature (SRV table + root CBV + static
+  linear/clamp sampler), **four PSOs** (none / INCR_SAT / DECR_SAT / EQUAL - the Flash masks'
+  increment-decrement scheme, the mask batches writing no colour), and a mapped upload ring
+  per frame slot (4 MB: 256-byte-aligned constants, then vertices).
+- `source/render/d3d12/d3d12_device.{h,cpp}` - `D24_UNORM_S8_UINT` depth-stencil + DSV (made
+  and destroyed with the swapchain, cleared every frame, attached in `beginFrame`);
+  `createTexture2D` (full mip chain, per-subresource 512-byte alignment, blocking upload list,
+  SRV from the shader-visible heap) and `destroyTexture`; `kSrvDescriptors` 64 -> 8192 (the
+  front end uploads one SRV per `.2db` bitmap and font); `getFrameSlot()`.
+- `source/render/texture_cache.{h,cpp}` - the D3D12 branch: `initialize( D3D12Device* )`,
+  `GetDXGIFormat` (BC1/BC2/BC3 natively, **BC5 for ATI2**, `B8G8R8A8` for D3D9's A8R8G8B8,
+  `R8G8B8A8`, everything else through the existing CPU conversion; `A8`/`L8` deliberately keep
+  the RGBA8 conversion because the font atlas shader reads `texel.r`), `createD3D12Texture`
+  (wraps the device's `Texture` in a `GPUTexture`), and a public `destroyTexture` so the Flash
+  teardown no longer calls the Vulkan device (cube maps are not uploaded - Eden only).
+- `source/render/renderer_2d.{h,cpp}` - the D3D12 branch: `initializeD3D12`, `beginD3D12Frame`,
+  the batcher state unchanged, `flush()` builds the projection and hands the batch to
+  `D3D12UI`. **The projection's Y row is negated** (`[5]` and `[13]`) because Direct3D's clip
+  space is +Y up and Vulkan's is +Y down; `drawImGui` returns early (ImGui has its own D3D12
+  backend).
+- `source/render/gs_render.{h,cpp}` - builds the 2D stack on D3D12, `canDraw2D()`,
+  `beginD3D12Frame` after the device opened the frame, teardown in the right order, `-d3d12-no2d`
+  (the A/B) and `-d3d12-uitest` (three test quads: flat colour, a BC3 `.2db` texture, a
+  gradient).
+- `source/tdu_instance.cpp` - the frame loop draws the active mode's 2D layer when
+  `canDraw2D()` (it was `canDrawScene()`), `drawOffscreen`/3D stay on `canDrawScene()`.
+- `source/game/uiviewer/gm_ui_viewer.cpp` - the backbuffer size through
+  `GSRender::getBackbufferWidth/Height()` (it read the Vulkan device directly).
+- `CMakeLists.txt` - `d3dcompiler` on the D3D12 link line.
+- `docs/backends.md` - status matrix, the new flags, section 3.1's two-backend recipe,
+  section 4's "D3DCompile/DXBC for 2D, SPIR-V -> DXIL for the scene", section 6 rewritten
+  (the Y-flip trap, the stencil, the texture upload, the frame-number trap).
+- `PROGRESS.md` - the D3D12 row moved to phase 3a done, next = phase 3b (the Eden scene).
+
+### Verified (build 218 (28fc056+dirty) · cline)
+
+The Flash front end on D3D12, compared with Vulkan's Flash layer at the same movie time:
+
+    -renderer d3d12 ... -exitframe 9000 -autoplay 8000:shot=E:/Cline/_dx2d_final.ppm
+    -renderer vulkan -notitlescene ... -exitframe 320 -autoplay 300:shot=E:/Cline/_vk.ppm
+
+| | non-black | distinct colours | pixel difference |
+|---|---|---|---|
+| D3D12 | 27.55 % | 16997 | |
+| Vulkan `-notitlescene` | 27.96 % | 17098 | mean 0.60/255, **99.26 % within 8 levels** |
+
+- `Renderer d3d12: 2D layer ready (HLSL via D3DCompile, 4 stencil modes, 4194304 px upload
+  ring per frame)`; `-d3d12-logui`: `D3D12 UI: frame N: 22 batches (20 colour), 972 vertices`.
+- `-d3d12-uitest`: the BC3 `.2db` quad reads back 2034 distinct colours (blues like
+  `60,102,154`) - the mip upload and the SRV are right, not a uniform black texture.
+- Vulkan regression on the same build: the Flash-only frame is 27.96 % / 17098 colours, and
+  against the pre-change frame mean 0.12/255, 99.81 % within 8 levels.
+- The D3D12 self test is unchanged; the debug layer (`-d3d12-debug`) reports **no** message
+  for the whole 2D stream.
+
+### Ruled out (with the test that ruled it out)
+
+- **"The 2D layer draws nothing"** - the first screenshots were pure black at *three*
+  different frame counts. The cause was timing, not the pipeline: D3D12 runs at ~2600 fps
+  here and Vulkan at ~120, so `-autoplay 300` is 0.1 s of movie on D3D12 and 2.5 s on Vulkan;
+  the login movie's intro is black for the first second. Section 6 has the trap in writing.
+- The Y-flip sign, twice: negating `[4..7]` and `[12..13]` (the naive "row 1" reading) put the
+  whole layer off screen; only `[5]` and `[13]` are in row 1 of a column-major matrix.
+- Stencil (`-d3d12-nostencil`) changes nothing in the frame coverage, so the mask PSOs are not
+  hiding geometry.
+- The textures are not zero: forcing the white texture (a temporary `-d3d12-uitest-white`,
+  since removed) made the same batches fill 16.67 % of the frame, and the BC3 quad renders its
+  art.
+- The teardown/permission-denied trap is now written down: a stopped run can leave a zombie
+  `opentdu2-cline` whose lock fails the next link (`failed to write output ... permission
+  denied`); wait and rebuild.
+
+### Next
+
+Phase 3b, the Eden scene: `source/render/eden/eden_shader_system.cpp` (the `.sob` pipeline
+creation: SPIR-V -> HLSL through SPIRV-Cross, then `dxc` - note `dxc.exe` is **not** in this
+machine's Windows SDK 10.0.26100, so it has to be shipped or built) and
+`EdenRenderer::fillConstants`' 128-byte push-constant block as a root CBV, so `EdenWorld` /
+`EdenSceneView` can be pointed at a D3D12 device the way `TextureCache` and `Renderer2D` are
+now. That is what lifts the 3D game-mode refusal.
+
 ## Session 2026-11-16 (ninety-first, `cline`): the game itself boots on Direct3D 12 - front end, real frames, screenshots, and the ImGui overlay drawing (opt-in)
 
 Continuation of the entry below, on the owner's *"Yes please continue on getting it to work"*:

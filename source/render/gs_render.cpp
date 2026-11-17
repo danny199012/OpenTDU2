@@ -30,21 +30,34 @@ bool GSRender::createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation 
     RenderBackend::LogResolved( backend );
 
     if ( backend == eRenderBackend::D3D12 ) {
-        // Device, queue, flip model swapchain and frame pacing. The scene
-        // renderers below are Vulkan objects and stay untouched: the frame is
-        // the clear colour until the port in docs/backends.md lands, which is
-        // what canDrawScene() tells the frame loop.
+        // Device, queue, flip model swapchain and frame pacing.
         if ( !d3d12Device.create( pWindow, bVSync, bValidation ) ) {
             OTDU_LOG_ERROR( "Failed to create the Direct3D 12 device\n" );
             return false;
+        }
+        // The 2D layer (docs/backends.md phase 3): the textures the .2db and
+        // Flash paths create, and the batcher that draws them. -d3d12-no2d is
+        // the A/B (the frames stay clear colour only).
+        const bool bNo2D = CmdLine::HasArg( "-d3d12-no2d" );
+        if ( !bNo2D ) {
+            textureCache.initialize( &d3d12Device );
+            if ( renderer2D.initializeD3D12( &d3d12Device, textureCache.getWhiteTexture() ) ) {
+                OTDU_LOG_INFO( "Renderer d3d12: 2D layer ready (HLSL via D3DCompile, "
+                               "%u stencil modes, %u px upload ring per frame)\n",
+                               static_cast<uint32_t>( eStencilMode::SM_Count ),
+                               static_cast<uint32_t>( D3D12UI::kUploadBytesPerFrame ) );
+            } else {
+                OTDU_LOG_WARN( "Renderer d3d12: the 2D layer is unavailable; the frame is the "
+                               "clear colour only (docs/backends.md)\n" );
+            }
         }
         // The overlay is opt-in on D3D12: imgui_impl_dx12's first real draw
         // stalls on the NVIDIA driver here (WARP and everything else are fine,
         // docs/backends.md section 6), so the default run presents the
         // swapchain alone and stays responsive.
         bD3D12Ui = CmdLine::HasArg( "-d3d12-ui" );
-        OTDU_LOG_INFO( "Renderer d3d12: device created, presenting the swapchain only "
-                       "(docs/backends.md)%s\n",
+        OTDU_LOG_INFO( "Renderer d3d12: device created (%s)%s\n",
+                       canDraw2D() ? "2D layer" : "swapchain only",
                        bD3D12Ui ? "; the ImGui overlay is on (-d3d12-ui)" : "" );
         return true;
     }
@@ -87,6 +100,8 @@ bool GSRender::createDevice( SDL_Window *pWindow, bool bVSync, bool bValidation 
 
 void GSRender::terminate() {
     if ( backend == eRenderBackend::D3D12 ) {
+        renderer2D.destroy();
+        textureCache.destroy();
         d3d12Device.destroy();
         return;
     }
@@ -106,6 +121,11 @@ void GSRender::terminate() {
 bool GSRender::beginFrame() {
     if ( backend == eRenderBackend::D3D12 ) {
         bFrameActive = d3d12Device.beginFrame( clearColor );
+        if ( bFrameActive ) {
+            // The 2D layer's upload ring for this frame slot is free once
+            // beginFrame waited for the slot's fence.
+            renderer2D.beginD3D12Frame();
+        }
         return bFrameActive;
     }
     if ( bRtWorld ) {
@@ -121,6 +141,24 @@ bool GSRender::beginFrame() {
 void GSRender::endFrame() {
     if ( bFrameActive ) {
         updateRayTracing();
+        // -d3d12-uitest: one opaque green quad through the whole 2D path (ring,
+        // HLSL, blend, raster), drawn over whatever the frame already holds. A
+        // black screenshot with this flag on means the draw itself, not the
+        // game's art, is at fault.
+        if ( backend == eRenderBackend::D3D12 && renderer2D.isD3D12Ready() &&
+             CmdLine::HasArg( "-d3d12-uitest" ) ) {
+            renderer2D.begin( 1280.0f, 720.0f );
+            renderer2D.drawRect( Rect2D( 20.0f, 20.0f, 200.0f, 150.0f ), 0xff00ff00 );
+            renderer2D.drawQuad( textureCache.find( "fla_0180" ) != nullptr
+                                     ? textureCache.find( "fla_0180" )
+                                     : textureCache.getWhiteTexture(),
+                                 Rect2D( 240.0f, 20.0f, 360.0f, 270.0f ), 0xffffffff );
+            renderer2D.drawQuad( textureCache.find( "flash_gradient" ) != nullptr
+                                     ? textureCache.find( "flash_gradient" )
+                                     : textureCache.getWhiteTexture(),
+                                 Rect2D( 620.0f, 20.0f, 360.0f, 270.0f ), 0xffffffff );
+            renderer2D.end();
+        }
         if ( backend == eRenderBackend::D3D12 ) {
             d3d12Device.endFrame();
         } else {

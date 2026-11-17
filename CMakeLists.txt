@@ -63,7 +63,9 @@ if( WIN32 )
     # the swapchain factory and (D3D9/11) the shader compiler.
     if( OTDU_ENABLE_D3D12 )
         target_compile_definitions( otdu_engine PUBLIC OTDU_D3D12=1 )
-        target_link_libraries( otdu_engine PUBLIC d3d12 dxgi dxguid )
+        # d3dcompiler: the 2D layer's HLSL is compiled at run time into SM 5.0
+        # DXBC (D3D12 accepts it, so no dxc / SPIRV-Cross step is needed).
+        target_link_libraries( otdu_engine PUBLIC d3d12 dxgi dxguid d3dcompiler )
     endif()
     if( OTDU_ENABLE_D3D11 )
         target_compile_definitions( otdu_engine PUBLIC OTDU_D3D11=1 )

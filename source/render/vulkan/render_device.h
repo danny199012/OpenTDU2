@@ -15,6 +15,13 @@ struct GPUTexture {
     uint32_t NumMips = 1;
     VkImageViewType ViewType = VK_IMAGE_VIEW_TYPE_2D;
     std::string Name;
+    // Direct3D 12 (docs/backends.md): set instead of the Vulkan handles when the
+    // D3D12 backend uploaded the texture. The descriptor values are
+    // D3D12_CPU/GPU_DESCRIPTOR_HANDLE::ptr, kept as integers so this struct and
+    // every file that holds a GPUTexture need no d3d12.h.
+    void *D3D12Resource = nullptr;
+    uint64_t D3D12SrvCpu = 0;
+    uint64_t D3D12SrvGpu = 0;
 };
 
 struct GPUBuffer {
