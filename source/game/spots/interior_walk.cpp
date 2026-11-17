@@ -1028,12 +1028,20 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             // calls the movie's openMenuSurgeon [DATA: surgeon_stop's script]; the
             // cinematic is not played yet, the menu opens straight away [INF].
             bWalkInput = false;
+            if ( commandSink ) {
+                commandSink( command, args ); // bind first: the invoke below sends surg:edit:open at once
+            }
             ui.invoke( "/", "openMenuSurgeon", {} );
+            return;
         } else if ( bAvatarUi && command == "hadr:open" ) {
             // The hairdresser's A: the movie waits for openMenuHairDresser (retail
             // plays C_BUY_HAIR first - not played yet [INF]).
             bWalkInput = false;
+            if ( commandSink ) {
+                commandSink( command, args );
+            }
             ui.invoke( "/", "openMenuHairDresser", {} );
+            return;
         } else if ( command == "dbxo" ) {
             FlashPlayer &general = scene.getGeneral();
             for ( const char *pVariable : { "/:Msg1Txt", "/:Msg2Txt", "/:Msg1Type", "/:Msg2Type", "/:YesNo" } ) {

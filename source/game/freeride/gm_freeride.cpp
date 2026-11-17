@@ -714,7 +714,10 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
                             profile.FaceFreckle >= 0.0f ? profile.FaceFreckle : baseFreckle );
             GetPlayerProfile().PhoneState["BeenInSurgeryShop"] = 1;
         }
-        if ( !surgeryUi.onCommand( command ) ) {
+        if ( command == "hadr:open" && interior.getAvatarUi() != nullptr ) {
+            hairUi.bind( interior.getAvatarUi() );
+        }
+        if ( !surgeryUi.onCommand( command ) && !hairUi.onCommand( command ) ) {
             stickerShop.onCommand( command );
         }
     } );

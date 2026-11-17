@@ -6,6 +6,24 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-17 (`main`, 55): clothes-shop mirror shows the player; hair / clothes on the retail movie reached, not finished
+
+The owner: *"Both if we can [hairdresser + clothes] ... also in clothes shop the mirror doesn't reflect the characters"*.
+
+### What changed
+- **Mirror (done)**: `IntroCinematic::setMirrorPlayer` / `updateMirrorPlayer` / `bPlayerMirrorOnly` + `WalkMode::update` feed:
+  the first-person walker's avatar is posed (stand idle) at its feet and drawn only in the projector passes.
+  Verified in `EAS_A` (diff confined to the mirror quad, `docs/images/clothes_mirror_player.webp`); `-nomirrorplayer` A/B.
+- `InteriorWalk::avatarLabel` generalises the avatar-shop mode (`surgeon` / `hairdresser` / `clothes_shop`); hair and clothes are
+  opt-in `-hairui` / `-clothesui` (native menus remain default). `HairUi` skeleton (`-loghair` dumps the movie variables).
+- Fixed an ordering bug: the entry commands now reach the sink BEFORE the movie's `openMenu*` invoke (its `*:edit:open` fires inside it).
+- Findings in `docs/re/avatar_shops_spec.md`: hairdresser square menu opens (needs `/:isWoman`), hair list page stays blank
+  after `hadr:edit:maha:open` (variables unknown); clothes shows its title bar, seller not yet selectable by `-walkaim`.
+
+### Not done / next
+- Hairdresser rows (DLC / Lock variables), clothes item grid + prices (reuse the house closet's `clin/neit/prit/seit`),
+  then make both default. The performance (tuning) shop: SHOPSCAR tuning page, not touched this session.
+
 ## Session 2026-11-17 (`main`, 54): the clinic runs the RETAIL SHOPSAVATAR surgeon screen
 
 The owner: *"that isn't the correct menu UI - I would like to try get the true menus if possible"*. The native
