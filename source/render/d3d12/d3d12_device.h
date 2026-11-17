@@ -87,8 +87,10 @@ public:
     // fail silently otherwise (the ImGui font upload waits on a fence).
     void flushPendingDebugMessages() { flushDebugMessages( "client" ); }
     // Handles are returned as integers (D3D12_CPU_DESCRIPTOR_HANDLE::ptr) so
-    // that callers which only forward them need no d3d12.h.
-    bool allocateSrv( uintptr_t &cpuHandle, uintptr_t &gpuHandle );
+    // that callers which only forward them need no d3d12.h. 'storageCpu' is the
+    // same descriptor in the non shader-visible mirror heap, which is the only
+    // legal copy source for a descriptor table in another heap.
+    bool allocateSrv( uintptr_t &cpuHandle, uintptr_t &gpuHandle, uintptr_t *pStorageCpu = nullptr );
     void freeSrv( uintptr_t cpuHandle );
 
     // A 2D texture the game uploaded (TextureCache), as plain integers for the
@@ -97,6 +99,12 @@ public:
         void *pResource = nullptr;
         uint64_t SrvCpu = 0;
         uint64_t SrvGpu = 0;
+        // The same SRV in the device's shader-opaque storage heap. A descriptor
+        // table in another heap cannot be filled from a shader-visible heap
+        // (CopyDescriptorsSimple's source must be non shader-visible, "SRC
+        // points to a descriptor heap type that is CPU write only"), and the
+        // scene's per-draw texture tables are built exactly that way.
+        uint64_t SrvStorageCpu = 0;
         uint32_t Width = 0;
         uint32_t Height = 0;
     };
@@ -165,6 +173,9 @@ private:
     void *hFenceEvent = nullptr;
     ID3D12DescriptorHeap *pRtvHeap = nullptr;
     ID3D12DescriptorHeap *pSrvHeap = nullptr;
+    // The shader-opaque mirror of pSrvHeap: descriptor copy sources must not be
+    // shader visible (see Texture::SrvStorageCpu).
+    ID3D12DescriptorHeap *pSrvStorageHeap = nullptr;
     ID3D12Resource *pDepthStencil = nullptr;
     ID3D12DescriptorHeap *pDsvHeap = nullptr;
     uint32_t srvDescriptorSize = 0;

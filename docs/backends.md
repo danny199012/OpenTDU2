@@ -27,8 +27,10 @@ with no shippable step in between. The backends are therefore added
 | Textures from `.2db` / RGBA | done | **done** | - | - |
 | Game boots (services, Flash logic, login) | done | **done** | - | - |
 | 2D layer (Flash front end, font atlas, clip rects, stencil masks) | done | **done** (HLSL, section 6) | - | - |
+| Scene shader path (SPIR-V -> HLSL -> SM 5.0 DXBC) | n/a (SPIR-V) | **done** (section 4) | - | - |
+| Scene pipelines / meshes / texture tables | done | **done** (one root signature, section 4) | - | - |
 | ImGui overlay / build watermark | done | **done, opt-in** `-d3d12-ui` (driver stall, section 6) | - | - |
-| Scene (eden), 3D game modes | done | not yet (phase 3b) | - | - |
+| Scene (eden), 3D game modes | done | not yet (phase 3b step 2) | - | - |
 
 `eRenderBackend` (`source/render/rhi/render_backend.h`) is the switch,
 `GSRender::createDevice` is the single place that acts on it, and
@@ -55,6 +57,8 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-noimgui` | no ImGui overlay at all, on either backend (the A/B for a UI-side stall) |
 | `-notitlescene` | skip the 3D press-start cinematic (applied automatically when the backend cannot draw 3D) |
 | `-renderer-selftest [frames]` | the self test below: no game, no data, exit 0/1 |
+| `-d3d12-scenetest` | with the self test: the scene path instead of the colour bars (section 3.3) |
+| `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
 | `-renderer-shot <path.ppm>` | with the self test: write the last frame |
 | `-renderer-window` | with the self test: show the window instead of hiding it |
 
@@ -153,6 +157,48 @@ row 360 of a 1280x720 frame. `-autoplay "20:shot=..."` inside the game would use
 the same readback, but an in-game D3D12 run is refused until phase 2 (section 6)
 [CODE].
 
+### 3.3 The scene path (no game data)
+
+`-d3d12-scenetest` swaps the colour bars for the scene pipeline: the engine's own
+`resources/shaders/mesh.vert` + `mesh.frag` (the pair the Vulkan renderer draws
+`.3dg` geometry with, embedded as SPIR-V in `source/render/shaders/builtin/`) go
+through the full path - SPIR-V -> HLSL (SPIRV-Cross) -> SM 5.0 DXBC
+(`D3DCompile`) -> `D3D12Scene`'s root signature and pipeline cache - and draw a
+textured, lit, depth tested cube (24 vertices, 36 indices) with the checker
+texture generated in the test itself.
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-scenetest `
+    -renderer-selftest 30 -renderer-shot E:\Cline\_dx_scenetest.ppm -d3d12-debug
+```
+
+Measured (RTX 5070 Ti, build 219): the debug layer reports **no** message for the
+whole stream, and the log reads
+
+```
+D3D12 scene: root signature ready (b0 constants, b13 root constants, t0..t7)
+D3D12 scene test: mesh.vert -> 1720 B DXBC (32 root constants), mesh.frag -> 2564 B DXBC (1 texture(s), 0 sampler(s))
+D3D12 scene: pipeline 1 (4 attributes, 1 stream(s), blend 0, cull 0, depth test+write)
+D3D12 scene test: 30 frame(s) of a 36 index cube on 'NVIDIA GeForce RTX 5070 Ti' (1280x720)
+```
+
+The frame is checked by numbers, not by eye: **13.94 % of the pixels differ from
+the clear colour, 135 distinct colours**, and the three visible faces carry
+different brightness (the `+Y` face lit, the two sides dimmer) - i.e. the vertex
+layout, the 128-byte root constant block, the texture table with its static
+sampler and the depth test all work. `docs/images/d3d12_scene_test.webp` is that
+frame.
+
+`-d3d12-dump-shaders <dir>` writes the HLSL next to the run; reading
+`pipeline1_vs.hlsl` is how the first "black frame" was diagnosed as a
+`SizeInBytes` mistake rather than a shader problem (section 6).
+
+### 3.4 What is still not drawn
+
+The scene path above is the *mechanism*, not the game: `EdenRenderer` still talks
+to the Vulkan device, so `canDrawScene()` is false on D3D12 and the 3D modes stay
+refused. Wiring Eden onto `D3D12Scene` is phase 3b step 2 (section 5).
+
 ## 4. The shader path
 
 The scene cannot be ported until the shaders can be consumed per backend. Both
@@ -164,17 +210,47 @@ inputs already exist in the tree:
 
 | Backend | Path | Notes |
 |---|---|---|
-| D3D12 | SPIR-V -> HLSL (SPIRV-Cross) -> DXIL (`dxc`) | one translation, reused by D3D11 with SM 5.0 targeting |
+| D3D12 | SPIR-V -> HLSL (SPIRV-Cross) -> **SM 5.0 DXBC** (`D3DCompile`) | done, `D3D12ShaderCompiler`; DXIL / `dxc` not needed (nothing a D3D9 shader expresses needs SM 6) |
 | D3D11 | SPIR-V -> HLSL -> SM 5.0 (`dxc` or `D3DCompile`) | same output as D3D12 |
 | D3D9 | the **original bytecode directly** (`vs_3_0` / `ps_3_0`) | no translation at all for Eden's shaders; the engine's own GLSL would have to be hand-ported to SM 3.0 (lossy: no MRT, no integer ops) |
 
 The 2D layer did not need that pipeline: it is **one HLSL pair compiled at run
 time by `D3DCompile`** (`d3dcompiler_47.dll`, which every Windows has) to SM 5.0
-**DXBC**, which D3D12 accepts directly [CODE]. `dxc` / `dxcompiler.dll` are not
-part of the Windows SDK install on this machine (`C:\Program Files (x86)\Windows
-Kits\10\bin\10.0.26100.0\x64` has no `dxc.exe`), so the SPIR-V -> DXIL route
-stays the plan for the *scene* (it needs SM 6 features and the `.sob` shaders),
-not for the 2D pipeline.
+**DXBC**, which D3D12 accepts directly [CODE].
+
+**The scene uses the same route, and it works** (`D3D12ShaderCompiler`,
+`source/render/d3d12/d3d12_shader.*`):
+
+1. SPIR-V -> HLSL through **SPIR-V Cross**, vendored in `third_party/spirv_cross`
+   (Apache-2.0, pinned to the `vulkan-sdk-1.4.350.0` tag - the same release the
+   tree's Vulkan-Headers / SPIRV-Headers / volk come from, so it builds offline
+   like the dxvk subset does). `options.shader_model = 50`, plus
+   `point_size_compat` / `point_coord_compat`, which is what the D3D9 point
+   sprites in `.sob` shaders need (HLSL has neither builtin).
+2. HLSL -> **SM 5.0 DXBC** through `D3DCompile`. SM 5.0 DXBC is valid D3D12 input,
+   so `dxc` / DXIL is **not** on the critical path. (`dxc.exe` does exist on this
+   machine after all - `C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\dxc.exe`
+   and `C:\VulkanSDK\1.4.350.0\Bin\dxc.exe` both exist - the earlier note that it
+   was missing was wrong. It is simply not needed: nothing the D3D9 shader model
+   can express needs SM 6.)
+
+The register convention is fixed, so **one root signature serves every program**
+(`D3D12Scene::createRootSignature`):
+
+| | | |
+|---|---|---|
+| b0 (VS) / b0 (PS) | CBV | the stage's constant buffers, remapped to b0..bN per stage |
+| b13 | 32-bit root constants | the D3D9 push constants, up to 32 dwords (128 B, `RenderDevice::kPushConstantsSize`) |
+| t0..t7 | SRV table | the material's textures, remapped in SPIR-V resource order |
+| s0..s7 | static samplers | linear / wrap / mip linear (D3D9's default state) |
+
+* **b13, not b15**: SM 5.0 has exactly 14 constant buffer slots (b0..b13) and
+  `D3DCompile` rejects `register(b15)` with *"maximum cbuffer exceeded. target has
+  14 slots"*. The push constant block therefore lands on the last slot.
+* **Vertex inputs are `TEXCOORD<location>`**: SPIRV-Cross writes that semantic for
+  every SPIR-V location, so `D3D12Scene`'s input layout uses the same rule and a
+  `.sob` shader's `dcl` slot needs no lookup table.
+* The HLSL text is kept per stage; `-d3d12-dump-shaders <dir>` writes it out.
 
 Then, per backend: bindings (root signature / CBV+SRV+sampler heaps vs
 descriptor sets), the push-constant block (`kPushConstantsSize` = 128 B) becomes
@@ -190,20 +266,49 @@ root constants or a CBV, and the pipeline state (blend / cull / depth / stencil 
    `D3D12UI` (root signature, 4 PSOs, upload ring, HLSL via `D3DCompile`), `Renderer2D`'s
    D3D12 branch. The Flash front end draws - 99.26 % of its pixels match the Vulkan
    `-notitlescene` frame within 8 levels (section 3.1).
-4. **D3D12 scene (phase 3b)**: the DXSO SPIR-V through SPIRV-Cross + `dxc`, the Eden
-   constant buffer path in `EdenRenderer::fillConstants`, the render targets / shadow /
-   reflection / post passes, and then the 3D game modes (still refused with one log line).
+4. **D3D12 scene (phase 3b)** - step 1 done (2026-11-17): `D3D12ShaderCompiler`
+   (SPIR-V -> HLSL -> SM 5.0 DXBC) and `D3D12Scene` (one root signature for every
+   program, pipeline cache, upload-heap meshes, per-draw texture tables) draw a real
+   engine shader (`-d3d12-scenetest`, section 3.3). Step 2, the Eden scene itself:
+   `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
+   `EdenProgram` -> pipeline cache, `fillConstants` into the b13 root constants, the
+   constants UBO as the b0 CBV), then the render targets / shadow / reflection / post
+   passes, and then the 3D game modes (still refused with one log line).
 5. **D3D11**: the same translated HLSL, a thin device; it is the cheap one once (4) exists.
 6. **D3D9**: the original bytecode path (a near pass-through), with SM 3.0 limits documented
    where the engine's own shaders cannot follow.
 
-Next step, precisely: `source/render/eden/eden_shader_system.cpp` - the `.sob` pipeline
-creation (SPIR-V -> HLSL -> DXIL) and `EdenRenderer::fillConstants`' push constants as a
-root CBV, so `EdenWorld`/`EdenSceneView` can be pointed at a D3D12 device the way
-`TextureCache` and `Renderer2D` already are.
+Next step, precisely: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
+`PipelineDesc` handed to `D3D12Scene::getPipeline` and `recordPacket`'s push constants
+handed to `D3D12Scene::draw`, with `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`)
+going through `D3D12ShaderCompiler`. Before that, one measurement that decides the size
+of the job: compile **every** `.sob` permutation in `Euro/Shaders` through
+`D3D12ShaderCompiler` and count the failures (`-d3d12-shadertest` is the hook to add -
+the loop is `EdenShaderSystem`'s `findLibrary` + `ShaderLibrary::getTranslatedShader`).
 
 ## 6. Known gaps and traps
 
+- **`D3D12_VERTEX_BUFFER_VIEW::SizeInBytes` is the whole buffer, not one
+  vertex.** Passing the stride makes the input assembler treat the buffer as a
+  single vertex and drop every triangle whose indices go past it - with no error
+  and a clean debug layer. It cost the scene test its first "black frame"
+  (`D3D12Scene::Mesh::VertexBytes` exists for this reason).
+- **A descriptor copy source must be a non shader-visible heap.** Building a
+  per-draw texture table with `CopyDescriptorsSimple` from the *shader-visible*
+  SRV heap is error #654 (`SRC points to a descriptor heap type that is CPU write
+  only`), and on the NVIDIA driver the fault that follows is an access violation
+  inside `nvwgf2umx` - i.e. it reads as a driver crash, not as a misuse. The
+  device keeps a shader-opaque mirror heap (`D3D12Device::pSrvStorageHeap`, every
+  texture has `SrvStorageCpu`); tables are filled from there.
+- **`SetGraphicsRootSignature` before `SetGraphicsRootDescriptorTable`.** A table
+  set first is error #708, and again the driver fault comes later than the
+  mistake.
+- **SM 5.0 has 14 constant buffer slots (b0..b13).** `register(b15)` fails to
+  compile (`maximum cbuffer exceeded`), so the push constant block lives at b13.
+- **The front face is decided in screen space, where Y points down.** A Vulkan
+  pipeline with `frontFace = counter-clockwise` maps to
+  `D3D12_RASTERIZER_DESC::FrontCounterClockwise = FALSE`. Not yet exercised: the
+  scene test culls nothing on purpose, until Eden's meshes set the convention.
 - **3D game modes are refused on D3D12.** `switchToNextGameMode` (`tdu_instance.cpp`) allows
   `GM_Login` and `GM_UiViewer` and logs `Renderer d3d12 cannot draw game mode X yet` for the
   rest: their `enter()` builds an EdenWorld through the Vulkan device. The front end (login,
@@ -251,6 +356,15 @@ root CBV, so `EdenWorld`/`EdenSceneView` can be pointed at a D3D12 device the wa
   `ninja` link fail with `failed to write output ... permission denied` - wait a few seconds
   and rebuild, it is not a build error. Automation: let the run be stopped
   (`Stop-Process -Name opentdu2-cline`) or rely on the watchdog's kill threshold.
+  A third flavour, measured 2026-11-17 on the RTX 5070 Ti: **without a debugger the
+  process can fault instead of stalling** (access violation inside `nvwgf2umx`,
+  Windows Error Reporting picks it up, exit code 1) *after* the last frame and
+  after the screenshot is written - including for the plain 2D front end run that
+  draws correctly at ~4000 fps. The *same command line under `cdb`* exits 0
+  (`-renderer-selftest: PASSED`), so the frame, the draws and the teardown order
+  are not what is broken; it is the driver/shutdown path. `cmd /c "cdb -g -G -c
+  \"g; kb 30; q\" opentdu2-cline.exe ..."` is the workaround for automation until
+  `TestDriveGameInstance::terminate` is traced.
   Next step: `TestDriveGameInstance::terminate` - log with `Logger::WriteTagged`
   (non-blocking) from each step to find the holder.
 - **No build stamp on a D3D12 screenshot** unless `-d3d12-ui` is on (the stamp is an ImGui

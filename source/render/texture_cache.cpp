@@ -210,6 +210,7 @@ void TextureCache::destroyTexture( GPUTexture *pTexture ) {
         texture.pResource = pTexture->D3D12Resource;
         texture.SrvCpu = pTexture->D3D12SrvCpu;
         texture.SrvGpu = pTexture->D3D12SrvGpu;
+        texture.SrvStorageCpu = pTexture->D3D12SrvStorageCpu;
         pD3D12Device->destroyTexture( texture );
         delete pTexture;
         return;
@@ -262,6 +263,7 @@ GPUTexture *TextureCache::createD3D12Texture( uint32_t width,
     pTexture->D3D12Resource = uploaded.pResource;
     pTexture->D3D12SrvCpu = uploaded.SrvCpu;
     pTexture->D3D12SrvGpu = uploaded.SrvGpu;
+    pTexture->D3D12SrvStorageCpu = uploaded.SrvStorageCpu;
     return pTexture;
 }
 

@@ -16,6 +16,106 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-17 (ninety-third, `cline`): the scene's shader path on Direct3D 12 - SPIR-V to HLSL to DXBC, and a real lit, textured, depth tested draw
+
+Continuation of the entry below on *"please continue with Direct X 12 support
+thanks"*: phase 3b step 1, the two pieces the Eden port needs before any Eden
+code can move - a shader compiler and a scene pipeline (`docs/backends.md`
+sections 3.3, 4 and 5).
+
+### What changed
+
+- `third_party/spirv_cross/` (new, vendored) - **SPIR-V Cross** at the
+  `vulkan-sdk-1.4.350.0` tag (Apache-2.0), only the sources the HLSL backend
+  needs, with its own `otdu_spirv_cross` static library. Vendored rather than
+  fetched for the same reason as the dxvk subset: an offline build and a pinned
+  tag. `CMakeLists.txt` adds the subdirectory and links it only for
+  `WIN32 AND OTDU_ENABLE_D3D12`.
+- `source/render/d3d12/d3d12_shader.{h,cpp}` (new) - `D3D12ShaderCompiler`:
+  SPIR-V -> HLSL (`CompilerHLSL`, SM 5.0, `point_size_compat` /
+  `point_coord_compat` for D3D9 point sprites), resource remap (UBOs to b0..bN per
+  stage, textures to t0..tN, samplers s0..sN) and the push constant block to
+  **32-bit root constants at b13**, then HLSL -> **SM 5.0 DXBC** with
+  `D3DCompile`. No `dxc`, no DXIL: SM 5.0 DXBC is valid D3D12 input.
+  `TranslatedShader` (both the DXSO `.sob` route and the engine's embedded
+  GLSL->SPIR-V) is the input type, so Eden's programs need no conversion.
+- `source/render/d3d12/d3d12_scene.{h,cpp}` (new) - `D3D12Scene`: **one root
+  signature for every program** (CBV b0 per stage, 32-dword root constants at
+  b13, an 8-entry SRV table t0..t7, eight static samplers s0..s7), a pipeline
+  cache keyed by the full descriptor, upload-heap vertex/index meshes, and a draw
+  that fills the texture table per call. `-d3d12-dump-shaders <dir>` writes the
+  HLSL of every pipeline.
+- `source/render/d3d12/d3d12_device.{h,cpp}` - a **shader-opaque mirror SRV
+  heap** (`pSrvStorageHeap`; `allocateSrv` returns the mirror handle,
+  `Texture::SrvStorageCpu`): a descriptor copy source may not be shader visible,
+  so per-draw tables are filled from the mirror. Also the
+  `SetMaximumFrameLatency` call is now behind the waitable-object flag (debug
+  layer error #217).
+- `source/render/texture_cache.cpp`, `source/render/vulkan/render_device.h` -
+  `GPUTexture::D3D12SrvStorageCpu` carried through `createD3D12Texture` / the
+  destroy path.
+- `source/render/d3d12/d3d12_device.cpp` - `-d3d12-scenetest` runs
+  `D3D12RunSceneTest` instead of the colour bars inside `-renderer-selftest`.
+- `docs/backends.md` - status matrix (scene shader path + scene pipelines done,
+  Eden itself not), section 3.3 (the scene test recipe and its numbers), section
+  4 rewritten around the route that exists and the fixed register convention,
+  section 5 step 4 split into step 1 (done) and step 2 (Eden), section 6: five
+  new traps and the third flavour of the teardown trouble.
+- `PROGRESS.md` - the D3D12 row now says phase 3b step 1 done, next = Eden.
+
+### Verified (build 219 (9628d1f+dirty) - cline)
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-scenetest `
+    -renderer-selftest 30 -renderer-shot E:\Cline\_dx_scenetest.ppm -d3d12-debug
+```
+
+```
+D3D12 scene: root signature ready (b0 constants, b13 root constants, t0..t7)
+D3D12 scene test: mesh.vert -> 1720 B DXBC (32 root constants), mesh.frag -> 2564 B DXBC (1 texture(s), 0 sampler(s))
+D3D12 scene: pipeline 1 (4 attributes, 1 stream(s), blend 0, cull 0, depth test+write)
+D3D12 scene test: 30 frame(s) of a 36 index cube on 'NVIDIA GeForce RTX 5070 Ti' (1280x720)
+-renderer-selftest: PASSED
+```
+
+- The debug layer reports **nothing** for the whole scene stream (no #654, no
+  #708, no #217).
+- The frame: **13.94 % of the pixels differ from the clear colour, 135 distinct
+  colours**, three faces at different brightness (the `+Y` face lit, the two sides
+  dimmer) - `docs/images/d3d12_scene_test.webp`.
+- Regressions: the phase 3a front end still draws on D3D12 (`-exitframe 9000
+  -autoplay 8000:shot=...`: 17039 distinct colours, ~4000 fps) and Vulkan still
+  runs (`-renderer vulkan -game ... -exitframe 60`, `GAME MODE : LOGIN`).
+
+### Ruled out (with the test that ruled it out)
+
+- **"SPIRV-Cross cannot do the D3D9 push constant block"** - it can, but only
+  with `set_root_constant_layouts()`; without it the block is emitted as a
+  `cbuffer` with no `register()` and the compiler assigns it a number that can
+  collide with b0.
+- **"b15 is free"** - it is not: SM 5.0 has b0..b13 and `D3DCompile` says
+  `maximum cbuffer exceeded. target has 14 slots, manual bind to slot 15 failed`.
+- **"the black scene frame is the shader"** - the dumped HLSL
+  (`-d3d12-dump-shaders`) was correct; the cause was
+  `D3D12_VERTEX_BUFFER_VIEW::SizeInBytes` given the stride instead of the buffer
+  size, which makes the IA drop every triangle silently, with a clean debug layer.
+- **"the driver crash at startup is the new code"** - a plain
+  `-renderer-selftest` (colour bars, untouched code path) failed the same way in
+  the same minute, and under `cdb` both the bars and the scene pass. It is the
+  teardown/shutdown family in section 6, now with an AV flavour.
+
+### Next
+
+Phase 3b step 2, and the measurement that sizes it: a `-d3d12-shadertest` mode
+that pushes **every** `.sob` permutation of `Euro/Shaders` through
+`D3D12ShaderCompiler` and prints the tally (the loop is `EdenShaderSystem` +
+`ShaderLibrary::getTranslatedShader`; it needs `-game`, so it belongs in the game
+bootstrap, not in `-renderer-selftest`). Then `EdenRenderer::createProgram` ->
+`D3D12Scene::getPipeline` and `recordPacket`'s push constants ->
+`D3D12Scene::draw`, which is what lifts the 3D game mode refusal. Still open: the
+ImGui-on-NVIDIA stall (`-d3d12-ui`, WARP is fine) and the process teardown.
+
+
 ## Session 2026-11-17 (ninety-second, `cline`): the Flash front end draws on Direct3D 12 - the 2D layer (HLSL, .2db textures, stencil masks) and a pixel-level match against Vulkan
 
 Continuation of the entry below on *"I Want you to continue with Direct X 12 support

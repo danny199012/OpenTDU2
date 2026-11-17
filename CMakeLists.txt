@@ -30,6 +30,11 @@ option( OTDU_ENABLE_D3D9 "Build the Direct3D 9 backend (not implemented yet)" OF
 
 include( cmake/Dependencies.cmake )
 add_subdirectory( "${OTDU_THIRDPARTY_FOLDER}/dxvk" )
+# SPIRV-Cross: the D3D12 shader path (SPIR-V -> HLSL). Only the Direct3D 12
+# backend consumes it, so it is not built where it cannot be used.
+if( WIN32 AND OTDU_ENABLE_D3D12 )
+    add_subdirectory( "${OTDU_THIRDPARTY_FOLDER}/spirv_cross" )
+endif()
 
 # Engine (everything but the entry point) is built as a static library so the
 # tools can reuse the asset readers.
@@ -64,8 +69,10 @@ if( WIN32 )
     if( OTDU_ENABLE_D3D12 )
         target_compile_definitions( otdu_engine PUBLIC OTDU_D3D12=1 )
         # d3dcompiler: the 2D layer's HLSL is compiled at run time into SM 5.0
-        # DXBC (D3D12 accepts it, so no dxc / SPIRV-Cross step is needed).
-        target_link_libraries( otdu_engine PUBLIC d3d12 dxgi dxguid d3dcompiler )
+        # DXBC (D3D12 accepts it, so no dxc step is needed), and so is the HLSL
+        # SPIRV-Cross writes for the scene's .sob shaders (docs/backends.md
+        # section 4).
+        target_link_libraries( otdu_engine PUBLIC d3d12 dxgi dxguid d3dcompiler otdu_spirv_cross )
     endif()
     if( OTDU_ENABLE_D3D11 )
         target_compile_definitions( otdu_engine PUBLIC OTDU_D3D11=1 )

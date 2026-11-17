@@ -3,6 +3,7 @@
 
 #if defined( OTDU_D3D12 )
 
+#include "render/d3d12/d3d12_scene.h"
 #include "system/cmd_line.h"
 
 #include <SDL3/SDL.h>
@@ -307,7 +308,12 @@ bool D3D12Device::createSwapchain() {
         OTDU_LOG_ERROR( "D3D12: IDXGISwapChain3 unavailable\n" );
         return false;
     }
-    pSwapchain->SetMaximumFrameLatency( kFramesInFlight );
+    // Only a swapchain created with DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT
+    // accepts this; on any other the debug layer reports error #217 (the setting
+    // is a no-op here, the frame pacing is the queue's fences).
+    if ( ( desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT ) != 0 ) {
+        pSwapchain->SetMaximumFrameLatency( kFramesInFlight );
+    }
 
     if ( !createRtvHeap() ) {
         return false;
@@ -622,6 +628,7 @@ void D3D12Device::destroy() {
     SafeRelease( pRtvHeap );
     destroyDepthStencil();
     SafeRelease( pSrvHeap );
+    SafeRelease( pSrvStorageHeap );
     srvUsed.clear();
     SafeRelease( pSwapchain );
     SafeRelease( pFence );
@@ -939,8 +946,14 @@ bool D3D12RunSelfTest() {
         }
         // A dark clear colour under the bars, so a black bar cannot be confused
         // with an uninitialised buffer.
-        bOk = device.runSelfTest( static_cast<uint32_t>( frames ),
-                                  ColorRGBA( 0.05f, 0.06f, 0.08f, 1.0f ) );
+        const ColorRGBA clearColor( 0.05f, 0.06f, 0.08f, 1.0f );
+        if ( CmdLine::HasArg( "-d3d12-scenetest" ) ) {
+            // The scene path (docs/backends.md phase 3b): shader compilation,
+            // one pipeline, a textured cube, a depth tested draw.
+            bOk = D3D12RunSceneTest( device, static_cast<uint32_t>( frames ), clearColor );
+        } else {
+            bOk = device.runSelfTest( static_cast<uint32_t>( frames ), clearColor );
+        }
     }
     device.destroy();
     SDL_DestroyWindow( pWindow );
@@ -1103,10 +1116,12 @@ bool D3D12Device::createTexture2D( uint32_t width,
     SafeRelease( pUpload );
 
     // The SRV lives in the device's shader visible heap, so the 2D draw binds it
-    // with a descriptor table and nothing else.
+    // with a descriptor table and nothing else; the mirror in the storage heap
+    // is what a scene draw's texture table copies from.
     uintptr_t srvCpu = 0;
     uintptr_t srvGpu = 0;
-    if ( !createSrvHeap() || !allocateSrv( srvCpu, srvGpu ) ) {
+    uintptr_t srvStorageCpu = 0;
+    if ( !createSrvHeap() || !allocateSrv( srvCpu, srvGpu, &srvStorageCpu ) ) {
         SafeRelease( pTexture );
         return false;
     }
@@ -1117,10 +1132,15 @@ bool D3D12Device::createTexture2D( uint32_t width,
     srvDesc.Texture2D.MipLevels = numMips;
     D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = { srvCpu };
     pDevice->CreateShaderResourceView( pTexture, &srvDesc, srvHandle );
+    if ( srvStorageCpu != 0 ) {
+        D3D12_CPU_DESCRIPTOR_HANDLE storageHandle = { srvStorageCpu };
+        pDevice->CreateShaderResourceView( pTexture, &srvDesc, storageHandle );
+    }
 
     texture.pResource = pTexture;
     texture.SrvCpu = srvCpu;
     texture.SrvGpu = srvGpu;
+    texture.SrvStorageCpu = srvStorageCpu;
     texture.Width = width;
     texture.Height = height;
     return true;
@@ -1156,13 +1176,21 @@ bool D3D12Device::createSrvHeap() {
         OTDU_LOG_ERROR( "D3D12: the SRV descriptor heap could not be created\n" );
         return false;
     }
+    // The copy source for the scene's texture tables: same size, same type, not
+    // shader visible (that is the rule CopyDescriptorsSimple enforces).
+    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    if ( FAILED( pDevice->CreateDescriptorHeap( &desc, IID_PPV_ARGS( &pSrvStorageHeap ) ) ) ) {
+        OTDU_LOG_ERROR( "D3D12: the SRV storage heap could not be created\n" );
+        SafeRelease( pSrvHeap );
+        return false;
+    }
     srvDescriptorSize =
         pDevice->GetDescriptorHandleIncrementSize( D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
     srvUsed.assign( kSrvDescriptors, false );
     return true;
 }
 
-bool D3D12Device::allocateSrv( uintptr_t &cpuHandle, uintptr_t &gpuHandle ) {
+bool D3D12Device::allocateSrv( uintptr_t &cpuHandle, uintptr_t &gpuHandle, uintptr_t *pStorageCpu ) {
     if ( pSrvHeap == nullptr && !createSrvHeap() ) {
         return false;
     }
@@ -1175,6 +1203,12 @@ bool D3D12Device::allocateSrv( uintptr_t &cpuHandle, uintptr_t &gpuHandle ) {
                     static_cast<SIZE_T>( index ) * srvDescriptorSize;
         gpuHandle = pSrvHeap->GetGPUDescriptorHandleForHeapStart().ptr +
                     static_cast<SIZE_T>( index ) * srvDescriptorSize;
+        if ( pStorageCpu != nullptr ) {
+            *pStorageCpu = pSrvStorageHeap != nullptr
+                               ? pSrvStorageHeap->GetCPUDescriptorHandleForHeapStart().ptr +
+                                     static_cast<SIZE_T>( index ) * srvDescriptorSize
+                               : 0;
+        }
         return true;
     }
     OTDU_LOG_ERROR( "D3D12: the SRV heap (%u descriptors) is full\n", kSrvDescriptors );

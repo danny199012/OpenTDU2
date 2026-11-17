@@ -22,6 +22,10 @@ struct GPUTexture {
     void *D3D12Resource = nullptr;
     uint64_t D3D12SrvCpu = 0;
     uint64_t D3D12SrvGpu = 0;
+    // The same SRV in the device's shader-opaque storage heap: the only legal
+    // copy source when a scene draw fills its texture table
+    // (D3D12Device::Texture::SrvStorageCpu has the rule).
+    uint64_t D3D12SrvStorageCpu = 0;
 };
 
 struct GPUBuffer {
