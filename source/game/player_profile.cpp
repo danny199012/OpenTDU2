@@ -468,6 +468,28 @@ void LoadProfile() {
                 profile.WornClothes[static_cast<int32_t>( part )] = static_cast<int32_t>( id );
                 pText = *pEnd == ',' ? pEnd + 1 : pEnd;
             }
+        } else if ( key == "face_params" ) {
+            // "v0,v1,...v48" (the surgery clinic's FaceParamArray)
+            std::vector<int8_t> values;
+            const char *pText = value.c_str();
+            while ( *pText != 0 && values.size() < 49 ) {
+                char *pEnd = nullptr;
+                const long v = strtol( pText, &pEnd, 10 );
+                if ( pEnd == pText ) {
+                    break;
+                }
+                values.push_back( static_cast<int8_t>( Clamp( static_cast<int32_t>( v ), -128, 127 ) ) );
+                pText = *pEnd == ',' ? pEnd + 1 : pEnd;
+            }
+            profile.FaceParams = values.size() == 49 ? values : std::vector<int8_t>();
+        } else if ( key == "face_age" ) {
+            profile.FaceAge = static_cast<float>( atof( value.c_str() ) );
+        } else if ( key == "face_freckle" ) {
+            profile.FaceFreckle = static_cast<float>( atof( value.c_str() ) );
+        } else if ( key == "nb_surgeries" ) {
+            profile.NbSurgeries = number;
+        } else if ( key == "bandage_until" ) {
+            profile.BandageUntil = atoll( value.c_str() );
         } else if ( key == "furniture_choices" ) {
             // "<house>:<slot>=<bank>;..."
             size_t at = 0;
@@ -868,6 +890,12 @@ bool SaveProfile( const char *pReason ) {
             bFirstWorn = false;
         }
         file << "\n";
+        file << "face_params = ";
+        for ( size_t i = 0; i < profile.FaceParams.size(); i++ ) {
+            file << ( i > 0 ? "," : "" ) << static_cast<int32_t>( profile.FaceParams[i] );
+        }
+        file << "\nface_age = " << profile.FaceAge << "\nface_freckle = " << profile.FaceFreckle << "\n";
+        file << "nb_surgeries = " << profile.NbSurgeries << "\nbandage_until = " << profile.BandageUntil << "\n";
         file << "furniture_choices = ";
         for ( const auto &furniture : profile.FurnitureChoices ) {
             file << furniture.first << "=" << furniture.second << ";";

@@ -243,6 +243,40 @@ void EdenAvatar::unload() {
     pSkeleton = nullptr;
 }
 
+bool EdenAvatarLibrary::readPresetFace( const char *pConfigId, int8_t outParams[49], float &outAge, float &outFreckle ) {
+    memset( outParams, 0, 49 );
+    outAge = 0.0f;
+    outFreckle = 0.0f;
+    if ( !bLoaded ) {
+        return false;
+    }
+    XmbValue pnj = FindRow( "DBPNJ", "_configid",
+                            [pConfigId]( XmbValue v ) { return StringCmpI( v.asString().c_str(), pConfigId ) == 0; } );
+    if ( !pnj.isValid() ) {
+        return false;
+    }
+    const BankEntry *pAvt = configBank.findEntry( pnj["_fileconfigid"].asString().c_str(), "avt" );
+    if ( pAvt == nullptr || pAvt->Size <= 2 ) {
+        return false;
+    }
+    FindAvtFloats( pAvt, 0x8d6d, &outAge, 1 );
+    FindAvtFloats( pAvt, 0x3f89, &outFreckle, 1 );
+    const uint8_t *pValue = nullptr;
+    size_t valueSize = 0;
+    if ( FindAvtBytes( pAvt->pData, 2, pAvt->Size, 0x9d93, pValue, valueSize ) ) {
+        size_t offset = 0;
+        for ( uint32_t i = 0; i < 49 && offset + 5 <= valueSize; i++ ) {
+            const uint16_t entrySize = static_cast<uint16_t>( ( pValue[offset] << 8 ) | pValue[offset + 1] );
+            if ( entrySize != 3 ) {
+                break;
+            }
+            outParams[i] = static_cast<int8_t>( pValue[offset + 4] );
+            offset += 5;
+        }
+    }
+    return true;
+}
+
 bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
     unload();
     EdenRenderer *pRenderer = gpRender->getEdenRenderer();
@@ -256,6 +290,8 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
         return false;
     }
     bWoman = pnj["_sex"].asInt() == 1;
+    // The cosmetic clinic's edits belong to the player's own config only.
+    bPlayerFace = StringCmpI( GetPlayerProfile().AvatarConfig.c_str(), pConfigId ) == 0 && !CmdLine::HasArg( "-nosurgery" );
     // .avt BodyID (default: occidental body of the sex).
     uint16_t bodyId = bWoman ? 1 : 0;
     const std::string avtName = pnj["_fileconfigid"].asString();
@@ -408,6 +444,9 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
             }
         }
     }
+    if ( bPlayerFace && GetPlayerProfile().FaceParams.size() == 49 ) {
+        memcpy( faceParams, GetPlayerProfile().FaceParams.data(), sizeof( faceParams ) );
+    }
 
     for ( const Worn &item : worn ) {
         const Bank *pBank = library.getClothesBank( item.File );
@@ -511,6 +550,11 @@ void EdenAvatar::applySkin( const BankEntry *pAvt ) {
     const uint32_t numWrap = FindAvtFloats( pAvt, 0xe9ce, wrap, 2 );
     FindAvtFloats( pAvt, 0x8d6d, &age, 1 );
     FindAvtFloats( pAvt, 0x3f89, &freckle, 1 );
+    if ( bPlayerFace ) {
+        // the clinic's age / FRECKLES purchases (surgery_spec.md 1.3)
+        age = GetPlayerProfile().FaceAge >= 0.0f ? GetPlayerProfile().FaceAge : age;
+        freckle = GetPlayerProfile().FaceFreckle >= 0.0f ? GetPlayerProfile().FaceFreckle : freckle;
+    }
     const uint64_t specParmId = GetIdentifier64bit( "SPECPARM" );
     const uint64_t coeffsId = GetIdentifier64bit( "COEFFS" );
     for ( auto &pPart : parts ) {

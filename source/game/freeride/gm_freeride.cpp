@@ -3047,7 +3047,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
     }
 
     // The A button of the nearest spot (nothing while a menu or a race is up).
-    const bool bBusy = clothesMenu.isOpen() || dealer.isOpen() || schoolMenu.isOpen() || schoolScreen.isOpen() || championshipMenu.isOpen() ||
+    const bool bBusy = clothesMenu.isOpen() || surgeryMenu.isOpen() || dealer.isOpen() || schoolMenu.isOpen() || schoolScreen.isOpen() || championshipMenu.isOpen() ||
                        estate.isOpen() || tuningMenu.isOpen() || tunerMenu.isOpen() || paintMenu.isOpen() || licenseTest.isActive() ||
                        raceEvents.getStage() != RaceEvents::eStage::Idle;
     if ( !bBusy && bSlow && pNearKind != nullptr && !hud.isLevelUpActive() && !risk.isBanking() &&
@@ -4364,7 +4364,42 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
         openSchool( letter, std::string() );
         return true;
     }
+    if ( kind == "surgery" ) {
+        // The cosmetic clinic (ESUR_A / ESUR_CA): the face editor. Bandaged: the retail refusal (text 4405).
+        if ( SurgeryMenu::IsBandaged() ) {
+            const std::string text = LocStr( 4405, "You cannot go back into surgery until you have your bandages removed." );
+            if ( interior.isActive() ) {
+                interior.showMessage( text );
+            } else {
+                hud.showHint( text, 5.0f );
+            }
+            return true;
+        }
+        GetPlayerProfile().PhoneState["BeenInSurgeryShop"] = 1;
+        const PlayerProfile &profile = GetPlayerProfile();
+        int8_t baseParams[49] = {};
+        float baseAge = 0.0f, baseFreckle = 0.0f;
+        avatars.readPresetFace( profile.AvatarConfig.c_str(), baseParams, baseAge, baseFreckle );
+        if ( profile.FaceParams.size() == 49 ) {
+            memcpy( baseParams, profile.FaceParams.data(), sizeof( baseParams ) );
+        }
+        surgeryMenu.setSidePanel( interior.isActive() );
+        surgeryMenu.open( spotBank.rfind( "ESUR_CA", 0 ) == 0 ? "Casino clinic" : "Cosmetic clinic", baseParams,
+                          profile.FaceAge >= 0.0f ? profile.FaceAge : baseAge,
+                          profile.FaceFreckle >= 0.0f ? profile.FaceFreckle : baseFreckle );
+        return true;
+    }
     if ( kind == "hair" ) {
+        if ( SurgeryMenu::IsBandaged() ) {
+            // text 7169: the retail gate while the bandages are on
+            const std::string text = LocStr( 7169, "You cannot go to the hairdresser until you have your bandages removed." );
+            if ( interior.isActive() ) {
+                interior.showMessage( text );
+            } else {
+                hud.showHint( text, 5.0f );
+            }
+            return true;
+        }
         // The hairdresser sells the HAIR brand items (haircuts, DBClothe part 3) [DATA].
         clothesMenu.open( "Hairdresser", FindBrandHashcode( "HAIR" ), PlayerClothesSex() );
         return true;
@@ -5671,6 +5706,11 @@ void GMFreeRide::tick( float deltaTime ) {
         interior.tickBackground( deltaTime );
         return;
     }
+    if ( surgeryMenu.isOpen() ) {
+        surgeryMenu.tick( deltaTime );
+        interior.tickBackground( deltaTime );
+        return;
+    }
     if ( estate.isOpen() ) {
         estate.tick( deltaTime );
         interior.tickBackground( deltaTime );
@@ -5796,6 +5836,12 @@ void GMFreeRide::tick( float deltaTime ) {
         // open through the prompt).
         if ( strncmp( pForcedInterior, "ETNR", 4 ) == 0 ) {
             interiorKind = "tuner";
+        } else if ( strncmp( pForcedInterior, "ESUR", 4 ) == 0 ) {
+            interiorKind = "surgery"; // the clinic (surgery_menu)
+        } else if ( strncmp( pForcedInterior, "ETUN", 4 ) == 0 ) {
+            interiorKind = "tuning";
+        } else if ( strncmp( pForcedInterior, "EHAIR", 5 ) == 0 || strncmp( pForcedInterior, "EHA", 3 ) == 0 ) {
+            interiorKind = "hair";
         }
         bindStickerShop();
         bindTunerGarage();
@@ -8591,6 +8637,7 @@ void GMFreeRide::draw() {
     pauseMenu.draw( renderer );
     dealer.draw( renderer );
     clothesMenu.draw( renderer );
+    surgeryMenu.draw( renderer );
     estate.draw( renderer );
     tuningMenu.draw( renderer );
     tunerMenu.draw( renderer );

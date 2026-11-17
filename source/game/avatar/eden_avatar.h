@@ -28,6 +28,11 @@ public:
 private:
     Bank bodiesBank;
     Bank clothesCommonBank;
+public:
+    // The preset .avt's face (the clinic's baseline): the 49 FaceParamArray
+    // bytes and the age / freckle floats of a DBPNJ config.
+    bool readPresetFace( const char *pConfigId, int8_t outParams[49], float &outAge, float &outFreckle );
+private:
     Bank configBank;
     Render2DM hairPalette;
     EdenSkeleton manSkeleton;
@@ -64,6 +69,7 @@ private:
     std::vector<std::unique_ptr<EdenModel>> parts;
     std::vector<size_t> headParts; // head mesh and the clothes worn on it
     int8_t faceParams[49] = {};
+    bool bPlayerFace = false; // the player's config: the clinic's face edits apply (PlayerProfile::FaceParams)
 
     // FUN_00cbe2a0 / FUN_00cbe1a0 / FUN_00cbe220: .avt skin values into the
     // TD_Skin2 / TD_Skinface materials (docs/re/skin_zones_spec.md).

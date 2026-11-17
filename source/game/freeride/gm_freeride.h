@@ -20,6 +20,7 @@
 #include "game/freeride/car_wash.h"
 #include "game/freeride/phone_calls.h"
 #include "game/clothes_shop.h"
+#include "game/freeride/surgery_menu.h"
 #include "game/freeride/chase_camera.h"
 #include "game/freeride/chase_mode.h"
 #include "game/freeride/fade_freeride.h"
@@ -256,6 +257,7 @@ private:
     DiscoveryPoints discovery;
     DealerMenu dealer;
     ClothesMenu clothesMenu;
+    SurgeryMenu surgeryMenu; // the cosmetic clinic (ESUR_*), surgery_spec.md
     // The realtor (ERE_*), the tuning shops (ETUN_*) and the sticker /
     // paint shops (ESTICK_*): the menus of the spots that have stock
     // (DBHouse / the tuning levels / the car's DBCarsAndColors rows).

@@ -262,6 +262,16 @@ std::map<int32_t, TunerCarParts> OwnedCarTunerParts;
     // DBClothe _parttype -> _id_num. They replace the DBPNJ slots of the
     // player's avatar config wherever it is built (EdenAvatar::load).
     std::map<int32_t, int32_t> WornClothes;
+    // The cosmetic clinic (docs/re/surgery_spec.md): the player's edited face
+    // over the preset .avt - the 49 FaceParamArray bytes (empty = never
+    // operated), the .avt age / freckle floats (-1 = the preset's), the
+    // NbSurgeries save field and the bandage deadline (unix seconds, 0 = none;
+    // the retail BandageTime rule is [ENC], the duration is the port's [INF]).
+    std::vector<int8_t> FaceParams;
+    float FaceAge = -1.0f;
+    float FaceFreckle = -1.0f;
+    int32_t NbSurgeries = 0;
+    int64_t BandageUntil = 0;
     // The MyTDUHouse furniture choices (houses_spec.md 11): "<house spot>:<slot
     // name>" -> the interior/myhouse bank (a DBFurniture _bank of the slot's
     // type) that replaces the authored model.

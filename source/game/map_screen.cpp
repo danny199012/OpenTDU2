@@ -1372,7 +1372,7 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
         player.setVariable( "/:WashingPrice", "$10" );
     } else if ( strcmp( pKind, "surgery" ) == 0 ) {
         title = "Plastic surgery";
-        player.setVariable( "/:NbSurgeriesDone", "0" );
+        player.setVariable( "/:NbSurgeriesDone", std::to_string( GetPlayerProfile().NbSurgeries ).c_str() );
     } else if ( strcmp( pKind, "hair" ) == 0 ) {
         title = "Hairdresser";
         player.setVariable( "/:NbHairs", "0" );

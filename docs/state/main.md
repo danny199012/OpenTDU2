@@ -6,6 +6,44 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-17 (`main`, 53): the cosmetic clinic (surgery) menu - first of the shop-menu pass
+
+The owner's report: *"a few shops may not be using the correct menus - the performance upgrade shop
+doesn't have the correct menus, hairdressers, clothes shop, surgery also isn't implemented at all - please
+start on those"*.
+
+### Survey (what each shop runs today)
+- Car dealer: the retail SHOPSCAR movie (GMShop). Tuning (`ETUN_*`, `tuning_menu.cpp`), paint (`paint_menu`),
+  clothes (`ClothesMenu`) and hairdresser (`ClothesMenu` on the `HAIR` brand) are **native stand-in lists**, not
+  the retail movies. Surgery had **no branch at all** ("This shop is not open yet.").
+- SHOPSAVATAR.vmf (426 frames) is the retail avatar-shop movie: its root has frame labels `scr_open`,
+  `surgeon`, `hairdresser`, `photographer`, `clothes_shop` (a `/:fake` page-picker button), plus `surgeon_block`,
+  `surgeon_stop`, `hair_dresser_edit/stop` clips [DATA, `-gm uiviewer -movie shopsavatar -dumpui -dumpbuttons`].
+  Driving it like GMShop drives SHOPSCAR is the real fix for clothes / hair / surgery; **not started**.
+
+### What changed (surgery, native, surgery_spec.md phases 1-2)
+- `source/game/freeride/surgery_menu.{h,cpp}` - `SurgeryMenu`: one row per `DBSurgeryCost` item the avatar can
+  apply (39 FaceFX sliders + age + freckles = 43 of the 46; EYE_COLOR / EYE_BROWS_TYPE / TINT are not offered -
+  the avatar does not read EyeID / EyebrowsID / tint). Left/Right = one notch (10, of -100..100), A pays every
+  changed row's `_cost` once (retail TotalPriceStr / NbNotches idea), B leaves. Keyboard: arrows / Enter / Esc.
+- `openSpotShop` (`gm_freeride.cpp`) gained `kind == "surgery"`; bandaged -> text 4405; the hairdresser answers
+  7169 while bandaged. `-interior ESUR_A|ETUN*|EHA*` now sets the kind (test hook).
+- `PlayerProfile`: `FaceParams[49]`, `FaceAge`, `FaceFreckle`, `NbSurgeries`, `BandageUntil` (profile.sav keys
+  `face_params`, `face_age`, `face_freckle`, `nb_surgeries`, `bandage_until`); the map's NbSurgeriesDone reads it.
+- `EdenAvatar::load` applies the edit to the player's own config (`bPlayerFace`; `-nosurgery` A/B), and
+  `EdenAvatarLibrary::readPresetFace` gives the menu the preset .avt baseline.
+
+### Verified
+- `-gm FREERIDE -skipcine -nopad -fixedtimestep -interior ESUR_A -autoplay "400:press=validate;...;495:press=validate"`:
+  `Surgery: 'Cosmetic clinic' open, 43 row(s)` then `bought 1 change(s) for $100 (money now $94700 ...)`,
+  profile saved; `docs/images/surgery_menu_clinic.webp`.
+
+### Not done / next
+- NOT verified: the edited face on screen (the avatar is only visible in cinematics / house closet), the
+  bandage duration (600 real seconds is [INF]; retail rule is [ENC]) and bandage head item (DBClothe 313/314).
+- Performance (tuning) shop: retail pages not decoded; hairdresser/clothes: drive SHOPSAVATAR (`hairdresser`,
+  `clothes_shop` labels) - start at `GMShop`'s SHOPSCAR handling for the pattern.
+
 ## Session 2026-11-17 (`main`, 52): ray tracing step 3 completed - the terrain is in the acceleration structures
 
 The owner's other ask ("work on ray tracing also if possible"). `ray_tracing.md`
@@ -107,6 +145,66 @@ the decoded shader folders.
   shadows, needs the terrain in the structures).
 
 
+
+
+## Session 2026-11-16 (`main`, 50): clouds v8 - discrete puffs, not gathered sheets; offline field replica built
+
+Owner (v7 verdict + two crops): the broken-up cloud in the second crop is the
+appealing character, but the deck is still "too gathered"; earlier attempts
+"didn't understand". Asked for another go.
+
+### What changed (`resources/shaders/volclouds.frag` + regenerated header)
+- **Asymmetric cluster**: the cluster map is sharpened (`smoothstep(0.20, 0.80, cmap)`) and
+  applied with a hard carve below its mid (x1.30 - kills the stray-puff confetti in the gaps)
+  but a weak lift above (x0.40 at fair weather, blending to x1.0 for storms) - clouds inside a
+  region no longer merge into sheets.
+- **Convection-cell gate** (the real fix): a 2D slice of uDetail's freq-2 inverted Worley at a
+  4200 m tile (~2.1 km cells), `d *= mix(gate, 1.0, storm)`, gate = `smoothstep(0.30, 0.62, cell)`.
+  The base Perlin-Worley field is shaped like RIDGES between its Worley cells
+  (`GenerateBaseVolume` dips at the cell centres), so no threshold tuning can turn its highs
+  into separate clouds - they always reconnect. One cloud per convection cell now; positions and
+  interior shape still come from the base noise + cluster map. Fades out for storms
+  (`smoothstep(0.55, 0.85, coverage)`), so an overcast deck still forms (verified `-cloudcover 0.86`).
+- **Horizon wash starts earlier**: fade from tNear 9 km (was 24 km) - the small-puff band at the
+  horizon now dissolves into the haze instead of reading as speckle grain.
+
+### The tool that made this work (new, `_clouds_iter/`, scratch - NOT committed)
+- `field_preview.py`: exact numpy replica of `GenerateBaseVolume` / `GenerateDetailVolume` and the
+  shader's `density()` (base median 0.463 matches the game log) - renders top-down coverage maps in
+  ~30 s instead of a 40 s build+shoot cycle.
+- `ray_view.py`: 56-step oblique ray march through the precomputed grid = offline stand-in for the
+  march pass (what the sky actually looks like from a ground camera, pitch/yaw configurable).
+- Process note: the first three "no visible effect" rounds were self-inflicted - a subtractive
+  erosion too weak to reach zero in optically-thick clouds, then a gate whose mix was inverted
+  (multiplied by `1-gate`), then a gate tile 10x too small (420 m instead of 4200 m - a no-op,
+  median gate 0.99). The `-showcloudalpha` composite debug (mode 1, R = accumulated alpha) and the
+  top-down capture from above the slab (`-campos 35700,5000,5600 -campitch -89`) were what
+  uncovered each. The game top-down also showed the deck is a THIN translucent layer plus a few
+  dense puffs - the "gathered sheets" at ground level are the thin layer optically accumulating at
+  grazing angles.
+
+### Verified
+- `docs/images/clouds_v8_viewer.png` (pitch 20), `clouds_v8_viewer_high.png` (pitch 38),
+  `clouds_v8_drive.png` (freeride 12600,16640 look-up), `clouds_v8_overcast.png` (`-cloudcover 0.86`),
+  `clouds_v8_before_v7.png` (the v7 baseline at the same pose for A/B).
+- The gathered sheet of v7 (top-centre at the standard viewer pose) is gone: discrete puffs with
+  clean blue between; the mid-band strings broke up; horizon band hazier.
+- Storm coverage at 0.86 re-gathers and densifies (gate faded, lift back to symmetric) - brighter
+  than the real kind-R look because `-cloudcover` does not apply darkness; kind R itself untested.
+- Perf: same texture-fetch count as v7 inside the march (+1 cell fetch on the 4 non-detail light
+  taps only); run times unchanged (1280 beats ~6 s).
+
+### Not done / next
+- Sunset / night colours still unchecked (carried from v5-v7); clouds still absent from the env
+  cube / mirrors.
+- The thin-layer insight (thin translucent haze between clouds is what merges them at grazing
+  angles) suggests a possible next lever if the owner still sees sheets on the road: raise the
+  remap steepness (`mix(0.16, 0.22, coverage)` -> ~0.12) or the coverage mapping so marginal
+  columns die entirely.
+- `_clouds_iter/` contains the replica + all iteration PNGs; safe to delete, or keep `field_preview.py`
+  / `ray_view.py` as the starting point for the next clouds pass (they are scratch quality, stdlib+zlib
+  only, numpy required).
+- NOT committed yet (owner asked for a try, not a commit).
 
 
 ## Session 2026-11-16 (`main`, 49): clouds v7 - broken up, toned down, higher, faster drift
