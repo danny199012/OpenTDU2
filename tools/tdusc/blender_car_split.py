@@ -64,7 +64,16 @@ rz=min(v.co.z for o in cls['tire'] for v in o.data.vertices)
 off=Vector(((mn.x+mx.x)/2,(mn.y+mx.y)/2,rz))
 for o in allo:o.data.transform(Matrix.Translation(-off))
 print("DIM",tuple(round(x,3) for x in (mx-mn)),"ground z",rz)
-COL={'body':(0.55,0.02,0.02),'glass':(0.03,0.05,0.07),'rim':(0.7,0.7,0.72),'tire':(0.02,0.02,0.02)}
+# interior: body-class meshes whose whole bbox sits inside the cabin box (car space: x width,
+# y length with the nose at -Y, z up from the tyre bottom) become their own dark group [INF heuristic]
+cls['interior']=[]
+for o in list(cls['body']):
+    cs=[v.co for v in o.data.vertices]
+    mn=[min(p[i] for p in cs) for i in range(3)];mx=[max(p[i] for p in cs) for i in range(3)]
+    if mn[0]>-0.95 and mx[0]<0.95 and mn[1]>-1.15 and mx[1]<1.0 and mn[2]>0.12 and mx[2]<0.98:
+        cls['interior'].append(o);cls['body'].remove(o)
+print('interior meshes',len(cls['interior']),'body',len(cls['body']))
+COL={'interior':(0.08,0.08,0.09),'body':(0.55,0.02,0.02),'glass':(0.03,0.05,0.07),'rim':(0.7,0.7,0.72),'tire':(0.02,0.02,0.02)}
 for c,objs in cls.items():
     if not objs:continue
     mat=bpy.data.materials.new("lambo_"+c);mat.diffuse_color=COL[c]+(1,)

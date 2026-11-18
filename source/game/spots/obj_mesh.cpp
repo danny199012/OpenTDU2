@@ -20,6 +20,7 @@ struct ObjMaterial {
     std::string Name;
     std::string Texture; // map_Kd, relative to the .obj
     Vector4f Diffuse = Vector4f( 1, 1, 1, 1 );
+    float Alpha = 1.0f; // `d` (or 1 - `Tr`): below 1 the material is alpha blended (glass)
 };
 
 struct ObjVertexKey {
@@ -76,6 +77,10 @@ void ParseMtl( const std::string &text, std::unordered_map<std::string, ObjMater
             bHave = true;
         } else if ( line.compare( 0, 7, "map_Kd " ) == 0 ) {
             current.Texture = line.substr( 7 );
+        } else if ( line.compare( 0, 2, "d " ) == 0 ) {
+            current.Alpha = Clamp( static_cast<float>( atof( line.c_str() + 2 ) ), 0.0f, 1.0f );
+        } else if ( line.compare( 0, 3, "Tr " ) == 0 ) {
+            current.Alpha = Clamp( 1.0f - static_cast<float>( atof( line.c_str() + 3 ) ), 0.0f, 1.0f );
         } else if ( line.compare( 0, 3, "Kd " ) == 0 ) {
             float r = 1.0f, g = 1.0f, b = 1.0f;
             if ( sscanf( line.c_str() + 3, "%f %f %f", &r, &g, &b ) == 3 ) {
@@ -373,6 +378,21 @@ bool LoadObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pObj
         desc.DstBlend = 1;
         desc.DiffuseColor = source.Diffuse;
         desc.AmbientColor = source.Diffuse;
+        if ( source.Alpha < 0.999f ) {
+            // Glass: SRCALPHA / INVSRCALPHA, depth tested but not written (the
+            // same bytes the rain materials set, eden_rain.cpp), two sided so
+            // the inside of the windows reads from the cabin.
+            desc.States[1] = 2;
+            desc.States[3] = 3;
+            desc.States[8] = 5;
+            desc.States[9] = 6;
+            desc.States[0xa] = 1;
+            desc.DepthWrite = 0;
+            desc.SrcBlend = 5;
+            desc.DstBlend = 6;
+            desc.DiffuseColor.w = source.Alpha;
+            desc.AmbientColor.w = source.Alpha;
+        }
         MaterialTextureSlot slot;
         slot.SlotType = GetIdentifier64bit( "COLOR" );
         slot.TextureHashcode = !source.Texture.empty() ? GetIdentifier64bit( source.Texture.c_str() ) : 0;

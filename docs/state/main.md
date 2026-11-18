@@ -46,8 +46,12 @@ the OBJ props route); this session took `E:\TDUSC Rips\Cars\Lambo fixed.fbx` thr
 
 ### Not done / next
 - Tread / sidewall never inspected closer than ~10 m (a few pixels): check with `-tp 12636,10.5,16690`.
-- Body is 199k tris (decimate before real use); flat red, no gloss; glass opaque (loader sets no blend: `obj_mesh.cpp`
-  `States[0xa] = 6`; honour `d < 1` / a `glass` flag there); the interior meshes are inside the body class already.
+- Body is 199k tris (decimate before real use); flat red, no gloss.
+- **Glass done (later in s57)**: `obj_mesh.cpp` now alpha-blends a material whose `.mtl` has `d < 1` (or `Tr`): SRCALPHA /
+  INVSRCALPHA, no depth write, two sided (the rain materials' bytes). TD_Gouraud takes alpha from the **texture**, so the glass
+  PNG must carry alpha too (`tools/tdusc/car_mtl_fix.py` writes both). `blender_car_split.py` now also splits a dark `interior`
+  group (56 meshes inside the cabin box [INF]). Verified: the cabin and the trees read through the roof (`-tp 12637,10.5,16690`,
+  build 292); judged at ~10 m only. No reflections (that is the CarPaint cube-map blocker).
 - Drivable: needs a "visual swap" car (clone an existing DB car's physics, mount these OBJ parts on its wheel
   anchors from `anchors.txt`), the same shape as the tuner parts. FModel exports of an installed TDUSC would add textures.
 
