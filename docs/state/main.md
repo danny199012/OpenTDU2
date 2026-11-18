@@ -14,6 +14,31 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (59, `main`): TDUSC .PKG format - records decode (LZ4 + PA__ / PATX-SP2), the table of contents is still masked
+
+The owner installed TDUSC from Steam and asked to "dig through the game ... mod pack ... clothes, cars, islands,
+physics". TDUSC is **not Unreal** (own engine, no .pak; the earlier FModel suggestion was wrong). The owner confirmed no
+DRM / anti-cheat (SARD was scrapped) and approved decoding the masked part. Spec: `docs/re/tdusc_pkg_format.md`.
+
+### What changed
+- `docs/re/tdusc_pkg_format.md` - the layout found so far. `tools/tdusc/pkg_scan.py` - a read-only lister (CSV into a folder
+  the owner names; never writes to the game folder, never extracts asset data).
+
+### Verified
+- `python tools/tdusc/pkg_scan.py --pkg <CHUNK_0_PART0005.PKG> --out C:\temp\tdusc-scan --limit 60 --payloads` decodes 60/60
+  LZ4 `PA__` records; `--pkg <CHUNK_2_PART0001.PKG>` lists 99 `PATX-SP2` textures (47 x 1024^2, 20 x 4096^2, 17 x 2048^2 ...).
+- Not encrypted: the records are plain LZ4 frames / raw BC1 texture data; a part is mostly 0x30 padding.
+
+### Ruled out
+- "The PKGs are encrypted / one XOR key": the first 2 MB (the table of contents) is masked, the content is not; the
+  self-similarity peak is the 160-byte row, not a key period.
+
+### Not done / next
+- **Solve the masked TOC** (key period + the 160-byte row layout: hash / offset / size?), so records get names and grouping.
+- PWS compression (header offsets known, body entropy 7.8-7.95).
+- PATX -> DDS (confirm BC1 vs BC3/BC7 per header), `PA__` vertex-buffer strides, then cars (a PA__ group + textures).
+- Nothing extracted or committed from the game; the owner decides what a mod pack may carry.
+
 ## Session 2026-11-18 (58, `main`): a ripped TDUSC Lambo is a DRIVEABLE car (visual swap on a donor) - no hosting, no assets in the repo
 
 The owner: "make it a driveable vehicle, we just can't host it" (the car from `E:\TDUSC Rips\Cars\Lambo fixed.fbx`).
