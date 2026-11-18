@@ -7257,6 +7257,19 @@ void GMFreeRide::tick( float deltaTime ) {
                 PlayerProfile &profile = GetPlayerProfile();
                 profile.Money += raceReward;
                 profile.Points[0] += raceReward / 10; // the racing skill [INF share]
+                // A race event won pays "CRUISING_<ISLAND>_EVENT_AREA<n>" [DATA: 20 wins on Ibiza, 15 on Hawaii per area;
+                // CODE-dev 0x99cc90 builds the name "CRUISING_%s_EVENT_AREA%d"; INF: n is the cruising zone where it ends].
+                if ( bRaceSuccess ) {
+                    const Vector3f endPosition = carWorld.getTranslation();
+                    const int32_t area = GetCruisingZones().find( endPosition.x, endPosition.z );
+                    if ( area >= 0 ) {
+                        std::string island = islandName;
+                        for ( char &c : island ) {
+                            c = static_cast<char>( toupper( static_cast<unsigned char>( c ) ) );
+                        }
+                        AwardSkillEvent( ( "CRUISING_" + island + "_EVENT_AREA" + std::to_string( area + 1 ) ).c_str() );
+                    }
+                }
                 SaveProfile( "race won" );
                 char text[128];
                 if ( bRaceSuccess ) {

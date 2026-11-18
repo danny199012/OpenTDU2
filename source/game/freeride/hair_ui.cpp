@@ -4,6 +4,7 @@
 #include "flash/flash_player.h"
 #include "game/clothes_shop.h"
 #include "game/player_profile.h"
+#include "game/skill_levels.h"
 #include "system/cmd_line.h"
 
 namespace {
@@ -193,6 +194,9 @@ void HairUi::pay() {
         pilosity.BaseColor = pilosity.Color;
     }
     hair.bChanged = pilosity.bChanged = false;
+    // [CODE-dev 0xba0ef0] one haircut bought: counter + COLLECTION_HAIRCUTS_<n> (2 / 5 / 10 [DATA]).
+    profile.NbHaircuts++;
+    AwardCollectionMilestones( "COLLECTION_HAIRCUTS", profile.NbHaircuts );
     OTDU_LOG_INFO( "HairUi: paid $%d (hair %d colour %d, facial hair %d; money now $%d)\n", total, hair.BaseId, hair.BaseColor,
                    pilosity.BaseId, profile.Money );
     SaveProfile( "hairdresser" );

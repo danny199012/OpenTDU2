@@ -518,6 +518,8 @@ void LoadProfile() {
             profile.HairColor = number;
         } else if ( key == "beard_color" ) {
             profile.BeardColor = number;
+        } else if ( key == "nb_haircuts" ) {
+            profile.NbHaircuts = number;
         } else if ( key == "nb_surgeries" ) {
             profile.NbSurgeries = number;
         } else if ( key == "bandage_until" ) {
@@ -951,7 +953,7 @@ bool SaveProfile( const char *pReason ) {
         }
         file << "\nface_age = " << profile.FaceAge << "\nface_freckle = " << profile.FaceFreckle << "\n";
         file << "hair_color = " << profile.HairColor << "\nbeard_color = " << profile.BeardColor << "\n";
-        file << "nb_surgeries = " << profile.NbSurgeries << "\nbandage_until = " << profile.BandageUntil << "\n";
+        file << "nb_haircuts = " << profile.NbHaircuts << "\nnb_surgeries = " << profile.NbSurgeries << "\nbandage_until = " << profile.BandageUntil << "\n";
         file << "furniture_choices = ";
         for ( const auto &furniture : profile.FurnitureChoices ) {
             file << furniture.first << "=" << furniture.second << ";";

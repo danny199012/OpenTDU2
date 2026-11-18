@@ -1375,7 +1375,7 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
         player.setVariable( "/:NbSurgeriesDone", std::to_string( GetPlayerProfile().NbSurgeries ).c_str() );
     } else if ( strcmp( pKind, "hair" ) == 0 ) {
         title = "Hairdresser";
-        player.setVariable( "/:NbHairs", "0" );
+        player.setVariable( "/:NbHairs", std::to_string( GetPlayerProfile().NbHaircuts ).c_str() );
     } else if ( strcmp( pKind, "photograph" ) == 0 ) {
         title = "Photographer";
         // The viewpoints done on this island (DBPhotograph _hashcode: Ibiza 0x7..0x1b, Hawaii 0x1d..0x30), of 20.

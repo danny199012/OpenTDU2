@@ -6,6 +6,22 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 65): haircut / surgery XP and per-area event-win XP
+
+The owner: "do the next progression slice".
+
+### What changed
+- `player_profile.{h,cpp}`: `NbHaircuts` (saved as `nb_haircuts`). `hair_ui.cpp` `pay()` bumps it and calls `AwardCollectionMilestones( "COLLECTION_HAIRCUTS", n )` (2 / 5 / 10 -> 20 / 50 / 80 points [DATA]) [CODE-dev 0xba0ef0: counter + `COLLECTION_HAIRCUTS_%d`]. The map's Hairdresser popup `NbHairs` shows it.
+- `surgery_ui.cpp`, `surgery_menu.cpp`: each operation pays `COLLECTION_SURGERY` (25 pts, `_nbtimesallowed` 4) [INF: once per operation].
+- `gm_freeride.cpp` (instant-race finish, `takeFinished`): a won race pays `CRUISING_<ISLAND>_EVENT_AREA<n>` (20 wins Ibiza / 15 Hawaii per area [DATA]); name from the dev exe `0x99cc90` (`CRUISING_%s_EVENT_AREA%d`), `[INF]` n = the cruising zone (`GetCruisingZones().find`) where the race ends.
+
+### Verified
+- `-awardmilestone COLLECTION_HAIRCUTS,5` pays `_2` (+20) and `_5` (+50); the profile saves `nb_haircuts`.
+- `-racestart 0 -racetest -exitframe 1500` (scratch profile): "finished in 3.07 s" then `Skills: event 'CRUISING_IBIZA_EVENT_AREA1' ... +25 points`.
+
+### Not done / next
+- The hairdresser and surgery purchases were not driven through the Flash UI headlessly (only the milestone rows). Championship / duel wins do not count as events (not read). `DBAreaLevel`, duels `RACING_DUEL_*`, `SOCIAL_CLUB_LVL*` and the story-step cases are still open. The retail `COLLECTION_HAIRCUTS` counts purchases (dev exe), not distinct haircuts.
+
 ## Session 2026-11-18 (`main`, 64): photograph challenges (the 20 viewpoints per island) built
 
 ### What changed

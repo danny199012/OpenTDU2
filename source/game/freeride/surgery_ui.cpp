@@ -6,6 +6,7 @@
 #include "flash/flash_player.h"
 #include "game/avatar/facefx.h"
 #include "game/player_profile.h"
+#include "game/skill_levels.h"
 #include "system/cmd_line.h"
 
 #include <cstdlib>
@@ -188,6 +189,7 @@ void SurgeryUi::pay() {
     profile.FaceAge = age;
     profile.FaceFreckle = freckle;
     profile.NbSurgeries++;
+    AwardSkillEvent( "COLLECTION_SURGERY" ); // 25 points, 4 times [DATA; INF: once per operation]
     profile.BandageUntil = static_cast<int64_t>( time( nullptr ) ) + 600; // [INF] the retail rule is ENC
     memcpy( baseParams, params, sizeof( baseParams ) );
     baseAge = age;

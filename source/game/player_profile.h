@@ -279,6 +279,8 @@ std::map<int32_t, TunerCarParts> OwnedCarTunerParts;
     int32_t HairColor = -1;
     int32_t BeardColor = -1;
     int32_t NbSurgeries = 0;
+    // Haircuts bought (the dev exe 0xba0ef0 bumps a counter and pays COLLECTION_HAIRCUTS_<n>).
+    int32_t NbHaircuts = 0;
     int64_t BandageUntil = 0;
     // The MyTDUHouse furniture choices (houses_spec.md 11): "<house spot>:<slot
     // name>" -> the interior/myhouse bank (a DBFurniture _bank of the slot's
