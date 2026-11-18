@@ -6,6 +6,20 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+
+## Session 2026-11-18 (`win`): every map shop card shows its building picture
+
+Owner: "implement all the shop previews" (360 sample: clothes card, B-Miami).
+
+### What changed
+- `source/game/map_screen.cpp` `loadRealtorPreviews` / `fillSpotCard` / `bindRealtorPictures`: every `mapscreens/spots/<full spots.bin name>.bnk` is hashed (`GetIdentifier64bit` of the upper-case stem) = the spot record id [DATA], loaded, and bound to `/tool_tip/infos/picture/lure_map` for any card kind (dealers, clothes, tuning, sticker, hair, wash, surgery, photo, casino, school...). Banks whose picture is named after another bank (`ecd_bri1_1470i` holds `ecd_bri1_5203i`) fall back to the bank's own `.2db`.
+
+### Verified
+- `-mapcardicon clothes|cardealer|tuning -mapcardextend`: pictures draw (clothes = same building as the 360 shot); log `73 of 73 pictures loaded` (was 21).
+
+### Not done / next
+- The clothes card's right side still lacks the retail stock rows (Hats 1/15, Upper 1/45...) and "Clothes bought 5/100" counts (we show 1/327); needs DBClothe counted per shop brand / area level.
+
 ## Session 2026-11-18 (`main`, 70): the real-estate card - one agency's houses, with pictures
 
 The owner (retail screenshot of the "Real estate" popup): "certain properties are locked to a location, can we implement it with the previews also".

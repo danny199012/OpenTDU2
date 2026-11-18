@@ -237,6 +237,8 @@ public:
     std::map<std::string, GPUTexture *> previewTextures;
     std::vector<const struct HouseRow *> cardHouses;
     std::string cardAgency;
+    std::string cardPicture;                       // previewTextures key of the card's building picture (any shop kind)
+    std::map<uint64_t, std::string> spotBanks;     // spot record id -> mapscreens/spots bank name (lowercase)
     void loadRealtorPreviews();
     void bindRealtorPictures();
     void openMenu();

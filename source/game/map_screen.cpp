@@ -1358,6 +1358,12 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
     // The other kinds: the retail title and the counts the card's labels read (NbHousesBought / NbHouses,
     // NbClothes / NbClothesMax, NbStickersBoardsBought / Total, NbSurgeriesDone, NbHairs, NbPhotosTaken / Total,
     // WashingPrice) [DATA: map.vmf edit texts; INF: the English titles - the retail ones are localized strings].
+    cardPicture.clear();
+    cardHouses.clear();
+    cardAgency.clear();
+    if ( const auto bank = spotBanks.find( spot.Id ); bank != spotBanks.end() ) {
+        cardPicture = "spot_" + bank->second;
+    }
     if ( strcmp( pKind, "estates" ) == 0 || strcmp( pKind, "home" ) == 0 || strcmp( pKind, "forsale" ) == 0 ) {
         const HouseRow *pHouseSpot = FindHouseBySpotId( spot.Id );
         if ( const HouseRow *pHouse = pHouseSpot ) {
@@ -2161,6 +2167,12 @@ void MapScreen::loadRealtorPreviews() {
             const std::string owner = "mappreview_" + key;
             gpRender->getTextureCache().loadBankTextures( bank, owner.c_str() );
             pFound = gpRender->getTextureCache().find( owner.c_str(), pTexture != nullptr ? pTexture : bankName.c_str() );
+            // A few spot banks hold a picture named after another one (ecd_bri1_1470i.bnk -> ecd_bri1_5203i.2db) [DATA].
+            for ( const BankEntry &entry : bank.getEntries() ) {
+                if ( pFound == nullptr && pTexture == nullptr && entry.Extension == "2db" ) {
+                    pFound = gpRender->getTextureCache().find( owner.c_str(), entry.Name.c_str() );
+                }
+            }
         }
         previewTextures[key] = pFound;
     };
@@ -2184,6 +2196,24 @@ void MapScreen::loadRealtorPreviews() {
             load( "frontend/allres/realtorscr/", lower( pHouse->SpotName ), "img_ext", "house_" + lower( pHouse->SpotName ) );
         }
     }
+    // Every other shop's picture (clothes, dealers, tuning, sticker, hair, wash...): the bank
+    // mapscreens/spots/<full spots.bin name>.bnk, its name hashed = the spot record id [DATA: 131 banks, one per
+    // spots.bin record; INF: the same lure_map clip shows it as the realtor's agency].
+    spotBanks.clear();
+    for ( const std::filesystem::path &file : gpFile->listFolder( ( gpFile->getBankFolder() + "frontend/allres/mapscreens/spots/" ).c_str(), ".bnk" ) ) {
+        std::string stem = lower( file.stem().string() );
+        std::string upper = stem;
+        for ( char &c : upper ) {
+            c = static_cast<char>( toupper( static_cast<unsigned char>( c ) ) );
+        }
+        spotBanks[GetIdentifier64bit( upper.c_str() )] = stem;
+    }
+    for ( const Spot &spot : spots ) {
+        const auto found = spotBanks.find( spot.Id );
+        if ( found != spotBanks.end() ) {
+            load( "frontend/allres/mapscreens/spots/", found->second, nullptr, "spot_" + found->second );
+        }
+    }
     for ( const auto &entry : previewTextures ) {
         if ( entry.second == nullptr ) {
             OTDU_LOG_INFO( "MapScreen: no picture for '%s'\n", entry.first.c_str() );
@@ -2196,14 +2226,14 @@ void MapScreen::loadRealtorPreviews() {
 // Per frame while a realtor card is up: the house clips (house0..5, the movie scrolls them: slot i shows
 // id = _id) get the thumbnail of the house their `id` variable names, the big picture the agency's.
 void MapScreen::bindRealtorPictures() {
-    if ( cardHouses.empty() ) {
+    if ( cardHouses.empty() && cardPicture.empty() ) {
         return;
     }
     auto texture = [&]( const std::string &key ) -> GPUTexture * {
         const auto found = previewTextures.find( key );
         return found != previewTextures.end() ? found->second : nullptr;
     };
-    for ( int32_t slot = 0; slot < 6; slot++ ) {
+    for ( int32_t slot = 0; slot < 6 && !cardHouses.empty(); slot++ ) {
         const std::string base = "/tool_tip/infos/txt/pages/house" + std::to_string( slot );
         const std::string idText = player.getVariable( base + ":id" );
         GPUTexture *pTexture = nullptr;
@@ -2221,6 +2251,8 @@ void MapScreen::bindRealtorPictures() {
     }
     if ( !cardAgency.empty() ) {
         player.setBitmapOverride( "/tool_tip/infos/picture/lure_map", texture( "agency_" + cardAgency ), 0.0f, 0.0f, 1.0f, 1.0f );
+    } else if ( !cardPicture.empty() ) {
+        player.setBitmapOverride( "/tool_tip/infos/picture/lure_map", texture( cardPicture ), 0.0f, 0.0f, 1.0f, 1.0f );
     }
 }
 
