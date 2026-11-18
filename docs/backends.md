@@ -837,16 +837,22 @@ Measured (RTX 5070 Ti, build 229, 1280x720):
 
 ```
 D3D12 3dgtest: 'Euro/Bnk/Vehicules/High/4x4.bnk' - 4x4.3dd + 4x4.3dg + 4x4.2dm, 7 material(s), 148 texture(s) uploaded
-D3D12 3dgtest: material 'Paint' -> TD_CarMat_NM vs12/ps381 (0 switch(es) from the .2DM's); blend 2/1 op 1 cull 2 bucket 0x2 depth 1/1, 3 of 6 texture(s) resolved; missing 0050414d45425543
-D3D12 3dgtest: material 'Glass' -> TD_CarPaint vs34/ps115 (0 switch(es) from the .2DM's); ...
-D3D12 3dgtest: 39 node(s), 25 primitive(s): 25 draw(s) prepared, 0 skipped, 0 without a material, 0 without a program, 0 without a vertex layout, 0 refused by the device; 6 program(s), centre (-0.00 0.57 -0.00), radius 2.72
-D3D12 3dgtest: 1280x720; 84517 px covered (9.17 %), 200 distinct colour(s), mean 207.0/198.5/209.4
-D3D12 3dgtest: PASSED (a real .3DG model drew on Direct3D 12 with its own material and textures)
+D3D12 3dgtest: material 'Paint' -> TD_CarMat_NM vs12/ps381 (0 switch(es) from the .2DM's); blend 2/1 op 1 cull 2
+  bucket 0x2 depth 1/1, 3 of 6 texture(s) resolved; binds t0->s2(ibiza_offroad_occlu) t2->s4(ibiza_offroad_occlu)
+  t3->s5(dirt_scratch) t4->s15; missing 0050414d45425543; 7 parameter(s)
+D3D12 3dgtest: 39 node(s), 25 primitive(s): 25 draw(s) prepared, 0 skipped, 0 without a material, 0 without a
+  program, 0 without a vertex layout, 0 refused by the device; 6 program(s), centre (-0.00 0.57 -0.00), radius 2.72
+D3D12 3dgtest: 1280x720; 57442 px covered (6.23 %), 2 distinct colour(s), mean 219.6/219.6/219.6
+D3D12 3dgtest: PASSED (the model reached the frame through its own material, pipeline and textures)
 ```
 
-and the same probe on the Chrysler (a second, unrelated bank): 37 nodes, 22
-primitives, 22 draws, 6 programs, 6.90 % covered, 129 distinct colours - the
-lower, longer sedan silhouette instead of the 4x4's box.
+Three banks, all passing (one run each):
+
+| bank | nodes | primitives | draws | programs | covered | colours |
+|---|---|---|---|---|---|---|
+| `4x4.bnk` (generic off-roader) | 39 | 25 | 25 | 6 | 6.23 % | 2 |
+| `300_c_srt8.bnk` (Chrysler) | 37 | 22 | 22 | 6 | 4.76 % | 2 |
+| `eph_l0c.bnk` (a beach playhouse) | 1 | 33 | 33 | 10 | 2.86 % | 4 |
 
 **The frame is in the log as text**, because a coverage count cannot tell a car
 from a smear: the probe prints a 64x24 brightness map of the last frame (one log
@@ -854,32 +860,45 @@ line per row, since a multi-line message is truncated). The 4x4, turned 35
 degrees off the camera axis:
 
 ```
-|                          @@@@@@@@@@@@@@                        |
-|                          @@@@@@@@@@@@@@                        |
-|                          %%%@@@@@@@@@                          |
-|                         %*#*%@@=%@@@@*.....-                   |
-|                        +++++#@@+*@@@@*......#                  |
-|                       @%#####@@@@@#@@#.....:                   |
-|                        @@@@@@@@@@@%@@@@@@@@@                   |
-|                        @@@@@@%-:-%#@@                          |
+|                          @@@@@@@@@@@@@                         |
+|                          @@@@@@@@@@                            |
+|                         @@@@@@@@@@@-....*                      |
+|                        @@@@@@@@@@@@-.....                      |
+|                       @@@@@@@@@@@@@+::---                      |
+|                        @@@@@@@@@@@@@@@@@                       |
 ```
 
+- **SPIRV-Cross renumbers a stage's textures, so the SRV table must be filled by
+  *register*.** A `.sob` pixel shader that samples D3D9 slots 2, 4, 5 and 15
+  declares `t2_2d : register(t0)`, `t4_2d : register(t2)`, `t5_2d : register(t3)`,
+  `t15_2d : register(t4)` - the variable names keep the slot, the registers are
+  dense, and the root signature's table is indexed by the *register*. Filling it
+  by slot number binds the wrong texture wherever a stage skips a slot: for the
+  4x4 it bound slot 5's scratch map where the shader samples slot 8, and the same
+  mistake on `eph_l0c`'s nine-slot materials painted the house's wood and grass
+  white. `MapRegistersToSlots` (in the probe) reads the pairing out of
+  `D3D12ShaderStage::HLSL` (`t8_2d : register(t5)` -> register 5 reads slot 8),
+  and the material log prints the map (`binds t0->s2(...) t2->s4(...)`) so a wrong
+  bind is visible rather than guessed at. A texture the stage declares as
+  `TextureCube` (the `CUBEMAP` slot) is not in the map and binds the white 2D
+  texture - the probe has no cube upload path yet.
 - **The material handler runs before the permutation lookup, and it is not
-  optional.** The first run looked the program up from the `.2DM`'s *raw* 48
-  switches and got `TD_HardwareInstance` for the material called `Paint` with
-  **11 switches differing** - the nearest permutation of the wrong family.
+  optional.** Looking the program up from the `.2DM`'s *raw* 48 switches got
+  `TD_HardwareInstance` for the material called `Paint` with **11 switches
+  differing** - the nearest permutation of the wrong family.
   `ApplyEdenMaterialHandler` (`render/eden/eden_material_handlers.h`, the
   original renderer's `FUN_00d71900`) is what rewrites those switches and, for a
   material exported with a family that has no library of its own, the GUID
-  itself: `Paint` really is `TD_CarMat_NM`, and after the handler every one of
-  the seven materials matches its permutation exactly (0 differing switches).
-  The frame changed from 45 to 200 distinct colours on that one call.
+  itself: `Paint` really is `TD_CarMat_NM`, and after the handler every material
+  of all three banks matches its permutation exactly (0 differing switches).
 - **A car's maps are not in its own bank.** `4x4.bnk` carries two `.2db` (glass,
-  occlusion); its body textures live in `Vehicules/common_car.bnk`. The probe
+  occlusion); its shared maps live in `Vehicules/common_car.bnk`. The probe
   uploads that bank too, under its own owner, and the material lookup's
   `findForOwner` fallback borrows from it - 148 textures instead of 2, and the
   slots that still miss are the runtime ones the *game* fills per frame (the
-  `CUBEMAP` reflection slot, hash `0050414d45425543`).
+  `CUBEMAP` reflection slot, hash `0050414d45425543`). Spot banks are the
+  opposite shape: `eph_l0c.bnk` ships 20+ `.2dm` (one per object), so the probe
+  indexes *every* library in the bank by hashcode, the scene's own name first.
 - **An empty texture slot must be bound to something.** `D3D12Scene::draw` only
   writes the descriptor table it is given, so a slot a shader samples but the
   draw did not fill would read whatever the table heap held there - garbage that
@@ -887,26 +906,43 @@ degrees off the camera axis:
   full 16-entry table with the white texture in the unresolved slots, which is
   also the rule the Eden port will need.
 - **Sixteen descriptors per draw is the budget to watch.** The table heap holds
-  4096 descriptors per frame slot and resets when the slot's fence passes, so 96
-  draws x 16 entries (the probe's cap) fit; a real scene's ~7600 draws will need
-  either a per-material cache of table bases or a bigger heap. Recorded here
-  because it is the first thing the Eden port will hit.
+  4096 descriptors per frame slot (`D3D12Scene::kTableDescriptors`) and resets
+  when the slot changes, so 96 draws x 16 entries (the probe's cap) fit a frame;
+  a real scene's ~7600 draws will need either a per-material cache of table bases
+  or a bigger heap. Recorded here because it is the first thing the Eden port
+  will hit.
 - **The vertex layout comes from the pair, not from the shader alone.**
   `D3D12BuildVertexLayout` reads the vertex stage's dcl list and the primitive's
   own `.3DG` declaration; `MatBlack`'s primitive wanted four streams (the
   expanded SNORM normal plus the bone-index stream), and the layout's fallback
-  stream carried the dcl the mesh does not have. 25 of 25 primitives created a
-  PSO, 0 refused.
+  stream carries a dcl the mesh does not have. 25 of 25 (22 of 22, 33 of 33)
+  primitives created a PSO, 0 refused.
+- **A near-flat palette is material data, not the draw path.** The generic cars
+  draw in two tones because `TD_CarMat_NM`'s base colour comes from the
+  instance's paint (the car catalogue), not from the bank: the shader samples
+  only occlusion, scratch and glass, and its seven `.2DM` parameters are applied.
+  The probe therefore *passes on coverage* (1 % of the frame) and prints the
+  colour count beside it, with a warning when the frame is nearly flat - failing
+  a correctly-drawn model because the game would have tinted it would hide the
+  result.
+- **OPEN - a diagnostic block changed the frame.** The probe's first version
+  logged the dcls the mesh does not carry, by iterating `EdenProgram::pVS->Inputs`
+  and `D3D12MeshData::Attributes` before `getPipeline`: **six consecutive runs
+  drew an empty frame** (25 draws recorded, 0 px on both the screenshot and the
+  readback, debug layer silent), and removing the block restored 57422 px in five
+  runs. A single-line `OTDU_LOG_WARN` at the same place changes nothing, the
+  logger formats into a 2048-byte buffer with `vsnprintf`, and the loop is
+  read-only - so this is either an uninitialized read whose value the extra code
+  perturbs or a GPU-side race the extra work masks. Parked on purpose: the Eden
+  port must not add per-primitive logging or per-primitive work inside its draw
+  build before a GPU capture (PIX / RenderDoc) explains it.
 - **No regression**: `-d3d12-scenetest`'s frame is still
   `SHA256 E505B37F...C3F778CEB`, `-d3d12-meshconvtest` still passes, and
   `-renderer-selftest` still exits 0.
 
-What this does *not* prove: the paint colour. TDU2 sets a car's paint from the
-instance's colour table (`.pmi` / the car catalogue), which a bank has no
-knowledge of - the model draws with the `.2DM`'s default white, so the 4x4 is
-bright and the SRT8's black paint is the material's own. The probe's job was the
-geometry/material/texture path, and the log names every unresolved slot so the
-next gap is never a guess.
+`-d3d12-nocull` is the A/B for a model whose winding does not match its cull mode
+(it changes nothing on the three banks above, which is how that question was
+closed).
 
 ## 4. The shader path
 

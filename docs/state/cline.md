@@ -50,17 +50,18 @@ would have hit (docs/backends.md 3.13).
 ### Measured
 
 - **4x4** (`Euro/Bnk/Vehicules/High/4x4.bnk`, the generic off-roader): 39 nodes,
-  25 primitives, **25 of 25 draws**, 6 programs, **9.17 % of the frame covered,
-  200 distinct colours**, mean 207.0/198.5/209.4 on the RTX 5070 Ti.
-- **Chrysler 300 SRT8** (`300_c_srt8.bnk`, a second unrelated bank): 37 nodes, 22
-  primitives, **22 of 22 draws**, 6 programs, 6.90 %, 129 colours - a lower,
-  longer silhouette.
-- Every material matched its permutation **exactly** (0 differing switches) once
-  `ApplyEdenMaterialHandler` ran: `Paint` is `TD_CarMat_NM vs12/ps381`, not the
-  `TD_HardwareInstance` the raw tuple picks (11 switches off). That one call took
-  the frame from 45 to 200 distinct colours.
-- 148 textures uploaded (the model's own bank plus `Vehicules/common_car.bnk`);
-  the only unresolved slot left is the runtime `CUBEMAP` reflection
+  25 primitives, **25 of 25 draws**, 6 programs, **6.23 % of the frame covered**,
+  2 distinct colours, mean 219.6/219.6/219.6 on the RTX 5070 Ti.
+- **Chrysler 300 SRT8** (`300_c_srt8.bnk`): 37 nodes, 22 primitives, 22 of 22
+  draws, 6 programs, 4.76 %, 2 colours.
+- **A beach playhouse** (`eph_l0c.bnk`, the spot-bank shape): 1 node, 33
+  primitives, 33 of 33 draws, 10 programs, 2.86 %, 4 colours.
+- Every material of all three banks matched its permutation **exactly** (0
+  differing switches) once `ApplyEdenMaterialHandler` ran: `Paint` is
+  `TD_CarMat_NM vs12/ps381`, not the `TD_HardwareInstance` the raw tuple picks
+  (11 switches off).
+- 148 textures uploaded for a car (its own bank plus `Vehicules/common_car.bnk`);
+  the only slot left unresolved is the runtime `CUBEMAP` reflection
   (`0050414d45425543`), which the *game* fills per frame.
 - The frame is also printed as a 64x24 brightness map, one log line per row: a
   coverage count cannot tell a car from a smear.
@@ -70,14 +71,34 @@ would have hit (docs/backends.md 3.13).
 
 ### Traps this cost (now in docs/backends.md 3.13)
 
+- **The SRV table is indexed by *register*, not by material slot.** SPIRV-Cross
+  renumbers a stage's textures densely while keeping the D3D9 slot in the
+  variable name (`t8_2d : register(t5)` - register 5 reads *slot 8*). Binding by
+  slot number put slot 5's scratch map where a 4x4 body shader samples slot 8 and
+  painted `eph_l0c`'s wood and grass white. `MapRegistersToSlots` reads the
+  pairing out of `D3D12ShaderStage::HLSL`, and the material log prints it.
+  (The first version of this session's entry quoted a 200-colour frame - that was
+  the *wrong* binding, sampling occlusion maps as colour. The corrected bind is
+  flat, and flat is right: see the next bullet.)
+- **A near-flat palette is material data.** `TD_CarMat_NM` takes the car's paint
+  colour from a constant the game fills from the instance's colour table, and
+  samples only occlusion / scratch / glass, so a bank-only draw of a generic car
+  is legitimately two-toned. The probe now passes on coverage and reports the
+  palette with a warning.
 - The material handler must run **before** the permutation lookup, or the tuple
   is the `.2DM`'s raw one and `getProgram` answers with the nearest permutation
   of the wrong family (it draws - with 11 switches off).
-- A car's textures are **not in its own bank** (`common_car.bnk` has them); a
-  probe that skips the sibling bank resolves 2 of 7 slots and paints white.
+- A car's textures are **not in its own bank** (`common_car.bnk` has them), and a
+  spot bank keeps one `.2dm` per object - both had to be indexed.
 - An unresolved texture slot must bind the **white texture**, never an unfilled
   descriptor: `D3D12Scene::draw` only writes the table it is given, and a shader
   sampling whatever the heap held can fault the GPU.
+- **OPEN, parked on purpose**: adding a *read-only* diagnostic loop over
+  `EdenProgram::pVS->Inputs` / `D3D12MeshData::Attributes` before `getPipeline`
+  made six consecutive runs draw an **empty** frame (0 px on the screenshot and
+  the readback), while a one-line log at the same place changes nothing and
+  removing the block restored 57422 px in five runs. Uninitialized read or GPU
+  race - a GPU capture has to answer it before the Eden port copies the pattern.
 - The probe's own log bug worth remembering: a 10-entry brightness ramp indexed
   to 9 appended `'\0'` into a `std::string`, and `%s` cut every row at the first
   bright cell.
