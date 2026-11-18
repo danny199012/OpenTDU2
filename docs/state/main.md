@@ -18,7 +18,7 @@ Owner: "implement all the shop previews" (360 sample: clothes card, B-Miami).
 - `-mapcardicon clothes|cardealer|tuning -mapcardextend`: pictures draw (clothes = same building as the 360 shot); log `73 of 73 pictures loaded` (was 21).
 
 ### Not done / next
-- The clothes card's right side still lacks the retail stock rows (Hats 1/15, Upper 1/45...) and "Clothes bought 5/100" counts (we show 1/327); needs DBClothe counted per shop brand / area level.
+- Done in a follow-up: the clothes card's rows (Hats / Upper / Lower / Sunglasses, page 2 shoes / gloves) and "Clothes bought" now count the shop's brand stock (DBCarShop._clothesshopbrand) for the player's sex at the current area level; `/:Is<Part>` flags + `/:Nb<Part>Bought|Total` (map.vmf `setClothes`). Verified with `-mapcardicon clothes -mapcardextend` (0/9 at area level 0; the 360's 5/100 is a late-game profile). Page 2 (shoes, gloves) not looked at.
 
 ## Session 2026-11-18 (`main`, 70): the real-estate card - one agency's houses, with pictures
 

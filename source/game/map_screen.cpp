@@ -13,6 +13,7 @@
 #include "filesystem/bank.h"
 #include "filesystem/gs_file.h"
 #include "game/car_shop.h"
+#include "game/skill_levels.h"
 #include "game/clothes_shop.h"
 #include "game/licenses.h"
 #include "game/freeride/chase_camera.h"
@@ -1412,8 +1413,35 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
                 title = pShop->Name;
             }
         }
-        player.setVariable( "/:NbClothes", std::to_string( profile.OwnedClothes.size() ) );
-        player.setVariable( "/:NbClothesMax", std::to_string( GetClothes().size() ) );
+        // The shop's stock: the DBClothe rows of its brand (DBCarShop._clothesshopbrand) for the player's sex that the
+        // area level stocks; "Clothes bought" and the six category rows count the owned ones of that stock [DATA;
+        // INF: the retail card's counting rule, matched to the 360 sample 5/100, Hats 1/15, Upper 1/45...].
+        const CarShop *pBrandShop = FindShopBySpotId( spot.Id );
+        const uint64_t brand = pBrandShop != nullptr ? pBrandShop->ClothesBrand : 0;
+        const int32_t sex = PlayerClothesSex();
+        // _parttype -> the card's variable prefix (the closet's mapping: hats 5, glasses 2, tops 7, bottoms 1, shoes 6, gloves 4).
+        static const struct { int32_t Part; const char *pName; } kParts[] = {
+            { 5, "Hats" }, { 7, "Tops" }, { 1, "Bottoms" }, { 2, "Glasses" }, { 6, "Shoes" }, { 4, "Gloves" } };
+        int32_t partBought[8] = {}, partTotal[8] = {}, allBought = 0, allTotal = 0;
+        for ( const ClotheItem &item : GetClothes() ) {
+            if ( brand == 0 || item.BrandHashcode != brand || ( sex != 0 && item.Sex != sex ) || item.Price >= 999999 ||
+                 !IsStockedAtAreaLevel( item.MinAreaLevel ) || item.PartType < 0 || item.PartType > 7 ) {
+                continue;
+            }
+            const bool bOwned = std::find( profile.OwnedClothes.begin(), profile.OwnedClothes.end(), item.Id ) != profile.OwnedClothes.end();
+            partTotal[item.PartType]++;
+            partBought[item.PartType] += bOwned ? 1 : 0;
+            allTotal++;
+            allBought += bOwned ? 1 : 0;
+        }
+        for ( const auto &part : kParts ) {
+            player.setVariable( std::string( "/:Nb" ) + part.pName + "Bought", std::to_string( partBought[part.Part] ) );
+            player.setVariable( std::string( "/:Nb" ) + part.pName + "Total", std::to_string( partTotal[part.Part] ) );
+            player.setVariableBool( std::string( "/:Is" ) + part.pName, partTotal[part.Part] > 0 ); // setClothes lists the categories the shop sells
+        }
+        player.setVariable( "/:NbTopsBouhgt", std::to_string( partBought[7] ) ); // the movie's own typo
+        player.setVariable( "/:NbClothes", std::to_string( allBought ) );
+        player.setVariable( "/:NbClothesMax", std::to_string( allTotal ) );
     } else if ( strcmp( pKind, "carPaint" ) == 0 ) {
         title = "Sticker shop";
         player.setVariable( "/:NbStickersBoardsBought", std::to_string( profile.OwnedStickerBanks.size() ) );
