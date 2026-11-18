@@ -675,8 +675,9 @@ pair still logs its relink line (4704 of them), which is the evidence section 3.
 rests on and the reason the log is 1.4 MB.
 
 **Defect 1 - the pixel stage may stop early, but its SV_Position may not.** The
-first full run refused **32 of TD_Accessories2's 64 pairs and all 16 of
-TD_Avatar's** with `E_INVALIDARG`, and the reflected lists looked aligned:
+first full run refused **every one of TD_Accessories2's programs (32 of its 64
+permutations) and all 16 of TD_Avatar's** with `E_INVALIDARG`, and the reflected
+lists looked aligned:
 
 ```
 CreateGraphicsPipelineState failed (0x80070057); vs outputs [TEXCOORD0@0 TEXCOORD1@1
