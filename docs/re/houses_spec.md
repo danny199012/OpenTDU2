@@ -523,3 +523,23 @@ B again closes the TV and the walk resumes.
 
 **Not done:** real forecast icons (needs the weather schedule readable outside FREERIDE), the News and DLC channels
 (online feed: the movie shows its own "no news available" text offline), the other tabs' content, the TV music.
+
+## 16. Closet avatar camera, live clothes, Leaderboards (session 2026-11-18, `main`, 52)
+
+**Closet camera.** HOME.vmf sends `came` right after `mcou` when the walk-in closet opens (and again per category and
+on a pick) [DATA, run time]. The game answers the first one with the walk's own third-person self view
+(`WalkMode::startSelfView( scene, bFront )`): the camera is probed 2.2 m away on the roomiest of four sides, in 0.25 m
+steps through the walk collision (`WalkController::sweep`; one long jump hops over thin walls - that was the
+first try: the camera ended in the next room), and the avatar turns to face it. Ended by `avou` / `liin`.
+`docs/images/house_closet_avatar_camera.webp`. **Live clothes**: a pick (`seit`) saves, then
+`IntroCinematic::refreshPlayerAvatar` rebuilds the avatar from the new worn set; the old avatar is retired for 8
+ticks, never freed under a frame in flight (trap 13). 0 VUIDs with `-vk_enable_validation_layer`.
+Not done: the per-category zoom (the retail `came` after `clin` moves to the head / feet - the "Move head" help
+shows; ours stays full body).
+
+**Leaderboards.** `bt_3` (`where_to rankings`) opens two entries; each validates with `/diary/menu:wh_val`
+`multi_ice` (Instant challenges, the `ice` string category) or another `multi_*` (Multiplayer), and the movie
+sits on "Connecting to server" + Cancel - the online ranking, as retail does offline [DATA]. After 2 s the game
+draws a panel over it: Instant = the player's own best times (`PlayerProfile::PassedTests`: licence tests,
+championship races), Multiplayer = "needs the Eden servers" [INF]. `-logdiary` logs the validate variables.
+`docs/images/house_leaderboards_local.webp`.

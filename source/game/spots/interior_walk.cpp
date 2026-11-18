@@ -918,6 +918,9 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         bConsumed = true;
     }
     scene.tick( deltaTime );
+    if ( bLeaderOpen ) {
+        leaderTime += deltaTime;
+    }
     if ( bMediaOpen ) {
         mediaPlayer.tick( deltaTime );
         updateMediaWeather();
@@ -975,6 +978,9 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         return eResult::None;
     }
     if ( !homePage.empty() ) {
+        if ( walk.isInSelfView() ) {
+            walk.update( scene, deltaTime, false ); // the closet's third-person camera follows the avatar
+        }
         routeHomeInput();
         return eResult::None;
     }
@@ -1151,6 +1157,9 @@ void InteriorWalk::draw() {
         garageMove.draw( gpRender->get2DRenderer() );
         if ( bMediaOpen ) {
             mediaPlayer.draw( gpRender->get2DRenderer() );
+        }
+        if ( bLeaderOpen && leaderTime > 2.0f ) {
+            drawLeaderPanel( gpRender->get2DRenderer() );
         }
         if ( bLifeOpen ) {
             drawLifePanel( gpRender->get2DRenderer() );
@@ -1355,9 +1364,17 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             OTDU_LOG_INFO( "InteriorWalk: wearing %d '%s' (_parttype %d)\n", closetItems[static_cast<size_t>( closetIndex )],
                            pItem != nullptr ? pItem->Name.c_str() : "?", closetPartType );
             SaveProfile( "closet" );
+            scene.refreshPlayerAvatar( profile.AvatarConfig.empty() ? "AVT_Male_Intro" : profile.AvatarConfig ); // the new clothes show now
         }
+    } else if ( command == "came" && homePage == "dressing" ) {
+        // The walk-in closet's camera: the avatar turns to face a third-person view so the worn clothes show
+        // (retail's `came` = the dressing camera [DATA: sent right after mcou]).
+        walk.startSelfView( scene, true );
     } else if ( command == "wmon" || command == "camf" || command == "avou" || command == "liin" ||
                 command == "gain" ) {
+        if ( walk.isInSelfView() && homePage == "dressing" ) {
+            walk.endSelfView( scene );
+        }
         // The page hands the walk back (the diary's Quit: wmon + camf; the
         // closet's root Back: avou + liin) [DATA: the FSCommands seen at run
         // time].
@@ -1412,6 +1429,24 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             albumZoom = albumFocus;
             bAlbumDeleteArmed = false;
             OTDU_LOG_INFO( "InteriorWalk: My Photos: zoom %d '%s'\n", albumZoom, albumFiles[static_cast<size_t>( albumZoom )].c_str() );
+        }
+    } else if ( command == "sndp:back" && bLeaderOpen ) {
+        bLeaderOpen = false;
+    } else if ( command == "sndp:valid" && homePage == "diary" ) {
+        {
+            const std::string where = scene.getUi().getVariable( "/diary/menu:wh_val" );
+            if ( where.compare( 0, 5, "multi" ) == 0 ) {
+                // An entry of the Leaderboards page: the movie shows "Connecting to server" (online ranking).
+                bLeaderOpen = true;
+                bLeaderIce = where == "multi_ice";
+                leaderTime = 0.0f;
+            }
+        }
+        if ( CmdLine::HasArg( "-logdiary" ) ) {
+            FlashPlayer &diaryUi = scene.getUi();
+            OTDU_LOG_INFO( "InteriorWalk: diary valid: wh_val '%s' val_bt '%s' menu '%s' sub '%s'\n",
+                           diaryUi.getVariable( "/diary/menu:wh_val" ).c_str(), diaryUi.getVariable( "/diary/menu:val_bt" ).c_str(),
+                           diaryUi.getVariable( "/diary:RootMenuPath" ).c_str(), diaryUi.getVariable( "/:BtValid" ).c_str() );
         }
     } else if ( command == "mylf:wait" ) {
         // MyTDULife: the retail book fills from the online profile server and sits on "loading" offline; the game
@@ -1489,6 +1524,45 @@ void InteriorWalk::updateAlbum( bool bForce ) {
         ui.setBitmapOverride( path + "/lure", pTexture, 0.0f, 0.0f, 1.0f, 1.0f );
     }
     OTDU_LOG_INFO( "InteriorWalk: My Photos page %d/%d (%d photo(s))\n", page + 1, pages, count );
+}
+
+void InteriorWalk::drawLeaderPanel( Renderer2D &renderer ) {
+    // The ranking lives on the Eden servers; after the retail "Connecting" wait the offline game lists the player's own
+    // best times (licence tests / championship races, PlayerProfile::PassedTests) in its place [INF].
+    const PlayerProfile &profile = GetPlayerProfile();
+    const Font *pFont = gpFlash->getTitleFont();
+    const float x0 = 300.0f, y0 = 150.0f, w = 680.0f, h = 400.0f;
+    renderer.drawRect( Rect2D( x0, y0, w, h ), AlbumRgba( 18, 24, 32, 245 ) );
+    renderer.drawRectOutline( Rect2D( x0, y0, w, h ), 2.0f, AlbumRgba( 190, 190, 190, 255 ) );
+    renderer.drawRect( Rect2D( x0, y0, w, 52.0f ), AlbumRgba( 120, 36, 24, 255 ) );
+    renderer.drawText( pFont, bLeaderIce ? "Instant challenges - server offline" : "Multiplayer challenges - server offline",
+                       x0 + 20.0f, y0 + 10.0f, 26.0f, AlbumRgba( 255, 255, 255 ) );
+    float y = y0 + 70.0f;
+    if ( !bLeaderIce ) {
+        renderer.drawText( pFont, "Multiplayer rankings need the Eden servers.", x0 + w * 0.5f, y + 90.0f, 22.0f,
+                           AlbumRgba( 200, 200, 200 ), eTextAlign::TA_Center );
+        return;
+    }
+    renderer.drawText( pFont, "Your best results", x0 + 30.0f, y, 22.0f, AlbumRgba( 255, 200, 120 ) );
+    y += 36.0f;
+    std::vector<std::pair<std::string, float>> records( profile.PassedTests.begin(), profile.PassedTests.end() );
+    std::sort( records.begin(), records.end() );
+    if ( records.empty() ) {
+        renderer.drawText( pFont, "No records yet - finish a licence test or a race.", x0 + w * 0.5f, y + 60.0f, 20.0f,
+                           AlbumRgba( 200, 200, 200 ), eTextAlign::TA_Center );
+    }
+    int32_t shown = 0;
+    for ( const auto &record : records ) {
+        if ( shown++ >= 9 ) {
+            break;
+        }
+        char time[32];
+        const int32_t tenths = static_cast<int32_t>( record.second * 10.0f + 0.5f );
+        snprintf( time, sizeof( time ), "%d:%02d.%d", tenths / 600, ( tenths / 10 ) % 60, tenths % 10 );
+        renderer.drawText( pFont, record.first.c_str(), x0 + 30.0f, y, 20.0f, AlbumRgba( 200, 200, 200 ) );
+        renderer.drawText( pFont, time, x0 + w - 30.0f, y, 20.0f, AlbumRgba( 255, 255, 255 ), eTextAlign::TA_Right );
+        y += 29.0f;
+    }
 }
 
 void InteriorWalk::drawLifePanel( Renderer2D &renderer ) {

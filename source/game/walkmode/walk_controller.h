@@ -18,6 +18,8 @@ public:
     void reset( const Vector3f &eyePosition, const Quaternionf &heading );
     void setCollide( CollideFunction function ) { collide = std::move( function ); }
     void update( float deltaTime, bool bInputEnabled );
+    // The collision answer for a free move (a camera probe): the allowed position from -> to.
+    Vector3f sweep( const Vector3f &from, const Vector3f &to ) const { return collide ? collide( from, to ) : to; }
 
     inline const Vector3f &getPosition() const { return position; }
     // Heading quaternion (camera convention: forward = R(q*) (0, 0, 1)).

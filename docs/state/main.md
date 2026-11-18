@@ -14,6 +14,26 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 52): closet avatar camera + live clothes, Leaderboards offline panel
+
+The owner: "Both please" (Leaderboards and the closet camera).
+
+### What changed
+- `source/game/walkmode/walk_mode.{h,cpp}`, `walk_controller.h` - `startSelfView( scene, bFront )`, collision-probed closet camera, `sweep`.
+- `source/game/avatarchoice/intro_cinematic.{h,cpp}` - `refreshPlayerAvatar` (retire, don't free).
+- `source/game/spots/interior_walk.{h,cpp}` - `came` -> self view, pick refreshes the avatar, Leaderboards `drawLeaderPanel`, `-logdiary`.
+- `docs/re/houses_spec.md` 16.
+
+### Verified (build 287, headless)
+- closet: avatar in third person facing the camera wearing the cowboy hat; picking a hat rebuilds it; `-vk_enable_validation_layer` 0 VUIDs. Leaderboards: 3 injected records listed (restored the profile after).
+
+### Ruled out
+- One 2.2 m collision jump: hops over thin walls, camera ended in the next room (looked at a wall); 0.25 m steps fixed it.
+- First yaw sign had the avatar's back to the camera.
+
+### Not done / next
+- Per-category closet zoom; forecast icons / News / DLC channels of TDU Media; TV music; the Leaderboards records are our own list (no retail data to read).
+
 ## Session 2026-11-18 (`main`, 51): TDU Media found and wired - the house TV
 
 The owner: "Find TDU Media". It is `tdmedia.bnk` / TDMEDIA.vmf, a second Flash movie behind the `td_media` selectable.

@@ -187,6 +187,9 @@ public:
     // Player avatar (the .sce actor "Avatar" of C_FIESTA_INTRO_xx): DBPNJ
     // configuration (AVT_<Male|Female>[_Afrik|_Asia]_Intro).
     bool setPlayerAvatar( const std::string &configId );
+    // Rebuilds the player avatar (a closet pick changed its clothes). The old one is retired, not freed: a frame in
+    // flight may still draw it (CLAUDE.md trap 13), it dies a few ticks later.
+    bool refreshPlayerAvatar( const std::string &configId );
     // Entity camera pose (Entity__Camera, e.g. cam_entree_01), house frame
     // -> island.
     bool getEntityCamera( const std::string &name, EdenSceneView::Camera &outCamera ) const;
@@ -790,6 +793,11 @@ private:
     // The walk's first-person body in a mirror: the player avatar stands at the
     // walker's feet (stand idle) and is drawn ONLY by the projector passes
     // (the wall mirror of a clothes shop) - never by the main camera.
+    struct RetiredAvatar {
+        std::unique_ptr<EdenAvatar> Avatar;
+        int32_t TicksLeft = 8;
+    };
+    std::vector<RetiredAvatar> retiredAvatars;
     bool bMirrorPlayer = false;
     bool bPlayerMirrorOnly = false;
     void updateMirrorPlayer();

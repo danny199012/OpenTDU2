@@ -68,7 +68,8 @@ public:
     // pose it; setPlayerEmotePlace is fed here every frame). Movement and
     // selection are paused; endSelfView puts the first person camera back.
     // [INF: the type 10 camera law is not decoded, the offsets are ours.]
-    void startSelfView( IntroCinematic &scene );
+    // bFront: the avatar turns round to face the camera (the walk-in closet shows the clothes' front).
+    void startSelfView( IntroCinematic &scene, bool bFront = false );
     void endSelfView( IntroCinematic &scene );
     inline bool isInSelfView() const { return bSelfView; }
     // The emote wheel (GENERAL.vmf /emotes, emote_wheel.h): the emote key
@@ -93,6 +94,9 @@ private:
     bool bCursorLabels = false;
     EmoteWheel wheel;
     bool bSelfView = false;
+    bool bSelfViewFront = false;
+    Vector3f selfViewFrontPosition; // the closet camera spot (a collision-probed place with the most room)
+    float selfViewFrontYaw = 0.0f;  // the avatar's heading: facing that camera
     float selfViewBlend = 0.0f; // 0: the eye pose, 1: the third person pose
     Vector3f selfViewEye;       // the pose the glide starts from
 

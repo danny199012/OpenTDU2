@@ -811,6 +811,12 @@ bool IntroCinematic::playEmitter( const char *pName ) {
 }
 
 void IntroCinematic::tick( float deltaTime ) {
+    for ( RetiredAvatar &retired : retiredAvatars ) {
+        retired.TicksLeft--;
+    }
+    retiredAvatars.erase( std::remove_if( retiredAvatars.begin(), retiredAvatars.end(),
+                                          []( const RetiredAvatar &r ) { return r.TicksLeft <= 0; } ),
+                          retiredAvatars.end() );
     if ( !neonAnims.empty() ) {
         updateNeons( deltaTime );
     }
@@ -3967,6 +3973,13 @@ bool IntroCinematic::setPlayerAvatar( const std::string &configId ) {
     }
     OTDU_LOG_INFO( "IntroCinematic: player avatar %s\n", configId.c_str() );
     return true;
+}
+
+bool IntroCinematic::refreshPlayerAvatar( const std::string &configId ) {
+    if ( player.Avatar ) {
+        retiredAvatars.push_back( RetiredAvatar{ std::move( player.Avatar ), 8 } );
+    }
+    return setPlayerAvatar( configId );
 }
 
 const EdenAnimation *IntroCinematic::getAnimation( uint64_t hashcode ) {

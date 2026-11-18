@@ -360,11 +360,40 @@ void WalkMode::updateSelection( IntroCinematic &scene, float deltaTime ) {
     }
 }
 
-void WalkMode::startSelfView( IntroCinematic &scene ) {
+void WalkMode::startSelfView( IntroCinematic &scene, bool bFront ) {
     if ( bSelfView ) {
         return;
     }
     bSelfView = true;
+    bSelfViewFront = bFront;
+    if ( bFront ) {
+        // The closet is small: probe the camera 2.2 m ahead / behind / left / right of the body with the walk's own
+        // collision and keep the roomiest side; the avatar turns to face it [INF].
+        const Vector3f eye = controller.getPosition();
+        const Vector3f forward = controller.getForward();
+        const Vector3f flat = Vector3f( forward.x, 0.0f, forward.z ).normalized();
+        const Vector3f side( flat.z, 0.0f, -flat.x );
+        float best = -1.0f;
+        for ( const Vector3f &direction : { flat * -1.0f, flat, side, side * -1.0f } ) {
+            // Walk the probe out in 0.25 m steps (a single long jump hops over thin walls).
+            Vector3f reached = eye;
+            for ( int32_t step = 1; step <= 9; step++ ) {
+                const Vector3f wanted = eye + direction * ( 0.25f * static_cast<float>( step ) );
+                const Vector3f allowed = controller.sweep( reached, wanted );
+                if ( ( allowed - wanted ).length() > 0.02f ) {
+                    break; // blocked: stop here
+                }
+                reached = allowed;
+            }
+            const float distance = ( reached - eye ).length();
+            if ( distance > best + 0.05f ) {
+                best = distance;
+                selfViewFrontPosition = reached;
+                selfViewFrontYaw = std::atan2( direction.x, direction.z );
+            }
+        }
+        OTDU_LOG_INFO( "WalkMode: closet camera %.2f m from the avatar\n", best );
+    }
     selfViewBlend = 0.0f;
     selfViewEye = controller.getPosition();
     clearSelection( scene );
@@ -408,8 +437,9 @@ void WalkMode::updateSelfView( IntroCinematic &scene, float deltaTime ) {
     const float yaw = std::atan2( forward.x, forward.z );
     const Vector3f floor = eye - Vector3f( 0.0f, eyeHeight, 0.0f );
     const Vector3f flatForward( std::sin( yaw ), 0.0f, std::cos( yaw ) );
-    scene.setPlayerEmotePlace( floor, yaw );
-    const Vector3f orbit = floor - flatForward * kCameraBack + Vector3f( 0.0f, kCameraHeight, 0.0f );
+    scene.setPlayerEmotePlace( floor, bSelfViewFront ? selfViewFrontYaw : yaw );
+    const Vector3f orbit = bSelfViewFront ? Vector3f( selfViewFrontPosition.x, floor.y + 1.6f, selfViewFrontPosition.z )
+                                          : floor - flatForward * kCameraBack + Vector3f( 0.0f, kCameraHeight, 0.0f );
     const Vector3f target = floor + Vector3f( 0.0f, kLookHeight, 0.0f );
     const Vector3f position = selfViewEye + ( orbit - selfViewEye ) * selfViewBlend;
     // Aim at a target that starts where the eye was looking and swings onto
@@ -423,6 +453,12 @@ void WalkMode::updateSelfView( IntroCinematic &scene, float deltaTime ) {
     // passed conjugated like every setLocalCamera caller.
     const Quaternionf conjugate = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), camYaw ) *
                                   Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), -camPitch );
+    static int32_t logCount = 0;
+    if ( CmdLine::HasArg( "-logemotes" ) && ( logCount++ % 60 ) == 0 ) {
+        OTDU_LOG_INFO( "WalkMode: self view cam (%.2f %.2f %.2f) look (%.2f %.2f %.2f) avatar (%.2f %.2f %.2f) yaw %.2f\n",
+                       position.x, position.y, position.z, lookAt.x, lookAt.y, lookAt.z, floor.x, floor.y, floor.z,
+                       bSelfViewFront ? selfViewFrontYaw : yaw );
+    }
     scene.setLocalCamera( position, Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w ), fov,
                           kWalkNearPlane );
 }

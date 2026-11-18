@@ -217,6 +217,11 @@ private:
     void openMedia();
     void closeMedia();
     void routeMediaInput();
+    // Leaderboards: the server pages say "Connecting to server"; offline the game adds the local records.
+    bool bLeaderOpen = false;
+    bool bLeaderIce = false;
+    float leaderTime = 0.0f;
+    void drawLeaderPanel( class Renderer2D &renderer );
     bool bLifeOpen = false;   // MyTDULife's local summary panel
     void drawLifePanel( class Renderer2D &renderer );
     void updateAlbum( bool bForce );
