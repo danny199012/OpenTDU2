@@ -8095,6 +8095,11 @@ void GMFreeRide::tick( float deltaTime ) {
         // Spot discovery: the buildings the car drives within range of get
         // their map icon (the retail law; discoverNear saves the profile).
         mapScreen.discoverNear( carPosition );
+        // "<shop> discovered": the notice names each building found this frame.
+        for ( const std::string &name : mapScreen.takeDiscoveries() ) {
+            hud.showGoal( name + " discovered" );
+            OTDU_LOG_INFO( "FREERIDE: discovered '%s'\n", name.c_str() );
+        }
         for ( const std::string &event : mapScreen.takeEvents() ) {
             AwardSkillEvent( event.c_str() );
         }

@@ -6,6 +6,20 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 66): "<building> discovered" notice
+
+The owner: "when close to a shop or dealership it says what shop it is and is now discovered".
+
+### What changed
+- `map_screen.{h,cpp}`: `spotDisplayName` (shop / house name from the data, else the card's kind title: "Ferrari dealership", clothes shop, tuning shop, car wash, Racing School, casino...) and `takeDiscoveries()`; `discoverNear` queues a name per newly discovered non-event spot (the 150 m radius is unchanged).
+- `gm_freeride.cpp`: each name shows on the goal banner as "<name> discovered" (`hud.showGoal`; the tip popup was tried first and fought the other hints).
+
+### Verified
+- `-tpdestination "Ferrari dealer" -autoplay "220:shot=..."` on a fresh scratch profile: log `FREERIDE: discovered 'Ferrari dealership'`, screenshot shows the banner "Ferrari dealership discovered".
+
+### Not done / next
+- The banner is the retail goal style, not a verified copy of the retail discovery toast [INF]. Remaining progression slices are large: duels (`RACING_DUEL_*`), `DBAreaLevel` earner, `SOCIAL_CLUB_LVL*`. The `TUTO_*` DBRewardXP rows pay 0 points, so they were skipped.
+
 ## Session 2026-11-18 (`main`, 65): haircut / surgery XP and per-area event-win XP
 
 The owner: "do the next progression slice".

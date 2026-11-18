@@ -323,6 +323,9 @@ public:
     // the car position while driving; returns how many spots it newly
     // discovered (the caller saves the profile when that is > 0).
     int32_t discoverNear( const Vector3f &position );
+    // The names of the spots discoverNear found since the last call ("Audi dealership"),
+    // for the HUD's "<name> discovered" notice.
+    std::vector<std::string> takeDiscoveries();
     // The dev build's "seen" list (PlayerProfile::SeenSpots): a spot is marked when OK opens its pop-up; a discovered
     // spot that is not in the list wears the icon's "new" bubble. Houses and home spots are never tracked.
     bool isSpotTracked( size_t index ) const;
@@ -444,6 +447,8 @@ private:
     // An undiscovered spot draws no icon and the cursor does not snap to it.
     std::string spotsIsland;
     std::vector<uint8_t> spotDiscovered;
+    std::vector<std::string> pendingDiscoveries;
+    std::string spotDisplayName( const Spot &spot ) const;
     // Per spot, the icon status children last driven (bit 0: favorite 'on', bit 1: target 'loop'); the dev game's
     // setIconFavorite / setTargetStatus (docs/re/map_spots_spec.md section 8). Zeroed by buildSpots.
     std::vector<uint8_t> spotStatus;

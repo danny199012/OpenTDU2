@@ -2284,6 +2284,48 @@ void MapScreen::markSpotSeenById( uint64_t id ) {
     }
 }
 
+// The building's name for the "discovered" notice: the shop / house name where the data has one, else the
+// retail kind title the card uses [INF: same English fallbacks as fillSpotCard].
+std::string MapScreen::spotDisplayName( const Spot &spot ) const {
+    const char *pKind = spot.pIcon != nullptr ? SpotCardKind( spot.pIcon ) : nullptr;
+    if ( pKind == nullptr ) {
+        return std::string();
+    }
+    if ( strcmp( pKind, "carDealer" ) == 0 || strcmp( pKind, "bikeDealer" ) == 0 || strcmp( pKind, "clothes" ) == 0 ) {
+        if ( const CarShop *pShop = FindShopBySpotId( spot.Id ) ) {
+            if ( !pShop->Name.empty() ) {
+                return strcmp( pKind, "clothes" ) == 0 ? pShop->Name : pShop->Name + " dealership";
+            }
+        }
+        return strcmp( pKind, "clothes" ) == 0 ? "Clothes shop" : "Dealership";
+    }
+    if ( strcmp( pKind, "estates" ) == 0 || strcmp( pKind, "home" ) == 0 || strcmp( pKind, "forsale" ) == 0 ) {
+        if ( const HouseRow *pHouse = FindHouseBySpotId( spot.Id ) ) {
+            return pHouse->Name;
+        }
+        return "Real estate agency";
+    }
+    static const struct { const char *Kind; const char *Title; } kTitles[] = {
+        { "rschool", "Racing School" }, { "carPaint", "Sticker shop" }, { "carWash", "Car wash" },
+        { "surgery", "Plastic surgery" }, { "hair", "Hairdresser" }, { "photograph", "Photographer" },
+        { "airport", "Airport" }, { "club", "Club house" }, { "stolenCar", "Stolen cars" }, { "gamblingHall", "Casino" } };
+    if ( strcmp( pKind, "tuning" ) == 0 ) {
+        return spot.Name.compare( 0, 4, "ETNR" ) == 0 ? TunerShopName( spot.Name ) : "Tuning shop";
+    }
+    for ( const auto &entry : kTitles ) {
+        if ( strcmp( pKind, entry.Kind ) == 0 ) {
+            return entry.Title;
+        }
+    }
+    return std::string();
+}
+
+std::vector<std::string> MapScreen::takeDiscoveries() {
+    std::vector<std::string> out;
+    out.swap( pendingDiscoveries );
+    return out;
+}
+
 int32_t MapScreen::discoverNear( const Vector3f &position ) {
     if ( spots.empty() || spotsIsland.empty() ) {
         return 0;
@@ -2301,6 +2343,12 @@ int32_t MapScreen::discoverNear( const Vector3f &position ) {
             spotDiscovered[i] = 1;
             known.push_back( spots[i].Id );
             found++;
+            if ( !spots[i].bChallenge ) {
+                const std::string name = spotDisplayName( spots[i] );
+                if ( !name.empty() ) {
+                    pendingDiscoveries.push_back( name );
+                }
+            }
             OTDU_LOG_INFO( "MapScreen: discovered '%s' (%s)\n", spots[i].Name.c_str(), spots[i].pIcon );
         }
     }
