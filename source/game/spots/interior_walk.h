@@ -68,7 +68,9 @@ public:
     // A dealership's display cars: car i (DBCarPhysicsData _id_car, the
     // DBCarShop _slot_<i+1> order) on Entity__ShopData PosCams[i]. Returns
     // the number of cars placed.
-    size_t placeDisplayCars( const std::vector<int32_t> &carIds );
+    // bOwned: the player's own cars (the home garage) wear what they were left with - ordered paint, custom paint,
+    // rims - instead of the showroom's rotating paint rows.
+    size_t placeDisplayCars( const std::vector<int32_t> &carIds, bool bOwned = false );
     // The sticker shop: the player's car on the room's first car place (the
     // retail design studio shows it in the room, not outside). Returns the
     // room's car (nullptr: the room has no place for one).

@@ -2,6 +2,7 @@
 
 #include "game/avatarchoice/intro_cinematic.h"
 #include "game/cinematic/cinematic_car.h"
+#include "game/freeride/sticker_bank.h"
 #include "game/gm_base.h"
 
 // "CINVIEWER": plays one cinematic of a scenarics/cinematics bank in the Ibiza
@@ -112,6 +113,9 @@ public:
 private:
     IntroCinematic cinematic;
     CinViewerRequest request;
+    // The driven car's sticker layout on the scene car (the car wash): the canvas bound to its paint materials once.
+    StickerCanvas stickerCanvas;
+    bool bStickerBound = false;
     bool bLoaded = false;
     bool bEnded = false;
     float endFade = -1.0f; // story end: the white flash out (s), -1 = none

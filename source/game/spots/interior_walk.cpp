@@ -117,7 +117,7 @@ std::string InteriorWalk::HouseBankFor( const std::string &spotBank, bool bGarag
     return bank;
 }
 
-size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds ) {
+size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds, bool bOwned ) {
     if ( !bActive || CmdLine::HasArg( "-nodisplaycars" ) ) {
         return 0;
     }
@@ -141,10 +141,28 @@ size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds ) {
         // ENC; row 0 is the colour the car's .2dm already carries, so all
         // row 0 would look unpainted]. -paintindex <n>: one row for every car.
         const int32_t numPaints = Max( 1, CinematicCar::CountDatabasePaints( carIds[i] ) );
-        const int32_t paintIndex = CmdLine::HasArg( "-paintindex" ) ? CmdLine::GetArgInt( "-paintindex", 0 )
-                                                                     : static_cast<int32_t>( i ) % numPaints;
+        int32_t paintIndex = CmdLine::HasArg( "-paintindex" ) ? CmdLine::GetArgInt( "-paintindex", 0 )
+                                                               : static_cast<int32_t>( i ) % numPaints;
+        const PlayerProfile &owner = GetPlayerProfile();
+        if ( bOwned ) {
+            const auto ordered = owner.OwnedCarPaints.find( carIds[i] );
+            paintIndex = ordered != owner.OwnedCarPaints.end() ? ordered->second : -1; // -1: the model's own colour
+        }
         if ( scene.addDisplayCar( desc, posCams[i], paintIndex ) ) {
             placed++;
+            if ( bOwned ) {
+                if ( CinematicCar *pCar = scene.getDisplayCar( scene.getNumDisplayCars() - 1 ) ) {
+                    const auto custom = owner.OwnedCarCustomPaints.find( carIds[i] );
+                    if ( custom != owner.OwnedCarCustomPaints.end() ) {
+                        pCar->applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour,
+                                                custom->second.Colour2 );
+                    }
+                    const auto rims = owner.OwnedCarRimSizes.find( carIds[i] );
+                    if ( rims != owner.OwnedCarRimSizes.end() && rims->second > 0 ) {
+                        pCar->setRimDiameters( rims->second, rims->second );
+                    }
+                }
+            }
             OTDU_LOG_INFO( "InteriorWalk:   car %d '%s' on %s\n", carIds[i], desc.FileName.c_str(), posCams[i].c_str() );
         } else {
             OTDU_LOG_WARN( "InteriorWalk: car %d '%s' could not be placed on %s\n", carIds[i], desc.FileName.c_str(),
@@ -664,7 +682,7 @@ void InteriorWalk::placeGarageCars() {
     // The owned cars on the garage bank's Entity__ShopData slots (D_CAR_01..)
     // [INF: the pairing; the retail garage stores the cars itself].
     const PlayerProfile &profile = GetPlayerProfile();
-    placeDisplayCars( profile.OwnedCars );
+    placeDisplayCars( profile.OwnedCars, true );
 }
 
 void InteriorWalk::exit() {

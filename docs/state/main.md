@@ -12,6 +12,22 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+
+## Session 2026-11-18 (`main`): stickers and the other car places
+
+Owner: "check the sticker layouts and the other car places".
+
+### What changed
+- `interior_walk.cpp` `placeDisplayCars( ids, bOwned )`: the HOME GARAGE put the owned cars on the showroom's rotating paint rows (`i % numPaints`); owned cars now wear their ordered paint (else the model's own colour), custom paint and rim size.
+- `gm_cin_viewer.{h,cpp}` (the car wash scene, `C_WASHING`): the scene car got the ordered paint only; it now also wears the custom paint, rims and the sticker layout (own `StickerCanvas`, bound in `drawOffscreen`). Log `CINVIEWER: scene car 387: custom paint 1, rims 21, stickers 3`.
+
+### Verified (profile `persist2`: California 387, custom green paint, 21" rims, 3 stickers; headless)
+- Tuning shop (`-island hawai -atspot ETUN_A_3136`): green car with rims on the lift; pixel diff against the same profile without stickers = 6,182 px on the car, the stickers are dark marks on the rear deck. Sticker shop (`ESTICK_B_8570`): car on the turntable, stickers present (diff 766 px at distance).
+- Home garage (`-island ibiza -atspot EPH_L3DI_5067I -housegarage`): the green California in D_CAR_01. Car wash (`ECW_A_3764` on Hawai): green car, `sticker canvas bound on 2 paint material(s)`.
+
+### Not done / next
+- Garage cars wear no stickers (one canvas texture per driven car; each garage car needs its own canvas) and no tuner spoiler. The dealer test drive uses the dealer's car by design; the photographer uses the live car. Story cutscene cars (gm_cin_viewer with `bPlayerCar` false, gm_cine) unchanged.
+
 ## Session 2026-11-18 (`main`): hairdresser cancel / beard page checked, saved looks and the car in shops audited
 
 Owner: "check the hairdresser cancel and beard page work; then check every bit of detail is remembered in a shop (haircut, clothing, face...) and in car places (sticker shop, tuner) - when walking in you should see your car".

@@ -282,6 +282,28 @@ bool GMCinViewer::enter( TestDriveGameInstance *pInstance ) {
             OTDU_LOG_INFO( "CINVIEWER: scene car '%s' in its ordered paint %d '%s'\n", request.Car.FileName.c_str(),
                            it->second, name.c_str() );
         }
+        // What the sticker shop and the tuning shop did to it: custom paint, rims, stickers.
+        const int32_t carId = cinematic.getCar().getIdCar();
+        const auto custom = profile.OwnedCarCustomPaints.find( carId );
+        if ( custom != profile.OwnedCarCustomPaints.end() ) {
+            cinematic.getCar().applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour,
+                                                 custom->second.Colour2 );
+        }
+        const auto rims = profile.OwnedCarRimSizes.find( carId );
+        if ( rims != profile.OwnedCarRimSizes.end() && rims->second > 0 ) {
+            cinematic.getCar().setRimDiameters( rims->second, rims->second );
+        }
+        bStickerBound = false;
+        stickerCanvas.setLayout( {}, {} );
+        const auto stickers = profile.OwnedCarStickers.find( carId );
+        if ( StickerBankCatalog::isEnabled() && stickers != profile.OwnedCarStickers.end() && !stickers->second.empty() ) {
+            std::vector<GPUTexture *> art;
+            StickerResolveArt( stickers->second, art );
+            stickerCanvas.setLayout( stickers->second, art );
+        }
+        OTDU_LOG_INFO( "CINVIEWER: scene car %d: custom paint %d, rims %d, stickers %zu\n", carId,
+                       custom != profile.OwnedCarCustomPaints.end() ? 1 : 0, rims != profile.OwnedCarRimSizes.end() ? rims->second : 0,
+                       stickers != profile.OwnedCarStickers.end() ? stickers->second.size() : static_cast<size_t>( 0 ) );
     }
     if ( request.bPlayerCar ) {
         // The driven car as it entered: roof, windows, the body's mud / dust /
@@ -674,6 +696,12 @@ void GMCinViewer::drawPrompt() {
 }
 
 void GMCinViewer::drawOffscreen() {
+    if ( bLoaded && stickerCanvas.hasLayout() && gpRender != nullptr && gpRender->getEdenRenderer() != nullptr ) {
+        stickerCanvas.render( gpRender->getDevice(), gpRender->get2DRenderer() );
+        if ( !bStickerBound && stickerCanvas.getTexture() != nullptr ) {
+            bStickerBound = cinematic.getCar().bindStickerTexture( *gpRender->getEdenRenderer(), stickerCanvas.getTexture() ) > 0;
+        }
+    }
     if ( bLoaded ) {
         cinematic.renderOffscreen();
     }
