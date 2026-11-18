@@ -14,6 +14,20 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 51): TDU Media found and wired - the house TV
+
+The owner: "Find TDU Media". It is `tdmedia.bnk` / TDMEDIA.vmf, a second Flash movie behind the `td_media` selectable.
+
+### What changed
+- `source/game/spots/interior_walk.{h,cpp}` - `openMedia` / `closeMedia` / `routeMediaInput` / `updateMediaWeather` (own `FlashPlayer`, `/:db_tdmedia`, weather tile labels), `-dumpmedia`, `-logmedia`.
+- `docs/re/houses_spec.md` 15.
+
+### Verified (build 286, headless)
+- A on the TV opens it; Weather channel shows Ibiza + Hawaii outlines, sun/sun/moon by game hour; B / B closes and the walk resumes. `docs/images/house_tdu_media_weather.webp`.
+
+### Not done / next
+- Forecast icons are always clear (WeatherCycle is FREERIDE-only and random); News / DLC channels empty offline; the TV music (`tdumedia.wav`); Leaderboards lists; closet avatar camera.
+
 ## Session 2026-11-18 (`main`, 50): house Diary - photo Zoom / Delete + offline MyTDULife
 
 The owner: "both please" (MyTDULife and photo zoom/delete).

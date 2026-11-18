@@ -7,6 +7,8 @@
 #include "filesystem/gs_file.h"
 #include "flash/flash_player.h"
 #include "flash/gs_flash.h"
+#include "flash/flash_localization.h"
+#include "game/world_clock.h"
 #include "game/clothes_shop.h"
 #include "game/car_shop.h"
 #include "game/house_shop.h"
@@ -916,6 +918,14 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         bConsumed = true;
     }
     scene.tick( deltaTime );
+    if ( bMediaOpen ) {
+        mediaPlayer.tick( deltaTime );
+        updateMediaWeather();
+        if ( bMediaCloseRequested ) {
+            bMediaCloseRequested = false;
+            closeMedia();
+        }
+    }
     for ( const std::string &name : scene.takeEndEvents() ) {
         if ( state == eState::Intro && name == introName ) {
             startWalk( walkCamera.c_str() );
@@ -958,6 +968,10 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
             scene.addHeadOrbit( -( gpInput->getMouseDeltaX() * 0.004f + gpInput->getRightStickX() * 2.0f * deltaTime ) );
         }
         routeHomeInput();
+        return eResult::None;
+    }
+    if ( bMediaOpen ) {
+        routeMediaInput();
         return eResult::None;
     }
     if ( !homePage.empty() ) {
@@ -1081,6 +1095,10 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
                 openHomePage( pType );
                 return eResult::None;
             }
+            if ( bHomeUi && strcmp( pType, "td_media" ) == 0 ) {
+                openMedia();
+                return eResult::None;
+            }
             if ( strcmp( pType, "diary" ) == 0 || strcmp( pType, "dressing" ) == 0 ||
                  strcmp( pType, "td_media" ) == 0 || strcmp( pType, "billboard" ) == 0 ) {
                 showMessage( "This is not wired yet." );
@@ -1131,6 +1149,9 @@ void InteriorWalk::draw() {
         scene.draw();
         walk.drawEmoteWheel( gpRender->get2DRenderer() );
         garageMove.draw( gpRender->get2DRenderer() );
+        if ( bMediaOpen ) {
+            mediaPlayer.draw( gpRender->get2DRenderer() );
+        }
         if ( bLifeOpen ) {
             drawLifePanel( gpRender->get2DRenderer() );
         }
@@ -1527,6 +1548,105 @@ void InteriorWalk::drawLifePanel( Renderer2D &renderer ) {
     }
     renderer.drawText( pFont, "Offline profile - the online MyTDULife needs the Eden servers", x0 + w * 0.5f, y0 + h - 34.0f, 16.0f,
                        AlbumRgba( 150, 150, 150 ), eTextAlign::TA_Center );
+}
+
+void InteriorWalk::openMedia() {
+    // TDU Media (tdmedia.vmf): the retail "Test Drive Media" TV - channel tabs on the left, a weather / news list and a
+    // details pane [DATA: frame labels media_in / in_channel / open / stop / close]. Offline there is no feed [INF].
+    FlashMovie *pMovie = gpFlash->getMovie( "tdmedia" );
+    if ( pMovie == nullptr || !mediaPlayer.load( pMovie ) ) {
+        showMessage( "TDU Media is not available" );
+        return;
+    }
+    mediaPlayer.setVariable( "/:db_tdmedia", "1" );
+    ApplyFlashLocalization( mediaPlayer );
+    mediaPlayer.setFSCommandCallback( [this]( const std::string &command, const std::string &args ) {
+        OTDU_LOG_INFO( "InteriorWalk: TDU Media FSCommand %s %s\n", command.c_str(), args.c_str() );
+        if ( command == "tdmd:clos" ) {
+            bMediaCloseRequested = true; // the movie closed itself: unload outside its own callback
+        }
+        if ( command == "tdmd:weat:open" ) {
+            bMediaWeather = true;
+            mediaWeatherKey = -1;
+        }
+    } );
+    walk.clearSelection( scene );
+    mediaPlayer.gotoLabel( "/", "media_in", true );
+    if ( const char *pDump = CmdLine::GetArgValue( "-dumpmedia" ) ) {
+        mediaPlayer.dumpClips( "/", atoi( pDump ) );
+    }
+    bMediaOpen = true;
+    OTDU_LOG_INFO( "InteriorWalk: TDU Media opened\n" );
+}
+
+void InteriorWalk::updateMediaWeather() {
+    // The Weather channel: six tiles (/weather/<island><0..2> = now / +2 h / +4 h game time), each an island outline
+    // (d_/n_ ibiza|hawaii) with a weather icon (d_/n_ clear|cloudy|rainy|stormy) [DATA: frame labels]. The cycle's
+    // forecast is not available outside FREERIDE and is random anyway, so the icon is the clear sky of that hour's
+    // day / night [INF].
+    if ( !bMediaWeather ) {
+        return;
+    }
+    const int32_t hour = WorldClockHours();
+    const int32_t key = hour * 4 + ( WorldClockMinutes() / 15 );
+    static int32_t settle = 0;
+    if ( key == mediaWeatherKey && settle > 0 ) {
+        settle--; // the movie re-places its tiles for a few frames after the channel opens: re-apply
+        if ( settle == 0 ) {
+            return;
+        }
+    } else if ( key != mediaWeatherKey ) {
+        settle = 30;
+    } else {
+        return;
+    }
+    mediaWeatherKey = key;
+    for ( const char *pIsland : { "ibiza", "hawaii" } ) {
+        for ( int32_t step = 0; step < 3; step++ ) {
+            const int32_t at = ( hour + step * 2 ) % 24;
+            const bool bDay = at >= 7 && at < 20;
+            const std::string base = std::string( "/weather/" ) + pIsland + std::to_string( step );
+            const char *pPrefix = bDay ? "d_" : "n_";
+            const bool bIsland = mediaPlayer.gotoLabel( base + "/island", std::string( pPrefix ) + pIsland, false );
+            const bool bIcon = mediaPlayer.gotoLabel( base + "/island/weather", std::string( pPrefix ) + "clear", false );
+            if ( CmdLine::HasArg( "-logmedia" ) ) {
+                OTDU_LOG_INFO( "InteriorWalk: TDU Media weather %s -> %d %d\n", base.c_str(), bIsland ? 1 : 0, bIcon ? 1 : 0 );
+            }
+        }
+    }
+}
+
+void InteriorWalk::closeMedia() {
+    bMediaOpen = false;
+    bMediaWeather = false;
+    mediaPlayer.unload();
+    walk.resume( scene );
+    OTDU_LOG_INFO( "InteriorWalk: TDU Media closed\n" );
+}
+
+void InteriorWalk::routeMediaInput() {
+    // The movie's key catchers: 13 validate, 8 back, 1 / 2 / 14 / 15 the arrows (the HOME routing) [DATA + INF].
+    if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+        mediaPlayer.sendKey( 13 );
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
+        if ( !mediaPlayer.sendKey( 8 ) ) {
+            closeMedia();
+            return;
+        }
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
+        mediaPlayer.sendKey( 14 );
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
+        mediaPlayer.sendKey( 15 );
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
+        mediaPlayer.sendKey( 1 );
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
+        mediaPlayer.sendKey( 2 );
+    }
 }
 
 void InteriorWalk::updateClosetItem() {

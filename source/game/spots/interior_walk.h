@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game/garage_move_menu.h"
+#include "flash/flash_player.h"
 #include <memory>
 #include <vector>
 
@@ -206,6 +207,16 @@ private:
     int32_t albumFocus = -1;  // index of the slot under the book's focus (IsOn)
     int32_t albumZoom = -1;   // the zoomed photo, -1 = none
     bool bAlbumDeleteArmed = false;
+    // TDU Media: the house TV (td_media selectable) runs the retail tdmedia.vmf in its own player.
+    FlashPlayer mediaPlayer;
+    bool bMediaOpen = false;
+    bool bMediaWeather = false;
+    bool bMediaCloseRequested = false;
+    int32_t mediaWeatherKey = -1;
+    void updateMediaWeather();
+    void openMedia();
+    void closeMedia();
+    void routeMediaInput();
     bool bLifeOpen = false;   // MyTDULife's local summary panel
     void drawLifePanel( class Renderer2D &renderer );
     void updateAlbum( bool bForce );

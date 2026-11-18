@@ -500,3 +500,26 @@ again"), a second Y moves the PNG to `photos/deleted/` (never erased) [INF]. `do
 is the online profile [DATA: clip dump]. `mylf:clos` = closed. Offline the game draws a panel over it (`drawLifePanel`):
 name, global level + title (sum of the four skill levels, pause_menu's law), money, odometers, the four skills,
 cars / houses / events / photo spots [INF: our composition]. `docs/images/house_mytdulife_offline.webp`.
+
+## 15. TDU Media: the house TV (session 2026-11-18, `main`, 51)
+
+**Found:** `frontend/hires/tdmedia.bnk` = `TDMEDIA.vmf`, the "Test Drive Media" TV (stage 1280x960, labels `media_in`,
+`in_channel`, `open`, `stop`, `close`; music `sound/musics/tdumedia.wav`). It is what the `td_media` FpSelectable
+(the TV in the living room, type 57) opens [DATA; INF: the link by the name]. Inspect it with
+`-uiviewer -movie tdmedia -goto "/:media_in"`.
+It is a **second movie** next to HOME: `InteriorWalk::openMedia` loads it into its own `FlashPlayer` (own tick /
+draw / key routing, `-dumpmedia <depth>` dumps its clips), sets `/:db_tdmedia = 1` before
+`ApplyFlashLocalization` (the string category flag; without it the texts read `]r_Currently`).
+Four channels (tabs): Weather, News, DLC and a fourth. FSCommands [DATA, run time]: `sndp:mdintro`, `sbdd`,
+`sndp:mdmopen` / `mdvalid` / `mdback`, `tdmd:weat:open` / `tdmd:weat:clos` (a channel), `tdmd:clos` (the TV closes ->
+the game unloads the player and gives the walk back).
+**Weather channel:** six tiles `/weather/<ibiza|hawaii><0..2>` = now / +2 h / +4 h game time, each an `island`
+clip (`d_`/`n_` + `ibiza`|`hawaii`) holding a `weather` icon clip (`d_`/`n_` + `clear`|`cloudy`|`rainy`|`stormy`).
+The game sets the labels (`updateMediaWeather`, `-logmedia`): the island outline, and day / night from the
+world clock at each step; the icon is always *clear* because `WeatherCycle` is random and lives in FREERIDE, not in
+the house [INF]. Verified: `-enterhouse EPH_L3DI_5067I -walkaim td_media` + A -> Down -> A: the Weather
+Channel with both outlines, sun / sun / moon (`docs/images/house_tdu_media_weather.webp`); B backs out of a channel,
+B again closes the TV and the walk resumes.
+
+**Not done:** real forecast icons (needs the weather schedule readable outside FREERIDE), the News and DLC channels
+(online feed: the movie shows its own "no news available" text offline), the other tabs' content, the TV music.
