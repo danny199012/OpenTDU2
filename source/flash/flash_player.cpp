@@ -1248,6 +1248,19 @@ FlashPlayer::Value FlashPlayer::lookupVariable( Clip *pClip, const std::string &
             return it->second;
         }
     }
+    if ( name == "Math" ) {
+        // The AVM1 Math object (the map's realtor list reads Math.ceil( NbHouses / nbLines ) for its page count).
+        static std::shared_ptr<Object> pMath;
+        if ( !pMath ) {
+            pMath = std::make_shared<Object>();
+            pMath->Members["__math"] = Value::MakeBool( true );
+            pMath->Members["PI"] = Value::MakeNumber( 3.14159265358979323846 );
+        }
+        Value math;
+        math.Type = Value::eType::Object;
+        math.pObject = pMath;
+        return math;
+    }
     const int32_t property = PropertyIndex( name );
     if ( property >= 0 ) {
         return getProperty( pClip, property );
@@ -1791,6 +1804,22 @@ FlashPlayer::Value FlashPlayer::callMethod( Value &object, const std::string &na
                 return callFunction( member.FunctionIndex, &target, args, &object );
             }
         }
+        return Value();
+    }
+    if ( object.Type == Value::eType::Object && object.pObject != nullptr && object.pObject->Members.count( "__math" ) != 0 ) {
+        const double a = args.size() > 0 ? args[0].toNumber() : 0.0;
+        const double b = args.size() > 1 ? args[1].toNumber() : 0.0;
+        if ( name == "ceil" ) return Value::MakeNumber( std::ceil( a ) );
+        if ( name == "floor" ) return Value::MakeNumber( std::floor( a ) );
+        if ( name == "round" ) return Value::MakeNumber( std::floor( a + 0.5 ) );
+        if ( name == "abs" ) return Value::MakeNumber( std::fabs( a ) );
+        if ( name == "sqrt" ) return Value::MakeNumber( std::sqrt( a ) );
+        if ( name == "min" ) return Value::MakeNumber( std::min( a, b ) );
+        if ( name == "max" ) return Value::MakeNumber( std::max( a, b ) );
+        if ( name == "pow" ) return Value::MakeNumber( std::pow( a, b ) );
+        if ( name == "sin" ) return Value::MakeNumber( std::sin( a ) );
+        if ( name == "cos" ) return Value::MakeNumber( std::cos( a ) );
+        if ( name == "atan2" ) return Value::MakeNumber( std::atan2( a, b ) );
         return Value();
     }
     if ( object.Type == Value::eType::Object && object.pObject != nullptr && object.pObject->bArray ) {

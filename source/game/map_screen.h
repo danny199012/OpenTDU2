@@ -227,8 +227,18 @@ public:
     std::string islandTravel;
     bool cardAccept();     // true when it consumed the OK (opened / pressed a button)
     void cardMove( int32_t step );
+    // Left / right on an extended card: the realtor list pages (SWF key codes 1 / 2).
+    void cardPage( int32_t step );
     bool cardBack();       // true when the pop-up was open and closed
     bool bCardExtended = false;
+    // The realtor card's pictures (frontend/allres/mapscreens/spots/<ere>.bnk, frontend/allres/realtorscr/<house>.bnk
+    // img_ext): created at spot load, bound to the card's picture clips each frame [DATA: the banks; INF: img_ext is the
+    // list thumbnail].
+    std::map<std::string, GPUTexture *> previewTextures;
+    std::vector<const struct HouseRow *> cardHouses;
+    std::string cardAgency;
+    void loadRealtorPreviews();
+    void bindRealtorPictures();
     void openMenu();
     void closeMenu();
     void menuMove( int32_t step );

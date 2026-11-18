@@ -540,6 +540,9 @@ void MapScreen::tick( float deltaTime ) {
     // after the open animation lights it [INF: the retail screen is lit on
     // arrival, the call that does it is not identified].
     openTicks++;
+    if ( openTicks == 480 && CmdLine::HasArg( "-dumpmapclips" ) ) {
+        player.dumpClips( CmdLine::GetArgValue( "-dumpmapclips" ), 7 );
+    }
     if ( openTicks == 50 && CmdLine::HasArg( "-dumpclipfuncs" ) ) {
         for ( const char *pPath : { "/tool_tip", "/tool_tip/infos", "/championship", "/championship/pages", "/help", "/navigator" } ) {
             OTDU_LOG_INFO( "MapScreen: functions of %s\n", pPath );
@@ -665,6 +668,7 @@ void MapScreen::tick( float deltaTime ) {
     if ( bSpotsBuilt ) {
         updateSnap(); // the reticle sticks to a shop / road before the markers are placed
         updateSpotCard();
+        bindRealtorPictures();
         updateMarkers();
         updateSpots();
     }
@@ -1239,6 +1243,15 @@ void MapScreen::updateSnap() {
 
 // The root WhatSpot string of a spot's icon label (SetInfos switches on it; the icon labels are
 // lower case, the card kinds are camel case) [DATA: map.vmf].
+// 110000 -> "110,000" (the card's price format).
+static std::string FormatThousands( int32_t value ) {
+    std::string digits = std::to_string( value < 0 ? -value : value );
+    for ( int32_t at = static_cast<int32_t>( digits.size() ) - 3; at > 0; at -= 3 ) {
+        digits.insert( static_cast<size_t>( at ), "," );
+    }
+    return ( value < 0 ? "-" : "" ) + digits;
+}
+
 static const char *SpotCardKind( const char *pIcon ) {
     static const struct { const char *pIcon; const char *pKind; } kKinds[] = {
         { "estates", "estates" },   { "home", "home" },         { "cardealer", "carDealer" }, { "clothes", "clothes" },
@@ -1346,13 +1359,47 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
     // NbClothes / NbClothesMax, NbStickersBoardsBought / Total, NbSurgeriesDone, NbHairs, NbPhotosTaken / Total,
     // WashingPrice) [DATA: map.vmf edit texts; INF: the English titles - the retail ones are localized strings].
     if ( strcmp( pKind, "estates" ) == 0 || strcmp( pKind, "home" ) == 0 || strcmp( pKind, "forsale" ) == 0 ) {
-        if ( const HouseRow *pHouse = FindHouseBySpotId( spot.Id ) ) {
+        const HouseRow *pHouseSpot = FindHouseBySpotId( spot.Id );
+        if ( const HouseRow *pHouse = pHouseSpot ) {
             title = pHouse->Name;
         } else {
-            title = strcmp( pKind, "home" ) == 0 ? "Home" : "Real estate agency";
+            title = strcmp( pKind, "home" ) == 0 ? "Home" : "Real estate";
         }
-        player.setVariable( "/:NbHousesBought", std::to_string( profile.OwnedHouses.size() ) );
-        player.setVariable( "/:NbHouses", std::to_string( GetHouses().size() ) );
+        // A realtor sells only the houses of its own DBHouse._realtor [DATA]; the card's list (setRealtor, read from
+        // the movie's AVM1: _root.House<i>_name / _price / _gCapacity / _level / _state, _root.NbHouses) shows
+        // those, cheapest first [INF: the order], and the count is the agency's, not the island's.
+        std::vector<const HouseRow *> stock;
+        if ( pHouseSpot == nullptr && strcmp( pKind, "estates" ) == 0 ) {
+            stock = FindHousesByRealtor( spot.Id );
+            std::stable_sort( stock.begin(), stock.end(),
+                              []( const HouseRow *a, const HouseRow *b ) { return a->BuyPrice < b->BuyPrice; } );
+        }
+        const bool bAgency = pHouseSpot == nullptr && strcmp( pKind, "estates" ) == 0 && !stock.empty();
+        cardHouses = bAgency ? stock : std::vector<const HouseRow *>();
+        cardAgency.clear();
+        if ( bAgency ) {
+            cardAgency = stock[0]->Realtor;
+            for ( char &c : cardAgency ) {
+                c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+            }
+        }
+        int32_t bought = 0;
+        for ( size_t i = 0; i < stock.size(); i++ ) {
+            const HouseRow &house = *stock[i];
+            const std::string key = "/:House" + std::to_string( i );
+            const bool bOwned = IsHouseOwned( GetIdentifier64bit( house.SpotName.c_str() ) );
+            bought += bOwned ? 1 : 0;
+            player.setVariable( key + "_name", house.Name );
+            player.setVariable( key + "_price", "$" + FormatThousands( house.BuyPrice ) );
+            player.setVariable( key + "_gCapacity", std::to_string( house.NbCarSlots ) );
+            player.setVariableNumber( key + "_level", house.Level + 1 ); // the stars clip: frame n shows n-1 stars [INF]
+            player.setVariableBool( key + "_state", bOwned );
+        }
+        if ( CmdLine::HasArg( "-logcard" ) ) {
+            OTDU_LOG_INFO( "MapScreen: realtor card %zu house(s), %d bought, agency %d\n", stock.size(), bought, bAgency ? 1 : 0 );
+        }
+        player.setVariable( "/:NbHousesBought", bAgency ? std::to_string( bought ) : std::to_string( profile.OwnedHouses.size() ) );
+        player.setVariable( "/:NbHouses", bAgency ? std::to_string( stock.size() ) : std::to_string( GetHouses().size() ) );
     } else if ( strcmp( pKind, "clothes" ) == 0 ) {
         if ( const CarShop *pShop = FindShopBySpotId( spot.Id ) ) {
             if ( !pShop->Name.empty() ) {
@@ -1462,6 +1509,12 @@ void MapScreen::updateSpotCard() {
     if ( snapSpot >= 0 && static_cast<size_t>( snapSpot ) < spots.size() && fillSpotCard( spots[static_cast<size_t>( snapSpot )] ) ) {
         cardFilling = snapSpot;
         player.invoke( "/tool_tip", "SetInfos", {} );
+        // The realtor's list: initList() resets the page counter and shows the folio arrows when there is more
+        // than one page [CODE: map.vmf tool_tip.initList, read with tools/vmf_disasm.py].
+        if ( spots[static_cast<size_t>( snapSpot )].Name.compare( 0, 3, "ERE" ) == 0 ) {
+            const bool bList = player.invoke( "/tool_tip", "initList", {} );
+            OTDU_LOG_INFO( "MapScreen: initList -> %d, nb_pages '%s' last_page '%s'\n", bList ? 1 : 0, player.getVariable( "/tool_tip/infos/txt:nb_pages" ).c_str(), player.getVariable( "/tool_tip/infos/txt:last_page" ).c_str() );
+        }
         player.gotoLabel( "/tool_tip", "open", true );
         cardFilling = -1;
         if ( CmdLine::HasArg( "-logcard" ) ) {
@@ -1511,6 +1564,12 @@ bool MapScreen::cardAccept() {
 void MapScreen::cardMove( int32_t step ) {
     if ( cardSpot >= 0 && bCardExtended ) {
         player.sendKey( step < 0 ? 14 : 15 ); // SWF keyPress codes: 13 Enter, 14 Up, 15 Down
+    }
+}
+
+void MapScreen::cardPage( int32_t step ) {
+    if ( cardSpot >= 0 && bCardExtended && !cardHouses.empty() ) {
+        player.sendKey( step < 0 ? 1 : 2 );
     }
 }
 
@@ -2076,12 +2135,92 @@ void MapScreen::loadSpots( const std::string &island ) {
     }
     OTDU_LOG_INFO( "MapScreen: %zu spots with an icon (of %zu in spots.bin), %d discovered\n", spots.size(), count,
                    numDiscovered );
+    loadRealtorPreviews();
     if ( CmdLine::HasArg( "-logspots" ) ) {
         for ( size_t i = 0; i < spots.size(); i++ ) {
             const Spot &spot = spots[i];
             OTDU_LOG_INFO( "MapScreen: spot '%s' icon '%s' logo %d %s at (%.0f, %.0f)\n", spot.Name.c_str(), spot.pIcon,
                            spot.LogoIndex, spotDiscovered[i] ? "known" : "undiscovered", spot.Position.x, spot.Position.z );
         }
+    }
+}
+
+void MapScreen::loadRealtorPreviews() {
+    previewTextures.clear();
+    if ( gpRender == nullptr || gpFile == nullptr ) {
+        return;
+    }
+    auto load = [&]( const std::string &folder, const std::string &bankName, const char *pTexture, const std::string &key ) {
+        if ( previewTextures.count( key ) != 0 ) {
+            return;
+        }
+        GPUTexture *pFound = nullptr;
+        const std::string path = gpFile->getBankFolder() + folder + bankName + ".bnk";
+        Bank bank;
+        if ( gpFile->fileExists( path.c_str() ) && bank.load( path.c_str() ) ) {
+            const std::string owner = "mappreview_" + key;
+            gpRender->getTextureCache().loadBankTextures( bank, owner.c_str() );
+            pFound = gpRender->getTextureCache().find( owner.c_str(), pTexture != nullptr ? pTexture : bankName.c_str() );
+        }
+        previewTextures[key] = pFound;
+    };
+    auto lower = []( std::string text ) {
+        for ( char &c : text ) {
+            c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+        }
+        return text;
+    };
+    int32_t loaded = 0;
+    for ( const Spot &spot : spots ) {
+        if ( spot.Name.compare( 0, 3, "ERE" ) != 0 ) {
+            continue;
+        }
+        // The bank is named like the DBHouse._realtor ("ERE_B_2236"); the spot's own name is the 8-char prefix.
+        const std::vector<const HouseRow *> stock = FindHousesByRealtor( spot.Id );
+        if ( !stock.empty() ) {
+            load( "frontend/allres/mapscreens/spots/", lower( stock[0]->Realtor ), nullptr, "agency_" + lower( stock[0]->Realtor ) );
+        }
+        for ( const HouseRow *pHouse : stock ) {
+            load( "frontend/allres/realtorscr/", lower( pHouse->SpotName ), "img_ext", "house_" + lower( pHouse->SpotName ) );
+        }
+    }
+    for ( const auto &entry : previewTextures ) {
+        if ( entry.second == nullptr ) {
+            OTDU_LOG_INFO( "MapScreen: no picture for '%s'\n", entry.first.c_str() );
+        }
+        loaded += entry.second != nullptr ? 1 : 0;
+    }
+    OTDU_LOG_INFO( "MapScreen: %d of %zu realtor pictures loaded\n", loaded, previewTextures.size() );
+}
+
+// Per frame while a realtor card is up: the house clips (house0..5, the movie scrolls them: slot i shows
+// id = _id) get the thumbnail of the house their `id` variable names, the big picture the agency's.
+void MapScreen::bindRealtorPictures() {
+    if ( cardHouses.empty() ) {
+        return;
+    }
+    auto texture = [&]( const std::string &key ) -> GPUTexture * {
+        const auto found = previewTextures.find( key );
+        return found != previewTextures.end() ? found->second : nullptr;
+    };
+    for ( int32_t slot = 0; slot < 6; slot++ ) {
+        const std::string base = "/tool_tip/infos/txt/pages/house" + std::to_string( slot );
+        const std::string idText = player.getVariable( base + ":id" );
+        GPUTexture *pTexture = nullptr;
+        if ( !idText.empty() ) {
+            const int32_t id = atoi( idText.c_str() );
+            if ( id >= 0 && static_cast<size_t>( id ) < cardHouses.size() ) {
+                std::string spotName = cardHouses[static_cast<size_t>( id )]->SpotName;
+                for ( char &c : spotName ) {
+                    c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+                }
+                pTexture = texture( "house_" + spotName );
+            }
+        }
+        player.setBitmapOverride( base + "/lure/picture", pTexture, 0.0f, 0.0f, 1.0f, 1.0f );
+    }
+    if ( !cardAgency.empty() ) {
+        player.setBitmapOverride( "/tool_tip/infos/picture/lure_map", texture( "agency_" + cardAgency ), 0.0f, 0.0f, 1.0f, 1.0f );
     }
 }
 

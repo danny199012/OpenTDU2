@@ -5829,6 +5829,10 @@ void GMFreeRide::tick( float deltaTime ) {
                 mapScreen.cardMove( -1 );
             } else if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
                 mapScreen.cardMove( 1 );
+            } else if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
+                mapScreen.cardPage( -1 );
+            } else if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
+                mapScreen.cardPage( 1 );
             } else if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
                 mapScreen.cardAccept();
                 std::string travelIsland;

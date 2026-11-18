@@ -6,6 +6,22 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 70): the real-estate card - one agency's houses, with pictures
+
+The owner (retail screenshot of the "Real estate" popup): "certain properties are locked to a location, can we implement it with the previews also".
+
+### What changed
+- **The lock is DBHouse._realtor** [DATA] (each house names its agency, e.g. `ERE_B_2236`); the in-world estate menu already filtered by it, the map card did not. `map_screen.cpp` `fillSpotCard` now fills the movie's `setRealtor` data (read from the AVM1 with `tools/vmf_disasm.py` on the extracted `map.vmf`): `/:House<i>_name / _price / _gCapacity / _level / _state`, `/:NbHouses` (the agency's count, not the island's) and `NbHousesBought`; cheapest first [INF], stars = `_level + 1` (the stars clip's frame n shows n-1 stars [INF]).
+- `FlashPlayer`: a `Math` object (`ceil floor round abs sqrt min max pow sin cos atan2`) - `setRealtor` computes its page count with `Math.ceil( NbHouses / nbLines )` and the runtime had none, so `nb_pages` stayed undefined. After `SetInfos` the card calls `tool_tip.initList()` (page counter, folio arrows), Left / Right page the list (SWF keys 1 / 2: `cardPage`, D-pad left / right).
+- **Previews** [DATA]: `frontend/allres/realtorscr/<house spot>.bnk` (`img_ext`, `img_gar`, `img_lvg`) and `frontend/allres/mapscreens/spots/<realtor>.bnk` (the agency building). Created at spot load (`loadRealtorPreviews`, 21 textures on Ibiza, a texture created mid-frame crashed the driver in the phone-call work), bound each frame to `/tool_tip/infos/txt/pages/house<slot>/lure/picture` by the slot's own `id` variable (the movie scrolls the slots) and `/tool_tip/infos/picture/lure_map` (agency). The card title is "Real estate" like the retail screenshot.
+
+### Verified
+- `-mapcardicon estates,19 -unlockallspots -autoplay "200:press=map;360:press=validate;480:shot=..."`: "Real estate", the agency building, Sant Jordi residence $110,000 and Sant rafael hacienda $118,000 with thumbnails, 1 star each, folio 1/5; after `press=right` page 2 (Porroig house, Santa Eulària residence) with its own thumbnails. Matches the owner's screenshot.
+- Dev hooks added: `-dumpmapclips <path>` (clip tree of the map movie at tick 480).
+
+### Not done / next
+- The thumbnail is `img_ext`; `img_gar` / `img_lvg` (garage, living room) are for the retail realtor screen, not the card. Houses on Hawaii and the other agencies were not screenshotted. "Houses bought" counts the owned houses of the agency; the tester profile owns one (the retail capture shows 0). The order of the list (price ascending) is a guess.
+
 ## Session 2026-11-18 (`main`, 69): shops stock by area level
 
 The owner: "do the next progression slice" (the open item of 68: "New items available" was told, not enforced).
