@@ -1134,6 +1134,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     // chase (the cop car of the island's chaseconfig.cpr).
     raceEvents.load( islandName, mapScreen.getRoadNodes(), mapScreen.getRoadEdges() );
     loadChampionshipSpots();
+    loadDuelSpots();
     police.loadCopCar( islandName );
     police.setRoads( &mapScreen.getRoadNodes(), &mapScreen.getRoadEdges(), &mapScreen.getRoadShapes() );
     opponents.setRoads( &mapScreen.getRoadNodes(), &mapScreen.getRoadEdges(), &mapScreen.getRoadShapes() );
@@ -2546,6 +2547,23 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
             nearSpotPosition = pNearChampionship->Position;
         }
     }
+    // A duel's start (DBEvent type 11, spotworld DUEL*): the event tile, within 40 m.
+    const DuelSpot *pNearDuel = nullptr;
+    if ( pNearKind == nullptr ) {
+        float best = 40.0f;
+        for ( const DuelSpot &duel : duelSpots ) {
+            const float d = Vector3f( duel.Position.x - carPosition.x, 0.0f, duel.Position.z - carPosition.z ).length();
+            if ( d < best ) {
+                best = d;
+                pNearDuel = &duel;
+            }
+        }
+        if ( pNearDuel != nullptr ) {
+            pNearKind = "event";
+            pNearAction = LocStr( 1703, "Enter" );
+            nearSpotPosition = pNearDuel->Position;
+        }
+    }
     // The nearest car wash (docs/re/car_wash_spec.md): the 'carwash' tile of the
     // same enter element, the retail hint 3913 once per approach. It loses to
     // the spots / races / championships above (a wash beside one of those keeps
@@ -3117,6 +3135,26 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
             } else {
                 hud.showHint( "The wash costs $10 and you cannot pay it.", 4.0f );
             }
+        } else if ( pNearDuel != nullptr ) {
+            // A duel is open once a championship of its class is complete [INF: the retail unlock rule is
+            // not read; "Delock current Duel" in the dev exe's debug menu shows a per-duel lock].
+            bool bOpen = false;
+            bool bAnyOfClass = false;
+            for ( const LicenseInfo *pChampionship : GetChampionships( islandName == "hawai" ? 1 : 0 ) ) {
+                if ( pChampionship->VehicleCategory[0] == pNearDuel->Category ) {
+                    bAnyOfClass = true;
+                    bOpen = bOpen || IsChampionshipComplete( *pChampionship );
+                }
+            }
+            bOpen = bOpen || !bAnyOfClass || CmdLine::HasArg( "-opendevduels" );
+            if ( isDuelWon( *pNearDuel ) ) {
+                hud.showHint( "Duel against " + pNearDuel->Rival + " already won.", 4.0f );
+            } else if ( !bOpen ) {
+                hud.showHint( "Win a " + pNearDuel->Class + " championship to challenge " + pNearDuel->Rival + ".", 5.0f );
+            } else {
+                hud.closeEnterSpot();
+                startDuel( *pNearDuel );
+            }
         } else if ( pNearChampionship != nullptr ) {
             std::string reason;
             if ( IsChampionshipOpen( *pNearChampionship->pChampionship, &reason ) ) {
@@ -3422,6 +3460,44 @@ void GMFreeRide::openChampionshipScreen( const LicenseInfo &championship ) {
     mapScreen.openContest( info );
 }
 
+void GMFreeRide::loadDuelSpots() {
+    duelSpots.clear();
+    pActiveDuel = nullptr;
+    const int32_t islandIndex = SpotWorld::IslandIndex( islandName );
+    if ( islandIndex < 0 || gpDatabase == nullptr ) {
+        return;
+    }
+    XmbValue root = gpDatabase->getDocument().getRoot();
+    for ( uint32_t i = 0; i < root.getArraySize( "DBEvent" ); i++ ) {
+        XmbValue row = root.getArrayElement( "DBEvent", i );
+        if ( !row["_isvalid"].asBool() || row["_eventtype"].asInt() != 11 ) {
+            continue;
+        }
+        DuelSpot duel;
+        duel.File = row["_eventfile"].asString();
+        const SpotWorldEntry *pWorld = SpotWorld::Find( duel.File, islandIndex );
+        if ( pWorld == nullptr ) {
+            continue;
+        }
+        duel.Position = pWorld->Position;
+        duel.Category = static_cast<int32_t>( row["_championship"].asInt() );
+        const char *pClass = VehicleClassName( duel.Category );
+        duel.Class = pClass != nullptr ? pClass : "";
+        duel.Pnj = static_cast<uint64_t>( row["_pnj1"].asUInt64() );
+        if ( const AiDriver *pDriver = FindAiDriver( duel.Pnj ) ) {
+            duel.Rival = pDriver->Name;
+        }
+        duelSpots.push_back( duel );
+        OTDU_LOG_INFO( "FREERIDE: duel %s (class %s) against '%s' at (%.0f, %.0f)\n", duel.File.c_str(), duel.Class.c_str(),
+                       duel.Rival.c_str(), duel.Position.x, duel.Position.z );
+    }
+}
+
+bool GMFreeRide::isDuelWon( const DuelSpot &duel ) const {
+    const auto found = GetPlayerProfile().EventsDone.find( "RACING_DUEL_" + duel.Class );
+    return found != GetPlayerProfile().EventsDone.end() && found->second > 0;
+}
+
 void GMFreeRide::loadChampionshipSpots() {
     // Each championship is entered at its first race's start gate [INF: the
     // retail map icons' positions are not decoded; the first race is where
@@ -3500,6 +3576,21 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
                    car.getIdCar(), licenseTest.getChallenge().getCarId() );
 }
 
+void GMFreeRide::startDuel( const DuelSpot &duel ) {
+    pActiveDuel = &duel;
+    std::string file = duel.File;
+    for ( char &c : file ) {
+        c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+    }
+    startLicenseTest( file );
+    if ( !licenseTest.isActive() ) {
+        pActiveDuel = nullptr;
+        return;
+    }
+    hud.showGoal( "Duel against " + duel.Rival );
+    OTDU_LOG_INFO( "FREERIDE: duel %s against '%s' started\n", duel.File.c_str(), duel.Rival.c_str() );
+}
+
 void GMFreeRide::startRaceOpponents( const std::string &test ) {
     opponents.stop();
     opponentsHold = -1.0f;
@@ -3514,6 +3605,10 @@ void GMFreeRide::startRaceOpponents( const std::string &test ) {
     if ( CmdLine::HasArg( "-opponents" ) ) {
         count = Clamp( CmdLine::GetArgInt( "-opponents", count ), 0, 7 );
     }
+    // A duel is one rival (the DBEvent's _pnj1) in a car of the duel's class.
+    if ( pActiveDuel != nullptr ) {
+        count = 1;
+    }
     const LicenseInfo *pChampionship = findRaceChampionship( test );
     // The cars: each driver's garage car of the championship's class; a race
     // outside a championship takes the class of its own car (VMod) [INF].
@@ -3525,10 +3620,15 @@ void GMFreeRide::startRaceOpponents( const std::string &test ) {
             class1 = stats.VehicleClass;
         }
     }
+    if ( pActiveDuel != nullptr ) {
+        class1 = pActiveDuel->Category;
+        class2 = 0;
+    }
     std::vector<RaceOpponents::Entry> entries;
     const std::vector<AiDriver> &drivers = GetStoryDrivers();
     for ( int32_t n = 0; n < 7 && static_cast<int32_t>( entries.size() ) < count; n++ ) {
-        const uint64_t pnj = pChampionship != nullptr && pChampionship->Bots[n] != 0
+        const uint64_t pnj = pActiveDuel != nullptr && pActiveDuel->Pnj != 0 ? pActiveDuel->Pnj
+                             : pChampionship != nullptr && pChampionship->Bots[n] != 0
                                  ? pChampionship->Bots[n]
                                  : ( static_cast<size_t>( n ) < drivers.size() ? drivers[static_cast<size_t>( n )].Pnj : 0 );
         const AiDriver *pDriver = FindAiDriver( pnj );
@@ -3884,6 +3984,19 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
                 }
             }
             SaveProfile( "licence test passed" );
+        }
+        // A duel: first place beats the rival and pays RACING_DUEL_<class> [DATA: DBRewardXP; CODE-dev 0x99d6a0 builds
+        // "RACING_DUEL_%s"; INF: the cinematics DUEL_WIN_ / C_DUEL_ are not played].
+        if ( pActiveDuel != nullptr && result != LicenseTest::eResult::None ) {
+            if ( result == LicenseTest::eResult::Passed ) {
+                AwardSkillEvent( ( "RACING_DUEL_" + pActiveDuel->Class ).c_str() );
+                hud.showDiscovery( "Duel won against " + pActiveDuel->Rival );
+                SaveProfile( "duel won" );
+            }
+            OTDU_LOG_INFO( "FREERIDE: duel %s result %s\n", pActiveDuel->File.c_str(), LicenseResultText( result ) );
+            {
+                pActiveDuel = nullptr;
+            }
         }
         if ( bLicenceTest && result != LicenseTest::eResult::Abandoned ) {
             const bool bLicenceNew =

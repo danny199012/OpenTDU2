@@ -6,6 +6,21 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 68): area levels (DBAreaLevel) and duels
+
+The owner: "please do Duels and DB Arealevel".
+
+### What changed
+- **DBAreaLevel** (`skill_levels.{h,cpp}`: `GetAreaLevels`, `GetAreaPoints`, `FindAreaLevel`): the area level points (ALP) of a zone are the Cruising points of the DBRewardXP events named `CRUISING_<ISLAND>_..._AREA<n>` (roads, wrecks, events won) times the times earned [INF: DBAreaLevel's 200..1700 scale fits the ~1200 points those events pay per area; the dev exe loader `0x49a1c0` reads `_alpneeded`, the earner was never found]. `_island` 0 = Ibiza, 1 = Hawai, -1 = the default table [INF]. `gm_freeride.cpp`: crossing a level announces "<zone>: Familiar - New items available" on the pop_news banner.
+- **Duels** (`gm_freeride.{h,cpp}`: `DuelSpot`, `loadDuelSpots`, `startDuel`, a prompt branch beside the championships): DBEvent `_eventtype` 11 rows (DUELC4A, B4A, A5A, A2A, B3A) at their spotworld position, the event tile within 40 m; A starts `ig2/duel*.ig2` through `startLicenseTest` with one rival (`_pnj1`) in a car of the duel's class (`_championship` is a vehicle category: 17 = C4 [DATA]). First place pays `RACING_DUEL_<class>` (+60 / 120 / 160 / 200 Racing) and the banner "Duel won against <rival>"; a won duel says so on a second visit. Open once a championship of the class is complete [INF], `-opendevduels` skips that.
+
+### Verified
+- Seeded profile (`done_CRUISING_IBIZA_ROADS_AREA1_10/25/50` = 190 ALP) + `-awardevent CRUISING_IBIZA_ROADS_AREA1_75`: `area level up Ibiza Area 1 300 points -> level 2 'Familiar'` and the banner.
+- `-tp 11576,15490 -opendevduels -opponentdifficulty 0 -licensewarp -autoplay "200:press=validate"`: "licence test duelc4a ... 1st of 2", `Skills: event 'RACING_DUEL_C4' ... +60`, `done_RACING_DUEL_C4 = 1` saved. Without the warp the rival wins and nothing is paid.
+
+### Not done / next
+- The shops do not yet gate their stock by area level ("New items available" is told, not enforced); the retail popup page `NewAreaTitle` is not driven. The duel cinematics (`C_DUEL_*_INTRO|WIN|LOOSE`, `DUEL_WIN_<class>`), the duel prize car and the real unlock rule are not done; the Hawai duels (A5 / A2 / B3 spots) were not run.
+
 ## Session 2026-11-18 (`main`, 67): the retail "discovered" banner
 
 The owner sent the retail screenshot: a bottom banner "Clothes Shop discovered: Hiro Hisaishi".

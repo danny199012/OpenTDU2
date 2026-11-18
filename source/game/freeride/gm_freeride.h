@@ -387,6 +387,21 @@ private:
         std::string Family;
     };
     std::vector<ChampionshipSpot> championshipSpots;
+    // The duels (DBEvent _eventtype 11, DUEL<class><n>A: one rival, one race of ig2/duel*.ig2) [DATA]. The class
+    // is the DBEvent's _championship (a DBCarPhysicsData vehicle category: 17 = C4).
+    struct DuelSpot {
+        std::string File;    // "DUELC4A"
+        std::string Class;   // "C4"
+        int32_t Category = 0;
+        Vector3f Position;
+        uint64_t Pnj = 0;    // _pnj1: the rival
+        std::string Rival;
+    };
+    std::vector<DuelSpot> duelSpots;
+    const DuelSpot *pActiveDuel = nullptr; // the duel whose race runs
+    void loadDuelSpots();
+    void startDuel( const DuelSpot &duel );
+    bool isDuelWon( const DuelSpot &duel ) const;
     ChampionshipMenu championshipMenu;
     void loadChampionshipSpots();
     // The retail championship view: the world map's contest flow (MAP.vmf,
