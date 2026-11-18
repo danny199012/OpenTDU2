@@ -14,6 +14,23 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 50): house Diary - photo Zoom / Delete + offline MyTDULife
+
+The owner: "both please" (MyTDULife and photo zoom/delete).
+
+### What changed
+- `source/game/spots/interior_walk.{h,cpp}` - Zoom (answer to the movie's `sndp:wrong`, native full-screen, Left/Right/A/B), Delete (Y twice, file moves to `photos/deleted/`), `drawLifePanel` (MyTDULife offline summary), `AlbumTexture` cache.
+- `docs/re/houses_spec.md` 14.1.
+
+### Verified (build 285, headless)
+- zoom log `My Photos: zoom 0 ...`, delete log `deleted ...photo_002.png (ok)` and the file in `photos/deleted`; shots `house_my_photos_zoom.webp`, `house_mytdulife_offline.webp` (Level 0 Inglorious matches the pause menu).
+
+### Ruled out
+- Forcing the slot frame to `taken` / `taken_on` made Zoom reachable but wrecked the slot art (thumbnails shrank) - reverted.
+
+### Not done / next
+- Leaderboards (Instant / Multiplayer lists) and the `td_media` selectable (no media label in HOME.vmf - which movie is TDU Media?); closet avatar camera; MyTDULife is a native panel, not the retail book.
+
 ## Session 2026-11-18 (`main`, 49): house Diary - the My Photos page is filled
 
 The owner: "work on some of the screens ... start implementing TDU Media, TDU House and TDU Life as well as walk in closets for houses". Survey: the closet (clothes worn on the avatar) and MyTDUHouse (furniture, colours, walls, floors) were already in (houses_spec 10-13); what was empty is the rest of the Diary.

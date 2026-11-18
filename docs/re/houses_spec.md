@@ -487,3 +487,16 @@ slots (`docs/images/house_my_photos_album.webp`, `house_my_photos_page2.webp`). 
 caption / date; MyTDULife (offline local stats page - protocol `mylf:*` not decoded); Leaderboards
 (the two lists open, nothing fills them); the Media selectable (`td_media`: HOME.vmf has no media
 label, so TDU Media is another movie - not found yet); the closet's avatar camera.
+
+### 14.1 Zoom, Delete, and the offline MyTDULife (session 2026-11-18, `main`, 50)
+
+**Zoom / Delete.** The slots' states are the photo-spot collection's (`to_take` / `lost` / `taken`), so the
+movie answers A on a user photo with `sndp:wrong`; forcing the slot to `taken` broke its art (tried, reverted).
+The game answers instead: `sndp:wrong` while the album is open zooms the slot under the focus (`IsOn`) as a
+native full-screen frame, Left / Right browse, A / B close; **Y** (`IA_MenuOption1`) arms a delete (hint "Press Y
+again"), a second Y moves the PNG to `photos/deleted/` (never erased) [INF]. `docs/images/house_my_photos_zoom.webp`.
+
+**MyTDULife.** `mylf:self` -> `mylf:wait`; `mylf_book` (640,240) is only a frame with a "loading" text - its content
+is the online profile [DATA: clip dump]. `mylf:clos` = closed. Offline the game draws a panel over it (`drawLifePanel`):
+name, global level + title (sum of the four skill levels, pause_menu's law), money, odometers, the four skills,
+cars / houses / events / photo spots [INF: our composition]. `docs/images/house_mytdulife_offline.webp`.

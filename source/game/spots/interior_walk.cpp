@@ -6,6 +6,7 @@
 #include "render/gs_render.h"
 #include "filesystem/gs_file.h"
 #include "flash/flash_player.h"
+#include "flash/gs_flash.h"
 #include "game/clothes_shop.h"
 #include "game/car_shop.h"
 #include "game/house_shop.h"
@@ -28,6 +29,25 @@
 #include <cctype>
 #include <set>
 #include <unordered_map>
+
+static uint32_t AlbumRgba( uint32_t r, uint32_t g, uint32_t b, uint32_t a = 255 ) { return r | ( g << 8 ) | ( b << 16 ) | ( a << 24 ); }
+
+// A photo's texture (loaded once, never destroyed: a texture a frame still uses hangs the device).
+static GPUTexture *AlbumTexture( const std::string &file ) {
+    static std::unordered_map<std::string, GPUTexture *> textures;
+    auto found = textures.find( file );
+    if ( found == textures.end() ) {
+        std::vector<uint8_t> pixels;
+        uint32_t width = 0, height = 0;
+        GPUTexture *pLoaded = nullptr;
+        if ( LoadImageFileRGBA( std::filesystem::path( file ), pixels, width, height ) && width > 0 && height > 0 ) {
+            pLoaded = gpRender->getTextureCache().createFromRGBA( width, height, pixels.data(), file.c_str() );
+        }
+        found = textures.emplace( file, pLoaded ).first;
+    }
+    return found->second;
+}
+
 
 namespace {
 // Walk camera Fov: the house walk value (cam_entree_xx, AVATAR_CHOICE) [INF:
@@ -1111,6 +1131,17 @@ void InteriorWalk::draw() {
         scene.draw();
         walk.drawEmoteWheel( gpRender->get2DRenderer() );
         garageMove.draw( gpRender->get2DRenderer() );
+        if ( bLifeOpen ) {
+            drawLifePanel( gpRender->get2DRenderer() );
+        }
+        if ( bAlbumOpen && albumZoom >= 0 && albumZoom < static_cast<int32_t>( albumFiles.size() ) ) {
+            Renderer2D &renderer = gpRender->get2DRenderer();
+            renderer.drawRect( Rect2D( 0.0f, 0.0f, 1280.0f, 720.0f ), AlbumRgba( 0, 0, 0, 215 ) );
+            if ( GPUTexture *pTexture = AlbumTexture( albumFiles[static_cast<size_t>( albumZoom )] ) ) {
+                renderer.drawRect( Rect2D( 118.0f, 48.0f, 1044.0f, 588.0f ), AlbumRgba( 235, 235, 235, 255 ) );
+                renderer.drawQuad( pTexture, Rect2D( 126.0f, 56.0f, 1028.0f, 572.0f ), 0xFFFFFFFFu );
+            }
+        }
     }
 }
 
@@ -1353,8 +1384,23 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             OTDU_LOG_INFO( "InteriorWalk: My Photos: %zu photo(s)\n", albumFiles.size() );
         }
         updateAlbum( true );
+    } else if ( command == "sndp:wrong" && bAlbumOpen && albumZoom < 0 ) {
+        // Zoom (A) on a slot the movie thinks empty: its states are the photo-spot collection's (to_take / lost /
+        // taken), so the game shows the picture itself [INF].
+        if ( albumFocus >= 0 && albumFocus < static_cast<int32_t>( albumFiles.size() ) ) {
+            albumZoom = albumFocus;
+            bAlbumDeleteArmed = false;
+            OTDU_LOG_INFO( "InteriorWalk: My Photos: zoom %d '%s'\n", albumZoom, albumFiles[static_cast<size_t>( albumZoom )].c_str() );
+        }
+    } else if ( command == "mylf:wait" ) {
+        // MyTDULife: the retail book fills from the online profile server and sits on "loading" offline; the game
+        // draws the local profile's own life summary over it [INF].
+        bLifeOpen = true;
+    } else if ( command == "mylf:clos" ) {
+        bLifeOpen = false;
     } else if ( command == "phsp:phcl" ) {
         bAlbumOpen = false;
+        albumZoom = -1;
     } else if ( command == "myhs:open" ) {
         // MyTDUHouse (the diary's furniture page): the walk with the
         // MyTDUHouse header [DATA]; the furniture choice itself is not wired.
@@ -1391,12 +1437,17 @@ void InteriorWalk::updateAlbum( bool bForce ) {
     if ( !bAlbumOpen || gpRender == nullptr ) {
         return;
     }
-    static std::unordered_map<std::string, GPUTexture *> textures; // never destroyed: a texture a frame still uses hangs the device
     FlashPlayer &ui = scene.getUi();
     const int32_t count = static_cast<int32_t>( albumFiles.size() );
     const int32_t pages = Max( 1, ( count + 3 ) / 4 );
     int32_t page = atoi( ui.getVariable( "/:num_page" ).c_str() ) - 1;
     page = Clamp( page, 0, pages - 1 );
+    for ( int32_t slot = 0; slot < 4; slot++ ) {
+        const std::string value = ui.getVariable( "/diary/photo_book_content/book/photo" + std::to_string( slot + 1 ) + ":IsOn" );
+        if ( value == "true" || value == "1" ) {
+            albumFocus = page * 4 + slot;
+        }
+    }
     if ( !bForce && page == albumShownPage ) {
         return;
     }
@@ -1409,17 +1460,7 @@ void InteriorWalk::updateAlbum( bool bForce ) {
         GPUTexture *pTexture = nullptr;
         if ( index < count ) {
             const std::string &file = albumFiles[static_cast<size_t>( index )];
-            auto found = textures.find( file );
-            if ( found == textures.end() ) {
-                std::vector<uint8_t> pixels;
-                uint32_t width = 0, height = 0;
-                GPUTexture *pLoaded = nullptr;
-                if ( LoadImageFileRGBA( std::filesystem::path( file ), pixels, width, height ) && width > 0 && height > 0 ) {
-                    pLoaded = gpRender->getTextureCache().createFromRGBA( width, height, pixels.data(), file.c_str() );
-                }
-                found = textures.emplace( file, pLoaded ).first;
-            }
-            pTexture = found->second;
+            pTexture = AlbumTexture( file );
             ui.setVariable( path + ":photo_name", std::filesystem::path( file ).stem().string() );
         } else {
             ui.setVariable( path + ":photo_name", std::string() );
@@ -1427,6 +1468,65 @@ void InteriorWalk::updateAlbum( bool bForce ) {
         ui.setBitmapOverride( path + "/lure", pTexture, 0.0f, 0.0f, 1.0f, 1.0f );
     }
     OTDU_LOG_INFO( "InteriorWalk: My Photos page %d/%d (%d photo(s))\n", page + 1, pages, count );
+}
+
+void InteriorWalk::drawLifePanel( Renderer2D &renderer ) {
+    const PlayerProfile &profile = GetPlayerProfile();
+    const Font *pFont = gpFlash->getTitleFont();
+    const float x0 = 300.0f, y0 = 130.0f, w = 680.0f, h = 440.0f;
+    renderer.drawRect( Rect2D( x0, y0, w, h ), AlbumRgba( 18, 24, 32, 245 ) );
+    renderer.drawRectOutline( Rect2D( x0, y0, w, h ), 2.0f, AlbumRgba( 190, 190, 190, 255 ) );
+    renderer.drawRect( Rect2D( x0, y0, w, 52.0f ), AlbumRgba( 120, 36, 24, 255 ) );
+    const std::string name = profile.Name.empty() ? std::string( "Player" ) : profile.Name;
+    renderer.drawText( pFont, ( name + " - MyTDULife" ).c_str(), x0 + 20.0f, y0 + 10.0f, 28.0f, AlbumRgba( 255, 255, 255 ) );
+    // The global level = the sum of the four skill levels, its title from DBPlayerLevel (pause_menu.cpp's law) [DATA].
+    int32_t total = 0;
+    int32_t globalLevel = 0;
+    int32_t skillLevel[4] = { 1, 1, 1, 1 };
+    for ( int32_t skill = 0; skill < 4; skill++ ) {
+        total += profile.Points[skill];
+        const std::vector<SkillLevel> &skillLevels = GetSkillLevels( skill );
+        const int32_t at = Max( 0, FindSkillLevelIndex( skillLevels, profile.Points[skill] ) );
+        skillLevel[skill] = at < static_cast<int32_t>( skillLevels.size() ) ? skillLevels[static_cast<size_t>( at )].Level : 1;
+        globalLevel += skillLevel[skill];
+    }
+    std::string levelText = "Level " + std::to_string( globalLevel );
+    std::string globalTitle;
+    for ( const SkillLevel &level : GetGlobalLevels() ) {
+        if ( level.Level <= globalLevel ) {
+            globalTitle = level.Title;
+        }
+    }
+    if ( !globalTitle.empty() ) {
+        levelText += " - " + globalTitle;
+    }
+    struct Row { std::string Label, Value; };
+    std::vector<Row> rows;
+    rows.push_back( { "Level", levelText + " (" + std::to_string( total ) + " pts)" } );
+    rows.push_back( { "Money", "$ " + std::to_string( profile.Money ) } );
+    float totalKm = 0.0f;
+    for ( const OwnedCar &car : profile.Garage ) {
+        totalKm += car.Km;
+    }
+    char km[48];
+    snprintf( km, sizeof( km ), "%.1f km (odometers)", totalKm );
+    rows.push_back( { "Distance driven", km } );
+    static const char *kSkill[4] = { "Racing", "Cruising", "Collection", "Social" };
+    for ( int32_t skill = 0; skill < 4; skill++ ) {
+        rows.push_back( { kSkill[skill], "Level " + std::to_string( skillLevel[skill] ) + " (" + std::to_string( profile.Points[skill] ) + " pts)" } );
+    }
+    rows.push_back( { "Cars owned", std::to_string( profile.OwnedCars.size() ) } );
+    rows.push_back( { "Houses owned", std::to_string( profile.OwnedHouses.size() ) } );
+    rows.push_back( { "Events done", std::to_string( profile.EventsDone.size() ) } );
+    rows.push_back( { "Photo spots shot", std::to_string( profile.TakenPhotos.size() ) } );
+    float y = y0 + 70.0f;
+    for ( const Row &row : rows ) {
+        renderer.drawText( pFont, row.Label.c_str(), x0 + 30.0f, y, 22.0f, AlbumRgba( 200, 200, 200 ) );
+        renderer.drawText( pFont, row.Value.c_str(), x0 + w - 30.0f, y, 22.0f, AlbumRgba( 255, 255, 255 ), eTextAlign::TA_Right );
+        y += 30.0f;
+    }
+    renderer.drawText( pFont, "Offline profile - the online MyTDULife needs the Eden servers", x0 + w * 0.5f, y0 + h - 34.0f, 16.0f,
+                       AlbumRgba( 150, 150, 150 ), eTextAlign::TA_Center );
 }
 
 void InteriorWalk::updateClosetItem() {
@@ -1462,6 +1562,40 @@ void InteriorWalk::openHomePage( const std::string &type ) {
 
 void InteriorWalk::routeHomeInput() {
     updateAlbum( false );
+    if ( bAlbumOpen && !albumFiles.empty() ) {
+        // Y deletes the focused / zoomed photo (a second press confirms; the file moves to photos/deleted/).
+        const int32_t target = albumZoom >= 0 ? albumZoom : albumFocus;
+        if ( gpInput->wasPressed( eInputAction::IA_MenuOption1 ) && target >= 0 && target < static_cast<int32_t>( albumFiles.size() ) ) {
+            if ( !bAlbumDeleteArmed ) {
+                bAlbumDeleteArmed = true;
+                showMessage( "Press Y again to delete this photo (it moves to photos/deleted)" );
+            } else {
+                bAlbumDeleteArmed = false;
+                const std::filesystem::path file( albumFiles[static_cast<size_t>( target )] );
+                std::error_code error;
+                std::filesystem::create_directories( file.parent_path() / "deleted", error );
+                std::filesystem::rename( file, file.parent_path() / "deleted" / file.filename(), error );
+                OTDU_LOG_INFO( "InteriorWalk: My Photos: deleted '%s' (%s)\n", file.string().c_str(), error ? error.message().c_str() : "ok" );
+                albumFiles.erase( albumFiles.begin() + target );
+                albumZoom = -1;
+                albumFocus = -1;
+                updateAlbum( true );
+            }
+            return;
+        }
+    }
+    if ( albumZoom >= 0 ) {
+        // The zoomed photo: Left / Right browse, A / B close; the movie's page waits.
+        const int32_t count = static_cast<int32_t>( albumFiles.size() );
+        if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) && count > 0 ) {
+            albumZoom = ( albumZoom + count - 1 ) % count;
+        } else if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) && count > 0 ) {
+            albumZoom = ( albumZoom + 1 ) % count;
+        } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+            albumZoom = -1;
+        }
+        return;
+    }
     // Pad / keyboard -> HOME.vmf, the SHOPSCAR routing (gm_shop.cpp
     // routeInput): the buttons' key conditions (13 validate, 14 / 15 up /
     // down, 1 / 2 left / right), B() of the focus clip /:Clip [DATA + INF].

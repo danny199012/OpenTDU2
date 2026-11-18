@@ -203,6 +203,11 @@ private:
     std::vector<std::string> albumFiles;
     bool bAlbumOpen = false;
     int32_t albumShownPage = -1;
+    int32_t albumFocus = -1;  // index of the slot under the book's focus (IsOn)
+    int32_t albumZoom = -1;   // the zoomed photo, -1 = none
+    bool bAlbumDeleteArmed = false;
+    bool bLifeOpen = false;   // MyTDULife's local summary panel
+    void drawLifePanel( class Renderer2D &renderer );
     void updateAlbum( bool bForce );
     int32_t closetIndex = 0;
     bool myHouseMode = false;
