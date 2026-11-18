@@ -3642,7 +3642,9 @@ void CinematicCar::setVisualSwap( const VisualSwap &swap ) {
     swapOffset = Vector3f( 0.0f, 0.0f, 0.0f );
     if ( counted > 0 ) {
         const float inv = 1.0f / static_cast<float>( counted );
-        swapOffset = Vector3f( ( donor.x - ours.x ) * inv, ( donor.y - ours.y ) * inv, ( donor.z - ours.z ) * inv );
+        // x / z: the donor's wheel centroid. y: the ride height from the physics tyre radius (the donor
+        // nodes' own y is in a body-lifted space, which sank the first version by 17 cm).
+        swapOffset = Vector3f( ( donor.x - ours.x ) * inv, tireRadius - ours.y * inv, ( donor.z - ours.z ) * inv );
     }
     OTDU_LOG_INFO( "CarSwap: '%s' aligned, offset (%.3f, %.3f, %.3f) from %d wheel(s)\n", fileName.c_str(),
                    swapOffset.x, swapOffset.y, swapOffset.z, counted );
@@ -4963,10 +4965,22 @@ void CinematicCar::draw( EdenRenderer &renderer,
                 for ( int32_t j = 0; j < 3; j++ ) {
                     wheelT.m[3][j] = base[j] + nodeT.m[3][j] - rest.m[3][j];
                 }
-                if ( side == 1 ) {
-                    // The mesh turns first (post-multiplied, like the retail rim scale).
-                    wheelT = wheelT * Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle(
-                                          Vector3f( 0.0f, 1.0f, 0.0f ), 3.14159265f ) );
+                // Which way does this node turn our mesh? The mesh is the engine-negative-x wheel: its outer
+                // face points along -x of the node's local axle (row 0 of the REST pose, steer / spin free). The
+                // retail right wheels carry a baked 180 degree turn the left ones do not, so test the geometry
+                // instead of the name: if the mesh's outer face would not point away from the car on this side,
+                // turn it 180 degrees about the vertical (the mesh first, post-multiplied like the rim scale).
+                const float outward = -rest.m[0][0];
+                const bool bFlip = ( side == 1 ) ? ( outward < 0.0f ) : ( outward > 0.0f );
+                static bool bLoggedAxle[2][2] = { { false, false }, { false, false } };
+                if ( !bLoggedAxle[axleIdx][side] ) {
+                    bLoggedAxle[axleIdx][side] = true;
+                    OTDU_LOG_INFO( "CarSwap: wheel '%s' side %d rest axle x %.2f -> %s\n", swapName.c_str(), side,
+                                   rest.m[0][0], bFlip ? "flipped" : "as is" );
+                }
+                if ( bFlip ) {
+                    wheelT = wheelT * Matrix4x4f::FromQuaternion(
+                                          Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), 3.14159265f ) );
                 }
                 for ( const SwapMesh &part : bSwapRear ? visualSwap.WheelRear : visualSwap.WheelFront ) {
                     renderer.draw( part.Mesh, part.Material, world * wheelT );

@@ -44,15 +44,25 @@ only swaps what is DRAWN. No Lamborghini exists in this install (no licence), so
   Run: `opentdu2-main.exe -game ... -mods C:\temp\otdu2-tdusc-mods -gm FREERIDE -island ibiza -skipcine -nopad -fixedtimestep
   -car 458_italia -tp 12640,10.5,16686`.
 
+### Wheel check (same session, build 294) - fixed two bugs, now verified
+- **Ride height**: aligning our wheel centroid to the donor's wheel-node y sank the car 17 cm (the nodes' y is in a
+  body-lifted space). Now `swapOffset.y = tireRadius - our mean wheel y` (log `aligned, offset (-0.047, 0.018, -0.019)`).
+- **Wheel side**: the donor's wheel nodes all carry the retail convention "local +x is OUTWARD" (rest axle x +0.87 on
+  the positive side, -0.87 on the negative: `CarSwap: wheel 'D_RIM_FL' side 1 rest axle x 0.87 -> flipped`, all four), and our
+  mesh's outer face is -x, so **every** wheel is turned 180 degrees about the vertical. The rule is geometric (flip when
+  `-row0.x` of the rest pose points the wrong way for the side), not by name. First tries that did NOT work, with the test
+  that ruled them out: flip only the positive side -> one side shows the inside of the tyre; no flip -> both sides wrong; strip a
+  mirror (negative determinant) -> all four determinants are +1.00, there is no reflection.
+- Verified headless: `-car 458_italia -snaproad 150 -autoplay "30:hold=accel;60:look=1,0;200:shot=...;203:shot=..."`: 73 km/h,
+  both sides show the spoked rims facing out, the front wheel is steered with `hold=steerleft`, and the spoke pattern
+  differs between two shots 3 frames apart (the wheels SPIN). Screenshots not committed (ripped art).
+
 ### Ruled out
 - Matrix order: a post-multiplied flip (`wheelT * Flip`) like the retail rim scale; a pre-multiplied flip would turn the
   wheel's world position, not the mesh.
 - The first spawn at `-tp` hit a tree (0 km/h, wheels spinning) - add `-snaproad 150`, it is not a swap bug.
 
 ### Not done / next
-- **Wheel spin and steer were not seen in a still** (the shots are a few pixels per wheel); check `-autoplay` shots with the
-  chase camera rotated (`look=`) at speed, then confirm the rim face points OUT on both sides (if one side shows the back, swap
-  the `side == 1` flip in `cinematic_car.cpp` to the other side).
 - Not swapped: shadows / reflection passes and the damage / paint / doors / lights models (the retail light glow still
   draws; nothing deforms); the paint colour (flat red PNG - `TD_CarPaint` needs the retail cube map); the garage / dealer
   lists still show the 458. Every 458 in the world (traffic, showrooms) gets the swap too - scope it later by owner car id.
