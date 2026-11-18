@@ -6010,7 +6010,7 @@ void GMFreeRide::tick( float deltaTime ) {
                 const float s = std::sin( noseYaw ), c = std::cos( noseYaw );
                 const Vector3f axisX( c, 0.0f, -s ), axisZ( s, 0.0f, c ); // the car's left and nose in the walk frame
                 const Vector3f wheel = local + axisX * 0.826f + axisZ * 1.335f + Vector3f( 0.0f, 0.229f, 0.0f );
-                const float swing = std::sin( tuneCamTime * 0.9f ) * 0.40f; // +-23 deg, period ~7 s
+                const float swing = std::sin( tuneCamTime * 0.785f ) * 0.40f; // +-23 deg, period 8 s [DATA: the owner's capture, same as the dealer]
                 const Vector3f out = axisX * std::cos( swing ) + axisZ * std::sin( swing );
                 tuneInsetEye = wheel + out * 1.5f + Vector3f( 0.0f, 0.1f, 0.0f );
                 tuneInsetRot = ChaseCamera::LookRotation( tuneInsetEye, wheel );
