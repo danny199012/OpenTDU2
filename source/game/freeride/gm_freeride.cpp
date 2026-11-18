@@ -719,6 +719,28 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             GetPlayerProfile().PhoneState["BeenInSurgeryShop"] = 1;
         }
         if ( command == "hadr:open" && interior.getAvatarUi() != nullptr ) {
+            hairUi.setLookSink( [this]( int32_t hairId, int32_t hairColor, int32_t beardId, int32_t beardColor ) {
+                // The avatar is rebuilt from the profile at load: put the previewed look in it for that one call.
+                PlayerProfile &profile = GetPlayerProfile();
+                const auto savedWorn = profile.WornClothes;
+                const int32_t savedHairColor = profile.HairColor, savedBeardColor = profile.BeardColor;
+                auto wear = [&]( int32_t part, int32_t id ) {
+                    if ( id >= 0 ) {
+                        profile.WornClothes[part] = id;
+                    } else {
+                        profile.WornClothes.erase( part );
+                    }
+                };
+                wear( 3, hairId );
+                wear( 9, beardId );
+                profile.HairColor = hairColor;
+                profile.BeardColor = beardColor;
+                interior.getScene().setPlayerAvatar( profile.AvatarConfig.empty() ? "AVT_Male_Intro" : profile.AvatarConfig );
+                interior.getScene().clearMirrorPlayer();
+                profile.WornClothes = savedWorn;
+                profile.HairColor = savedHairColor;
+                profile.BeardColor = savedBeardColor;
+            } );
             hairUi.bind( interior.getAvatarUi() );
         }
         if ( command == "afmk" && interior.getTuneUi() != nullptr ) {

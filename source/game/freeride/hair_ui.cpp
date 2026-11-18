@@ -169,6 +169,22 @@ void HairUi::openPage( int32_t part ) {
     pushPrice();
 }
 
+void HairUi::previewLook() const {
+    if ( !lookSink ) {
+        return;
+    }
+    auto idOf = []( const Look &look ) {
+        if ( look.bChanged ) {
+            return look.Items.empty() ? -1 : look.Items[static_cast<size_t>( look.Index )]->Id;
+        }
+        return look.BaseId;
+    };
+    OTDU_LOG_INFO( "HairUi: preview hair %d colour %d, facial hair %d colour %d\n", idOf( hair ), hair.bChanged ? hair.Color : hair.BaseColor,
+                   idOf( pilosity ), pilosity.bChanged ? pilosity.Color : pilosity.BaseColor );
+    lookSink( idOf( hair ), hair.bChanged ? hair.Color : hair.BaseColor, idOf( pilosity ),
+              pilosity.bChanged ? pilosity.Color : pilosity.BaseColor );
+}
+
 void HairUi::pay() {
     const int32_t total = priceOf( hair ) + priceOf( pilosity );
     PlayerProfile &profile = GetPlayerProfile();
@@ -226,6 +242,7 @@ bool HairUi::onCommand( const std::string &command ) {
         pilosity.Items.clear();
         hair.Color = hair.BaseColor;
         pilosity.Color = pilosity.BaseColor;
+        previewLook();
         pushPrice();
         return true;
     }
@@ -274,6 +291,7 @@ bool HairUi::onCommand( const std::string &command ) {
     } else {
         pushLook( look, "/:PilosityCut", "/:PilosityColor" );
     }
+    previewLook();
     pushPrice();
     return true;
 }

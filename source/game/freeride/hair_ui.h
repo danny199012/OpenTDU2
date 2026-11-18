@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,10 @@ class HairUi {
 public:
     void bind( FlashPlayer *pNewUi );
     inline bool isBound() const { return pUi != nullptr; }
+    // The avatar on screen follows the edit: (hair id, hair colour, facial hair id (-1 none), facial hair colour),
+    // fired on bind, every cut / type / colour change, and Cancel (back to what is worn).
+    using LookSink = std::function<void( int32_t, int32_t, int32_t, int32_t )>;
+    void setLookSink( LookSink sink ) { lookSink = std::move( sink ); }
     // Returns true when the command was one of this page's.
     bool onCommand( const std::string &command );
 
@@ -44,6 +49,8 @@ private:
     int32_t priceOf( const Look &look ) const;
     void pushPrice();
     void pay();
+    void previewLook() const;
+    LookSink lookSink;
 
     FlashPlayer *pUi = nullptr;
     bool bWoman = false;

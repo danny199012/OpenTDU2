@@ -10,6 +10,21 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+
+## Session 2026-11-18 (`main`): hairdresser pages redraw the hair live
+
+Owner: yes to "make the haircut pages redraw the hair live".
+
+### What changed
+- `hair_ui.{h,cpp}`: `setLookSink` + `previewLook()` - after every type / cut / colour change and on Cancel the working look (hair id + colour, facial hair id + colour) goes to the sink; `-` log `HairUi: preview hair ...`.
+- `gm_freeride.cpp`: the sink puts the look into `profile.WornClothes` (parts 3 / 9) and `HairColor` / `BeardColor` for ONE `scene.setPlayerAvatar( ... )` (the avatar reads the profile only at load), then restores the profile - nothing unpaid is ever stored.
+
+### Verified
+- `-interior EHD_B -autoplay "400:press=validate;480:press=validate;...press=down/right..."`: log `preview hair 259 colour 0` -> `261` -> `colour 1`; the avatar shows "Shaved head 2", tint 2, price `$250` (`docs/images/hairdresser_live_preview.webp`).
+
+### Not done / next
+- Cancel's revert path and the facial-hair page (Pilosity) were not driven headlessly; each preview reloads the avatar (no cost seen, not profiled). The preview rebuilds the avatar, so a pending surgery face edit is not involved (separate room).
+
 ## Session 2026-11-18 (`main`): the hairdresser uses the same head-orbit camera
 
 Owner: "make the hairdresser use the same head orbit camera ... avatar sat in a chair, pan to the front and the back, not all the way round" (360 frame: profile, portrait wall behind, the barber leaning in).
