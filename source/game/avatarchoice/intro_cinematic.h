@@ -327,6 +327,8 @@ public:
     // A display car's position in the walk frame (scene-local) and its
     // _id_car (the near-car spec card): false past the end.
     bool getDisplayCarInfo( size_t index, Vector3f &outPosition, int32_t &outCarId ) const;
+    // The display car's nose heading in the walk frame (radians, atan2(x, z)): false past the end.
+    bool getDisplayCarYaw( size_t index, float &outYaw ) const;
     // The display car's model (nullptr past the end).
     inline CinematicCar *getDisplayCar( size_t index ) { return index < displayCars.size() ? displayCars[index].Car.get() : nullptr; }
     // The dealer's presentation of one display car (by _id_car): repaints it

@@ -29,6 +29,8 @@ public:
     void bind( FlashPlayer *pNewUi, int32_t newCarId, const std::string &newCarName );
     void unbind() { pUi = nullptr; }
     inline bool isBound() const { return pUi != nullptr; }
+    // The Wheels page is up: the preview camera pans across the front wheel.
+    inline bool isRimsPage() const { return pUi != nullptr && bRimsPage; }
     // Returns true when the command was one of the tuner page's.
     bool onCommand( const std::string &command );
 

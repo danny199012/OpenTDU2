@@ -721,6 +721,22 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( command == "afmk" && interior.getTuneUi() != nullptr ) {
             // The tuning shop's page opened: this visit's car is the one you drove in with.
             tuneUi.bind( interior.getTuneUi(), car.getIdCar(), FindCarDisplayName( car.getIdCar() ) );
+            // The car stands on the lift (the room's car place) wearing what the driven car wears.
+            if ( pTuneRoomCar == nullptr && car.isLoaded() && !CmdLine::HasArg( "-notunecar" ) ) {
+                pTuneRoomCar = interior.placeStickerCar( car.getIdCar() );
+                if ( pTuneRoomCar != nullptr ) {
+                    const PlayerProfile &profile = GetPlayerProfile();
+                    const auto paint = profile.OwnedCarPaints.find( car.getIdCar() );
+                    if ( paint != profile.OwnedCarPaints.end() ) {
+                        pTuneRoomCar->applyDatabasePaint( paint->second );
+                    }
+                    const auto custom = profile.OwnedCarCustomPaints.find( car.getIdCar() );
+                    if ( custom != profile.OwnedCarCustomPaints.end() ) {
+                        pTuneRoomCar->applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour,
+                                                        custom->second.Colour2 );
+                    }
+                }
+            }
         }
         if ( !surgeryUi.onCommand( command ) && !hairUi.onCommand( command ) && !tuneUi.onCommand( command ) ) {
             stickerShop.onCommand( command );
@@ -5892,6 +5908,9 @@ void GMFreeRide::tick( float deltaTime ) {
     if ( tuneUi.isBound() && !interior.isTuneUi() ) {
         tuneUi.unbind();
     }
+    if ( pTuneRoomCar != nullptr && !interior.isActive() ) {
+        pTuneRoomCar = nullptr;
+    }
     // Out of a sticker shop room: an unpaid layout goes back on the car.
     if ( stickerShop.isBound() && !interior.isActive() ) {
         stickerShop.unbind();
@@ -5972,6 +5991,28 @@ void GMFreeRide::tick( float deltaTime ) {
             view.setCamera( camera );
             view.tick( deltaTime );
             }
+        }
+        // The tuning shop's preview camera on the lifted car. The Wheels page: a slow left-right-left pan across
+        // the front wheel (retail), the wheel framed in the left panel's half of the screen. The other pages keep
+        // the room's own view. The wheel position is the typical front-left corner of the car [INF].
+        if ( pTuneRoomCar != nullptr && tuneUi.isRimsPage() ) {
+            tuneCamTime += deltaTime;
+            Vector3f local;
+            int32_t roomCarId = -1;
+            float noseYaw = 0.0f;
+            if ( interior.getScene().getDisplayCarInfo( 0, local, roomCarId ) && interior.getScene().getDisplayCarYaw( 0, noseYaw ) ) {
+                const float s = std::sin( noseYaw ), c = std::cos( noseYaw );
+                // Car space (x right of the nose, z forward) to the walk frame.
+                const Vector3f wheel = local + Vector3f( c * -0.85f + s * 1.35f, 0.34f, -s * -0.85f + c * 1.35f );
+                // Out from the car's left side, swinging +-35 deg about the side normal (period ~7 s).
+                const float sideYaw = noseYaw - 1.5708f + std::sin( tuneCamTime * 0.9f ) * 0.40f;
+                const Vector3f eye = wheel + Vector3f( std::sin( sideYaw ) * 2.2f, 0.15f, std::cos( sideYaw ) * 2.2f );
+                const Vector3f right( std::cos( sideYaw ), 0.0f, -std::sin( sideYaw ) );
+                const Vector3f focus = wheel + right * 0.55f; // the wheel sits left of centre, in the panel
+                interior.getScene().setLocalCamera( eye, ChaseCamera::LookRotation( eye, focus ), 45.0f * kDegToRad, 0.05f );
+            }
+        } else {
+            tuneCamTime = 0.0f;
         }
         if ( vehicleAudio.isEngineOn() ) {
             VehicleAudio::Params muted;

@@ -278,6 +278,10 @@ private:
     // the car copy on the room's car place - the live preview the menu edits.
     TunerMenu tunerMenu;
     CinematicCar *pTunerRoomCar = nullptr;
+    // The tuning shop (SHOPSCAR car_tuner): the car on the lift, and the preview camera (retail: a left-right
+    // pan across the wheel on the Wheels page) [INF: owner's observation of the 360 build].
+    CinematicCar *pTuneRoomCar = nullptr;
+    float tuneCamTime = 0.0f;
     bool bTunerApplied = false; // the driven car wears its saved parts
     float tunerCamYaw = 0.6f;   // the room turntable
     void bindTunerGarage();

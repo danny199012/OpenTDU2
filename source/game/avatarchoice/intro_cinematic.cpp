@@ -2417,6 +2417,15 @@ bool IntroCinematic::getDisplayCarInfo( size_t index, Vector3f &outPosition, int
     return true;
 }
 
+bool IntroCinematic::getDisplayCarYaw( size_t index, float &outYaw ) const {
+    if ( index >= displayCars.size() ) {
+        return false;
+    }
+    Vector3f nose = sceneOrigin.inverse().transformVector( displayCars[index].World.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) ) );
+    outYaw = std::atan2( nose.x, nose.z );
+    return true;
+}
+
 bool IntroCinematic::focusDisplayCar( int32_t carId, int32_t paintIndex ) {
     for ( DisplayCar &display : displayCars ) {
         if ( display.CarId != carId ) {

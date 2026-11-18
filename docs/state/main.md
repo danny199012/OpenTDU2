@@ -18,8 +18,14 @@ the Wheels page (`/:option_name`, `/:cur_op_price`), buy (`kiva`) and rims (`tun
   B -> "Exit Shop?" -> A -> `gofr` -> `FREERIDE: back in the car`. `docs/images/tuning_retail_ui.webp`.
 - Controls: D-pad up/down/left/right (arrow keys) pick squares / lines / rims, A (Enter) buys, B (Esc) backs out.
 
+### Preview camera + car on the lift (later, same session)
+The owner, from retail 360 screenshots: the car is on the lift; the Rims preview is a second-camera close-up on the wheel that pans left-right-left in a loop (the dealership interior shot does the same); paint orbits the car.
+- `GMFreeRide`: at `afmk` the driven car is placed on the room's car place (`InteriorWalk::placeStickerCar`, the sticker/tuner-garage rule) with its paint (`pTuneRoomCar`; `-notunecar` skips). Log: `InteriorWalk: sticker car 387 on D_CAR`.
+- While `TuneUi::isRimsPage()`: `setLocalCamera` pans +-0.40 rad (period ~7 s) about the front-left wheel at 2.2 m, aimed so the wheel sits in the left panel. New `IntroCinematic::getDisplayCarYaw`. Evidence `docs/images/tuning_wheel_pan.webp` (3 frames of one loop).
+- The camera is the full-screen room camera behind the movie, not a render into the preview rectangle; the wheel position is the typical corner (+-0.85, 1.35 m) [INF]; a lift post crosses the right half. Paint orbit not done (the tuner has no paint page).
+
 ### Not done / next
-- Wheels preview picture, the part cinematic, the car on the lift, 4th level (see the spec section 4). Hawai tuning shops not walked.
+- A true second view in the preview rectangle (render target), the part cinematic, 4th level (spec section 4). Hawai tuning shops not walked.
 
 ## Session 2026-11-18 (`main`, 58): clothes shop buy works on the retail movie (default; `-noclothesui` = native)
 
