@@ -8,6 +8,8 @@
 #include "render/eden/eden_weather.h"
 #include "render/eden/eden_scene_view.h"
 #include "system/cmd_line.h"
+#include "game/freeride/tuner.h"
+#include "game/freeride/tuner_parts.h"
 
 namespace {
 // Scalar lerp of the paint / dirt blends (the chase camera's local helper has
@@ -403,6 +405,13 @@ void CinematicCar::unload() {
             gpRender->getDevice().destroyBuffer( wiper.pIndices );
         }
     }
+    for ( TunerMask &mask : tunerMasks ) {
+        if ( mask.pIndices != nullptr && gpRender != nullptr ) {
+            gpRender->getDevice().destroyBuffer( mask.pIndices );
+        }
+    }
+    tunerMasks.clear();
+    bStockExhaustHidden = false;
     wipers.clear();
     wiperNode = -1;
     wiperAngle = 0.0f;
@@ -1228,6 +1237,7 @@ bool CinematicCar::load( const Desc &requested ) {
     // ILUMPARAM stay authored.
     {
         collectLights();
+        collectTunerMasks(); // before collectWipers (it frees the primitive data)
         collectWipers();
         dashMaterials.clear();
         dashboardGlow = 0.0f;
@@ -2911,6 +2921,7 @@ void CinematicCar::setTunerAttachment( const char *pSlot, const EdenMesh &mesh, 
     tunerAttachment.Mesh = mesh;
     tunerAttachment.Material = material;
     tunerAttachment.Offset = offset;
+    struct MaskGuard { CinematicCar *p; ~MaskGuard() { p->applyTunerMasks(); } } maskGuard { this };
     // The node to hang from, by name (the scene lookup folds the long names);
     // the low LOD banks have no BODY_HR - BODY_MR is their body, a part on an
     // AI-detail car then still hangs off something sane.
@@ -2950,6 +2961,111 @@ void CinematicCar::clearTunerAttachment( const char *pSlot ) {
         tunerAttachments.clear();
     } else {
         tunerAttachments.erase( pSlot );
+    }
+    applyTunerMasks();
+}
+
+// The stock spoiler / exhaust tips of a tuner car are triangles of the body's
+// big items. tuner.txt gives each a box (hide_spoiler / hide_exhaust, item
+// space): the triangles whose centroid is inside go to their own index
+// range, and a fitted part of that slot drops the range (applyTunerMasks).
+void CinematicCar::collectTunerMasks() {
+    tunerMasks.clear();
+    if ( !car.isLoaded() || !TunerModEnabled() || gpRender == nullptr ) {
+        return;
+    }
+    const char *const pSlots[2] = { "exhaust", "spoiler" };
+    const std::vector<std::pair<Vector3f, Vector3f>> *pBoxes[2];
+    GetTunerParts().load();
+    for ( int32_t s = 0; s < 2; s++ ) {
+        pBoxes[s] = GetTunerParts().getHideBoxes( fileName, pSlots[s] );
+    }
+    if ( pBoxes[0] == nullptr && pBoxes[1] == nullptr ) {
+        return;
+    }
+    const std::vector<EdenModel::Item> &items = car.getItems();
+    const int32_t bodyNode = car.getScene().findNode( "BODY_HR" );
+    for ( size_t i = 0; i < items.size(); i++ ) {
+        const EdenModel::Item &item = items[i];
+        if ( item.NodeIndex != bodyNode || item.Lod != 0 || item.PrimitiveIndices.empty() ||
+             item.PrimitiveVertices.empty() ) {
+            continue;
+        }
+        std::vector<uint32_t> groups[3];
+        for ( size_t t = 0; t + 2 < item.PrimitiveIndices.size(); t += 3 ) {
+            const Vector3f &a = item.PrimitiveVertices[item.PrimitiveIndices[t]];
+            const Vector3f &b = item.PrimitiveVertices[item.PrimitiveIndices[t + 1]];
+            const Vector3f &cc = item.PrimitiveVertices[item.PrimitiveIndices[t + 2]];
+            const Vector3f centre = ( a + b + cc ) * ( 1.0f / 3.0f );
+            int32_t group = 1;
+            static const bool bDump = CmdLine::HasArg( "-dumptunermask" );
+            if ( bDump && centre.z < -1.5f ) {
+                OTDU_LOG_INFO( "MASKTRI %zu %s %.3f %.3f %.3f\n", i, car.getMaterials()[item.MaterialIndex].Name.c_str(),
+                               centre.x, centre.y, centre.z );
+            }
+            for ( int32_t s = 0; s < 2 && group == 1; s++ ) {
+                if ( pBoxes[s] == nullptr ) {
+                    continue;
+                }
+                for ( const auto &box : *pBoxes[s] ) {
+                    if ( centre.x >= box.first.x && centre.x <= box.second.x && centre.y >= box.first.y &&
+                         centre.y <= box.second.y && centre.z >= box.first.z && centre.z <= box.second.z ) {
+                        group = s == 0 ? 0 : 2;
+                        break;
+                    }
+                }
+            }
+            for ( uint32_t k = 0; k < 3; k++ ) {
+                groups[group].push_back( item.PrimitiveIndices[t + k] );
+            }
+        }
+        if ( groups[0].empty() && groups[2].empty() ) {
+            continue;
+        }
+        std::vector<uint32_t> all;
+        all.reserve( item.PrimitiveIndices.size() );
+        TunerMask mask;
+        mask.Item = i;
+        for ( int32_t g = 0; g < 3; g++ ) {
+            mask.Counts[g] = static_cast<uint32_t>( groups[g].size() );
+            all.insert( all.end(), groups[g].begin(), groups[g].end() );
+        }
+        mask.pIndices = gpRender->getDevice().createBuffer( all.size() * sizeof( uint32_t ),
+                                                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT, all.data() );
+        mask.Mesh = item.Mesh;
+        mask.Mesh.pIndexBuffer = mask.pIndices;
+        mask.Mesh.FirstIndex = 0;
+        mask.Mesh.IndexCount = static_cast<uint32_t>( all.size() );
+        OTDU_LOG_INFO( "CinematicCar: '%s' item %zu ('%s'): %u exhaust + %u spoiler triangles are maskable\n",
+                       fileName.c_str(), i, car.getMaterials()[item.MaterialIndex].Name.c_str(), mask.Counts[0] / 3,
+                       mask.Counts[2] / 3 );
+        tunerMasks.push_back( std::move( mask ) );
+    }
+    applyTunerMasks();
+}
+
+void CinematicCar::applyTunerMasks() {
+    const bool bExhaust = tunerAttachments.count( "exhaust" ) != 0;
+    const bool bSpoiler = tunerAttachments.count( "spoiler" ) != 0;
+    // The stock exhaust tips are the car's own EXHAUST node: hidden while an
+    // exhaust part is fitted (shown again - only if this code hid it - on stock).
+    if ( car.isLoaded() ) {
+        const int32_t exhaustNode = car.getScene().findNode( "EXHAUST" );
+        if ( exhaustNode >= 0 ) {
+            if ( bExhaust && car.isNodeVisible( exhaustNode ) ) {
+                car.setNodeVisible( exhaustNode, false );
+                bStockExhaustHidden = true;
+            } else if ( !bExhaust && bStockExhaustHidden ) {
+                car.setNodeVisible( exhaustNode, true );
+                bStockExhaustHidden = false;
+            }
+        }
+    }
+    for ( TunerMask &mask : tunerMasks ) {
+        EdenMesh mesh = mask.Mesh;
+        mesh.FirstIndex = bExhaust ? mask.Counts[0] : 0;
+        mesh.IndexCount = ( bExhaust ? 0 : mask.Counts[0] ) + mask.Counts[1] + ( bSpoiler ? 0 : mask.Counts[2] );
+        car.setItemMesh( mask.Item, mesh );
     }
 }
 

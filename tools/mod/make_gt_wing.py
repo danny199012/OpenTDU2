@@ -357,9 +357,9 @@ def metal_textures():
     burnt gold / blue / violet heat gradient (our art)."""
     def chrome(x, y):
         t = y / 63.0
-        v = 205 - int(70 * abs(t - 0.5) * 2) + (x * 3 % 7)
+        v = 118 - int(50 * abs(t - 0.5) * 2) + (x * 3 % 7)  # lit by the sun: keep it dark
         if 0.40 < t < 0.52:
-            v = 70 + (x % 5)  # the dark horizon band
+            v = 28 + (x % 5)  # the dark horizon band
         return (v, v, min(255, v + 6), 255)
 
     def titanium(x, y):

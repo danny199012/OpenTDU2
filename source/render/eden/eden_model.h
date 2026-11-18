@@ -57,6 +57,13 @@ public:
     inline bool isLoaded() const { return pVertexBuffer != nullptr; }
     inline const Render3DD &getScene() const { return scene; }
     inline const std::vector<Item> &getItems() const { return items; }
+    // Re-points an item at another index range / buffer (the tuner mod's
+    // stock-part masks: the same vertices, a different triangle subset).
+    inline void setItemMesh( size_t index, const EdenMesh &mesh ) {
+        if ( index < items.size() ) {
+            items[index].Mesh = mesh;
+        }
+    }
     // The [first, count) item range of a node (drawNodeItems / the neon
     // registration walk the same lists).
     std::pair<uint32_t, uint32_t> getNodeItemRange( int32_t nodeIndex ) const {

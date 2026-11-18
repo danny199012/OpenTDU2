@@ -38,6 +38,7 @@ struct TunerCar {
     std::string FileName;
     std::vector<std::string> Slots;
     std::map<std::string, Vector3f> SlotOffsets; // per-slot position overrides
+    std::map<std::string, std::vector<std::pair<Vector3f, Vector3f>>> HideBoxes; // slot -> stock-part boxes (item space; repeat the key for more)
     float Pops = 1.0f; // exhaust pop strength of this car (0 = none), `pops = ` in tuner.txt
 };
 
@@ -75,6 +76,10 @@ public:
     // applies nothing and says so in the log.
     // pSlot names the slot being set/cleared ("spoiler", "exhaust").
     void applyPart( CinematicCar &car, int32_t carId, const char *pSlot, const TunerPart *pPart );
+    // The box (item space) of the car's stock part for a slot (the retail
+    // spoiler lip / exhaust tips a fitted part replaces); false = none known.
+    const std::vector<std::pair<Vector3f, Vector3f>> *getHideBoxes( const std::string &carFileName,
+                                                                    const char *pSlot ) const;
     // The exhaust pop strength for a car wearing `saved` (0 = not a tuner car):
     // the car's `pops` value, full with an exhaust part fitted, 60 % without.
     float popStrength( int32_t carId, const std::map<std::string, std::string> &saved ) const;

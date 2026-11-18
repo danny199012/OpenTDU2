@@ -614,4 +614,18 @@ private:
         Matrix4x4f Offset;
     };
     std::map<std::string, TunerAttachment> tunerAttachments; // by slot
+    // The stock parts a fitted tuner part replaces (the retail spoiler lip,
+    // the stock exhaust tips are triangles inside the big body items): per
+    // item, one index buffer ordered [exhaust tris][the rest][spoiler tris],
+    // so any of the four show / hide combinations is one contiguous range.
+    struct TunerMask {
+        size_t Item = 0;
+        EdenMesh Mesh;               // the item's streams + the reordered buffer
+        uint32_t Counts[3] = { 0, 0, 0 }; // exhaust, rest, spoiler (triangles x 3)
+        GPUBuffer *pIndices = nullptr;
+    };
+    std::vector<TunerMask> tunerMasks;
+    bool bStockExhaustHidden = false; // the EXHAUST node was hidden by a fitted tuner part
+    void collectTunerMasks();
+    void applyTunerMasks();
 };

@@ -33,9 +33,17 @@ Owner: "the tuner mod, can you add more content to it, more spoilers, exhaust ti
 ### Not verified / ruled out
 - **Nobody listened to the pops** - the sample levels, pitch and rate are by-ear guesses; tune `buildPopClips` / `kPopMinRpm` / the burst counts in vehicle_audio.cpp. A wrong sound is a data-sized fix.
 - The garage menu rows were not screenshotted (it compiles and the part logic is exercised by the wear runs; walk into ETNR_A and press Up / Down to check the row highlight).
-- The GTR has its own stock quad tips: `exhaust_quad` / `_dual` sit on top of them (looks right), `_oval` / `_burnt` show next to them. A hide-stock-tips node mask would fix it (not found yet).
+- ~~Stock tips / spoiler lip showing under the new parts~~ fixed in the follow-up below.
 - Flames and turbo flutter / blow-off not done.
 - The installed copy in `<userdata>/mods/packages/tuner-garage` is a copy: after editing the repo package, re-run the launcher install (or copy `tuner/`) before testing.
+
+### Follow-up (same session): the stock spoiler and exhaust tips are replaced, not doubled
+Owner: "detach the spoiler under the custom one; if the car already has a quad exhaust, remove and replace it."
+- **Exhaust**: the car's own `EXHAUST` node (the stock tips, [DATA] `-logcaritems`) is hidden while an exhaust part is fitted and shown again on stock (`CinematicCar::applyTunerMasks`).
+- **Spoiler**: the GTR's boot lip is triangles of the body `Paint` item. `collectTunerMasks` (at load, mod on, car has `hide_spoiler` boxes in tuner.txt) reorders that item's index buffer as [exhaust box][rest][spoiler box] and `EdenModel::setItemMesh` re-points the item at the contiguous range, so a fitted spoiler drops the lip. Box for the GTR: `hide_spoiler = -0.95 0.935 -2.30 0.95 1.05 -1.97` (548 triangles). Find boxes with `-dumptunermask` (prints every rear triangle centre) + `-logtuner` (counts). The model X is mirrored on screen.
+- Chrome texture darkened (the tips rendered white).
+- Verified: `docs/images/tuner_stock_parts_hidden_s47.webp` (swan neck + quad on the GTR: no lip under the wing, no stock tips); lip and tips come back with stock.
+- **Only the GTR has a `hide_spoiler` box** - the other six tuner cars still show their stock spoiler (if any) under a fitted wing. Each is one data line after a `-dumptunermask` run (`-car <name>`). Their stock tips already hide (every car checked has `EXHAUST`? - only the GTR was looked at).
 
 ### Next
 - Listen, then tune the pops. Then flames (a sprite at the exhaust per pop, position = the `align = rear` tip) and a body kit slot.

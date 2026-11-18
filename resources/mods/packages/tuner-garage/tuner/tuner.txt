@@ -135,6 +135,14 @@ slots = spoiler, exhaust
 # -2.317..+2.182, deck y ~0.85); z keeps the ducktail's 0.26 m depth on the
 # deck (-2.05 - 0.26 = -2.31, just inside the body).
 spoiler_offset = 0 0.82 -2.05
+# The stock parts a fitted part replaces. The car's own EXHAUST node (the stock
+# tips) is hidden automatically while an exhaust part is fitted. A stock
+# spoiler that is part of the body mesh needs a box: hide_spoiler = x0 y0 z0
+# x1 y1 z1 (item space, repeat the key for more boxes); the triangles whose
+# centre is inside are dropped while a spoiler is fitted. Find a box with
+# -dumptunermask (every rear triangle centre) and -logtuner (how many a box
+# catches). Note the model's X is mirrored on screen.
+hide_spoiler = -0.95 0.935 -2.30 0.95 1.05 -1.97
 
 [car:370Z]
 slots = spoiler, exhaust

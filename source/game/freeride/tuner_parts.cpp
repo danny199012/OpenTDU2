@@ -161,6 +161,11 @@ bool TunerParts::load() {
                     }
                     cursor = comma + 1;
                 }
+            } else if ( key.compare( 0, 5, "hide_" ) == 0 ) {
+                float v[6];
+                if ( sscanf( value.c_str(), "%f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5] ) == 6 ) {
+                    car.HideBoxes[key.substr( 5 )].push_back( { Vector3f( v[0], v[1], v[2] ), Vector3f( v[3], v[4], v[5] ) } );
+                }
             } else if ( key == "pops" ) {
                 car.Pops = static_cast<float>( atof( value.c_str() ) );
             } else if ( key.size() > 7 && key.compare( key.size() - 7, 7, "_offset" ) == 0 ) {
@@ -250,6 +255,18 @@ const TunerPart *TunerParts::partForMesh( const std::string &meshFile ) const {
         if ( StringCmpI( part.Mesh.c_str(), meshFile.c_str() ) == 0 ) {
             return &part;
         }
+    }
+    return nullptr;
+}
+
+const std::vector<std::pair<Vector3f, Vector3f>> *TunerParts::getHideBoxes( const std::string &carFileName,
+                                                                           const char *pSlot ) const {
+    for ( const TunerCar &car : cars ) {
+        if ( StringCmpI( car.FileName.c_str(), carFileName.c_str() ) != 0 ) {
+            continue;
+        }
+        const auto found = car.HideBoxes.find( ToLower( pSlot ) );
+        return found != car.HideBoxes.end() ? &found->second : nullptr;
     }
     return nullptr;
 }
