@@ -6,7 +6,11 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
-## Session 2026-11-17 (`main`, 57): clothes shop on the retail movie - browsing works, buy does not (opt-in `-clothesui`)
+## Session 2026-11-18 (`main`, 58): clothes shop buy works on the retail movie (default; `-noclothesui` = native)
+
+The A refusal = missing `Solded` / `DLC_Locked` / `IsEnoughMoney` (set per item in `updateClosetItem`), then `buit` buys + wears. See `avatar_shops_spec.md` s3.
+
+## Session 2026-11-17 (`main`, 57): clothes shop on the retail movie - browsing (earlier step)
 
 Shop mode reuses the house closet protocol (`clin/neit/prit/seit`) with the brand stock; `-walkaim Seller_area`. A on an item is refused by
 the movie (`sndp:wrong`) - next step in `docs/re/avatar_shops_spec.md` s3. Native menu stays the default.

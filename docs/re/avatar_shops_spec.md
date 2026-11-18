@@ -30,16 +30,18 @@ native `ClothesMenu` stays the default until they work.
 - Not done: Eyebrows page (`EyebrowsType/Color` need the avatar's eyebrow atlas), live preview (no avatar in view), the `C_BUY_HAIR`
   cinematic, DLC hair (`HairDLC`), the casino salon (`EHAIR_CA`, same code path - untested).
 
-## 3. Clothes shop (`-clothesui`, opt-in) - browsing works, buying does not
+## 3. Clothes shop (default; `-noclothesui` = native) - browse + buy work
 - Walk aim: `-walkaim Seller_area` (the type-name aim `goodies` found nothing). A on the seller sends `csin`, `camn`, `came`, `clin`.
 - The movie runs the HOUSE closet's dressing protocol: the category squares (Hats, Glasses, Tops, Bottoms, Shoes, Gloves) send
   `clin` (the key in `/:BtValid`), the item card pages with `neit` / `prit` and shows `n / total` from `/:Nb_Items`
   (`InteriorWalk::onUiCommand`, shared with `bHomeUi`); in the shop `closetItems` is the DBCarShop brand's stock of the part
   (verified: Hats 1/7, 2/7 -> the shop's brand items). Screenshots in the session log only.
-- **Not working**: A on an item plays `sndp:wrong` and sends nothing, so the buy never reaches `seit` (the buy code is in
-  `onUiCommand` "seit": charge + `OwnedClothes` + wear). The card also shows only the brand tag - no name / price. Next: dump the
-  item card's variables (`/:ItemName`, price, `LockItem`, `EnoughMoney`, `ItemBuyable`... resolve with `tools/vmf_disasm.py`
-  around the `cl_stop` / `item_selection_stop` buttons) and set them in `updateClosetItem`; then make it default.
+- **The A refusal was missing variables**: the shop page's `A()` (page `!= dressing_ic`) needs `/:Solded` == false (owned -> true),
+  `/:DLC_Locked` == false and `/:IsEnoughMoney`; then `TestBuy` opens the `buy_item` dialog (or `cant_buy_item` when poor) and the
+  movie sends `buit`. `InteriorWalk::updateClosetItem` sets them (+ `/:CurrentPrice`), `buit` shares the `seit` code: charge the DBClothe `_price`,
+  add to `OwnedClothes`, wear. Verified: A -> dialog -> `buit` -> `bought ... (money now ...)`, wear, back to the categories.
+- **Now the default** (`-noclothesui` = native menu). Open: the card shows the brand tag only (name / price text fields not found), the
+  `C_BUY_ITEM` cinematic, seeing the item on the avatar (no body in view; the mirror now shows the player), DLC items.
 
 ## 4. The clothes-shop mirror (fixed)
 Owner: "the mirror doesn't reflect the characters". The `MIRROR` GSReflection projector already drew the room (session 45) and

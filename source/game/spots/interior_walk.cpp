@@ -361,7 +361,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
         } else if ( ( _strnicmp( houseSpotName.c_str(), "EHD", 3 ) == 0 || _strnicmp( houseSpotName.c_str(), "EHAIR", 5 ) == 0 ) &&
                    !CmdLine::HasArg( "-nohairui" ) ) { // -nohairui: the native ClothesMenu (A/B)
             avatarLabel = "hairdresser";
-        } else if ( _strnicmp( houseSpotName.c_str(), "EAS", 3 ) == 0 && CmdLine::HasArg( "-clothesui" ) ) { // opt-in: browsing works, the buy (A) is refused by the movie - see avatar_shops_spec 3
+        } else if ( _strnicmp( houseSpotName.c_str(), "EAS", 3 ) == 0 && !CmdLine::HasArg( "-noclothesui" ) ) { // -noclothesui: the native ClothesMenu (A/B)
             avatarLabel = "clothes_shop";
         }
     }
@@ -1147,7 +1147,7 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             closetIndex = ( closetIndex + ( command == "neit" ? 1 : count - 1 ) ) % count;
         }
         updateClosetItem();
-    } else if ( command == "seit" ) {
+    } else if ( command == "seit" || command == "buit" ) {
         if ( closetIndex >= 0 && closetIndex < static_cast<int32_t>( closetItems.size() ) ) {
             if ( bAvatarUi ) {
                 // Shop: buy first (owned items are free to wear again).
@@ -1238,6 +1238,15 @@ void InteriorWalk::updateClosetItem() {
                                   ? FindClothe( closetItems[static_cast<size_t>( closetIndex )] )
                                   : nullptr;
     ui.setVariable( "/:ItemName", pItem != nullptr ? pItem->Name : std::string() );
+    if ( bAvatarUi && pItem != nullptr ) {
+        // The shop card's A reads Solded / DLC_Locked / IsEnoughMoney (SHOPSAVATAR item_selection A()) [DATA].
+        const PlayerProfile &profile = GetPlayerProfile();
+        const bool bOwned = std::find( profile.OwnedClothes.begin(), profile.OwnedClothes.end(), pItem->Id ) != profile.OwnedClothes.end();
+        ui.setVariableBool( "/:Solded", bOwned );
+        ui.setVariableBool( "/:DLC_Locked", false );
+        ui.setVariableBool( "/:IsEnoughMoney", profile.Money >= pItem->Price );
+        ui.setVariable( "/:CurrentPrice", "$ " + std::to_string( pItem->Price ) );
+    }
     ui.setVariable( "/:logo_Brand", pItem != nullptr ? ToLower( pItem->Brand ) : std::string() );
 }
 
