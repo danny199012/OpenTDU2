@@ -36,7 +36,7 @@ texture named `user_tex` (common_car.bnk), so the slot already counts into
 the shader permutation's `S_NBTEXTURES`; binding another texture into it
 never re-permutates [DATA + EXP].
 
-The sticker texture is sampled with the body's UV0 [EXP: a bound art texture
+**CORRECTION 2026-11-18: it is the SECOND texcoord set (UV1) - `sticker_mod_packs.md`.** The sticker texture is sampled with the body's UV0 [EXP, WRONG: a bound art texture
 appears where its alpha is, across the whole body - bonnet, deck, bumper -
 at the places its own pixels occupy in UV space]. No second UV set, no
 projection: the "canvas" model - composite the stickers into one texture,
