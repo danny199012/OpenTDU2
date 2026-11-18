@@ -1052,8 +1052,10 @@ void GMShop::applyPageCameraPose( float deltaTime ) {
         // The retail wheels / paint view draws a box around the car: it holds at each
         // corner, then pans smoothly to the next [owner, 360 capture; the
         // timings are INF]. Corners in the car frame (+X left, +Z forward).
-        static const Vector3f corners[4] = { Vector3f( 2.9f, 1.25f, 4.9f ), Vector3f( -2.9f, 1.25f, 4.9f ),
-                                             Vector3f( -2.9f, 1.25f, -4.9f ), Vector3f( 2.9f, 1.25f, -4.9f ) };
+        // Order front-left -> rear-left -> rear-right -> front-right (the capture), ~7 m out (the car is ~35 % of
+        // the frame width there).
+        static const Vector3f corners[4] = { Vector3f( 1.5f, 1.25f, 6.3f ), Vector3f( 3.0f, 1.25f, -5.0f ),
+                                             Vector3f( -3.0f, 1.25f, -5.0f ), Vector3f( -2.6f, 1.25f, 5.9f ) };
         const float hold = 4.0f, move = 1.3f, period = hold + move; // [DATA: the owner's capture, a move every ~5.3 s]
         const float t = std::fmod( pageTime, period * 4.0f );
         const int32_t index = static_cast<int32_t>( t / period );
@@ -1371,7 +1373,8 @@ void GMShop::writeBuyPrices() {
         car.Interior >= 0 && car.Interior < static_cast<int32_t>( interiors.size() )
             ? static_cast<int32_t>( FindRow( "DBInterior", "_hashcode", static_cast<int64_t>( interiors[static_cast<size_t>( car.Interior )] ) )["_price"].asInt() )
             : 0;
-    const auto text = [&]( int32_t value ) { return "+" + formatMoney( value ); };
+    // No "+" prefix: the retail rows / panel read "$880", "$0", "$2,630" [DATA: the owner's capture].
+    const auto text = [&]( int32_t value ) { return formatMoney( value ); };
     ui.setVariable( "/buy/window_buy/op_price_1/:op_price", text( rimsPrice ) );
     ui.setVariable( "/buy/window_buy/op_price_2/:op_price", text( paintPrice ) );
     ui.setVariable( "/buy/window_buy/op_price_3/:op_price", text( interiorPrice ) );
@@ -2085,11 +2088,16 @@ void GMShop::renderPageInset() {
             // Paint: the camera goes round the whole car (period ~22 s) [INF: the owner's reading of the 360 panel].
             // Retail's panel hugs the body: it slides round the car ~1.3 m off the paint, wheel -> lamp -> grille ->
             // ... -> tail (a lap in ~21 s) [DATA: the owner's capture].
-            const float angle = 2.6f + pageTime * 0.30f;
+            // Left side -> front -> right side -> rear: the angle (x = sin, z = cos) DEcreases [DATA: grille at +8.7 s,
+            // tail at +19 s of the page].
+            const float angle = 2.6f - pageTime * 0.30f;
             const float sa = std::sin( angle ), ca = std::cos( angle );
-            targetLocal = Vector3f( sa * 0.8f, 0.55f, ca * 1.9f );
-            eyeLocal = Vector3f( sa * 2.3f, 0.75f, ca * 3.5f );
-            fovNow = 0.8f;
+            const float ea = 0.9f, ec = 2.1f; // the body's plan ellipse
+            const Vector3f onBody( sa * ea, 0.5f, ca * ec );
+            const Vector3f normal = Vector3f( sa / ea, 0.0f, ca / ec ).normalized();
+            targetLocal = onBody;
+            eyeLocal = onBody + normal * 1.0f + Vector3f( 0.0f, 0.12f, 0.0f );
+            fovNow = 0.75f;
         } else {
             // Wheels / interior: the eye swings +-0.4 rad about the target's vertical axis (period ~7 s).
             const float swing = std::sin( pageTime * 0.785f ) * 0.40f; // period 8 s [DATA: the capture's panel]
