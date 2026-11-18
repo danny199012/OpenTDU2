@@ -42,6 +42,12 @@ struct D3D12ShaderStage {
     bool bReady = false;
     eShaderType Type = eShaderType::ST_Invalid;
     uint32_t NumConstantBuffers = 0;
+    // The name of each cbuffer, in b0..bN order (the register RemapResources put
+    // it at). DXSO's names are D3D9's: `cbuffer_t` is the stage's constant file,
+    // `spec_state_t` the D3D9SpecializationInfo block, `D3D9SharedPS` / `clip_info_t`
+    // the shared blocks; an Eden draw has to bind a different value to each, so
+    // this is how it knows which is which (docs/backends.md section 3.8).
+    std::vector<std::string> ConstantBufferNames;
     uint32_t NumTextures = 0;
     uint32_t NumSamplers = 0;
     // The push constant block: bytes, and how many 32-bit root constants the

@@ -286,6 +286,17 @@ bool D3D12RunSamplerTest( D3D12Device &device, uint32_t frames, const ColorRGBA 
 // shows as an unwritten pixel.
 bool D3D12RunConstTest( D3D12Device &device, uint32_t frames, const ColorRGBA &clearColor );
 
+// -d3d12-edentest: the first *original* TDU2 shader on Direct3D 12
+// (docs/backends.md section 3.8). Loads Euro/Shaders through EdenShaderSystem,
+// picks a library's simplest one-texture opaque permutation, compiles its VS/PS
+// with D3D12ShaderCompiler, fills the constant file with the *shared* filler
+// (render/eden/eden_constants.h), binds the engine's checker into the t0 table
+// and draws a quad with the material's D3D9 state. It needs the file service and
+// its own window, so it runs in the bootstrap next to -d3d12-shadertest rather
+// than inside -renderer-selftest. Returns false when no candidate library could
+// be drawn or the quad did not reach the frame.
+bool D3D12RunEdenTest();
+
 // -d3d12-shadertest: the measurement that sizes the Eden port (docs/backends.md
 // section 3.5). Every vertex and pixel stage of every .sob library in
 // Euro/Shaders goes through the full scene shader path - DXSO -> SPIR-V ->

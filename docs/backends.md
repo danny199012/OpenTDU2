@@ -31,6 +31,7 @@ with no shippable step in between. The backends are therefore added
 | Scene pipelines / meshes / texture tables | done | **done** (one root signature, section 4) | - | - |
 | Sampler heap (DXSO's runtime sampler array) | sampler set (`samplerHeap`) | **done** (`-d3d12-samplertest`, section 3.6) | - | - |
 | Constant buffers b0..b3 per stage + D3D9 material state | descriptor sets + push constants | **done** (`-d3d12-constest`, section 3.7) | - | - |
+| **An original `.sob` shader draws** (`-d3d12-edentest`) | `EdenRenderer` | **done for one material** (section 3.8) | - | - |
 | Every Eden shader stage compiled (`-d3d12-shadertest`) | n/a | **done** (section 3.5) | - | - |
 | ImGui overlay / build watermark | done | **done, opt-in** `-d3d12-ui` (driver stall, section 6) | - | - |
 | Scene (eden), 3D game modes | done | not yet (phase 3b step 2) | - | - |
@@ -63,6 +64,7 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-d3d12-scenetest` | with the self test: the scene path instead of the colour bars (section 3.3) |
 | `-d3d12-samplertest` | with the self test: a shader that indexes the D3D9 sampler heap dynamically, two quads, read back and measured (section 3.6) |
 | `-d3d12-constest` | with the self test: the per stage constant buffers b0..b3 and the D3D9 blend state, two quads and a blend pass, read back and measured (section 3.7) |
+| `-d3d12-edentest` | the first *original* TDU2 shader on D3D12: loads Euro/Shaders, picks a simple permutation of a real library, fills the constants with the shared filler and draws a quad (section 3.8; needs `-game`) |
 | `-d3d12-shadertest [<text>]` | in the game bootstrap (`-game`): every `.sob` stage through the scene shader path, with a tally; `<text>` keeps only libraries whose name contains it (section 3.5) |
 | `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
 | `-renderer-shot <path.ppm>` | with the self test: write the last frame |
@@ -423,6 +425,79 @@ What the test rules out, and how:
   `eBlendMode` value expresses together with an opaque pass in one pipeline
   cache; an unwritten blend state leaves the left half at 255 red.
 
+### 3.8 An original shader draws (`-d3d12-edentest`)
+
+The probes above measure pieces. This one is the first *end to end* draw of a real
+TDU2 material shader on Direct3D 12: a permutation taken from a shipped `.sob`
+library, its D3D9 constant file written by the renderer's own filler, its texture
+in the t0 table, its state in the pipeline.
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-edentest -d3d12-debug `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx `
+    -renderer-shot E:\Cline\_st_eden.ppm -log E:\Cline\_st_eden.log
+```
+
+It runs in the bootstrap next to `-d3d12-shadertest` (it needs the file service
+for `Euro/Shaders` and creates its own hidden window and device), picks the
+permutation itself - the first one of a candidate library that is unskinned,
+opaque, not the depth / shadow-caster pass and samples exactly one texture -
+compiles both stages, fills `FillEdenConstants` into the VS/PS constant files
+(`b0`), binds the engine's checker into `t0` and draws a quad into a magenta
+frame, so any pixel the shader painted is unambiguous.
+
+Measured (build `225 (82fa215+dirty) - cline`, 1280x720, debug layer on and
+silent):
+
+```
+D3D12 Eden test: TD_Lamp vs5/ps1 (one texture, unskinned, opaque); cbuffers vs [c, spec_state, clip_info]
+  b0=file, b1=spec, b2=zero, ps [c, D3D9SharedPS, spec_state] b0=file, b1=zero, b2=spec
+D3D12 Eden test: 30 frame(s) of a quad on 'NVIDIA GeForce RTX 5070 Ti' (1280x720);
+  110224 px covered (11.96 %), mean 43.0/48.0/57.5; 6 of 256 vs and 0 of 224 ps registers written
+D3D12 Eden test: PASSED (the original shader painted the quad on Direct3D 12)
+```
+
+- The frame holds **47 colours**: the checker's two shades, lit, at *exactly*
+  `43216` pixels each - `(36, 40, 48)` and `(50, 56, 67)`, i.e. the 64x64 8-pixel
+  checker `TextureCache` uploads, sampled through the sampler heap and modulated
+  by the ambient + directional constants (this shader's material parameters are
+  its own; the probe has no `.2DM`, see below). `docs/images/d3d12_eden_test.webp`
+  is that frame.
+- `110224` covered pixels is the arithmetic of the probe's camera: a quad of +-0.8
+  world units three metres in front of a 60-degree vertical FOV is
+  `(2 * 0.8 / (tan(30) * 3 * 1.777)) * (2 * 0.8 / (tan(30) * 3))` of the frame.
+- **WARP reads the same frame**: same library, same `110224 px`, mean
+  `43.0/48.0/57.5`. The constants, the sampler heap and the pipeline state are the
+  API contract, not one driver's arithmetic.
+- **The constants are the renderer's own**: `EdenRenderer::fillConstants` became
+  `FillEdenConstants` (`source/render/eden/eden_constants.h`) with an explicit
+  context - the scene, the derived view-projection, the precise variant, the
+  epoch and the warning set - and the renderer is a thin wrapper around it. The
+  constant-file layout (`int4 c_i[16]; float4 c_f[N];` + bool mask) and the spec
+  block's size moved there as `kEden*ConstantsSize`, so a size cannot drift
+  between the backends. `FillEdenSpecConstants` writes the
+  D3D9SpecializationInfo block for both.
+- **The cbuffer map is read, not guessed**: `D3D12ShaderStage::ConstantBufferNames`
+  records what RemapResources put at each register, and the probe binds by shape
+  (the specialization state -> spec block, clip/shared -> the zero block, anything
+  else -> the constant file). The names are SPIRV-Cross's *instance* names (`c`,
+  `spec_state`, `clip_info`, `D3D9SharedPS`), not the HLSL type names - see
+  section 6.
+- **No regression**: `-d3d12-scenetest`'s PPM is byte-identical
+  (`SHA256 E505B37F...778CEB`), `-d3d12-samplertest` and `-d3d12-constest` read
+  their previous numbers, and a Vulkan `-notitlescene` frame still renders
+  normally (17105 distinct colours, 55.17 % non-black - the extra colours against
+  the documented 17095 are the movie moment, not the filler: the refactor is a
+  code move, and the diff shows it).
+
+**The open gap this probe found**: `TD_LightBeam vs2/ps1` **compiles** but
+`CreateGraphicsPipelineState` rejects it with `E_INVALIDARG` and no debug-layer
+message - even against a three-line hand-written pixel shader, so the vertex
+stage's DXBC is what the device refuses. The probe logs it and moves on to the
+next candidate; the next step is the stream-descriptor form of the same PSO
+(`ID3D12Device::CreatePipelineState`), which names the offending subobject, then
+comparing that VS against `TD_Lamp vs5` (which the device accepts).
+
 ## 4. The shader path
 
 The scene cannot be ported until the shaders can be consumed per backend. Both
@@ -550,12 +625,17 @@ own `discard`.
    per-frame upload ring, and `EdenMaterial`'s raw D3D9 state mapped into the PSO
    (blend factors / op, write mask, depth func, D3DCULL). Measured exact: left
    half 128/0/127 (0.5 red + 0.5 blue), right half 0/127/0 (0.5 green), on the
-   RTX 5070 Ti and on WARP. **Step 2, the Eden scene itself** is what remains:
+   RTX 5070 Ti and on WARP. Step 2a, 2026-11-18: **an original shader draws**
+   (`-d3d12-edentest`, section 3.8) - a real `.sob` permutation (`TD_Lamp
+   vs5/ps1`), its constant file written by the *shared* filler
+   (`render/eden/eden_constants.h`, extracted from `EdenRenderer`), the engine's
+   checker in t0 and 110224 px (11.96 %) of lit checker on the frame, identical
+   on WARP. **Step 2b, the Eden scene itself** is what remains:
    `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
-   `EdenProgram` -> pipeline cache, `fillConstants` into the b0 CBV and the b13
-   push constants, the sampler heap and texture table it already binds), then the
-   render targets / shadow / reflection / post passes, and then the 3D game modes
-   (still refused with one log line).
+   `EdenProgram` -> pipeline cache, `FillEdenConstants` into the b0 CBV and the
+   b13 push constants, the sampler heap and texture table it already binds), then
+   the render targets / shadow / reflection / post passes, and then the 3D game
+   modes (still refused with one log line).
 5. **D3D11**: the same translated HLSL, a thin device; it is the cheap one once (4) exists.
 6. **D3D9**: the original bytecode path (a near pass-through), with SM 3.0 limits documented
    where the engine's own shaders cannot follow.
@@ -563,10 +643,14 @@ own `discard`.
 Next step, precisely: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
 `PipelineDesc` handed to `D3D12Scene::getPipeline` and `recordPacket`'s push constants
 handed to `D3D12Scene::draw`, with `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`)
-going through `D3D12ShaderCompiler`. The three questions that came before it are
+going through `D3D12ShaderCompiler`. The four questions that came before it are
 answered: the shaders all compile (section 3.5), the sampler heap they index draws
-with the right state (section 3.6), and the constant buffers and the D3D9 material
-state reach the pipeline and the draw (section 3.7).
+with the right state (section 3.6), the constant buffers and the D3D9 material
+state arrive (section 3.7), and one real permutation draws end to end with the
+renderer's own constants (section 3.8). The gap that probe opened - `TD_LightBeam
+vs2`'s DXBC is refused by `CreateGraphicsPipelineState` - is named there, with the
+stream-descriptor diagnostic as its next step; it must be closed before the whole
+catalogue can be trusted.
 
 ## 6. Known gaps and traps
 
@@ -644,6 +728,24 @@ state reach the pipeline and the draw (section 3.7).
   pipeline cache key - and D3D9's alpha test is already a `discard` in the DXSO
   shader (spec constant block + the push constant alpha reference), so a PSO
   alpha-test field would be dead state that disagrees with the shader.
+- **SPIRV-Cross reports cbuffer *instance* names, not the HLSL type names.**
+  `compiler.get_name( resource.id )` is `c`, `spec_state`, `clip_info`,
+  `D3D9SharedPS` for a DXSO stage, while the HLSL says `cbuffer_t`,
+  `spec_state_t`, `clip_info_t`. `D3D12ShaderStage::ConstantBufferNames` keeps
+  what was actually seen, and the Eden side binds by *shape* rather than by
+  string (`-d3d12-edentest`): a block naming the specialization state gets the
+  spec dwords, clip/shared get the zero block, anything else is the constant
+  file. A strict `== "cbuffer_t"` match silently binds nothing - the measured
+  symptom is a quad that collapses to a point (zero view-projection) and a frame
+  with 0 covered pixels.
+- **A compiled stage is not necessarily a pipeline D3D12 accepts.**
+  `TD_LightBeam vs2/ps1` compiles to valid SM 5.1 DXBC (section 3.5) and still
+  fails `CreateGraphicsPipelineState` with `E_INVALIDARG`, with *no* debug-layer
+  message, even when the pixel stage is replaced by a three-line shader - so it
+  is the vertex bytecode. `-d3d12-edentest` logs it and moves to the next
+  candidate (that is how `TD_Lamp vs5/ps1` came to be the one drawn), and the
+  next step is the stream-descriptor form of the same PSO, which names the
+  subobject. Do not assume the tally (3.5) means every stage can be *bound*.
 - **3D game modes are refused on D3D12.** `switchToNextGameMode` (`tdu_instance.cpp`) allows
   `GM_Login` and `GM_UiViewer` and logs `Renderer d3d12 cannot draw game mode X yet` for the
   rest: their `enter()` builds an EdenWorld through the Vulkan device. The front end (login,

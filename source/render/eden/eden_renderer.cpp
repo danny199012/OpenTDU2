@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "eden_renderer.h"
+#include "eden_constants.h"
 
 #include <set>
 #include <cfloat>
@@ -16,14 +17,10 @@
 #include "system/cmd_line.h"
 
 namespace {
-constexpr uint32_t kIntRegistersSize = 16 * 16;
-constexpr uint32_t kBoolBitmaskSize = 16;
-constexpr uint32_t kVSFloatRegisters = 256;
-constexpr uint32_t kPSFloatRegisters = 224;
-constexpr VkDeviceSize kVSConstantsSize = kIntRegistersSize + kVSFloatRegisters * 16 + kBoolBitmaskSize;
-constexpr VkDeviceSize kPSConstantsSize = kIntRegistersSize + kPSFloatRegisters * 16 + kBoolBitmaskSize;
+// The constant-file layout (16 int4 registers, the stage's float registers, the
+// bool bitmask) and the spec block's size are shared with the Direct3D 12 path:
+// render/eden/eden_constants.h.
 constexpr VkDeviceSize kZeroBufferSize = 8192;
-constexpr uint32_t kSpecDwords = 16;
 constexpr uint32_t kMaxSetsPerFrame = 8192;
 constexpr uint32_t kNumVSImages = 4;
 constexpr uint32_t kNumPSImages = 16;
@@ -1556,6 +1553,22 @@ typename Map::const_iterator FindSmall( const Map &map, const std::string &key )
 void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &members, float *pRegisters,
                                   uint32_t numRegisters, const EdenMaterial &material, const Matrix4x4f &world,
                                   const EdenDrawParams *pParams, const char *pProgramName, bool bPixel ) {
+    // The rules live in render/eden/eden_constants.h, shared with the Direct3D 12
+    // path; the renderer only supplies the scene it is drawing.
+    EdenConstantsContext context;
+    context.pScene = &scene;
+    context.pViewProjection = &viewProjection;
+    context.pPreciseViewProjection = pPreciseViewProjection;
+    context.SceneEpoch = sceneEpoch;
+    context.pWarned = &warnedParameters;
+    FillEdenConstants( context, members, pRegisters, numRegisters, material, world, pParams, pProgramName,
+                       bPixel );
+}
+
+void FillEdenConstants( const EdenConstantsContext &context, const std::vector<ShaderConstantMember> &members,
+                        float *pRegisters, uint32_t numRegisters, const EdenMaterial &material,
+                        const Matrix4x4f &world, const EdenDrawParams *pParams, const char *pProgramName,
+                        bool bPixel ) {
     Matrix4x4f inverseWorld;
     bool bInverseWorld = false;
     auto getInverseWorld = [&]() -> const Matrix4x4f & {
@@ -1681,12 +1694,12 @@ void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &membe
             }
         }
         {
-            if ( member.SceneEpoch != sceneEpoch ) {
-                auto it = scene.Vectors.find( name );
-                auto itMatrix = scene.Matrices.find( name );
-                member.pSceneVector = it != scene.Vectors.end() ? &it->second : nullptr;
-                member.pSceneMatrix = itMatrix != scene.Matrices.end() ? &itMatrix->second : nullptr;
-                member.SceneEpoch = sceneEpoch;
+            if ( member.SceneEpoch != context.SceneEpoch ) {
+                auto it = context.pScene->Vectors.find( name );
+                auto itMatrix = context.pScene->Matrices.find( name );
+                member.pSceneVector = it != context.pScene->Vectors.end() ? &it->second : nullptr;
+                member.pSceneMatrix = itMatrix != context.pScene->Matrices.end() ? &itMatrix->second : nullptr;
+                member.SceneEpoch = context.SceneEpoch;
             }
             if ( member.pSceneVector != nullptr ) {
                 WriteVector( pOut, *static_cast<const Vector4f *>( member.pSceneVector ) );
@@ -1724,7 +1737,7 @@ void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &membe
                 WriteVector( pOut, it->second );
             } else if ( Logger::IsVerbose() ) {
                 const std::string warnKey = std::string( pProgramName ) + "|" + name;
-                if ( warnedParameters.insert( warnKey ).second ) {
+                if ( (*context.pWarned).insert( warnKey ).second ) {
                     OTDU_LOG_DEBUG( "Eden: no value for '%s' (%s, material '%s')\n", name.c_str(), pProgramName,
                                     material.Name.c_str() );
                 }
@@ -1734,42 +1747,42 @@ void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &membe
         // Matrices
         case CK_WorldViewProj:
             WriteMatrix( pOut, member.NumRegisters, member.Class,
-                         pPreciseViewProjection != nullptr
-                             ? ( *pPreciseViewProjection * Matrix4x4d::FromFloat( world ) ).toFloat()
-                             : viewProjection.mulPrecise( world ) );
+                         context.pPreciseViewProjection != nullptr
+                             ? ( *context.pPreciseViewProjection * Matrix4x4d::FromFloat( world ) ).toFloat()
+                             : (*context.pViewProjection).mulPrecise( world ) );
             break;
         case CK_World:
             WriteMatrix( pOut, member.NumRegisters, member.Class, world );
             break;
         case CK_WorldView:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, scene.View.mulPrecise( world ) );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, context.pScene->View.mulPrecise( world ) );
             break;
         case CK_InvWorld:
             WriteMatrix( pOut, member.NumRegisters, member.Class, getInverseWorld() );
             break;
         case CK_InvWorldView:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, scene.View.mulPrecise( world ).inverse() );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, context.pScene->View.mulPrecise( world ).inverse() );
             break;
         case CK_TInvWorldView:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, scene.View.mulPrecise( world ).inverse().transposed() );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, context.pScene->View.mulPrecise( world ).inverse().transposed() );
             break;
         case CK_View:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, scene.View );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, context.pScene->View );
             break;
         case CK_Proj:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, scene.Projection );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, context.pScene->Projection );
             break;
         case CK_ViewProj:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, viewProjection );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, (*context.pViewProjection) );
             break;
         case CK_InvView:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, scene.View.inverse() );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, context.pScene->View.inverse() );
             break;
         case CK_InvProj:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, scene.Projection.inverse() );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, context.pScene->Projection.inverse() );
             break;
         case CK_InvViewProj:
-            WriteMatrix( pOut, member.NumRegisters, member.Class, viewProjection.inverse() );
+            WriteMatrix( pOut, member.NumRegisters, member.Class, (*context.pViewProjection).inverse() );
             break;
         case CK_UVA: {
             // Texture coordinate animation of slot k (.UVA): register rows
@@ -1777,7 +1790,7 @@ void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &membe
             const uint32_t slot = static_cast<uint32_t>( name[6] - '0' );
             if ( slot < 4 && material.UVAnimations[slot] != nullptr ) {
                 Vector4f registers[4];
-                material.UVAnimations[slot]->evaluateRegisters( scene.Time, registers );
+                material.UVAnimations[slot]->evaluateRegisters( context.pScene->Time, registers );
                 for ( uint32_t i = 0; i < member.NumRegisters && i < 4; i++ ) {
                     WriteVector( pOut + i * 4, registers[i] );
                 }
@@ -1798,34 +1811,34 @@ void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &membe
         }
         // Camera / lights
         case CK_CamPos:
-            WriteVector( pOut, getInverseWorld().transformPoint( scene.CameraPosition ), 1.0f );
+            WriteVector( pOut, getInverseWorld().transformPoint( context.pScene->CameraPosition ), 1.0f );
             break;
         case CK_CamDir:
-            WriteVector( pOut, getInverseWorld().transformVector( scene.CameraDirection ).normalized() );
+            WriteVector( pOut, getInverseWorld().transformVector( context.pScene->CameraDirection ).normalized() );
             break;
         case CK_DirLightDir0:
-            WriteVector( pOut, getInverseWorld().transformVector( scene.SunDirection ).normalized() );
+            WriteVector( pOut, getInverseWorld().transformVector( context.pScene->SunDirection ).normalized() );
             break;
         case CK_DirLightDir1:
             WriteVector( pOut, getInverseWorld().transformVector( Vector3f( 0.0f, -1.0f, 0.0f ) ) );
             break;
         case CK_DirLightDiffuse0:
-            WriteVector( pOut, Mul( scene.SunDiffuse, material.Diffuse ), 1.0f );
+            WriteVector( pOut, Mul( context.pScene->SunDiffuse, material.Diffuse ), 1.0f );
             break;
         case CK_DirLightRawDiffuse0:
-            WriteVector( pOut, scene.SunDiffuse, 1.0f );
+            WriteVector( pOut, context.pScene->SunDiffuse, 1.0f );
             break;
         case CK_DirLightSpecular0:
-            WriteVector( pOut, Mul( scene.SunSpecular, material.Specular ), 1.0f );
+            WriteVector( pOut, Mul( context.pScene->SunSpecular, material.Specular ), 1.0f );
             break;
         case CK_Emissive:
             WriteVector( pOut, material.Emissive );
             break;
         case CK_Ambient0:
-            WriteVector( pOut, Mul( scene.Ambient, material.Ambient ), 1.0f );
+            WriteVector( pOut, Mul( context.pScene->Ambient, material.Ambient ), 1.0f );
             break;
         case CK_RawAmbient0:
-            WriteVector( pOut, scene.Ambient, 1.0f );
+            WriteVector( pOut, context.pScene->Ambient, 1.0f );
             break;
         case CK_MaterialSpecular:
             WriteVector( pOut, material.Specular );
@@ -1845,23 +1858,23 @@ void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &membe
         case CK_UserVector: {
             const uint32_t index = static_cast<uint32_t>( name[10] - '0' );
             if ( index < 8 ) {
-                WriteVector( pOut, scene.UserVectors[index] );
+                WriteVector( pOut, context.pScene->UserVectors[index] );
             }
             break;
         }
         case CK_Time:
-            WriteVector( pOut, Vector4f( scene.Time, scene.Time * 0.5f, scene.Time * 0.25f, 1.0f ) );
+            WriteVector( pOut, Vector4f( context.pScene->Time, context.pScene->Time * 0.5f, context.pScene->Time * 0.25f, 1.0f ) );
             break;
         case CK_FogColor:
-            WriteVector( pOut, scene.FogColor, 1.0f );
+            WriteVector( pOut, context.pScene->FogColor, 1.0f );
             break;
         case CK_FogConfig:
-            WriteVector( pOut, scene.FogConfig );
+            WriteVector( pOut, context.pScene->FogConfig );
             break;
         case CK_RenderTargetSize:
             // xy: pixel to UV (shaders sample screen space buffers with vPos * xy)
-            WriteVector( pOut, Vector4f( 1.0f / scene.Width, 1.0f / scene.Height, static_cast<float>( scene.Width ),
-                                         static_cast<float>( scene.Height ) ) );
+            WriteVector( pOut, Vector4f( 1.0f / context.pScene->Width, 1.0f / context.pScene->Height, static_cast<float>( context.pScene->Width ),
+                                         static_cast<float>( context.pScene->Height ) ) );
             break;
         case CK_StereoUvMadd:
             WriteVector( pOut, Vector4f( 1.0f, 1.0f, 0.0f, 0.0f ) );
@@ -1870,6 +1883,16 @@ void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &membe
             break; // second lights, spot lights, real time shadows: disabled
         }
     }
+}
+
+// The D3D9SpecializationInfo block (render/eden/eden_constants.h): the alpha
+// compare op is the one value a material sets (dword 1, bits 21..23) and the
+// shader reads it to decide its own `discard`, so the Vulkan push and a
+// Direct3D 12 backend's spec_state_t cbuffer have to carry the same number.
+void FillEdenSpecConstants( uint32_t pSpec[16], bool bAlphaTest ) {
+    memset( pSpec, 0, kEdenSpecDwords * 4 );
+    const uint32_t alphaCompareOp = bAlphaTest ? VK_COMPARE_OP_GREATER_OR_EQUAL : VK_COMPARE_OP_ALWAYS;
+    pSpec[1] = alphaCompareOp << kSpecAlphaCompareOpShift;
 }
 
 void EdenRenderer::recordDraw( const EdenMesh &mesh, const EdenMaterial &material, const Matrix4x4f &world,
@@ -1937,9 +1960,9 @@ void EdenRenderer::recordDrawImpl( const EdenMesh &mesh, const EdenMaterial &mat
     VkCommandBuffer commandBuffer = pDevice->peekCommandBuffer();
     const VkDeviceSize alignment = pDevice->getUniformBufferAlignment();
 
-    TransientAllocation vsConstants = pDevice->allocateTransient( kVSConstantsSize, alignment );
-    TransientAllocation psConstants = pDevice->allocateTransient( kPSConstantsSize, alignment );
-    TransientAllocation specConstants = pDevice->allocateTransient( kSpecDwords * 4, alignment );
+    TransientAllocation vsConstants = pDevice->allocateTransient( kEdenVSConstantsSize, alignment );
+    TransientAllocation psConstants = pDevice->allocateTransient( kEdenPSConstantsSize, alignment );
+    TransientAllocation specConstants = pDevice->allocateTransient( kEdenSpecDwords * 4, alignment );
     if ( vsConstants.pData == nullptr || psConstants.pData == nullptr || specConstants.pData == nullptr ) {
         return;
     }
@@ -1960,33 +1983,33 @@ void EdenRenderer::recordDrawImpl( const EdenMesh &mesh, const EdenMaterial &mat
     };
     auto clearConstants = []( void *pData, VkDeviceSize totalSize, uint32_t usedRegs ) {
         uint8_t *pBytes = static_cast<uint8_t *>( pData );
-        memset( pBytes, 0, kIntRegistersSize + usedRegs * 16 );
-        memset( pBytes + totalSize - kBoolBitmaskSize, 0, kBoolBitmaskSize );
+        memset( pBytes, 0, kEdenIntRegistersSize + usedRegs * 16 );
+        memset( pBytes + totalSize - kEdenBoolBitmaskSize, 0, kEdenBoolBitmaskSize );
     };
-    clearConstants( vsConstants.pData, kVSConstantsSize,
-                    usedRegisters( pProgram->VSMembers, kVSFloatRegisters, pProgram->VSUsedRegisters ) );
-    clearConstants( psConstants.pData, kPSConstantsSize,
-                    usedRegisters( pProgram->PSMembers, kPSFloatRegisters, pProgram->PSUsedRegisters ) );
+    clearConstants( vsConstants.pData, kEdenVSConstantsSize,
+                    usedRegisters( pProgram->VSMembers, kEdenVSFloatRegisters, pProgram->VSUsedRegisters ) );
+    clearConstants( psConstants.pData, kEdenPSConstantsSize,
+                    usedRegisters( pProgram->PSMembers, kEdenPSFloatRegisters, pProgram->PSUsedRegisters ) );
     fillConstants( pProgram->VSMembers,
-                   reinterpret_cast<float *>( static_cast<uint8_t *>( vsConstants.pData ) + kIntRegistersSize ),
-                   kVSFloatRegisters, material, world, pParams, pProgram->Name.c_str(), false );
+                   reinterpret_cast<float *>( static_cast<uint8_t *>( vsConstants.pData ) + kEdenIntRegistersSize ),
+                   kEdenVSFloatRegisters, material, world, pParams, pProgram->Name.c_str(), false );
     fillConstants( pProgram->PSMembers,
-                   reinterpret_cast<float *>( static_cast<uint8_t *>( psConstants.pData ) + kIntRegistersSize ),
-                   kPSFloatRegisters, material, world, pParams, pProgram->Name.c_str(), true );
+                   reinterpret_cast<float *>( static_cast<uint8_t *>( psConstants.pData ) + kEdenIntRegistersSize ),
+                   kEdenPSFloatRegisters, material, world, pParams, pProgram->Name.c_str(), true );
     static const bool bDumpConstants = CmdLine::HasArg( "-edendumpconstants" );
     if ( bDumpConstants && dumpedPrograms.insert( pProgram->Name ).second ) {
-        const float *pVS = reinterpret_cast<const float *>( static_cast<uint8_t *>( vsConstants.pData ) + kIntRegistersSize );
-        const float *pPS = reinterpret_cast<const float *>( static_cast<uint8_t *>( psConstants.pData ) + kIntRegistersSize );
+        const float *pVS = reinterpret_cast<const float *>( static_cast<uint8_t *>( vsConstants.pData ) + kEdenIntRegistersSize );
+        const float *pPS = reinterpret_cast<const float *>( static_cast<uint8_t *>( psConstants.pData ) + kEdenIntRegistersSize );
         std::string text;
         char line[160];
-        for ( uint32_t r = 0; r < kVSFloatRegisters; r++ ) {
+        for ( uint32_t r = 0; r < kEdenVSFloatRegisters; r++ ) {
             if ( pVS[r * 4] != 0.0f || pVS[r * 4 + 1] != 0.0f || pVS[r * 4 + 2] != 0.0f || pVS[r * 4 + 3] != 0.0f ) {
                 snprintf( line, sizeof( line ), "  vs c%u = %g %g %g %g\n", r, pVS[r * 4], pVS[r * 4 + 1], pVS[r * 4 + 2],
                           pVS[r * 4 + 3] );
                 text += line;
             }
         }
-        for ( uint32_t r = 0; r < kPSFloatRegisters; r++ ) {
+        for ( uint32_t r = 0; r < kEdenPSFloatRegisters; r++ ) {
             if ( pPS[r * 4] != 0.0f || pPS[r * 4 + 1] != 0.0f || pPS[r * 4 + 2] != 0.0f || pPS[r * 4 + 3] != 0.0f ) {
                 snprintf( line, sizeof( line ), "  ps c%u = %g %g %g %g\n", r, pPS[r * 4], pPS[r * 4 + 1], pPS[r * 4 + 2],
                           pPS[r * 4 + 3] );
@@ -1996,10 +2019,7 @@ void EdenRenderer::recordDrawImpl( const EdenMesh &mesh, const EdenMaterial &mat
         OTDU_LOG_INFO( "Eden constants %s (%s):\n%s", pProgram->Name.c_str(), material.Name.c_str(), text.c_str() );
     }
     uint32_t *pSpec = static_cast<uint32_t *>( specConstants.pData );
-    memset( pSpec, 0, kSpecDwords * 4 );
-    const uint32_t alphaCompareOp =
-        material.bAlphaTest ? VK_COMPARE_OP_GREATER_OR_EQUAL : VK_COMPARE_OP_ALWAYS;
-    pSpec[1] = alphaCompareOp << kSpecAlphaCompareOpShift;
+    FillEdenSpecConstants( pSpec, material.bAlphaTest );
 
     // P2 (see drawSetCache in the header): look up the set by the material
     // and the per-pass texture overrides (shadow slot 15, screen, projective)
@@ -2060,11 +2080,11 @@ void EdenRenderer::recordDrawImpl( const EdenMesh &mesh, const EdenMaterial &mat
         // The three transient buffers are the DYNAMIC bindings: base offset 0
         // in the write, the per-draw offset comes at bind time.
         const VkDescriptorBufferInfo bufferInfos[5] = {
-            { vsConstants.Buffer, 0, kVSConstantsSize },
+            { vsConstants.Buffer, 0, kEdenVSConstantsSize },
             { pZeroBuffer->Buffer, 0, 6 * 16 },
-            { psConstants.Buffer, 0, kPSConstantsSize },
+            { psConstants.Buffer, 0, kEdenPSConstantsSize },
             { pZeroBuffer->Buffer, 0, 8 * 64 },
-            { specConstants.Buffer, 0, kSpecDwords * 4 },
+            { specConstants.Buffer, 0, kEdenSpecDwords * 4 },
         };
         const uint32_t bufferBindings[5] = { 0, 3, 10, 12, 31 };
         const VkDescriptorType bufferTypes[5] = {

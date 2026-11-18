@@ -5,8 +5,11 @@
 
 #include "render/d3d12/d3d12_device.h"
 #include "render/d3d12/d3d12_shader.h"
+#include "render/eden/eden_constants.h"
+#include "render/eden/eden_renderer.h"
 #include "render/eden/eden_shader_system.h"
 #include "render/sampler_heap.h"
+#include "render/texture_cache.h"
 #include "render/shaders/builtin/mesh_frag.h"
 #include "render/shaders/builtin/mesh_vert.h"
 #include "render/shaders/dxso_translator.h"
@@ -629,6 +632,26 @@ const void *D3D12Scene::getPipeline( const PipelineDesc &desc ) {
     pso.NodeMask = 0;
 
     ID3D12PipelineState *pState = nullptr;
+    if ( Logger::IsVerbose() ) {
+        std::string layoutText;
+        char element[96];
+        for ( uint32_t i = 0; i < desc.NumAttributes; i++ ) {
+            snprintf( element, sizeof( element ), "%s%u:s%u+f%u/%u ", layout[i].SemanticName,
+                      layout[i].SemanticIndex, layout[i].InputSlot, layout[i].Format,
+                      layout[i].AlignedByteOffset );
+            layoutText += element;
+        }
+        std::string strides;
+        for ( uint32_t i = 0; i < desc.NumStreams; i++ ) {
+            strides += ( i > 0 ? "," : "" ) + std::to_string( desc.pStrides[i] );
+        }
+        OTDU_LOG_DEBUG( "D3D12 scene: creating pipeline (%u attribute(s) [%s], stride %s, vs %zu B, ps %zu B, "
+                        "blend %d, cull %d, depth %d/%d)\n",
+                        desc.NumAttributes, layoutText.c_str(), strides.c_str(), desc.pVS->Bytecode.size(),
+                        desc.pPS->Bytecode.size(), static_cast<int>( desc.pState != nullptr ),
+                        static_cast<int>( desc.pState != nullptr ? desc.pState->CullMode : 0 ),
+                        desc.bDepthTest ? 1 : 0, desc.bDepthWrite ? 1 : 0 );
+    }
     const HRESULT result = pD3D12Device->CreateGraphicsPipelineState( &pso, IID_PPV_ARGS( &pState ) );
     if ( FAILED( result ) ) {
         OTDU_LOG_ERROR( "D3D12 scene: CreateGraphicsPipelineState failed (0x%08x)\n",
@@ -1566,6 +1589,506 @@ bool D3D12RunConstTest( D3D12Device &device, uint32_t frames, const ColorRGBA &c
                            : "a half reads the wrong colour - see the means (red on the right: b1 "
                              "did not move the quad; 255 green: b2 did not reach the shader; 255 red "
                              "on the left: the blend state did not apply)" );
+    return bPassed;
+}
+
+// -d3d12-edentest (docs/backends.md section 3.8): the first *original* TDU2
+// shader drawn by the Direct3D 12 backend.
+//
+// Each link of the chain is already proved on its own - every .sob stage compiles
+// (3.5), the sampler heap indexes (3.6), the constants and the D3D9 state arrive
+// (3.7) - and this is the same chain with Eden's own material data: a real
+// permutation of a real library, its constant file written by the shared
+// FillEdenConstants, its texture in the t0 table, its state in the pipeline.
+//
+// The one thing the probe cannot have is a `.2DM`: a material's parameter values
+// live in the game's material banks, and loading one needs the resource manager.
+// So the float registers the filler has no value for start at 1.0 rather than
+// black (a black frame would hide whether the shader ran), and the log says how
+// many registers the filler actually wrote.
+struct EdenProbePermutation {
+    uint32_t VSAttrib = 0;
+    uint32_t PSAttrib = 0;
+    std::vector<uint8_t> Spec;
+};
+
+// The library's simplest permutations - unskinned, opaque, not the depth or
+// shadow-caster pass, at least one declared texture - with the VS/PS attrib
+// indices that share each one's hashcode. Picking a permutation from the library
+// (instead of inventing a spec) is what a material does, so the program the probe
+// draws is one the game really uses. Several are returned because the caller
+// still has to compile them: only the compiled stage knows how many textures it
+// actually samples, and the probe wants exactly one (the engine's checker).
+static uint32_t CollectProbePermutations( ShaderLibrary &library, std::vector<EdenProbePermutation> &out,
+                                          uint32_t max ) {
+    const ShaderLibrary::Profile *pVS = library.getProfile( ShaderLibrary::SP_VertexShader );
+    const ShaderLibrary::Profile *pPS = library.getProfile( ShaderLibrary::SP_PixelShader );
+    if ( pVS == nullptr || pPS == nullptr ) {
+        return 0;
+    }
+    out.clear();
+    uint32_t considered = 0;
+    for ( const ShaderLibrary::Item &item : pPS->Items ) {
+        if ( item.Spec.size() <= EdenShaderSystem::S_PASS_SHADOWRECEIVE ) {
+            continue;
+        }
+        if ( item.Spec[EdenShaderSystem::S_NBTEXTURES] < 1 || item.Spec[EdenShaderSystem::S_USESKINNING] != 0 ||
+             item.Spec[EdenShaderSystem::S_USEALPHATEST] != 0 || item.Spec[EdenShaderSystem::S_PASS_Z] != 0 ||
+             item.Spec[EdenShaderSystem::S_PASS_SHADOWCAST] != 0 ) {
+            continue;
+        }
+        considered++;
+        for ( const ShaderLibrary::Item &vsItem : pVS->Items ) {
+            if ( vsItem.Hashcode != item.Hashcode ) {
+                continue;
+            }
+            EdenProbePermutation permutation;
+            permutation.VSAttrib = vsItem.AttribIndex;
+            permutation.PSAttrib = item.AttribIndex;
+            permutation.Spec = item.Spec;
+            permutation.Spec.resize( EdenShaderSystem::kNumSpecs, 0 );
+            out.push_back( std::move( permutation ) );
+            break;
+        }
+        if ( out.size() >= max ) {
+            break;
+        }
+    }
+    if ( considered > 0 && out.empty() ) {
+        OTDU_LOG_WARN( "D3D12 Eden test: %s has %u simple permutation(s) but no VS item with the same "
+                       "hashcode\n",
+                       library.getName().c_str(), considered );
+    }
+    return static_cast<uint32_t>( out.size() );
+}
+
+// The probe's draw: the program's own VS/PS, its constant file, its texture.
+static bool DrawEdenProbe( D3D12Device &device,
+                           const char *pLibraryName,
+                           const EdenProgram &program,
+                           const EdenProbePermutation &permutation,
+                           const D3D12ShaderStage &vs,
+                           const D3D12ShaderStage &ps,
+                           bool &outRetry ) {
+    outRetry = false;
+    // 1. The scene. A camera three metres in front of a quad at the origin, built
+    //    the way EdenSceneView::setupScene builds one (cameraWorld is
+    //    T(position) * rotation * S(-1,1,-1), the view is its inverse, the
+    //    projection is D3DXMatrixPerspectiveFovRH / EdenPerspectiveFovRH).
+    const float width = static_cast<float>( device.getBackbufferWidth() );
+    const float height = Max( 1.0f, static_cast<float>( device.getBackbufferHeight() ) );
+    const float aspect = width / height;
+    const float fovY = 60.0f * ( 3.14159265358979323846f / 180.0f );
+    const float zNear = 0.1f;
+    const float zFar = 1000.0f;
+    const float cotangent = 1.0f / std::tan( fovY * 0.5f );
+
+    EdenSceneParams scene;
+    scene.View = ( Matrix4x4f::Translation( Vector3f( 0.0f, 0.0f, -3.0f ) ) *
+                   Matrix4x4f::Scale( Vector3f( -1.0f, 1.0f, -1.0f ) ) ).inverse();
+    scene.Projection = Matrix4x4f::Identity();
+    scene.Projection.m[0][0] = cotangent / aspect;
+    scene.Projection.m[1][1] = cotangent;
+    scene.Projection.m[2][2] = zFar / ( zNear - zFar );
+    scene.Projection.m[2][3] = -1.0f;
+    scene.Projection.m[3][2] = zNear * zFar / ( zNear - zFar );
+    scene.Projection.m[3][3] = 0.0f;
+    scene.CameraPosition = Vector3f( 0.0f, 0.0f, -3.0f );
+    scene.CameraDirection = Vector3f( 0.0f, 0.0f, 1.0f );
+    // From behind the camera, so a quad facing it is lit rather than ambient only
+    // (Eden's light direction is the direction the light travels).
+    scene.SunDirection = Vector3f( 0.25f, -0.35f, 0.9f ).normalized();
+    scene.Width = device.getBackbufferWidth();
+    scene.Height = device.getBackbufferHeight();
+    scene.Time = 0.0f;
+
+    const Matrix4x4f world = Matrix4x4f::Identity();
+    const Matrix4x4f viewProjection = scene.Projection.mulPrecise( scene.View );
+
+    EdenMaterial material;
+    material.Name = std::string( pLibraryName ) + " (probe)";
+    material.ShaderSetGUID = program.ShaderSetGUID;
+    material.pProgram = &program;
+    memcpy( material.Spec, permutation.Spec.data(),
+            Min<size_t>( permutation.Spec.size(), EdenShaderSystem::kNumSpecs ) );
+    material.CullMode = 1; // a test quad's winding is not what is being proved
+    material.NumSlots = 1;
+
+    // 2. The constant file, filled by the very code the Vulkan renderer runs -
+    //    the point of the shared filler. The registers it has no value for keep
+    //    the 1.0 stand-in (there is no .2DM behind this material).
+    std::vector<uint8_t> vsBlock( kEdenVSConstantsSize, 0 );
+    std::vector<uint8_t> psBlock( kEdenPSConstantsSize, 0 );
+    float *pVSRegisters = reinterpret_cast<float *>( vsBlock.data() + kEdenIntRegistersSize );
+    float *pPSRegisters = reinterpret_cast<float *>( psBlock.data() + kEdenIntRegistersSize );
+    for ( uint32_t i = 0; i < kEdenVSFloatRegisters * 4; i++ ) {
+        pVSRegisters[i] = 1.0f;
+    }
+    for ( uint32_t i = 0; i < kEdenPSFloatRegisters * 4; i++ ) {
+        pPSRegisters[i] = 1.0f;
+    }
+    std::unordered_set<std::string> warned;
+    EdenConstantsContext context;
+    context.pScene = &scene;
+    context.pViewProjection = &viewProjection;
+    context.SceneEpoch = 1;
+    context.pWarned = &warned;
+    FillEdenConstants( context, program.VSMembers, pVSRegisters, kEdenVSFloatRegisters, material, world, nullptr,
+                       program.Name.c_str(), false );
+    FillEdenConstants( context, program.PSMembers, pPSRegisters, kEdenPSFloatRegisters, material, world, nullptr,
+                       program.Name.c_str(), true );
+    uint32_t specDwords[kEdenSpecDwords] = {};
+    FillEdenSpecConstants( specDwords, material.bAlphaTest );
+
+    // 3. The mesh: a quad whose attributes are the VS's own dcl list. Every
+    //    attribute is R32G32B32A32 (SPIRV-Cross emits every vertex input as a
+    //    float4 and the shader swizzles), and the value comes from the
+    //    D3DDECLUSAGE the shader declared - the data a real mesh would carry.
+    constexpr uint32_t kDXGI_R32G32B32A32_FLOAT = 2;
+    const uint32_t numAttributes = Min<uint32_t>( static_cast<uint32_t>( program.pVS->Inputs.size() ), 8 );
+    if ( numAttributes == 0 ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: %s's vertex shader declares no input\n", pLibraryName );
+        return false;
+    }
+    const uint32_t stride = numAttributes * 16;
+    D3D12Scene::Attribute attributes[8] = {};
+    for ( uint32_t i = 0; i < numAttributes; i++ ) {
+        attributes[i].Location = program.pVS->Inputs[i].Location;
+        attributes[i].Stream = 0;
+        attributes[i].Format = kDXGI_R32G32B32A32_FLOAT;
+        attributes[i].Offset = i * 16;
+    }
+    std::vector<float> vertexData( static_cast<size_t>( 4 ) * numAttributes * 4, 0.0f );
+    const float corners[4][2] = { { -1.0f, -1.0f }, { -1.0f, 1.0f }, { 1.0f, 1.0f }, { 1.0f, -1.0f } };
+    for ( uint32_t v = 0; v < 4; v++ ) {
+        for ( uint32_t i = 0; i < numAttributes; i++ ) {
+            float *pValue = &vertexData[( static_cast<size_t>( v ) * numAttributes + i ) * 4];
+            switch ( program.pVS->Inputs[i].Usage ) {
+            case 0: // D3DDECLUSAGE_POSITION
+                pValue[0] = corners[v][0] * 0.8f;
+                pValue[1] = corners[v][1] * 0.8f;
+                pValue[2] = 0.0f;
+                pValue[3] = 1.0f;
+                break;
+            case 3: // NORMAL: facing the camera
+                pValue[2] = -1.0f;
+                break;
+            case 5: // TEXCOORD
+                pValue[0] = corners[v][0] * 0.5f + 0.5f;
+                pValue[1] = 1.0f - ( corners[v][1] * 0.5f + 0.5f );
+                break;
+            case 1: // BLENDWEIGHT
+                pValue[0] = 1.0f;
+                break;
+            case 6: // TANGENT
+                pValue[0] = 1.0f;
+                break;
+            case 7: // BINORMAL
+                pValue[1] = 1.0f;
+                break;
+            case 10: // COLOR
+                pValue[0] = pValue[1] = pValue[2] = pValue[3] = 1.0f;
+                break;
+            default: // BLENDINDICES, PSIZE, FOG, DEPTH, TESSFACTOR: zero
+                break;
+            }
+        }
+    }
+    const uint32_t indices[6] = { 0, 1, 2, 0, 2, 3 };
+
+    // 4. The material's texture: the engine's own checker (TextureCache uploads
+    //    it through the D3D12 path), bound as t0 - the one slot this
+    //    permutation declares.
+    TextureCache textureCache;
+    textureCache.initialize( &device );
+    GPUTexture *pChecker = textureCache.getCheckerTexture();
+    if ( pChecker == nullptr || pChecker->D3D12SrvStorageCpu == 0 ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: the checker texture could not be uploaded\n" );
+        return false;
+    }
+    material.pTextures[0] = pChecker;
+    material.SamplerIndex[0] = SH_LinearWrap;
+
+    // 5. The pipeline (the material's own D3D9 state) and the quad.
+    D3D12Scene sceneRenderer;
+    if ( !sceneRenderer.initialize( &device ) ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: the scene could not be initialised\n" );
+        return false;
+    }
+    if ( const char *pDump = CmdLine::GetArgValue( "-d3d12-dump-shaders" ) ) {
+        sceneRenderer.setShaderDumpDir( pDump );
+    }
+    D3D12Scene::PipelineDesc desc;
+    desc.pVS = &vs;
+    desc.pPS = &ps;
+    desc.pAttributes = attributes;
+    desc.NumAttributes = numAttributes;
+    desc.pStrides = &stride;
+    desc.NumStreams = 1;
+    D3D12Scene::D3D9State state;
+    state.SrcBlend = material.SrcBlend;
+    state.DstBlend = material.DstBlend;
+    state.BlendOp = material.BlendOp;
+    state.DepthFunc = material.DepthFunc;
+    state.ColorWriteMask = material.ColorWriteMask;
+    state.CullMode = material.CullMode;
+    desc.pState = &state;
+    desc.bDepthTest = material.bDepthTest;
+    desc.bDepthWrite = material.bDepthWrite;
+    const void *pPipeline = sceneRenderer.getPipeline( desc );
+    if ( pPipeline == nullptr ) {
+        // D3D12 refused this pair (its DXBC or the state drawn from it): the
+        // caller tries the next candidate, and the log names this one.
+        outRetry = true;
+        OTDU_LOG_WARN( "D3D12 Eden test: %s vs%u/ps%u was compiled but the device refused the "
+                       "pipeline\n",
+                       pLibraryName, permutation.VSAttrib, permutation.PSAttrib );
+        sceneRenderer.destroy();
+        return false;
+    }
+    D3D12Scene::Mesh mesh;
+    if ( !sceneRenderer.createMesh( vertexData.data(),
+                                    static_cast<uint32_t>( vertexData.size() * sizeof( float ) ), stride,
+                                    indices, 6, mesh ) ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: the quad could not be uploaded\n" );
+        sceneRenderer.destroy();
+        return false;
+    }
+
+    // 6. The cbuffers by what they are: SPIRV-Cross hands back the *instance*
+    //    names DXSO emitted (`c`, `spec_state`, `clip_info`, `D3D9SharedPS`), not
+    //    the type names in the HLSL, so the rule is a shape rather than a string:
+    //    anything that names the specialization state is the spec block, the
+    //    clip/shared blocks stay the zero block (the Vulkan renderer binds a zero
+    //    buffer there too) and everything else is the stage's constant file.
+    D3D12Scene::StageConstants vsConstants = {};
+    D3D12Scene::StageConstants psConstants = {};
+    auto assignBlocks = []( const D3D12ShaderStage &stage, D3D12Scene::StageConstants &out, const void *pFile,
+                            uint32_t fileBytes, const void *pSpec, uint32_t specBytes ) {
+        std::string bound;
+        for ( uint32_t i = 0; i < stage.ConstantBufferNames.size() && i < D3D12Scene::kMaxConstantBuffers; i++ ) {
+            const std::string name = ToUpper( stage.ConstantBufferNames[i] );
+            const char *pWhat = "zero";
+            if ( name.find( "SPEC" ) != std::string::npos ) {
+                out.pData[i] = pSpec;
+                out.Sizes[i] = specBytes;
+                pWhat = "spec";
+            } else if ( name.find( "CLIP" ) == std::string::npos && name.find( "SHARED" ) == std::string::npos ) {
+                out.pData[i] = pFile;
+                out.Sizes[i] = fileBytes;
+                pWhat = "file";
+            }
+            if ( !bound.empty() ) {
+                bound += ", ";
+            }
+            bound += "b" + std::to_string( i ) + "=" + pWhat;
+        }
+        return bound;
+    };
+    const std::string vsBinding = assignBlocks( vs, vsConstants, vsBlock.data(),
+                                                static_cast<uint32_t>( vsBlock.size() ), specDwords,
+                                                sizeof( specDwords ) );
+    const std::string psBinding = assignBlocks( ps, psConstants, psBlock.data(),
+                                                static_cast<uint32_t>( psBlock.size() ), specDwords,
+                                                sizeof( specDwords ) );
+    auto listBuffers = []( const D3D12ShaderStage &stage ) {
+        std::string names;
+        for ( const std::string &name : stage.ConstantBufferNames ) {
+            names += names.empty() ? name : ( ", " + name );
+        }
+        return names;
+    };
+    OTDU_LOG_INFO( "D3D12 Eden test: %s vs%u/ps%u (one texture, unskinned, opaque); cbuffers vs [%s] %s, ps "
+                   "[%s] %s\n",
+                   pLibraryName, permutation.VSAttrib, permutation.PSAttrib, listBuffers( vs ).c_str(),
+                   vsBinding.c_str(), listBuffers( ps ).c_str(), psBinding.c_str() );
+
+    // 7. The frames. The backdrop is magenta, so any pixel the shader painted is
+    //    unambiguous; the push block is zero (= alpha reference 0, every slot
+    //    sampling heap entry 0, linear wrap).
+    const uint32_t frames = 30;
+    const ColorRGBA clearColor( 1.0f, 0.0f, 1.0f, 1.0f );
+    uint8_t push[128] = {};
+    if ( const char *pShot = CmdLine::GetArgValue( "-renderer-shot" ) ) {
+        device.requestScreenshot( pShot );
+    }
+    uint32_t presented = 0;
+    for ( uint32_t i = 0; i < frames; i++ ) {
+        SDL_Event event;
+        while ( SDL_PollEvent( &event ) ) {
+            if ( event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ) {
+                break;
+            }
+        }
+        if ( !device.beginFrame( clearColor ) ) {
+            break;
+        }
+        sceneRenderer.draw( pPipeline, mesh, push, sizeof( push ), &pChecker->D3D12SrvStorageCpu, 1, &vsConstants,
+                            &psConstants, material.BlendFactor );
+        if ( i + 1 == frames ) {
+            device.requestReadback();
+        }
+        device.endFrame();
+        presented++;
+        if ( device.hasDeviceLost() ) {
+            break;
+        }
+    }
+    device.waitIdle();
+    const std::vector<uint8_t> &pixels = device.getLastReadback();
+
+    sceneRenderer.destroyMesh( mesh );
+    sceneRenderer.destroy();
+    textureCache.destroy();
+
+    if ( presented == 0 || device.hasDeviceLost() || pixels.empty() ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: %s\n",
+                        device.hasDeviceLost() ? "the device was lost" : "no frame was presented" );
+        return false;
+    }
+
+    // 8. The measurement: the pixels that are not the backdrop, their mean, and
+    //    how many float registers the filler wrote (the rest is the 1.0 stand-in
+    //    a real .2DM replaces).
+    const uint32_t pixelWidth = device.getBackbufferWidth();
+    const uint32_t pixelHeight = device.getBackbufferHeight();
+    const uint32_t totalPixels = pixelWidth * pixelHeight;
+    if ( pixels.size() < static_cast<size_t>( totalPixels ) * 4 ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: the readback is %zu bytes, expected %u\n", pixels.size(),
+                        totalPixels * 4 );
+        return false;
+    }
+    double sum[3] = {};
+    uint32_t covered = 0;
+    for ( uint32_t y = 0; y < pixelHeight; y++ ) {
+        for ( uint32_t x = 0; x < pixelWidth; x++ ) {
+            const uint8_t *pPixel = &pixels[( static_cast<size_t>( y ) * pixelWidth + x ) * 4];
+            if ( pPixel[0] >= 249 && pPixel[1] <= 6 && pPixel[2] >= 249 ) {
+                continue; // the backdrop
+            }
+            sum[0] += pPixel[0];
+            sum[1] += pPixel[1];
+            sum[2] += pPixel[2];
+            covered++;
+        }
+    }
+    auto countWritten = []( const float *pRegisters, uint32_t numRegisters ) {
+        uint32_t written = 0;
+        for ( uint32_t r = 0; r < numRegisters; r++ ) {
+            const float *pRegister = pRegisters + r * 4;
+            if ( pRegister[0] != 1.0f || pRegister[1] != 1.0f || pRegister[2] != 1.0f ||
+                 pRegister[3] != 1.0f ) {
+                written++;
+            }
+        }
+        return written;
+    };
+    const float mean[3] = { covered > 0 ? static_cast<float>( sum[0] / covered ) : 0.0f,
+                            covered > 0 ? static_cast<float>( sum[1] / covered ) : 0.0f,
+                            covered > 0 ? static_cast<float>( sum[2] / covered ) : 0.0f };
+    const bool bDrew = covered >= Max<uint32_t>( 1, totalPixels / 50 ) &&
+                       ( std::fabs( mean[0] - 255.0f ) > 8.0f || mean[1] > 8.0f ||
+                         std::fabs( mean[2] - 255.0f ) > 8.0f );
+    OTDU_LOG_INFO( "D3D12 Eden test: %u frame(s) of a quad on '%s' (%ux%u); %u px covered (%.2f %%), mean "
+                   "%.1f/%.1f/%.1f; %u of %u vs and %u of %u ps registers written\n",
+                   presented, device.getDeviceName(), pixelWidth, pixelHeight, covered,
+                   totalPixels > 0 ? 100.0f * static_cast<float>( covered ) / static_cast<float>( totalPixels )
+                                   : 0.0f,
+                   mean[0], mean[1], mean[2], countWritten( pVSRegisters, kEdenVSFloatRegisters ),
+                   kEdenVSFloatRegisters, countWritten( pPSRegisters, kEdenPSFloatRegisters ),
+                   kEdenPSFloatRegisters );
+    OTDU_LOG_INFO( "D3D12 Eden test: %s (%s)\n", bDrew ? "PASSED" : "FAILED",
+                   bDrew ? "the original shader painted the quad on Direct3D 12"
+                         : "the quad is not on the frame, or the shader wrote the backdrop colour" );
+    return bDrew;
+}
+
+// -d3d12-edentest: shaders, a hidden window and the device, then the probe.
+// This runs in the bootstrap (tdu_instance.cpp) right after the file service,
+// because it needs Euro/Shaders - the same place -d3d12-shadertest runs.
+bool D3D12RunEdenTest() {
+    static const char *kCandidates[] = { "TD_CarAlpha",    "TD_CloudsPerlin", "TD_ElectricalNetwork",
+                                         "TD_ChipsStack",  "TD_LightBeam",    "TD_Lamp",
+                                         "TD_GPS",         "TD_Flare" };
+    EdenShaderSystem shaderSystem;
+    if ( !shaderSystem.initialize() ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: the shader libraries could not be loaded (Euro/Shaders)\n" );
+        return false;
+    }
+
+    bool bPassed = false;
+    bool bAbort = false;
+    SDL_Window *pWindow = nullptr;
+    if ( SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
+        pWindow = SDL_CreateWindow( "OpenTDU2 - Eden on Direct3D 12", 1280, 720, SDL_WINDOW_HIDDEN );
+    }
+    if ( pWindow == nullptr ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: no window: %s\n", SDL_GetError() );
+        bAbort = true;
+    }
+
+    D3D12Device device;
+    if ( !bAbort && !device.create( pWindow, /*bVSync=*/false, CmdLine::HasArg( "-d3d12-debug" ) ) ) {
+        OTDU_LOG_ERROR( "D3D12 Eden test: the device could not be created\n" );
+        bAbort = true;
+    }
+
+    // Two passes over the candidates: a permutation that samples exactly one
+    // texture first (the checker then proves the whole texture path), then any
+    // simple one. A pair the device refuses is a reason to try the next
+    // candidate - the log names it, so the gap is visible rather than fatal.
+    for ( int pass = 0; pass < 2 && !bPassed && !bAbort; pass++ ) {
+        const bool bRequireTexture = pass == 0;
+        for ( const char *pName : kCandidates ) {
+            ShaderLibrary *pLibrary = shaderSystem.findLibrary( pName );
+            if ( pLibrary == nullptr ) {
+                OTDU_LOG_WARN( "D3D12 Eden test: no library '%s' in Euro/Shaders\n", pName );
+                continue;
+            }
+            std::vector<EdenProbePermutation> permutations;
+            if ( CollectProbePermutations( *pLibrary, permutations, 4 ) == 0 ) {
+                OTDU_LOG_WARN( "D3D12 Eden test: %s has no one-texture unskinned opaque permutation\n",
+                               pName );
+                continue;
+            }
+            for ( const EdenProbePermutation &permutation : permutations ) {
+                const EdenProgram *pProgram = shaderSystem.getProgram( pName, permutation.VSAttrib,
+                                                                       permutation.PSAttrib );
+                if ( pProgram == nullptr || pProgram->pVS == nullptr || pProgram->pPS == nullptr ) {
+                    continue;
+                }
+                D3D12ShaderStage vs;
+                D3D12ShaderStage ps;
+                if ( !D3D12ShaderCompiler::compile( *pProgram->pVS, vs, pName ) ||
+                     !D3D12ShaderCompiler::compile( *pProgram->pPS, ps, pName ) ) {
+                    OTDU_LOG_WARN( "D3D12 Eden test: %s vs%u/ps%u does not compile: %s %s\n", pName,
+                                   permutation.VSAttrib, permutation.PSAttrib, vs.Error.c_str(),
+                                   ps.Error.c_str() );
+                    continue;
+                }
+                if ( bRequireTexture ? ps.NumTextures != 1 : ps.NumTextures > 1 ) {
+                    continue;
+                }
+                bool bRetry = false;
+                bPassed = DrawEdenProbe( device, pName, *pProgram, permutation, vs, ps, bRetry );
+                if ( bPassed || !bRetry ) {
+                    break;
+                }
+            }
+            if ( bPassed ) {
+                break;
+            }
+        }
+    }
+
+    device.destroy();
+    if ( pWindow != nullptr ) {
+        SDL_DestroyWindow( pWindow );
+    }
+    if ( SDL_WasInit( SDL_INIT_VIDEO ) ) {
+        SDL_QuitSubSystem( SDL_INIT_VIDEO );
+    }
+    shaderSystem.destroy();
     return bPassed;
 }
 

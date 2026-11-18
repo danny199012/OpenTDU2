@@ -16,7 +16,122 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-18 (ninety-seventh, `cline`): an original TDU2 shader draws on Direct3D 12 - `-d3d12-edentest` puts `TD_Lamp vs5/ps1` on the frame through the *shared* constant filler, identical on WARP, and finds a vertex stage the device refuses
+
+Continuation of the entry below on *"please continue with Direct X 12 support
+thanks"*: phase 3b **step 2a**, the first end-to-end Eden draw. The last entry
+left "step 2 proper: hand `EdenRenderer`'s `PipelineDesc` to
+`D3D12Scene::getPipeline`" as the next step; before touching the renderer itself
+the chain was proved with Eden's own data in one measurable draw, and that
+needed one shared piece - the constant filler - to stop being the renderer's
+private member (`docs/backends.md` 3.8, 4, 5, 6).
+
+### What changed
+
+- `source/render/eden/eden_constants.h` (new) - `EdenConstantsContext` and
+  **`FillEdenConstants`**: the 320-line rule set that fills a stage's D3D9
+  constant file, lifted out of `EdenRenderer::fillConstants` with its inputs
+  explicit (the scene, the derived view-projection, the precise variant, the
+  scene epoch, the verbose warning set). Also `kEdenIntRegistersSize` /
+  `kEdenVSFloatRegisters` / `kEdenPSFloatRegisters` / `kEdenBoolBitmaskSize` /
+  `kEdenVSConstantsSize` / `kEdenPSConstantsSize` / `kEdenSpecDwords` - the
+  layout `cbuffer cbuffer_t { int4 c_i[16]; float4 c_f[N]; }` reads - and
+  `FillEdenSpecConstants` (the D3D9SpecializationInfo block, whose dword 1 bits
+  21..23 are the alpha compare op).
+- `source/render/eden/eden_renderer.cpp` - `fillConstants` is now a wrapper that
+  builds the context from `scene` / `viewProjection` / `pPreciseViewProjection` /
+  `sceneEpoch` / `warnedParameters`; the spec block's write is
+  `FillEdenSpecConstants`. The old local constants are gone (the rename moved 21
+  references to the shared names), so the two backends cannot drift on a size.
+- `source/render/d3d12/d3d12_shader.{h,cpp}` - `D3D12ShaderStage::ConstantBufferNames`:
+  what `RemapResources` put at b0..bN, taken from `compiler.get_name()`.
+- `source/render/d3d12/d3d12_scene.cpp` - **`-d3d12-edentest`**
+  (`D3D12RunEdenTest` + `DrawEdenProbe` + `CollectProbePermutations`): loads
+  Euro/Shaders, picks a library's simple permutation (unskinned, opaque, not
+  Z/shadow-cast, exactly one sampled texture, in that order of preference across
+  a candidate list), compiles both stages, builds a quad whose attributes are the
+  VS's own dcl list (usage -> position / normal / uv / colour, R32G32B32A32),
+  fills both constant files with `FillEdenConstants` (unknown material registers
+  keep a 1.0 stand-in - there is no `.2DM` behind the probe), binds the engine's
+  checker into t0, draws into a magenta frame, reads it back and measures. The
+  cbuffers are bound by *shape* (spec / clip+shared / constant file) because
+  SPIRV-Cross reports instance names, not type names.
+- `source/render/d3d12/d3d12_scene.cpp` - a verbose line in `getPipeline` that
+  lists the input layout, the strides and the bytecode sizes, and an
+  `outRetry` path so a pair the device refuses sends the probe to the next
+  candidate instead of failing the run.
+- `source/tdu_instance.cpp` - `-d3d12-edentest` dispatched next to
+  `-d3d12-shadertest` right after the file service (both end the bootstrap).
+- `docs/backends.md` - status matrix row, the new flag, **section 3.8**, section
+  5 (step 2a, next = 2b), section 6 (two new traps: the instance-name trap, and
+  "compiled is not the same as bindable").
+- `PROGRESS.md` - the D3D12 row; `docs/images/d3d12_eden_test.webp` - the frame.
+
+
+
+### Verified (build 225 (82fa215+dirty) - cline)
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-edentest -d3d12-debug `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx `
+    -renderer-shot E:\Cline\_st_eden.ppm -log E:\Cline\_st_eden.log
+```
+
+```
+D3D12 Eden test: TD_Lamp vs5/ps1 (one texture, unskinned, opaque); cbuffers vs [c, spec_state, clip_info]
+  b0=file, b1=spec, b2=zero, ps [c, D3D9SharedPS, spec_state] b0=file, b1=zero, b2=spec
+D3D12 Eden test: 30 frame(s) of a quad on 'NVIDIA GeForce RTX 5070 Ti' (1280x720);
+  110224 px covered (11.96 %), mean 43.0/48.0/57.5; 6 of 256 vs and 0 of 224 ps registers written
+D3D12 Eden test: PASSED (the original shader painted the quad on Direct3D 12)
+```
+
+- 47 colours in the frame: the checker's two shades *lit* - `(36,40,48)` and
+  `(50,56,67)`, 43216 px each, i.e. the 64x64 8-pixel checker `TextureCache`
+  uploads, sampled through the sampler heap and modulated by the constants.
+- `110224 px` is the probe camera's arithmetic (a +-0.8 quad 3 m in front of a
+  60-degree vertical FOV), so the coverage check is exact.
+- **WARP: same library, same `110224 px`, same mean `43.0/48.0/57.5`**; debug
+  layer silent on both.
+- **No regression**: scene test PPM byte-identical (`SHA256
+  E505B37F0063C775...C3F778CEB`), `-d3d12-constest` 128.0/0.0/127.0 vs
+  0.0/127.0/0.0, `-d3d12-samplertest` 135.0/40.0/135.0 vs 87.5/40.0/182.5, and a
+  Vulkan `-notitlescene` frame renders normally (17105 distinct colours,
+  55.17 % non-black against the documented 17095 - the movie moment, not the
+  filler, whose diff is a move).
+
+### Ruled out (with the test that ruled it out)
+
+- **"the filler has to be duplicated on the D3D12 side"** - no: the same
+  `FillEdenConstants` the Vulkan renderer calls per draw produced this frame's
+  constants, and the scene test's PPM (built-in shaders, no constants) did not
+  move, so the extraction is a move, not a change.
+- **"`cbuffer_t` is a name we can match"** - no: the compiler reports the
+  *instance* names (`c`, `spec_state`, `clip_info`). The first run bound nothing,
+  the quad collapsed to a point and the frame had 0 covered pixels; the binding
+  is now by shape.
+- **"a textured permutation is not possible yet"** - it is: `TD_Lamp vs5/ps1`
+  samples t0 through the sampler heap and the D3D9 state drives the pipeline.
+- **"if every stage compiles (3.5), every stage can be bound"** - no:
+  `TD_LightBeam vs2`'s DXBC compiles and `CreateGraphicsPipelineState` rejects it
+  with `E_INVALIDARG` and no debug message, even with a three-line pixel shader
+  in place - so it is the vertex bytecode. Named below.
+
+### Next
+
+1. **Close the PSO rejection**: rebuild the refused pipeline as a
+   `D3D12_PIPELINE_STATE_STREAM_DESC` (`ID3D12Device::CreatePipelineState`), which
+   names the offending subobject, and diff `TD_LightBeam vs2`'s VS against
+   `TD_Lamp vs5`'s (accepted). One-line repro: `-renderer d3d12
+   -d3d12-edentest -d3d12-debug -verbose ...` - the log names the pair.
+2. **Step 2b**: `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at
+   `D3D12Scene` (`FillEdenConstants` -> the b0 CBVs, the push constants, the
+   sampler heap and the texture table it already binds), then the render targets
+   / shadow / reflection passes and the 3D game modes.
+3. Still open from before: the ImGui-on-NVIDIA stall (`-d3d12-ui`; WARP is fine)
+   and the flaky process teardown (section 6).
+
 ## Session 2026-11-18 (ninety-sixth, `cline`): the Direct3D 12 constant buffers and the D3D9 material state - `-d3d12-constest` reads back the exact arithmetic on the RTX 5070 Ti and on WARP
+
 
 Continuation of the entry below on *"please continue with Direct X 12 support
 thanks"*: phase 3b **step 1d**. The last entry ended with "step 2 proper: hand

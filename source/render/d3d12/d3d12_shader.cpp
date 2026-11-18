@@ -21,10 +21,14 @@ uint32_t AlignUp( uint32_t value, uint32_t alignment ) {
 // (see the header). The index is the position in the reflection list, which is
 // deterministic for a given blob (the resources come back in SPIR-V id order).
 void RemapResources( spirv_cross::CompilerHLSL &compiler, uint32_t &outTextures, uint32_t &outSamplers,
-                     uint32_t &outConstantBuffers, const char *pDebugName ) {
+                     uint32_t &outConstantBuffers, std::vector<std::string> *pConstantBufferNames,
+                     const char *pDebugName ) {
     outTextures = 0;
     outSamplers = 0;
     outConstantBuffers = 0;
+    if ( pConstantBufferNames != nullptr ) {
+        pConstantBufferNames->clear();
+    }
 
     const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
     const spirv_cross::ExecutionModel model = compiler.get_execution_model();
@@ -49,6 +53,13 @@ void RemapResources( spirv_cross::CompilerHLSL &compiler, uint32_t &outTextures,
         binding.cbv.register_space = 0;
         binding.cbv.register_binding = cbv;
         compiler.add_hlsl_resource_binding( binding );
+        // The name is what tells a caller which block landed at b<N>: DXSO's
+        // names are the D3D9 ones (`cbuffer_t` = the constant file,
+        // `spec_state_t`, `D3D9SharedPS`, `clip_info_t`), and an Eden draw has a
+        // different value for each (docs/backends.md section 3.8).
+        if ( pConstantBufferNames != nullptr ) {
+            pConstantBufferNames->push_back( compiler.get_name( resource.id ) );
+        }
         cbv++;
     }
     outConstantBuffers = cbv;
@@ -233,7 +244,7 @@ bool D3D12ShaderCompiler::compile( const TranslatedShader &shader,
         uint32_t pushSize = 0;
         SetPushConstantLayout( compiler, pushSize, pDebugName );
         RemapResources( compiler, outStage.NumTextures, outStage.NumSamplers,
-                        outStage.NumConstantBuffers, pDebugName );
+                        outStage.NumConstantBuffers, &outStage.ConstantBufferNames, pDebugName );
         outStage.PushConstantsSize = pushSize;
         outStage.RootConstants = pushSize / 4;
 

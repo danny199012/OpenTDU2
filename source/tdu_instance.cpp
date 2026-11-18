@@ -266,13 +266,17 @@ bool TestDriveGameInstance::initialize() {
         // section 3.5). It needs the game data and nothing else - no
         // window, no device - so it runs as soon as the file system can list
         // Euro/Shaders, and the run ends there (InitAndRun reads the verdict).
-        if ( pService == pFile.get() && CmdLine::HasArg( "-d3d12-shadertest" ) ) {
+        // -d3d12-edentest (section 3.8) needs the same data plus a device of its
+        // own, which it creates here; both end the bootstrap.
+        const bool bShaderTest = CmdLine::HasArg( "-d3d12-shadertest" );
+        const bool bEdenTest = CmdLine::HasArg( "-d3d12-edentest" );
+        if ( pService == pFile.get() && ( bShaderTest || bEdenTest ) ) {
             bShaderTestOnly = true;
 #if defined( OTDU_D3D12 )
-            bShaderTestPassed = D3D12RunShaderTest();
+            bShaderTestPassed = bShaderTest ? D3D12RunShaderTest() : D3D12RunEdenTest();
 #else
-            OTDU_LOG_ERROR( "-d3d12-shadertest needs the Direct3D 12 backend "
-                            "(OTDU_ENABLE_D3D12=OFF)\n" );
+            OTDU_LOG_ERROR( "%s needs the Direct3D 12 backend (OTDU_ENABLE_D3D12=OFF)\n",
+                            bShaderTest ? "-d3d12-shadertest" : "-d3d12-edentest" );
             bShaderTestPassed = false;
 #endif
             return true;
