@@ -2284,40 +2284,63 @@ void MapScreen::markSpotSeenById( uint64_t id ) {
     }
 }
 
-// The building's name for the "discovered" notice: the shop / house name where the data has one, else the
-// retail kind title the card uses [INF: same English fallbacks as fillSpotCard].
+// The retail "discovered" notice of a spot: the localized line (db_data 4863..4873, "Clothes Shop discovered:
+// §SHOPNAME§") with the shop name filled in [DATA: the strings; INF: which id each icon kind takes]. Empty for
+// the kinds that have no such line (airport, club, casino, racing school...).
 std::string MapScreen::spotDisplayName( const Spot &spot ) const {
     const char *pKind = spot.pIcon != nullptr ? SpotCardKind( spot.pIcon ) : nullptr;
     if ( pKind == nullptr ) {
         return std::string();
     }
+    int32_t locId = 0;
+    std::string shop;
     if ( strcmp( pKind, "carDealer" ) == 0 || strcmp( pKind, "bikeDealer" ) == 0 || strcmp( pKind, "clothes" ) == 0 ) {
+        locId = strcmp( pKind, "carDealer" ) == 0 ? 4863 : strcmp( pKind, "bikeDealer" ) == 0 ? 4864 : 4868;
         if ( const CarShop *pShop = FindShopBySpotId( spot.Id ) ) {
-            if ( !pShop->Name.empty() ) {
-                return strcmp( pKind, "clothes" ) == 0 ? pShop->Name : pShop->Name + " dealership";
-            }
+            shop = pShop->Name;
         }
-        return strcmp( pKind, "clothes" ) == 0 ? "Clothes shop" : "Dealership";
-    }
-    if ( strcmp( pKind, "estates" ) == 0 || strcmp( pKind, "home" ) == 0 || strcmp( pKind, "forsale" ) == 0 ) {
+    } else if ( strcmp( pKind, "estates" ) == 0 || strcmp( pKind, "home" ) == 0 || strcmp( pKind, "forsale" ) == 0 ) {
+        locId = 4870;
         if ( const HouseRow *pHouse = FindHouseBySpotId( spot.Id ) ) {
-            return pHouse->Name;
+            shop = pHouse->Name;
         }
-        return "Real estate agency";
+    } else if ( strcmp( pKind, "tuning" ) == 0 ) {
+        locId = 4867;
+        shop = spot.Name.compare( 0, 4, "ETNR" ) == 0 ? TunerShopName( spot.Name ) : std::string();
+    } else if ( strcmp( pKind, "carWash" ) == 0 ) {
+        locId = 4869;
+    } else if ( strcmp( pKind, "carPaint" ) == 0 ) {
+        locId = 4871;
+    } else if ( strcmp( pKind, "surgery" ) == 0 ) {
+        locId = 4872;
+    } else if ( strcmp( pKind, "hair" ) == 0 ) {
+        locId = 4873;
+    } else {
+        return std::string();
     }
-    static const struct { const char *Kind; const char *Title; } kTitles[] = {
-        { "rschool", "Racing School" }, { "carPaint", "Sticker shop" }, { "carWash", "Car wash" },
-        { "surgery", "Plastic surgery" }, { "hair", "Hairdresser" }, { "photograph", "Photographer" },
-        { "airport", "Airport" }, { "club", "Club house" }, { "stolenCar", "Stolen cars" }, { "gamblingHall", "Casino" } };
-    if ( strcmp( pKind, "tuning" ) == 0 ) {
-        return spot.Name.compare( 0, 4, "ETNR" ) == 0 ? TunerShopName( spot.Name ) : "Tuning shop";
+    std::string text = LocStr( locId, "" );
+    if ( text.empty() ) {
+        return std::string();
     }
-    for ( const auto &entry : kTitles ) {
-        if ( strcmp( pKind, entry.Kind ) == 0 ) {
-            return entry.Title;
+    // The token is "<section sign>SHOPNAME<section sign>": find the name, then take the non-ASCII bytes around it.
+    size_t from = text.find( "SHOPNAME" );
+    if ( from != std::string::npos ) {
+        size_t to = from + 8;
+        while ( from > 0 && static_cast<unsigned char>( text[from - 1] ) >= 0x80 ) {
+            from--;
+        }
+        while ( to < text.size() && static_cast<unsigned char>( text[to] ) >= 0x80 ) {
+            to++;
+        }
+        if ( shop.empty() ) {
+            // No shop name in the data: drop ": <token>".
+            const size_t colon = text.rfind( ':', from );
+            text.erase( colon != std::string::npos ? colon : from );
+        } else {
+            text.replace( from, to - from, shop );
         }
     }
-    return std::string();
+    return text;
 }
 
 std::vector<std::string> MapScreen::takeDiscoveries() {

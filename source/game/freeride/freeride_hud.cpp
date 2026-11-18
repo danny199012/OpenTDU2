@@ -1434,6 +1434,18 @@ void FreeRideHud::setWorldMarkers( const WorldMarker *pMarkers, int32_t count ) 
 
 // ---- the Hint box (GENERAL.vmf /pop_tutorial) ----
 
+void FreeRideHud::showDiscovery( const std::string &text, float seconds ) {
+    // GENERAL.vmf /pop_news: the news queue of the dev exe (0x7d1130) sets /:NewsTxt and plays "open"
+    // (big) or "open_little", then "close" / "close_little" when its time is up [CODE-dev].
+    if ( !general.isLoaded() ) {
+        return;
+    }
+    general.setVariable( "/:NewsTxt", text );
+    const bool bOpened = general.gotoLabel( "/pop_news", "open", true );
+    OTDU_LOG_INFO( "FreeRideHud: pop_news open -> %d ('%s')\n", bOpened ? 1 : 0, text.c_str() );
+    discoveryTimer_ = seconds;
+}
+
 void FreeRideHud::showHint( const std::string &text, float autoHide ) {
     // FUN_00d62ed0 / FUN_00d62a90 (the walk mode's "Tip" box): /:TutText,
     // pop_tutorial "open_tuto"; closed by the movie's close_popup (the same
@@ -1942,6 +1954,12 @@ void FreeRideHud::tick( float deltaTime, const State &newState ) {
             closeGoal();
         }
     }
+    if ( discoveryTimer_ >= 0.0f ) {
+        discoveryTimer_ -= deltaTime;
+        if ( discoveryTimer_ < 0.0f && general.isLoaded() ) {
+            general.gotoLabel( "/pop_news", "close", true );
+        }
+    }
     if ( hintTimer_ >= 0.0f ) {
         hintTimer_ -= deltaTime;
         if ( hintTimer_ < 0.0f ) {
@@ -2354,6 +2372,9 @@ void FreeRideHud::drawGeneralClips( Renderer2D &renderer ) {
     general.drawClipOnly( renderer, "/pop_goal" );
     if ( hintTimer_ >= 0.0f ) {
         general.drawClipOnly( renderer, "/pop_tutorial" );
+    }
+    if ( discoveryTimer_ >= 0.0f ) {
+        general.drawClipOnly( renderer, "/pop_news" );
     }
     if ( levelUpStage_ > 0 ) {
         general.drawClipOnly( renderer, "/db_progress" );

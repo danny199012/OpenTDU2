@@ -142,6 +142,9 @@ public:
     // closeHint.
     void showHint( const std::string &text, float autoHide = -1.0f );
     void closeHint();
+    // The bottom banner of the retail "<kind> discovered: <shop>" notice (GENERAL.vmf /pop_news, labels
+    // open / close, text /:NewsTxt) [CODE-dev 0x7d1130].
+    void showDiscovery( const std::string &text, float seconds = 5.0f );
     inline bool isHintActive() const { return hintTimer_ >= 0.0f; }
     // The race countdown (HUD.vmf /_3_2_1_go, the retail big digits): 3, 2, 1
     // then 0 = "GO!". A negative number hides it.
@@ -359,6 +362,7 @@ private:
     bool bMarkersVisible_ = false;
     // Hint box / countdown / chase UI.
     float hintTimer_ = -1.0f;
+    float discoveryTimer_ = -1.0f;
     int32_t countdownNumber_ = -1;
     bool bViolationGaugeShown_ = false;
     std::string violationGaugeMode_;  // 'infringement' / 'escape' (the label the icon + bar show)

@@ -8097,7 +8097,7 @@ void GMFreeRide::tick( float deltaTime ) {
         mapScreen.discoverNear( carPosition );
         // "<shop> discovered": the notice names each building found this frame.
         for ( const std::string &name : mapScreen.takeDiscoveries() ) {
-            hud.showGoal( name + " discovered" );
+            hud.showDiscovery( name );
             OTDU_LOG_INFO( "FREERIDE: discovered '%s'\n", name.c_str() );
         }
         for ( const std::string &event : mapScreen.takeEvents() ) {

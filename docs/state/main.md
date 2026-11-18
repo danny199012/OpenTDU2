@@ -6,6 +6,17 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 67): the retail "discovered" banner
+
+The owner sent the retail screenshot: a bottom banner "Clothes Shop discovered: Hiro Hisaishi".
+
+### What changed
+- `freeride_hud.{h,cpp}`: `showDiscovery( text )` drives GENERAL.vmf `/pop_news` (`/:NewsTxt`, label `open`, then `close` after 5 s) [CODE-dev 0x7d1130, the news queue: labels `open` / `open_little` / `close` / `close_little`]; `/pop_news` is drawn while the notice is up.
+- `map_screen.cpp` `spotDisplayName`: the retail strings db_data 4863 Car Dealer, 4864 Bike Dealer, 4867 Tuner, 4868 Clothes Shop, 4869 Car Wash, 4870 Real estate agent, 4871 Stickers Shop (all "... discovered: §SHOPNAME§"), 4872 Cosmetic Clinic, 4873 Hairdresser [DATA]; kinds without a string (airport, club, casino, racing school) show nothing. Classic dealer (4865 / 4866) is not told apart [INF].
+
+### Verified
+- `-tpdestination "Ferrari dealer"`: banner "Car Dealer discovered: Ferrari" at the bottom, same bar and icon as the owner's screenshot (`_a.png`, not committed).
+
 ## Session 2026-11-18 (`main`, 66): "<building> discovered" notice
 
 The owner: "when close to a shop or dealership it says what shop it is and is now discovered".
