@@ -56,6 +56,7 @@ The movie's variables are `_root`'s (`/:Name`). The page runs with `_root.fake` 
 ## 4. Not done / next
 
 - The Wheels page's big preview area stays empty (the retail page loads a rim picture per item - no source found).
+- **Owner leads (2026-11-18):** (1) the Wheels page preview is probably a second camera view, as in the dealership (the movie leaves the area empty for a 3D view of the car), not a picture per rim - look at how `GMShop` drives the dealer's second camera. (2) The car should be on the lift inside the shop (`itun_a` has `C_BUY_PART` / `C_CAR_SELECT`); the owner will check the 360 recomp for how it is placed.
 - Handling has no square level; `C_BUY_PART` / `C_CAR_SELECT` are not played, the car is not on the lift (the car stays outside).
 - The upgrade dialog shows only OK (the movie's cancel button needs `/:YesNo`; the shared dialog path is the dealer's).
 - Retail has four levels per stat; the port's physics has three, so the fourth line is a padlock.
