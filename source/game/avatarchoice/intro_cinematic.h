@@ -496,6 +496,9 @@ public:
     // view). uv = the crop of the window-sized frame that is kept.
     // showCar >= 0: only that showroom car is drawn, on a flat backdrop (the 360 panel).
     void renderInset( const EdenSceneView::Camera &inset, RenderTarget *pTarget, const Rect2D &uv, int32_t showCar = -1 );
+    // The same with the camera given in the walk frame (scene-local, like setLocalCamera).
+    void renderLocalInset( const Vector3f &position, const Quaternionf &heading, float fov, RenderTarget *pTarget,
+                           const Rect2D &uv );
     void draw();
     // The frontend movies only (tests without the 3D view, -no3d).
     void drawUi();

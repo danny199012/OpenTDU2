@@ -350,6 +350,9 @@ bool TuneUi::onCommand( const std::string &command ) {
         // The movie re-sends it after its confirm dialog: the page is still up and its choice stays.
         const bool bAgain = bRimsPage;
         bRimsPage = true;
+        if ( CmdLine::HasArg( "-dumptuneclips" ) && !bAgain ) {
+            pUi->dumpClips( "/", CmdLine::GetArgInt( "-dumptuneclips", 6 ) );
+        }
         pushMoney();
         if ( bAgain ) {
             pushRimText();

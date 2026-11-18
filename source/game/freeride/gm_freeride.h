@@ -12,6 +12,8 @@
 #include "input/gamepad_output.h"
 #include "input/wheel_ffb.h"
 #include "game/cheats.h"
+
+struct RenderTarget;
 #include "filesystem/bank.h"
 #include "game/avatar/seated_avatar.h"
 #include "game/cinematic/cinematic_car.h"
@@ -282,6 +284,11 @@ private:
     // pan across the wheel on the Wheels page) [INF: owner's observation of the 360 build].
     CinematicCar *pTuneRoomCar = nullptr;
     float tuneCamTime = 0.0f;
+    RenderTarget *pTuneInset = nullptr; // the Wheels page's preview panel: a second render of the room
+    bool bTuneInset = false;            // the pose below is live this frame
+    Vector3f tuneInsetEye;
+    Quaternionf tuneInsetRot;
+    void renderTuneInset();
     bool bTunerApplied = false; // the driven car wears its saved parts
     float tunerCamYaw = 0.6f;   // the room turntable
     void bindTunerGarage();

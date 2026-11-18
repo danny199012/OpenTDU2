@@ -21,11 +21,11 @@ the Wheels page (`/:option_name`, `/:cur_op_price`), buy (`kiva`) and rims (`tun
 ### Preview camera + car on the lift (later, same session)
 The owner, from retail 360 screenshots: the car is on the lift; the Rims preview is a second-camera close-up on the wheel that pans left-right-left in a loop (the dealership interior shot does the same); paint orbits the car.
 - `GMFreeRide`: at `afmk` the driven car is placed on the room's car place (`InteriorWalk::placeStickerCar`, the sticker/tuner-garage rule) with its paint (`pTuneRoomCar`; `-notunecar` skips). Log: `InteriorWalk: sticker car 387 on D_CAR`.
-- While `TuneUi::isRimsPage()`: `setLocalCamera` pans +-0.40 rad (period ~7 s) about the front-left wheel at 2.2 m, aimed so the wheel sits in the left panel. New `IntroCinematic::getDisplayCarYaw`. Evidence `docs/images/tuning_wheel_pan.webp` (3 frames of one loop).
-- The camera is the full-screen room camera behind the movie, not a render into the preview rectangle; the wheel position is the typical corner (+-0.85, 1.35 m) [INF]; a lift post crosses the right half. Paint orbit not done (the tuner has no paint page).
+- While `TuneUi::isRimsPage()`: a **second render into the movie's preview clip** (the dealer's technique: `IntroCinematic::renderLocalInset` -> `RenderTarget` 512x360 -> `FlashPlayer::setBitmapOverride("/menu_rims/lure")`, found with `-dumptuneclips 7`). The camera pans +-0.40 rad (period ~7 s) about the front-left hub (D_RIM_FL 0.826, 0.229, 1.335 [DATA]) at 1.5 m. `GMFreeRide::renderTuneInset`; `-noinset` skips it, the main view stays the room's. New `IntroCinematic::getDisplayCarYaw`. Evidence `docs/images/tuning_wheel_pan.webp` (3 frames of one loop, the panel shows the wheel, the room behind is unchanged).
+- Not done: paint orbit (the tuner has no paint page); the preview shows the whole room, retail's has a darker backdrop.
 
 ### Not done / next
-- A true second view in the preview rectangle (render target), the part cinematic, 4th level (spec section 4). Hawai tuning shops not walked.
+- The part cinematic, 4th level (spec section 4). Hawai tuning shops not walked.
 
 ## Session 2026-11-18 (`main`, 58): clothes shop buy works on the retail movie (default; `-noclothesui` = native)
 

@@ -2820,6 +2820,16 @@ void IntroCinematic::renderInset( const EdenSceneView::Camera &inset, RenderTarg
     cameraOverride = oldCamera;
 }
 
+void IntroCinematic::renderLocalInset( const Vector3f &position, const Quaternionf &heading, float fov,
+                                       RenderTarget *pTarget, const Rect2D &uv ) {
+    EdenSceneView::Camera local = camera;
+    local.Position = sceneOrigin.transformPoint( position );
+    local.Rotation = heading * Conjugate( sceneRotation );
+    local.Fov = fov;
+    local.Near = 0.05f;
+    renderInset( local, pTarget, uv, -1 );
+}
+
 void IntroCinematic::drawFade() {
     // Shot start transition (+0x14 type 1: fade from a colour over +0x18 s)
     // [INF].

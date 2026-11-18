@@ -5910,6 +5910,10 @@ void GMFreeRide::tick( float deltaTime ) {
     }
     if ( pTuneRoomCar != nullptr && !interior.isActive() ) {
         pTuneRoomCar = nullptr;
+        if ( pTuneInset != nullptr && gpRender != nullptr ) {
+            gpRender->getDevice().destroyRenderTarget( pTuneInset );
+        }
+        pTuneInset = nullptr;
     }
     // Out of a sticker shop room: an unpaid layout goes back on the car.
     if ( stickerShop.isBound() && !interior.isActive() ) {
@@ -5992,9 +5996,11 @@ void GMFreeRide::tick( float deltaTime ) {
             view.tick( deltaTime );
             }
         }
-        // The tuning shop's preview camera on the lifted car. The Wheels page: a slow left-right-left pan across
-        // the front wheel (retail), the wheel framed in the left panel's half of the screen. The other pages keep
-        // the room's own view. The wheel position is the typical front-left corner of the car [INF].
+        // The tuning shop's preview panel (the Wheels page): a second camera on the lifted car's front-left wheel,
+        // panning left-right-left in a loop (retail, the dealership's interior shot does the same); renderTuneInset
+        // draws it into the movie's preview clip. The wheel hub is the car's D_RIM_FL (0.826, 0.229, 1.335) [DATA: the
+        // CinematicCar log of every car measured so far has the hubs near it].
+        bTuneInset = false;
         if ( pTuneRoomCar != nullptr && tuneUi.isRimsPage() ) {
             tuneCamTime += deltaTime;
             Vector3f local;
@@ -6002,14 +6008,13 @@ void GMFreeRide::tick( float deltaTime ) {
             float noseYaw = 0.0f;
             if ( interior.getScene().getDisplayCarInfo( 0, local, roomCarId ) && interior.getScene().getDisplayCarYaw( 0, noseYaw ) ) {
                 const float s = std::sin( noseYaw ), c = std::cos( noseYaw );
-                // Car space (x right of the nose, z forward) to the walk frame.
-                const Vector3f wheel = local + Vector3f( c * -0.85f + s * 1.35f, 0.34f, -s * -0.85f + c * 1.35f );
-                // Out from the car's left side, swinging +-35 deg about the side normal (period ~7 s).
-                const float sideYaw = noseYaw - 1.5708f + std::sin( tuneCamTime * 0.9f ) * 0.40f;
-                const Vector3f eye = wheel + Vector3f( std::sin( sideYaw ) * 2.2f, 0.15f, std::cos( sideYaw ) * 2.2f );
-                const Vector3f right( std::cos( sideYaw ), 0.0f, -std::sin( sideYaw ) );
-                const Vector3f focus = wheel + right * 0.55f; // the wheel sits left of centre, in the panel
-                interior.getScene().setLocalCamera( eye, ChaseCamera::LookRotation( eye, focus ), 45.0f * kDegToRad, 0.05f );
+                const Vector3f axisX( c, 0.0f, -s ), axisZ( s, 0.0f, c ); // the car's left and nose in the walk frame
+                const Vector3f wheel = local + axisX * 0.826f + axisZ * 1.335f + Vector3f( 0.0f, 0.229f, 0.0f );
+                const float swing = std::sin( tuneCamTime * 0.9f ) * 0.40f; // +-23 deg, period ~7 s
+                const Vector3f out = axisX * std::cos( swing ) + axisZ * std::sin( swing );
+                tuneInsetEye = wheel + out * 1.5f + Vector3f( 0.0f, 0.1f, 0.0f );
+                tuneInsetRot = ChaseCamera::LookRotation( tuneInsetEye, wheel );
+                bTuneInset = true;
             }
         } else {
             tuneCamTime = 0.0f;
@@ -8661,10 +8666,35 @@ void GMFreeRide::drawOffscreen() {
             view.renderOffscreen();
             return;
         }
+        renderTuneInset();
         interior.renderOffscreen();
         return;
     }
     view.renderOffscreen();
+}
+
+void GMFreeRide::renderTuneInset() {
+    if ( !bTuneInset || CmdLine::HasArg( "-noinset" ) || gpRender == nullptr ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    if ( pTuneInset == nullptr ) {
+        pTuneInset = device.createRenderTarget( 512, 360, VK_FORMAT_UNDEFINED, true, "TuneInset" );
+        if ( pTuneInset == nullptr ) {
+            return;
+        }
+    }
+    // The panel is ~1.42:1: keep that aspect out of the window-sized frame.
+    const float windowAspect = static_cast<float>( gpRender->get2DRenderer().getTargetWidth() ) /
+                               Max( 1.0f, static_cast<float>( gpRender->get2DRenderer().getTargetHeight() ) );
+    const float keep = Clamp( 1.42f / windowAspect, 0.2f, 1.0f );
+    interior.getScene().renderLocalInset( tuneInsetEye, tuneInsetRot, 40.0f * kDegToRad, pTuneInset,
+                                          Rect2D( ( 1.0f - keep ) * 0.5f, 0.0f, keep, 1.0f ) );
+    FlashPlayer *pUi = interior.getTuneUi();
+    if ( pUi != nullptr ) {
+        pUi->setBitmapOverride( "/menu_rims/lure", &pTuneInset->Color, 0.0f, 0.0f, 1.0f, 1.0f );
+        pUi->setClipAlpha( "/menu_rims/lure", 1.0f );
+    }
 }
 
 void GMFreeRide::draw() {
