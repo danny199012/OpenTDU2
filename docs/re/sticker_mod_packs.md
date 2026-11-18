@@ -26,8 +26,11 @@ Written 2026-11-18 (`main`). Tags as in `CLAUDE.md`. Everything here is `[INF]`:
 ## Verified
 `-stickertest mod_<id>,0` with a 1024² translucent-blue + yellow-stripe vinyl: `docs/images/sticker_mod_vinyl_test.webp` (California: tint and stripe across bonnet/rear deck).
 
+## Verified through the retail shop UI (2026-11-18)
+`-interior ESTICK_B -walkaim StickersShop_area -nointeriorintro -autoplay "200:press=validate;340:press=validate;520:press=right;560:press=validate;720:press=backview;...;1100:press=validate"` (`backview` = previous pack, wraps to the last): the grid lists 17 packs, the mod packs are 16 / 17 ("Test Livery" $2,000, "Test Pack" $500) with their PNGs as thumbnails (`docs/images/sticker_mod_pack_grid.webp`); A on the livery logs `editing 'mod_testlivery' #0` and the car shows the stripe full-length in the editor (`docs/images/sticker_mod_vinyl_editor.webp`). Buying / saving a mod layout and respawning with it were not run.
+
 ## Not done / next
-- Not driven through the SHOPSCAR UI interactively (thumbnails use the art as icon; only the `-stickertest` bind and the load log were run). Next: `-autoplay` into the sticker shop and check the grid shows the pack.
+- Packs with fewer than 24 images show the movie's grey placeholder squares for the empty slots (cosmetic).
 - Vinyl alpha is composited like a sticker; there is no UV-layout template export yet (needed by the creation tool; `car_obj_export` is the starting point).
 - Vinyl packs are not yet bundled as a single archive with a manifest/hash (marketplace step).
-- Only the first 15 entries of a pack show (`kGridSquares`).
+- Only the first 24 entries of a pack show (`kGridSquares`, the movie's 4 x 6 grid).
