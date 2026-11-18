@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <set>
@@ -81,6 +83,60 @@ namespace {
         return name;
     }
 
+    // The second texture-coordinate set (D3DDECLUSAGE_TEXCOORD = 5, usage
+    // index 1) straight from the primitive's raw vertex stream; the first set
+    // is MeshVertex::Texcoord. Returns false when the primitive has none.
+    bool ReadTexcoordSet( const GeometryPrimitive &primitive,
+                          uint32_t usageIndex,
+                          uint32_t vertex,
+                          float &outU,
+                          float &outV ) {
+        for ( const RawVertexAttribute &a : primitive.RawAttributes ) {
+            if ( a.Usage != 5 || a.UsageIndex != usageIndex || a.Stream >= 2 ||
+                 primitive.RawStrides[a.Stream] == 0 ) {
+                continue;
+            }
+            const uint32_t stride = primitive.RawStrides[a.Stream];
+            const std::vector<uint8_t> &stream = primitive.RawStreams[a.Stream];
+            const size_t at = static_cast<size_t>( vertex ) * stride + a.Offset;
+            if ( at + 4 > stream.size() ) {
+                return false;
+            }
+            const uint8_t *q = stream.data() + at;
+            if ( a.Format == VAF_TEXCOORD_R32G32_SFLOAT ) {
+                if ( at + 8 > stream.size() ) {
+                    return false;
+                }
+                std::memcpy( &outU, q, 4 );
+                std::memcpy( &outV, q + 4, 4 );
+                return true;
+            }
+            if ( a.Format == VAF_TEXCOORD_R16G16_SNORM ) {
+                int16_t h[2];
+                std::memcpy( h, q, 4 );
+                outU = std::max( -1.0f, h[0] / 32767.0f );
+                outV = std::max( -1.0f, h[1] / 32767.0f );
+                return true;
+            }
+            if ( a.Format == VAF_TEXCOORD_R16G16_SFLOAT ) {
+                uint16_t h[2];
+                std::memcpy( h, q, 4 );
+                float out[2];
+                for ( int i = 0; i < 2; i++ ) {
+                    const uint32_t sign = ( h[i] >> 15 ) & 1, exp = ( h[i] >> 10 ) & 31, man = h[i] & 1023;
+                    const float f = exp == 0 ? std::ldexp( static_cast<float>( man ), -24 )
+                                             : std::ldexp( static_cast<float>( man | 1024 ), static_cast<int>( exp ) - 25 );
+                    out[i] = sign ? -f : f;
+                }
+                outU = out[0];
+                outV = out[1];
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
     // One item: its kept primitive's vertices (car space, x pre-negated) +
     // faces (reversed). Vertices are written per primitive - no dedup, the
     // shapes are exact.
@@ -125,6 +181,17 @@ namespace {
             file.stream.precision( 5 );
             file.stream << "vt " << vertex.Texcoord[0] << " "
                         << vertex.Texcoord[1] << "\n";
+        }
+        // Comment lines (any OBJ reader skips them): the second UV set, one per
+        // vertex in the same order as the vt lines (the sticker canvas may be
+        // sampled with it - docs/re/sticker_mod_packs.md).
+        for ( uint32_t v = 0; v < primitive.Vertices.size(); v++ ) {
+            float u1 = 0.0f, v1 = 0.0f;
+            if ( !ReadTexcoordSet( primitive, 1, v, u1, v1 ) ) {
+                break;
+            }
+            file.stream.precision( 5 );
+            file.stream << "#vt1 " << u1 << " " << v1 << "\n";
         }
         // The engine keeps the authored winding; the OBJ loader reverses tri
         // faces on import, so write (a, c, b) to land (a, b, c) back.
