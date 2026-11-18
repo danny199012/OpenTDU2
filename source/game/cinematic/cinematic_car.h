@@ -7,6 +7,7 @@
 #include "render/eden/eden_animation.h"
 #include "render/eden/eden_headlights.h"
 #include "render/eden/eden_model.h"
+#include "game/cinematic/gps_screen.h"
 #include "game/freeride/car_part_rig.h"
 
 #include <functional>
@@ -218,6 +219,9 @@ public:
     bool setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, const Vector4f &uvOffset );
     inline bool hasGps() const { return !gpsMaterials.empty(); }
     inline bool isGpsBound() const { return bGpsBound; }
+    // How this car's GPS quad maps the texture (read from its UVs at load).
+    inline const GpsUvLayout &getGpsLayout() const { return gpsLayout; }
+    void computeGpsLayout();
     // Retractable roof (Hardtop.anm, FUN_00c3fcc0 / FUN_00c66920): the skinned
     // HANIM_S is re-sampled while the clip plays, so the roof can be opened and
     // closed at run time. updateHardtop advances an open / close request (call
@@ -465,6 +469,7 @@ private:
     // re-shown when the map texture is bound).
     std::vector<int32_t> gpsMaterials; // interior.getMaterials() indices
     std::vector<int32_t> gpsNodes;     // interior nodes of the GPS subtrees
+    GpsUvLayout gpsLayout;
     bool bGpsBound = false;            // setGpsTexture ran for this load
     bool bDashboardLit = false;
     // The cockpit gauge needles (setDashboardNeedles): the interior model's

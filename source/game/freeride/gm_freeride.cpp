@@ -9010,10 +9010,12 @@ void GMFreeRide::drawOffscreen() {
         return uv;
     }();
     if ( bGpsScreen && !interior.isActive() && car.isLoaded() && car.hasGps() ) {
+        gpsScreen.setLayout( car.getGpsLayout() );
         if ( gpsScreen.ensureTarget( gpRender->getDevice() ) ) {
             if ( !car.isGpsBound() || gpsScreen.needsRedraw( 0.0f, 0.0f, 0 ) ) {
-                gpsScreen.render( [&]( Renderer2D &gpsRenderer, float w, float h ) {
-                    hud.drawDashSatnav( gpsRenderer, &collision, w, h );
+                gpsScreen.render( [&]( Renderer2D &gpsRenderer, const GpsUvLayout &gpsLayout ) {
+                    hud.drawDashSatnav( gpsRenderer, &collision, 190.0f, 95.0f, gpsLayout.Transpose, gpsLayout.FlipU,
+                                        gpsLayout.FlipV );
                 } );
             }
             if ( !car.isGpsBound() ) {

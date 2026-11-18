@@ -535,6 +535,7 @@ bool CinematicCar::load( const Desc &requested ) {
         textures.loadBankTextures( interiorBank, interiorOwner.c_str() );
         // The cockpit model (<car>_i.3dd, car frame) [INF: when the game
         // draws it is not read; drawn with the car].
+        interior.setKeepItemIndices( true ); // the GPS quad's UVs (computeGpsLayout)
         interior.load( *pRenderer, interiorBank, ( carName + "_i" ).c_str(), nullptr, interiorOwner.c_str() );
         // The cockpit gauge needles: the needle mesh is ND_SPD / ND_RPM when
         // the model has a separate mesh (California), otherwise the _1 pose
@@ -1263,6 +1264,7 @@ bool CinematicCar::load( const Desc &requested ) {
                     gpsMaterials.push_back( static_cast<int32_t>( m ) );
                 }
             }
+            computeGpsLayout();
         }
         OTDU_LOG_INFO( "CinematicCar: %zu light materials, %zu dashboard materials (lights)\n", lightMaterials.size(),
                        dashMaterials.size() );
@@ -2064,6 +2066,72 @@ void CinematicCar::applyLights( const WeatherPreset *pWeather ) {
     }
 }
 
+// The GPS quad's own UV layout: which way the texture lies on the screen.
+// Viewer-right is -x (car frame), up is the quad's in-plane direction with the
+// larger y; the content position (cx right, cy down) of each corner is matched
+// against its UV over the 8 transpose / flip combinations. [DATA: the California
+// is upright, the 370Z transposed - read from the quad, not hardcoded]
+void CinematicCar::computeGpsLayout() {
+    gpsLayout = GpsUvLayout();
+    if ( gpsMaterials.empty() ) {
+        return;
+    }
+    for ( const EdenModel::Item &item : interior.getItems() ) {
+        if ( std::find( gpsMaterials.begin(), gpsMaterials.end(), static_cast<int32_t>( item.MaterialIndex ) ) ==
+                 gpsMaterials.end() ||
+             item.PrimitiveVertices.size() < 4 || item.PrimitiveUVs.size() < 8 ) {
+            continue;
+        }
+        const std::vector<Vector3f> &p = item.PrimitiveVertices;
+        size_t lo = 0, hi = 0;
+        for ( size_t i = 1; i < 4; i++ ) {
+            lo = p[i].y < p[lo].y ? i : lo;
+            hi = p[i].y > p[hi].y ? i : hi;
+        }
+        float upY = p[hi].y - p[lo].y, upZ = p[hi].z - p[lo].z;
+        const float upLength = sqrtf( upY * upY + upZ * upZ );
+        if ( upLength < 1e-4f ) {
+            continue;
+        }
+        upY /= upLength;
+        upZ /= upLength;
+        float right[4], upCoord[4];
+        float rightMin = 1e9f, rightMax = -1e9f, upMin = 1e9f, upMax = -1e9f;
+        for ( size_t i = 0; i < 4; i++ ) {
+            right[i] = -p[i].x;
+            upCoord[i] = p[i].y * upY + p[i].z * upZ;
+            rightMin = Min( rightMin, right[i] );
+            rightMax = Max( rightMax, right[i] );
+            upMin = Min( upMin, upCoord[i] );
+            upMax = Max( upMax, upCoord[i] );
+        }
+        bool bFound = false;
+        for ( int32_t combo = 0; combo < 8 && !bFound; combo++ ) {
+            GpsUvLayout test;
+            test.Transpose = ( combo & 1 ) != 0;
+            test.FlipU = ( combo & 2 ) != 0;
+            test.FlipV = ( combo & 4 ) != 0;
+            bool bMatch = true;
+            for ( size_t i = 0; i < 4 && bMatch; i++ ) {
+                const float cx = ( right[i] - rightMin ) / Max( rightMax - rightMin, 1e-6f ) > 0.5f ? 1.0f : 0.0f;
+                const float cy = ( upMax - upCoord[i] ) / Max( upMax - upMin, 1e-6f ) > 0.5f ? 1.0f : 0.0f;
+                float u = test.Transpose ? cy : cx, v = test.Transpose ? cx : cy;
+                u = test.FlipU ? 1.0f - u : u;
+                v = test.FlipV ? 1.0f - v : v;
+                bMatch = fabsf( u - item.PrimitiveUVs[2 * i] ) < 0.1f && fabsf( v - item.PrimitiveUVs[2 * i + 1] ) < 0.1f;
+            }
+            if ( bMatch ) {
+                gpsLayout = test;
+                bFound = true;
+            }
+        }
+        OTDU_LOG_INFO( "CinematicCar: dash GPS uv layout %s transpose %d flipU %d flipV %d\n",
+                       bFound ? "matched:" : "NOT matched (identity):", gpsLayout.Transpose ? 1 : 0,
+                       gpsLayout.FlipU ? 1 : 0, gpsLayout.FlipV ? 1 : 0 );
+        return;
+    }
+}
+
 void CinematicCar::setDashboardLit( bool bOn ) {
     if ( bDashboardLit == bOn ) {
         return;
@@ -2128,6 +2196,12 @@ bool CinematicCar::setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, 
                            interior.isNodeVisible( item.NodeIndex ) ? 1 : 0, item.Mesh.IndexCount, item.Lod,
                            item.BoundsMin.x, item.BoundsMin.y, item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y,
                            item.BoundsMax.z, t.getTranslation().x, t.getTranslation().y, t.getTranslation().z );
+            for ( size_t v = 0; v < item.PrimitiveVertices.size(); v++ ) {
+                OTDU_LOG_INFO( "GPSDBG   v%zu (%.3f %.3f %.3f) uv (%.3f %.3f)\n", v, item.PrimitiveVertices[v].x,
+                               item.PrimitiveVertices[v].y, item.PrimitiveVertices[v].z,
+                               2 * v + 1 < item.PrimitiveUVs.size() ? item.PrimitiveUVs[2 * v] : -1.0f,
+                               2 * v + 1 < item.PrimitiveUVs.size() ? item.PrimitiveUVs[2 * v + 1] : -1.0f );
+            }
         }
     }
     OTDU_LOG_INFO( "CinematicCar: dash GPS bound, %d material(s), %d node(s), uv (%.1f %.1f %.1f)\n",

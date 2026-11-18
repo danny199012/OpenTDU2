@@ -18,6 +18,19 @@ class VehicleWorldCollision;
 // atlas instead (TDU1 HudMinimap::bindGpsTextureToPlayerCar -> VehicleBase::
 // setGPSTexture), which this port does not have. North-up like the map
 // screen; the redraw is rate limited (the car moved / the route changed).
+// How a car's dash quad maps the texture onto the screen, read from the quad's
+// own UVs (the 370Z lays them out transposed: texture +x runs down the screen).
+// u = (Transpose ? y : x), v = (Transpose ? x : y), then flipped, where
+// (x, y) is the upright content position in 0..1 (right, down).
+struct GpsUvLayout {
+    bool Transpose = false;
+    bool FlipU = false;
+    bool FlipV = false;
+    bool operator==( const GpsUvLayout &o ) const {
+        return Transpose == o.Transpose && FlipU == o.FlipU && FlipV == o.FlipV;
+    }
+};
+
 class GpsScreen {
 public:
     ~GpsScreen();
@@ -25,6 +38,9 @@ public:
     // pipeline's render pass stays compatible with it). False when the
     // device refuses.
     bool ensureTarget( RenderDevice &device );
+    // The car's UV layout (portrait target when transposed); a change drops the target.
+    void setLayout( const GpsUvLayout &layout );
+    inline const GpsUvLayout &getLayout() const { return layout; }
     // The texture bound into the satellitemap slot (null until the first
     // render initialised the target).
     GPUTexture *getTexture() const;
@@ -35,11 +51,12 @@ public:
     // from GMFreeRide::drawOffscreen like GMAssetViewer::drawOffscreen). The
     // callback draws the content on a kLogicalWidth x kLogicalHeight canvas
     // (the HUD minimap's own scale, FreeRideHud::drawDashSatnav).
-    void render( const std::function<void( Renderer2D &, float, float )> &draw );
+    void render( const std::function<void( Renderer2D &, const GpsUvLayout & )> &draw );
 
 private:
     void destroy();
     RenderTarget *pTarget = nullptr;
+    GpsUvLayout layout;
     uint32_t frames = 0;
     float lastX = 0.0f;
     float lastZ = 0.0f;

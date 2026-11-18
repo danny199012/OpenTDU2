@@ -10,8 +10,8 @@
 
 // The GPS quad is a small dash screen; 2 px per metre keeps a junction legible
 // (the HUD minimap runs 3.4, the big map is the island overview).
-static constexpr float kGpsWidth = 512.0f;
-static constexpr float kGpsHeight = 256.0f;
+static constexpr uint32_t kGpsLong = 512;
+static constexpr uint32_t kGpsShort = 256;
 static constexpr float kLogicalWidth = 190.0f;  // the HUD map rect's width: the dash reads 1:1 with the minimap
 static constexpr float kLogicalHeight = 95.0f;  // the dash screen is 2:1
 // Redraw cadence: at most every 15 frames when something moved, otherwise a
@@ -39,9 +39,17 @@ bool GpsScreen::ensureTarget( RenderDevice &device ) {
     // pipeline is created against mainRenderPass, and a render target on
     // another format would make the passes incompatible (the asset viewer's
     // scene target does the same).
-    pTarget = device.createRenderTarget( static_cast<uint32_t>( kGpsWidth ), static_cast<uint32_t>( kGpsHeight ),
+    pTarget = device.createRenderTarget( layout.Transpose ? kGpsShort : kGpsLong, layout.Transpose ? kGpsLong : kGpsShort,
                                          VK_FORMAT_UNDEFINED, false, "CarGPS" );
     return pTarget != nullptr;
+}
+
+void GpsScreen::setLayout( const GpsUvLayout &newLayout ) {
+    if ( !( newLayout == layout ) ) {
+        destroy();
+        layout = newLayout;
+        frames = 0;
+    }
 }
 
 GPUTexture *GpsScreen::getTexture() const {
@@ -53,15 +61,15 @@ bool GpsScreen::needsRedraw( float, float, size_t ) {
     return ++frames % kMinIntervalFrames == 0 || frames == 1;
 }
 
-void GpsScreen::render( const std::function<void( Renderer2D &, float, float )> &draw ) {
+void GpsScreen::render( const std::function<void( Renderer2D &, const GpsUvLayout & )> &draw ) {
     if ( pTarget == nullptr ) {
         return;
     }
     RenderDevice &device = gpRender->getDevice();
     Renderer2D &renderer = gpRender->get2DRenderer();
     device.beginRenderTarget( pTarget, true, ColorRGBA( 12.0f / 255.0f, 14.0f / 255.0f, 18.0f / 255.0f, 1.0f ) );
-    renderer.begin( kLogicalWidth, kLogicalHeight, false );
-    draw( renderer, kLogicalWidth, kLogicalHeight );
+    renderer.begin( layout.Transpose ? kLogicalHeight : kLogicalWidth, layout.Transpose ? kLogicalWidth : kLogicalHeight, false );
+    draw( renderer, layout );
     renderer.end();
     device.endRenderTarget();
 }

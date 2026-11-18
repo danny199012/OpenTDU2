@@ -2638,7 +2638,7 @@ void FreeRideHud::buildMinimapVertices( std::vector<Vertex2D> &vertices, const V
 // the dash render target (GpsScreen) at the movie's own map-rect scale
 // (190 x 95 canvas px, the dash screen is 2:1) so it reads 1:1 with the HUD.
 void FreeRideHud::drawDashSatnav( Renderer2D &renderer, const VehicleWorldCollision *pCollision, float width,
-                                  float height ) {
+                                  float height, bool bTranspose, bool bFlipU, bool bFlipV ) {
     const float saveX = mapRectX, saveY = mapRectY, saveW = mapRectW, saveH = mapRectH;
     mapRectX = 0.0f;
     mapRectY = 0.0f;
@@ -2647,15 +2647,40 @@ void FreeRideHud::drawDashSatnav( Renderer2D &renderer, const VehicleWorldCollis
     MinimapCache cache;
     std::vector<Vertex2D> vertices;
     buildMinimapVertices( vertices, pCollision, cache );
-    renderer.setClipRect( Rect2D( 0.0f, 0.0f, width, height ) );
-    renderer.drawTriangles( nullptr, vertices.data(), static_cast<uint32_t>( vertices.size() ) );
-    renderer.clearClipRect();
     // The player marker (the HUD's is the movie's cursor clip): a pointer at the map centre.
     const float cx = 0.5f * width, cy = 0.62f * height;
-    std::vector<Vertex2D> arrow;
-    PushTriangle( arrow, cx, cy - 8.0f, cx - 5.0f, cy + 5.0f, cx + 5.0f, cy + 5.0f, Rgba( 255, 255, 255, 255 ) );
-    PushTriangle( arrow, cx, cy - 3.0f, cx - 2.5f, cy + 3.0f, cx + 2.5f, cy + 3.0f, Rgba( 29, 120, 215, 255 ) );
-    renderer.drawTriangles( nullptr, arrow.data(), static_cast<uint32_t>( arrow.size() ) );
+    PushTriangle( vertices, cx, cy - 8.0f, cx - 5.0f, cy + 5.0f, cx + 5.0f, cy + 5.0f, Rgba( 255, 255, 255, 255 ) );
+    PushTriangle( vertices, cx, cy - 3.0f, cx - 2.5f, cy + 3.0f, cx + 2.5f, cy + 3.0f, Rgba( 29, 120, 215, 255 ) );
+    if ( CmdLine::HasArg( "-gpstest" ) ) {
+        // An "L" in the top-left corner and a green block bottom-right: shows the quad's orientation.
+        PushTriangle( vertices, 4.0f, 4.0f, 34.0f, 4.0f, 4.0f, 14.0f, Rgba( 255, 60, 60, 255 ) );
+        PushTriangle( vertices, 4.0f, 4.0f, 14.0f, 4.0f, 4.0f, 34.0f, Rgba( 255, 60, 60, 255 ) );
+        PushTriangle( vertices, width - 14.0f, height - 10.0f, width - 2.0f, height - 10.0f, width - 2.0f, height - 2.0f,
+                      Rgba( 60, 255, 60, 255 ) );
+    }
+    // The car's quad layout (GpsUvLayout): the upright content goes into the
+    // texture rotated / flipped so the dash shows it upright.
+    float texW = width, texH = height;
+    if ( bTranspose ) {
+        std::swap( texW, texH );
+    }
+    for ( Vertex2D &v : vertices ) {
+        float u = v.X / width, w = v.Y / height;
+        if ( bTranspose ) {
+            std::swap( u, w );
+        }
+        if ( bFlipU ) {
+            u = 1.0f - u;
+        }
+        if ( bFlipV ) {
+            w = 1.0f - w;
+        }
+        v.X = u * texW;
+        v.Y = w * texH;
+    }
+    renderer.setClipRect( Rect2D( 0.0f, 0.0f, texW, texH ) );
+    renderer.drawTriangles( nullptr, vertices.data(), static_cast<uint32_t>( vertices.size() ) );
+    renderer.clearClipRect();
     mapRectX = saveX;
     mapRectY = saveY;
     mapRectW = saveW;

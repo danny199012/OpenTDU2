@@ -504,6 +504,8 @@ from grid coordinates, so a BLAS had nothing to read. Solved:
   384 m) are deliberately NOT included (ray-space z-fighting under the 3 m
   sheet; would need a rebuild hook in updateArea/updateIslandIndices).
 
+- Daylight + other car (owner: "check the satnav in daylight and on another car"): `-weather 12` daylight is fine (roads no longer clip). Of California / 458 / 599 / 370Z / Agera / Camaro only the California and 370Z have a GPS node. The **370Z's quad has transposed UVs** (texture +x runs down the screen, found with `-gpstest` corner markers + `-loggps` UV dump), so its map came out rotated 90 deg and squashed. `CinematicCar::computeGpsLayout` now reads each car's quad UVs at load and matches the 8 transpose/flip layouts (`GpsUvLayout`: California identity, 370Z transpose + flipV, logged as `dash GPS uv layout`); `GpsScreen::setLayout` makes a portrait 256x512 target for transposed cars and `FreeRideHud::drawDashSatnav` pre-rotates the content. `docs/images/dash_satnav_orientation_california_370z.png`. Other GPS cars unchecked (the detector logs NOT matched if a layout is not one of the 8).
+
 ### Verified (headless, build 216, 0 VUIDs everywhere)
 - The camera probe "down ray" now hits the ground at the drive height (before it
   reported whatever a model provided): `Ray tracing world: down ray -> hit 1,

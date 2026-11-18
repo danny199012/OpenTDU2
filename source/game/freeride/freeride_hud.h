@@ -291,7 +291,8 @@ public:
     void endTrace();
     void drawSavingLogo( Renderer2D &renderer );
     // The dash sat-nav screen: the HUD minimap's content into a width x height canvas (the dash render target).
-    void drawDashSatnav( Renderer2D &renderer, const VehicleWorldCollision *pCollision, float width, float height );
+    void drawDashSatnav( Renderer2D &renderer, const VehicleWorldCollision *pCollision, float width, float height,
+                         bool bTranspose = false, bool bFlipU = false, bool bFlipV = false );
     void setVisible( bool bVisible ) { bShown = bVisible; }
     // The near-car spec card (a traffic car stopped next to / a showroom
     // display car walked up to): the compact retail panel - name, price and
