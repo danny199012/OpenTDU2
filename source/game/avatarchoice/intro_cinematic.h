@@ -117,6 +117,8 @@ public:
     // Background cinematic (no camera: FUN_00da8040 / FUN_00da8d90, the
     // FIRST_WM ambient and voice cinematics); several can run.
     bool playBackground( const std::string &name, bool bLoop = true );
+    // The main cinematic's own camera track drives the view even when CinProps says NoCamera (the clinic's C_HEAD).
+    void useMainCamera() { main.bNoCamera = false; }
     void stopMain();
     void stopBackground();
     void stopBackground( const std::string &name );
@@ -179,6 +181,13 @@ public:
     bool getEntityCamera( uint64_t hashcode, EdenSceneView::Camera &outCamera ) const;
     // Walk mode camera in house-local coordinates (Heading convention).
     void setLocalCamera( const Vector3f &position, const Quaternionf &heading, float fov, float nearPlane = 0.0f );
+    std::vector<std::string> getEntityCameraNames() const {
+        std::vector<std::string> names;
+        for ( const auto &entry : entityCameras ) {
+            names.push_back( entry.first );
+        }
+        return names;
+    }
     bool getEntityCameraLocal( const std::string &name, Vector3f &outPosition, Quaternionf &outHeading ) const;
     // The car presentation camera of an Entity__PosCam (scene-local frame):
     // the shot that frames the car standing on it, false when the PosCam has

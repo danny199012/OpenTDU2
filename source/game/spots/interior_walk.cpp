@@ -577,6 +577,11 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
             OTDU_LOG_INFO( "InteriorWalk: %zu car-seller desk(s) of '%s' serve as the tuner seller\n", remapped, path.c_str() );
         }
     }
+    if ( CmdLine::HasArg( "-logroomcams" ) ) {
+        for ( const std::string &camName : scene.getEntityCameraNames() ) {
+            OTDU_LOG_INFO( "InteriorWalk: room camera '%s'\n", camName.c_str() );
+        }
+    }
     const auto &selectables = scene.getSelectables();
     OTDU_LOG_INFO( "InteriorWalk: '%s' (%s): cinematics%s; start camera '%s'; %zu selectables\n", spotBank.c_str(),
                    path.c_str(), names.c_str(), scene.getFirstPersonCamera().c_str(), selectables.size() );
@@ -1046,6 +1051,9 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             bWalkInput = false;
         } else if ( command == "wmon" ) {
             bWalkInput = true; // FUN_0094fb90: the selection cleared
+            if ( scene.getMainName() == "C_HEAD" ) {
+                startWalk( walkCamera.c_str() ); // the surgeon view ends with the menu: back to the walk camera
+            }
             walk.clearSelection( scene );
         } else if ( command == "gofr" ) {
             bLeaveRequested = true;
@@ -1054,6 +1062,21 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             // calls the movie's openMenuSurgeon [DATA: surgeon_stop's script]; the
             // cinematic is not played yet, the menu opens straight away [INF].
             bWalkInput = false;
+            // The operating-room view of the head: the bank's own C_HEAD cinematic (the avatar in the chair, the
+            // close camera) plays under the menu [DATA: isur_a.bnk cinematics; INF: C_HEAD is the preview shot].
+            if ( !CmdLine::HasArg( "-nosurgeryview" ) && scene.hasCinematic( "C_HEAD" ) ) {
+                const bool bPlayed = scene.playMain( "C_HEAD" );
+                EdenSceneView::Camera headShot;
+                if ( const char *pCam = CmdLine::GetArgValue( "-surgcam" ); pCam != nullptr && scene.getEntityCamera( pCam, headShot ) ) {
+                    headShot.Near = 0.05f;
+                    scene.setCameraOverride( &headShot );
+                } else {
+                    scene.setCameraOverride( nullptr ); // the cinematic's own camera replaces the walk one
+                    scene.clearMirrorPlayer();          // the walk body is mirror-only; C_HEAD's "Avatar" actor takes over
+                    scene.useMainCamera();            // C_HEAD carries a camera track but its CinProps say NoCamera [DATA]
+                }
+                OTDU_LOG_INFO( "InteriorWalk: surgeon view C_HEAD -> %d\n", bPlayed ? 1 : 0 );
+            }
             if ( commandSink ) {
                 commandSink( command, args ); // bind first: the invoke below sends surg:edit:open at once
             }

@@ -494,6 +494,20 @@ bool IntroCinematic::playMain( const std::string &name, bool bStopPrevious, floa
     }
     (void)bStopPrevious;
     OTDU_LOG_DEBUG( "IntroCinematic: main %s\n", name.c_str() );
+    if ( CmdLine::HasArg( "-logmain" ) ) {
+        Vector3f logPos;
+        Quaternionf logRot;
+        float logFov = 0.8f;
+        const bool bHasCam = pDef->Cin.getCamera( pDef->Scenes, 0.0f, logPos, logRot, logFov );
+        OTDU_LOG_INFO( "IntroCinematic: main '%s' CinProps 0x%x noCamera %d camera@0 %d (%.2f, %.2f, %.2f)\n", name.c_str(),
+                       static_cast<unsigned>( pDef->CinProps ), ( pDef->CinProps & kCinPropNoCamera ) != 0 ? 1 : 0, bHasCam ? 1 : 0,
+                       logPos.x, logPos.y, logPos.z );
+        for ( const CinematicScene &logScene : pDef->Scenes ) {
+            for ( const CinematicScene::Object &object : logScene.getObjects() ) {
+                OTDU_LOG_INFO( "IntroCinematic:   '%s' object '%s' camera %d\n", name.c_str(), object.Name.c_str(), object.isCamera() ? 1 : 0 );
+            }
+        }
+    }
     start( main, pDef, ( pDef->CinProps & kCinPropLoop ) != 0, ( pDef->CinProps & kCinPropNoCamera ) != 0,
            startTime >= 0.0f ? startTime
            : main.pDef == nullptr && name == "C_INTRO" ? static_cast<float>( CmdLine::GetArgInt( "-cinetime", 0 ) )

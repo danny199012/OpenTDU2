@@ -7,6 +7,24 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+
+## Session 2026-11-18 (`main`): surgery shows the head close-up (360 comparison)
+
+Owner: "check surgery, see if it shows this camera preview" (360 recomp shots: head close-up on the green striped wall + the Head page list).
+
+### What changed
+- `interior_walk.cpp` (`surg:cine:intr`): plays the bank's `C_HEAD` as the main cinematic, drops the walk camera override, `clearMirrorPlayer()` (the walk's body is mirror-only, which hid the avatar) and `useMainCamera()`; `wmon` (menu closed) restarts the walk. `-nosurgeryview` = A/B, `-surgcam <Entity__Camera>` test hook.
+- `intro_cinematic.{h,cpp}`: `useMainCamera()` (C_HEAD has CinProps 0x52 = NoCamera but carries a camera track at (-27.1, 6.98, -5.05) [DATA]), `getEntityCameraNames()`, `-logmain` (cinematic props + object names), `-logroomcams`.
+
+### Verified
+- `-gm FREERIDE -skipcine -nopad -fixedtimestep -interior ESUR_A -autoplay "400:press=validate;440:shot=..."`: log `surgeon view C_HEAD -> 1`, head close-up with the menu over it (`docs/images/surgery_head_closeup.webp`); cancel gives `wmon` and the walk resumes (A reopens it).
+
+### Ruled out
+- The room camera `Cam_Hostess` is the surgeon's seat view, not the head shot.
+
+### Not done / next
+- The 360 frame shows no bamboo plant at the right and a black tee (ours: olive shirt from the intro preset, bamboo in view): the retail view may orbit (RS Camera) or use C_360 / a different time offset. Slider changes redrawing the face live not looked at.
+
 ## Session 2026-11-18 (`win`): every map shop card shows its building picture
 
 Owner: "implement all the shop previews" (360 sample: clothes card, B-Miami).
