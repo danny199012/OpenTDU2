@@ -16,7 +16,86 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
-## Session 2026-11-18 (ninety-ninth, `cline`): the Direct3D 12 pipeline tally - every library's vertex/pixel pair creates a real PSO, and it found the SV_Position register drift
+## Session 2026-11-18 (one hundredth, `cline`): a real `.3DG` model draws on Direct3D 12 - geometry, materials, textures and the game's own permutations
+
+The owner: *"please continue with Direct X 12 support thanks but please don't
+stop after a few mins as I have had a few attempts and within 20mins you seem to
+stop sometimes way less than that"*. The "next" the previous entry named was two
+things: point `EdenRenderer` at `D3D12Scene`, and prove the mesh path on a real
+`.3DG`. The second is done here, and it answered the questions the first one
+would have hit (docs/backends.md 3.13).
+
+### What changed
+
+- `source/render/d3d12/d3d12_asset_probe.{h,cpp}` (new) -
+  **`-d3d12-3dgtest [<bank>]`**: a bank out of the game data, drawn whole.
+  The `.3DD` scene's nodes keep their rest-pose transforms, each primitive goes
+  through `D3D12PrepareMesh` (the SNORM / UScaled expansion of 3.12) and
+  `createMeshStreams`, its material is the one the node names in the `.2DM`,
+  its program is the permutation the switches select, its textures are the
+  bank's own `.2db` uploads, and its constants come from the *shared*
+  `FillEdenConstants`. The probe creates its own hidden window and device and
+  ends the run with its verdict, like `-d3d12-edentest`.
+- The material path copies `EdenRenderer::setupMaterial` step for step, minus
+  Vulkan: the raw states, the slot addressing (`SH_LinearUV + 3u + v`), the
+  texture lookup by hashcode and owner with the `findForOwner` borrow fallback,
+  the switches, then **`ApplyEdenMaterialHandler`** (the original renderer's
+  per-family handler) and `applyRenderStates` before the permutation lookup.
+- `source/tdu_instance.cpp` - the flag joins the bootstrap list next to
+  `-d3d12-shadertest` / `-d3d12-edentest` / `-d3d12-pipetest`.
+- `docs/backends.md` - **section 3.13** (the commands, both models' numbers, the
+  frame as text, the three rules), plus the status table, the flag table and
+  section 5's step 2b1.
+
+### Measured
+
+- **4x4** (`Euro/Bnk/Vehicules/High/4x4.bnk`, the generic off-roader): 39 nodes,
+  25 primitives, **25 of 25 draws**, 6 programs, **9.17 % of the frame covered,
+  200 distinct colours**, mean 207.0/198.5/209.4 on the RTX 5070 Ti.
+- **Chrysler 300 SRT8** (`300_c_srt8.bnk`, a second unrelated bank): 37 nodes, 22
+  primitives, **22 of 22 draws**, 6 programs, 6.90 %, 129 colours - a lower,
+  longer silhouette.
+- Every material matched its permutation **exactly** (0 differing switches) once
+  `ApplyEdenMaterialHandler` ran: `Paint` is `TD_CarMat_NM vs12/ps381`, not the
+  `TD_HardwareInstance` the raw tuple picks (11 switches off). That one call took
+  the frame from 45 to 200 distinct colours.
+- 148 textures uploaded (the model's own bank plus `Vehicules/common_car.bnk`);
+  the only unresolved slot left is the runtime `CUBEMAP` reflection
+  (`0050414d45425543`), which the *game* fills per frame.
+- The frame is also printed as a 64x24 brightness map, one log line per row: a
+  coverage count cannot tell a car from a smear.
+- **No regression**: `-d3d12-scenetest`'s PPM is still
+  `SHA256 E505B37F...C3F778CEB`, `-d3d12-meshconvtest` PASSED,
+  `-renderer-selftest` exit 0.
+
+### Traps this cost (now in docs/backends.md 3.13)
+
+- The material handler must run **before** the permutation lookup, or the tuple
+  is the `.2DM`'s raw one and `getProgram` answers with the nearest permutation
+  of the wrong family (it draws - with 11 switches off).
+- A car's textures are **not in its own bank** (`common_car.bnk` has them); a
+  probe that skips the sibling bank resolves 2 of 7 slots and paints white.
+- An unresolved texture slot must bind the **white texture**, never an unfilled
+  descriptor: `D3D12Scene::draw` only writes the table it is given, and a shader
+  sampling whatever the heap held can fault the GPU.
+- The probe's own log bug worth remembering: a 10-entry brightness ramp indexed
+  to 9 appended `'\0'` into a `std::string`, and `%s` cut every row at the first
+  bright cell.
+
+### Next
+
+- Point `EdenRenderer` at `D3D12Scene` (phase 3b step 2). The two mechanics are
+  now measured rather than guessed: `EdenMesh` has to upload into
+  `D3D12Scene::Mesh` (`D3D12PrepareMesh` + `createMeshStreams` are the pieces,
+  and a real car's 22-25 primitives already do it), and the per-draw texture
+  table needs the 4096-descriptor-per-slot budget respected (~7600 draws do not
+  fit - a per-material cache of table bases is the likely answer).
+- The paint colour: a bank cannot know it; it comes from the instance's colour
+  table (`.pmi` / catalogue). The SRT8's black paint is its `.2DM`'s own, so the
+  material path is right - the *instance* data is simply not in a bank.
+- `-d3d12-pipetest` per-library filter is still the fast path for a single
+  family (`-d3d12-pipetest TD_Ground`).
+
 
 The owner: *"please continue with Direct X 12 support thanks but please don't
 stop after a few mins"*. The "next" the previous entry named was the

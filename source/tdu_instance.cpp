@@ -18,6 +18,7 @@
 #include "input/gs_input.h"
 #include "physics/gs_physics.h"
 #include "render/gs_render.h"
+#include "render/d3d12/d3d12_asset_probe.h"
 #include "render/d3d12/d3d12_mesh_builder.h"
 #include "render/d3d12/d3d12_scene.h"
 #include "render/rhi/render_backend.h"
@@ -282,23 +283,29 @@ bool TestDriveGameInstance::initialize() {
         // -d3d12-edentest (section 3.8) needs the same data plus a device of its
         // own, and -d3d12-pipetest (section 3.10) a device and Euro/Shaders;
         // both create theirs here. All three end the bootstrap.
+        // -d3d12-3dgtest (section 3.13) is the same shape: a real bank out of
+        // Euro/Bnk drawn through the scene path, with its own device.
         const bool bShaderTest = CmdLine::HasArg( "-d3d12-shadertest" );
         const bool bEdenTest = CmdLine::HasArg( "-d3d12-edentest" );
         const bool bPipeTest = CmdLine::HasArg( "-d3d12-pipetest" );
-        if ( pService == pFile.get() && ( bShaderTest || bEdenTest || bPipeTest ) ) {
+        const bool bAssetTest = CmdLine::HasArg( "-d3d12-3dgtest" );
+        if ( pService == pFile.get() && ( bShaderTest || bEdenTest || bPipeTest || bAssetTest ) ) {
             bShaderTestOnly = true;
 #if defined( OTDU_D3D12 )
             if ( bShaderTest ) {
                 bShaderTestPassed = D3D12RunShaderTest();
             } else if ( bEdenTest ) {
                 bShaderTestPassed = D3D12RunEdenTest();
+            } else if ( bAssetTest ) {
+                bShaderTestPassed = D3D12RunMeshAssetTest();
             } else {
                 bShaderTestPassed = D3D12RunPipelineTest();
             }
 #else
             OTDU_LOG_ERROR( "%s needs the Direct3D 12 backend (OTDU_ENABLE_D3D12=OFF)\n",
                             bShaderTest ? "-d3d12-shadertest"
-                                        : ( bEdenTest ? "-d3d12-edentest" : "-d3d12-pipetest" ) );
+                                        : ( bEdenTest ? "-d3d12-edentest"
+                                                      : ( bAssetTest ? "-d3d12-3dgtest" : "-d3d12-pipetest" ) ) );
             bShaderTestPassed = false;
 #endif
             return true;

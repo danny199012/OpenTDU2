@@ -32,6 +32,7 @@ with no shippable step in between. The backends are therefore added
 | Sampler heap (DXSO's runtime sampler array) | sampler set (`samplerHeap`) | **done** (`-d3d12-samplertest`, section 3.6) | - | - |
 | Constant buffers b0..b3 per stage + D3D9 material state | descriptor sets + push constants | **done** (`-d3d12-constest`, section 3.7) | - | - |
 | **An original `.sob` shader draws** (`-d3d12-edentest`) | `EdenRenderer` | **done for one material** (section 3.8) | - | - |
+| **A real `.3DG` model draws** (`-d3d12-3dgtest`: scene + geometry + materials + textures, every node) | `EdenWorld`/`EdenSceneView` | **done** (section 3.13) | - | - |
 | **Vertex/pixel interface** (a `.sob` shader may skip a varying register) | locations, which match by construction | **done** (`compilePair`, section 3.9) | - | - |
 | Every Eden shader stage compiled (`-d3d12-shadertest`) | n/a | **done** (section 3.5) | - | - |
 | **Catalogue-wide pipeline tally** (`-d3d12-pipetest`: every library's VS/PS pair → a real PSO) | n/a | **done** (section 3.10) | - | - |
@@ -70,6 +71,7 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-d3d12-edentest [<text>]` | the first *original* TDU2 shader on D3D12: loads Euro/Shaders, picks a simple permutation of a real library, fills the constants with the shared filler and draws a quad (section 3.8; needs `-game`). `<text>` keeps only libraries whose name contains it (section 3.9) |
 | `-d3d12-shadertest [<text>]` | in the game bootstrap (`-game`): every `.sob` stage through the scene shader path, with a tally; `<text>` keeps only libraries whose name contains it (section 3.5) |
 | `-d3d12-pipetest [<text>]` | in the game bootstrap (`-game`): every library's VS/PS pair compiles, links and creates a real PSO, with a tally; `<text>` keeps only libraries whose name contains it (section 3.10) |
+| `-d3d12-3dgtest [<bank>]` | in the game bootstrap (`-game`): a bank's `.3DD` + `.3DG` + `.2DM` + `.2DB` drawn as a model - every node, its own `.sob` permutation, its own textures - and the frame measured (section 3.13); `<bank>` is a path relative to the game root, or a fragment of `4x4` / `300_c_srt8` / `2cv` |
 | `-d3d12-splitstreams` | with `-d3d12-scenetest`: upload the cube as two vertex streams - the frame must be byte-identical (section 3.11) |
 | `-d3d12-meshconvtest` | no game data, no device: the `.3DG` stream expansion (SNORM / UScaled -> floats), exit 0/1 (section 3.12) |
 | `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
@@ -812,6 +814,100 @@ because the decoder added the attribute's byte offset a second time (the caller
 had already applied it), so it read past the vertex - the kind of mistake that
 would have shown up much later as "the normals look wrong in the game".
 
+### 3.13 Real game geometry (`-d3d12-3dgtest`)
+
+The probes before this one drew synthetic geometry: a quad with an original
+shader (3.8), the engine's cube (3.3). This one takes a bank out of the game
+data - its `.3DD` scene, `.3DG` geometry, `.2DM` materials and `.2DB`
+textures - and draws the model whole, every node with its own transform, through
+its own `.sob` permutations:
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -d3d12-3dgtest `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx `
+    -renderer-shot E:\Cline\_3dg.ppm -log E:\Cline\_3dg.log
+```
+
+The flag takes a bank path relative to the game root
+(`-d3d12-3dgtest Euro/Bnk/Islands/Ibiza/Exterior/eph_l0c.bnk`) or a fragment of
+one of the default candidates (`4x4`, `300_c_srt8`, `2cv` - the generic cars
+whose file names are the same in every install).
+
+Measured (RTX 5070 Ti, build 229, 1280x720):
+
+```
+D3D12 3dgtest: 'Euro/Bnk/Vehicules/High/4x4.bnk' - 4x4.3dd + 4x4.3dg + 4x4.2dm, 7 material(s), 148 texture(s) uploaded
+D3D12 3dgtest: material 'Paint' -> TD_CarMat_NM vs12/ps381 (0 switch(es) from the .2DM's); blend 2/1 op 1 cull 2 bucket 0x2 depth 1/1, 3 of 6 texture(s) resolved; missing 0050414d45425543
+D3D12 3dgtest: material 'Glass' -> TD_CarPaint vs34/ps115 (0 switch(es) from the .2DM's); ...
+D3D12 3dgtest: 39 node(s), 25 primitive(s): 25 draw(s) prepared, 0 skipped, 0 without a material, 0 without a program, 0 without a vertex layout, 0 refused by the device; 6 program(s), centre (-0.00 0.57 -0.00), radius 2.72
+D3D12 3dgtest: 1280x720; 84517 px covered (9.17 %), 200 distinct colour(s), mean 207.0/198.5/209.4
+D3D12 3dgtest: PASSED (a real .3DG model drew on Direct3D 12 with its own material and textures)
+```
+
+and the same probe on the Chrysler (a second, unrelated bank): 37 nodes, 22
+primitives, 22 draws, 6 programs, 6.90 % covered, 129 distinct colours - the
+lower, longer sedan silhouette instead of the 4x4's box.
+
+**The frame is in the log as text**, because a coverage count cannot tell a car
+from a smear: the probe prints a 64x24 brightness map of the last frame (one log
+line per row, since a multi-line message is truncated). The 4x4, turned 35
+degrees off the camera axis:
+
+```
+|                          @@@@@@@@@@@@@@                        |
+|                          @@@@@@@@@@@@@@                        |
+|                          %%%@@@@@@@@@                          |
+|                         %*#*%@@=%@@@@*.....-                   |
+|                        +++++#@@+*@@@@*......#                  |
+|                       @%#####@@@@@#@@#.....:                   |
+|                        @@@@@@@@@@@%@@@@@@@@@                   |
+|                        @@@@@@%-:-%#@@                          |
+```
+
+- **The material handler runs before the permutation lookup, and it is not
+  optional.** The first run looked the program up from the `.2DM`'s *raw* 48
+  switches and got `TD_HardwareInstance` for the material called `Paint` with
+  **11 switches differing** - the nearest permutation of the wrong family.
+  `ApplyEdenMaterialHandler` (`render/eden/eden_material_handlers.h`, the
+  original renderer's `FUN_00d71900`) is what rewrites those switches and, for a
+  material exported with a family that has no library of its own, the GUID
+  itself: `Paint` really is `TD_CarMat_NM`, and after the handler every one of
+  the seven materials matches its permutation exactly (0 differing switches).
+  The frame changed from 45 to 200 distinct colours on that one call.
+- **A car's maps are not in its own bank.** `4x4.bnk` carries two `.2db` (glass,
+  occlusion); its body textures live in `Vehicules/common_car.bnk`. The probe
+  uploads that bank too, under its own owner, and the material lookup's
+  `findForOwner` fallback borrows from it - 148 textures instead of 2, and the
+  slots that still miss are the runtime ones the *game* fills per frame (the
+  `CUBEMAP` reflection slot, hash `0050414d45425543`).
+- **An empty texture slot must be bound to something.** `D3D12Scene::draw` only
+  writes the descriptor table it is given, so a slot a shader samples but the
+  draw did not fill would read whatever the table heap held there - garbage that
+  can fault the GPU rather than paint a wrong colour. The probe always passes a
+  full 16-entry table with the white texture in the unresolved slots, which is
+  also the rule the Eden port will need.
+- **Sixteen descriptors per draw is the budget to watch.** The table heap holds
+  4096 descriptors per frame slot and resets when the slot's fence passes, so 96
+  draws x 16 entries (the probe's cap) fit; a real scene's ~7600 draws will need
+  either a per-material cache of table bases or a bigger heap. Recorded here
+  because it is the first thing the Eden port will hit.
+- **The vertex layout comes from the pair, not from the shader alone.**
+  `D3D12BuildVertexLayout` reads the vertex stage's dcl list and the primitive's
+  own `.3DG` declaration; `MatBlack`'s primitive wanted four streams (the
+  expanded SNORM normal plus the bone-index stream), and the layout's fallback
+  stream carried the dcl the mesh does not have. 25 of 25 primitives created a
+  PSO, 0 refused.
+- **No regression**: `-d3d12-scenetest`'s frame is still
+  `SHA256 E505B37F...C3F778CEB`, `-d3d12-meshconvtest` still passes, and
+  `-renderer-selftest` still exits 0.
+
+What this does *not* prove: the paint colour. TDU2 sets a car's paint from the
+instance's colour table (`.pmi` / the car catalogue), which a bank has no
+knowledge of - the model draws with the `.2DM`'s default white, so the 4x4 is
+bright and the SRT8's black paint is the material's own. The probe's job was the
+geometry/material/texture path, and the log names every unresolved slot so the
+next gap is never a guess.
+
 ## 4. The shader path
 
 The scene cannot be ported until the shaders can be consumed per backend. Both
@@ -962,8 +1058,16 @@ own `discard`.
    `CreateGraphicsPipelineState` for each, with the PSO cache batched. It found
    two backend defects (the pixel stage's SV_Position register drifting when it
    stops early, and a pipeline key that identified stages by address); both are
-   fixed and the refusals they caused are gone. Step 2b, in progress: **the Eden
-   scene itself** - `D3D12Scene` now carries multi-stream meshes (section 3.11)
+   fixed and the refusals they caused are gone. Step 2b1, 2026-11-18: **a real
+   model draws** (`-d3d12-3dgtest`, section 3.13) - the bank's own `.3DD` scene,
+   `.3DG` streams and `.2DM` materials, every node with its transform, 25 of 25
+   primitives of the 4x4 (22 of 22 of the SRT8) through a real PSO, and the three
+   rules the Eden port needs measured rather than assumed: the material handler
+   runs *before* the permutation lookup (`Paint` is `TD_CarMat_NM`, not
+   `TD_HardwareInstance`), a car's textures live in a sibling bank the lookup has
+   to borrow from, and an unresolved slot must bind the white texture instead of
+   an unfilled descriptor. Step 2b, in progress: **the Eden scene itself** -
+   `D3D12Scene` now carries multi-stream meshes (section 3.11)
    and the vertex layout from a `.3DG` declaration plus the shader's dcl list,
    which is the interface `EdenRenderer` needs:
    `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
@@ -980,15 +1084,19 @@ Next step, precisely: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
 `PipelineDesc` handed to `D3D12Scene::getPipeline` and `recordPacket`'s push constants
 handed to `D3D12Scene::draw`, with `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`)
 going through `D3D12ShaderCompiler::compilePair` (section 3.9 - the pair, not the
-two stages, because the interface is a property of the pair). The five questions
-that came before it are answered: the shaders all compile (section 3.5), the
-sampler heap they index draws with the right state (section 3.6), the constant
-buffers and the D3D9 material state arrive (section 3.7), one real permutation
-draws end to end with the renderer's own constants (section 3.8), and the vertex
-and pixel stages now link for a shader that skips a varying register (section
-3.9). What is still unmeasured is the *breadth*: a catalogue-wide pipeline tally
-(compile every library's pairs and create a PSO for each) is the next thing to
-run before `EdenRenderer` is pointed at the backend.
+two stages, because the interface is a property of the pair). The questions that
+came before it are all answered now: the shaders compile (3.5), the sampler heap
+they index draws with the right state (3.6), the constant buffers and the D3D9
+material state arrive (3.7), one real permutation draws end to end with the
+renderer's own constants (3.8), the stages link for a shader that skips a varying
+register (3.9), every distinct program in the game creates a PSO (3.10), and a
+whole real model - scene, geometry, materials, textures, 25 primitives - draws
+with the exact permutations the game would pick (3.13). The two mechanics the
+port itself still has to solve are measured there too: `EdenMesh` must upload
+into `D3D12Scene::Mesh` instead of Vulkan buffers (`D3D12PrepareMesh` +
+`createMeshStreams` are the pieces), and the per-draw texture table has a
+4096-descriptor budget per frame slot that a ~7600-draw scene does not fit - a
+per-material cache of table bases is the likely answer.
 
 ## 6. Known gaps and traps
 
