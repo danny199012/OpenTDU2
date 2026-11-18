@@ -52,13 +52,33 @@ float density( vec3 p, bool bDetail ) {
     // Rounded bases; each cloud's own top rounds off below the slab top.
     const float profile = smoothstep( 0.0, 0.08, h ) * ( 1.0 - smoothstep( topH * 0.55, topH, h ) );
     float d = texture( uBase, q ).r;
-    // Clusters: positive cmap raises the field, so the threshold carves
-    // isolated clouds in the gaps and merges them where cmap is high.
-    d += ( cmap - 0.5 ) * mix( 0.80, 0.35, pc.Right.w );
+    // Clusters: the cluster map is sharpened so the deck splits into distinct
+    // cloudy regions with clean gaps between, and it is applied
+    // asymmetrically: below its mid it carves hard (stray single puffs in the
+    // gaps die - v7's uniform confetti), above it only lifts a little, so the
+    // clouds inside a region stay individuals with blue between instead of
+    // merging into v7's gathered sheets. Storms (high coverage) blend the
+    // lift back up so an overcast (kind R) still forms one deck.
+    const float cs = smoothstep( 0.20, 0.80, cmap );
+    const float cluster = ( cs - 0.5 ) * mix( 0.80, 0.35, pc.Right.w );
+    d += cluster < 0.0 ? cluster * 1.30 : cluster * mix( 0.40, 1.0, pc.Right.w );
     // Coverage: the threshold is a measured quantile of the base-noise field
     // (EdenClouds::thresholdForCoverage, pushed in pc.Fog.w).
     const float threshold = pc.Fog.w;
     d = clamp( ( d - threshold ) / mix( 0.16, 0.22, pc.Right.w ), 0.0, 1.0 ) * profile;
+    // Convection-cell gate: a 2D slice of the detail texture's freq-2
+    // inverted Worley at a 4200 m tile -> ~2.1 km cells, dense at a cell
+    // centre, zero towards the borders. This is what keeps the deck in
+    // separate cumulus instead of gathered sheets: the base Perlin-Worley
+    // field is shaped like ridges between its Worley cells (the
+    // GenerateBaseVolume remap dips at the cell centres), so left alone its
+    // highs always connect. One cloud per cell now, positions and interior
+    // shape still from the base noise and the cluster map. Fades out for
+    // storms - an overcast deck is not cellular.
+    const float cell = texture( uDetail, vec3( q.xz * ( kShapeScale / kDetailScale ) * 0.05, 0.37 ) ).r;
+    const float gate = smoothstep( 0.30, 0.62, cell );
+    const float storm = smoothstep( 0.55, 0.85, pc.Right.w );
+    d *= mix( gate, 1.0, storm );
     if ( bDetail && d > 0.0 ) {
         const vec4 w4 = texture( uDetail, q * ( kShapeScale / kDetailScale ) );
         const float w = dot( w4, vec4( 0.50, 0.28, 0.14, 0.08 ) );
@@ -165,7 +185,7 @@ void main() {
     // Towards the horizon the layer dissolves into the fog colour, so it
     // never ends as a hard line (the composite's depth test keeps it in
     // front of / behind terrain correctly).
-    const float fade = clamp( ( tNear - 24000.0 ) / 26000.0, 0.0, 1.0 );
+    const float fade = clamp( ( tNear - 9000.0 ) / 26000.0, 0.0, 1.0 );
     // Rays grazing the slab (the deck seen edge-on) sample the noise field at
     // sub-pixel scale: fade only the truly edge-on ones (the old 0.10 window
     // erased the whole horizon band, which is where a 1-2 km deck appears).
