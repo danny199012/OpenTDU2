@@ -2999,7 +2999,7 @@ void CinematicCar::collectTunerMasks() {
             const Vector3f centre = ( a + b + cc ) * ( 1.0f / 3.0f );
             int32_t group = 1;
             static const bool bDump = CmdLine::HasArg( "-dumptunermask" );
-            if ( bDump && centre.z < -1.5f ) {
+            if ( bDump && centre.z < -0.4f ) {
                 OTDU_LOG_INFO( "MASKTRI %zu %s %.3f %.3f %.3f\n", i, car.getMaterials()[item.MaterialIndex].Name.c_str(),
                                centre.x, centre.y, centre.z );
             }

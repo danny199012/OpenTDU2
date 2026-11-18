@@ -142,7 +142,7 @@ spoiler_offset = 0 0.82 -2.05
 # centre is inside are dropped while a spoiler is fitted. Find a box with
 # -dumptunermask (every rear triangle centre) and -logtuner (how many a box
 # catches). Note the model's X is mirrored on screen.
-hide_spoiler = -0.95 0.935 -2.30 0.95 1.05 -1.97
+hide_spoiler = -0.95 0.94 -2.30 0.95 1.05 -1.68
 
 [car:370Z]
 slots = spoiler, exhaust
