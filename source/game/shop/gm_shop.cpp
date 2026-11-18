@@ -2049,20 +2049,39 @@ void GMShop::renderPageInset() {
     // The panel's view is static: refresh it every third frame (the texture
     // persists in between), at once on a page change.
     static int32_t insetFrame = 0, insetPage = -1;
-    const bool bRefresh = pageOption != insetPage || !bInsetBound || ( insetFrame++ % 3 ) == 0 || CmdLine::HasArg( "-insetevery" );
+    // Wheels / interior sweep left-right-left and paint orbits the car (the 360 panel loops): animated, so every frame.
+    const bool bSweep = pageOption == 2 || pageOption == 3 || pageOption == 4;
+    const bool bRefresh = bSweep || pageOption != insetPage || !bInsetBound || ( insetFrame++ % 3 ) == 0 || CmdLine::HasArg( "-insetevery" );
     insetPage = pageOption;
     if ( !bRefresh ) {
         return;
     }
-    const Vector3f eye = pageCameraCarWorld.transformPoint( insetEyeLocal );
-    const Vector3f direction = ( pageCameraCarWorld.transformPoint( insetTargetLocal ) - eye ).normalized();
+    Vector3f eyeLocal = insetEyeLocal, targetLocal = insetTargetLocal;
+    float fovNow = insetFov;
+    if ( bSweep && !CmdLine::HasArg( "-noinsetsweep" ) ) {
+        if ( pageOption == 3 ) {
+            // Paint: the camera goes round the whole car (period ~22 s) [INF: the owner's reading of the 360 panel].
+            targetLocal = Vector3f( 0.0f, 0.6f, 0.0f );
+            const float angle = 0.6f + pageTime * 0.28f;
+            eyeLocal = targetLocal + Vector3f( std::sin( angle ) * 5.6f, 0.7f, std::cos( angle ) * 5.6f );
+            fovNow = 0.62f;
+        } else {
+            // Wheels / interior: the eye swings +-0.4 rad about the target's vertical axis (period ~7 s).
+            const float swing = std::sin( pageTime * 0.9f ) * 0.40f;
+            const float cs = std::cos( swing ), sn = std::sin( swing );
+            const Vector3f arm = eyeLocal - targetLocal;
+            eyeLocal = targetLocal + Vector3f( arm.x * cs + arm.z * sn, arm.y, -arm.x * sn + arm.z * cs );
+        }
+    }
+    const Vector3f eye = pageCameraCarWorld.transformPoint( eyeLocal );
+    const Vector3f direction = ( pageCameraCarWorld.transformPoint( targetLocal ) - eye ).normalized();
     const float yaw = std::atan2( direction.x, direction.z );
     const float pitch = std::asin( Clamp( direction.y, -1.0f, 1.0f ) );
     const Quaternionf conjugate = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), yaw ) *
                                   Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), -pitch );
     insetCamera.Position = eye;
     insetCamera.Rotation = Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w );
-    insetCamera.Fov = insetFov;
+    insetCamera.Fov = fovNow;
     insetCamera.Near = 0.05f;
     // The panel is 256 x 190: keep that aspect out of the window-sized frame.
     const float windowAspect = static_cast<float>( gpRender->get2DRenderer().getTargetWidth() ) /
