@@ -366,7 +366,7 @@ void CinematicCar::unload() {
     wheelSpinRests[0].clear();
     wheelSpinRests[1].clear();
     bWheelSpinRests = false;
-    tunerAttachment = TunerAttachment(); // the part's node index died with the model (re-applied by the caller)
+    tunerAttachments.clear(); // the part's node index died with the model (re-applied by the caller)
     bHardtop = false;
     hardtopTime = 0.0f;
     hardtopSkin.clear();
@@ -2905,8 +2905,9 @@ bool CinematicCar::getNodeModelTransform( const char *pName, Matrix4x4f &outTran
     return true;
 }
 
-void CinematicCar::setTunerAttachment( const EdenMesh &mesh, const EdenMaterial &material,
+void CinematicCar::setTunerAttachment( const char *pSlot, const EdenMesh &mesh, const EdenMaterial &material,
                                        const char *pBodyNodeName, const Matrix4x4f &offset ) {
+    TunerAttachment &tunerAttachment = tunerAttachments[pSlot != nullptr ? pSlot : "spoiler"];
     tunerAttachment.Mesh = mesh;
     tunerAttachment.Material = material;
     tunerAttachment.Offset = offset;
@@ -2944,8 +2945,12 @@ void CinematicCar::setTunerAttachment( const EdenMesh &mesh, const EdenMaterial 
     }
 }
 
-void CinematicCar::clearTunerAttachment() {
-    tunerAttachment = TunerAttachment();
+void CinematicCar::clearTunerAttachment( const char *pSlot ) {
+    if ( pSlot == nullptr ) {
+        tunerAttachments.clear();
+    } else {
+        tunerAttachments.erase( pSlot );
+    }
 }
 
 bool CinematicCar::getBodyBounds( Vector3f &outMin, Vector3f &outMax ) const {
@@ -3758,7 +3763,11 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     }
     // The tuner-garage part (setTunerAttachment): one borrowed mesh on the
     // body node, drawn in every context this car renders in.
-    if ( tunerAttachment.Mesh.IndexCount > 0 ) {
+    for ( const auto &entry : tunerAttachments ) {
+        const TunerAttachment &tunerAttachment = entry.second;
+        if ( tunerAttachment.Mesh.IndexCount == 0 ) {
+            continue;
+        }
         const Matrix4x4f nodeT =
             tunerAttachment.Node >= 0 ? car.getNodeTransform( tunerAttachment.Node ) : Matrix4x4f();
         renderer.draw( tunerAttachment.Mesh, tunerAttachment.Material, world * nodeT * tunerAttachment.Offset );

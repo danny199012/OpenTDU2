@@ -34,19 +34,25 @@ public:
     void setSidePanel( bool bSide ) { bSidePanel = bSide; }
 
 private:
-    // The spoiler part previewed now (-1 = stock): applies it to the room car.
-    void preview( int32_t index );
-    // The installed spoiler of the profile, as a parts index (-1 = stock /
-    // unknown id).
-    int32_t installedIndex() const;
+    // One row of the panel: a slot the car takes (spoiler, exhaust tips...).
+    struct SlotRow {
+        std::string Slot;                     // "spoiler" / "exhaust"
+        std::vector<const TunerPart *> Parts; // the car's catalog for the slot
+        int32_t Preview = -1;                 // previewed now (-1 = stock)
+        int32_t Fitted = -1;                  // what the profile wears
+    };
+    // Previews a part of the row on the room car (-1 = stock).
+    void preview( SlotRow &row, int32_t index );
+    // The installed part of the profile for a slot, as a parts index (-1 =
+    // stock / unknown id).
+    int32_t installedIndex( const SlotRow &row ) const;
 
+    std::vector<SlotRow> rows;
+    size_t selected = 0; // the row up / down moved to
     int32_t carId = -1;
     std::string carName;
     std::string shopName = "Wangan Works";
     CinematicCar *pCar = nullptr; // the room car (borrowed; not owned)
-    std::vector<const TunerPart *> parts; // the car's spoiler catalog
-    int32_t previewPart = -1;
-    int32_t fittedPart = -1;
     bool bSidePanel = false;
     std::string message;
     float messageTimer = 0.0f;

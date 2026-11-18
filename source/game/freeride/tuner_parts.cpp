@@ -141,6 +141,8 @@ bool TunerParts::load() {
                 ParseVector3( value, part.Offset );
             } else if ( key == "node" ) {
                 part.Node = value;
+            } else if ( key == "align" ) {
+                part.Align = ToLower( value );
             }
         } else if ( bInCar ) {
             if ( key == "slots" ) {
@@ -159,6 +161,8 @@ bool TunerParts::load() {
                     }
                     cursor = comma + 1;
                 }
+            } else if ( key == "pops" ) {
+                car.Pops = static_cast<float>( atof( value.c_str() ) );
             } else if ( key.size() > 7 && key.compare( key.size() - 7, 7, "_offset" ) == 0 ) {
                 Vector3f offset;
                 if ( ParseVector3( value, offset ) ) {
@@ -250,8 +254,50 @@ const TunerPart *TunerParts::partForMesh( const std::string &meshFile ) const {
     return nullptr;
 }
 
-void TunerParts::applyPart( CinematicCar &car, int32_t carId, const TunerPart *pPart ) {
+float TunerParts::popStrength( int32_t carId, const std::map<std::string, std::string> &saved ) const {
+    const TunerCar *pCar = findCar( carId );
+    if ( pCar == nullptr ) {
+        return 0.0f;
+    }
+    const auto exhaust = saved.find( "exhaust" );
+    const bool bExhaust = exhaust != saved.end() && !exhaust->second.empty() && findPart( exhaust->second ) != nullptr;
+    return pCar->Pops * ( bExhaust ? 1.0f : 0.6f );
+}
+
+const char *const *TunerParts::slotNames( size_t &count ) {
+    static const char *const kSlots[] = { "spoiler", "exhaust" };
+    count = sizeof( kSlots ) / sizeof( kSlots[0] );
+    return kSlots;
+}
+
+const char *TunerParts::slotLabel( const char *pSlot ) {
+    if ( pSlot != nullptr && StringCmpI( pSlot, "exhaust" ) == 0 ) {
+        return "Exhaust tips";
+    }
+    return "Spoiler";
+}
+
+void TunerParts::applySaved( CinematicCar &car, int32_t carId, const std::map<std::string, std::string> &saved ) {
     car.clearTunerAttachment();
+    size_t slotCount = 0;
+    const char *const *pSlots = slotNames( slotCount );
+    const TunerCar *pCar = findCar( carId );
+    for ( size_t i = 0; i < slotCount && pCar != nullptr; i++ ) {
+        const auto found = saved.find( pSlots[i] );
+        if ( found == saved.end() || found->second.empty() ) {
+            continue;
+        }
+        if ( const TunerPart *pPart = findPart( found->second ) ) {
+            applyPart( car, carId, pSlots[i], pPart );
+        } else {
+            OTDU_LOG_INFO( "Tuner: part '%s' (%s) is not in the catalog (kept as data, not drawn)\n",
+                           found->second.c_str(), pSlots[i] );
+        }
+    }
+}
+
+void TunerParts::applyPart( CinematicCar &car, int32_t carId, const char *pSlot, const TunerPart *pPart ) {
+    car.clearTunerAttachment( pSlot );
     if ( pPart == nullptr || pPart->Mesh.empty() ) {
         return;
     }
@@ -285,8 +331,17 @@ void TunerParts::applyPart( CinematicCar &car, int32_t carId, const TunerPart *p
     if ( found->second.empty() ) {
         return;
     }
-    const Vector3f offset = offsetFor( carId, *pPart );
-    car.setTunerAttachment( found->second.front().Mesh, found->second.front().Material, pPart->Node.c_str(),
+    Vector3f offset = offsetFor( carId, *pPart );
+    if ( pPart->Align == "rear" ) {
+        // Body-relative (exhaust tips): the rear face and the body bottom of
+        // THIS car, so a catalog offset of (x, 0.2, -0.03) puts the opening
+        // 3 cm past the rear bumper on any tuner car.
+        Vector3f bMin, bMax;
+        if ( car.getBodyBounds( bMin, bMax ) ) {
+            offset = Vector3f( offset.x, bMin.y + offset.y, bMin.z + offset.z );
+        }
+    }
+    car.setTunerAttachment( pSlot, found->second.front().Mesh, found->second.front().Material, pPart->Node.c_str(),
                             Matrix4x4f::Translation( offset ) );
 }
 

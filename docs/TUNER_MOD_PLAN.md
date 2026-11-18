@@ -92,3 +92,7 @@ Each step is useful alone; stopping after any of them leaves something working.
 - **Shipped** (opt-in, `resources/mods/packages/tuner-garage`): mod switch (`-tunermod` / `-notunermod`), part catalog `tuner/tuner.txt` (3 spoilers, 7 cars), shared OBJ loader (`source/game/spots/obj_mesh.cpp`), engine hook `CinematicCar::setTunerAttachment`, garage = the reused tuning shop on the lift (spots ETNR_A, Ibiza + Hawaii), menu, buy + `car_tuner_parts` save. Order of work steps 1, 4 and the first part of 5 are done.
 - **Roster [DATA]:** retail TDU2 has no R34 / Evo / Supra / RX-7 / S15 / NSX; the catalog uses the cars that exist (GTR, 370Z, 350Z_CPE, Impreza WRX STI 2007, RX8, Delta Integrale Evo 2, Escort RS Cosworth).
 - **Render bug fixed:** OBJ-route materials drew flat white because `MaterialDesc::Spec` was all zero, which selects the no-texture TD_Gouraud permutation. Setting `Spec[0]=1` (S_NBTEXTURES) and `Spec[1]=1` (S_COORDTEXTURE), as the rain materials do, selects the textured one. Evidence: `docs/images/tuner_wing_gt_wear.png`.
+
+## Status (session 47, 2026-11-18)
+
+- **Shipped:** slots per car (spoiler + exhaust), menu rows, six spoilers, four exhaust tip sets (`align = rear` fits any car), exhaust pops / burble (lift-off, shifts, overrun crackle; synthesized samples, ear-tuning pending). Order of work step 2 (pops) is done for audio; flames, turbo flutter and body kits remain.

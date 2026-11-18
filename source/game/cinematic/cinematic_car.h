@@ -1,5 +1,8 @@
 #pragma once
 
+#include <map>
+#include <string>
+
 #include "filesystem/bank.h"
 #include "render/eden/eden_animation.h"
 #include "render/eden/eden_headlights.h"
@@ -105,10 +108,13 @@ public:
     // node's space (the tuner.txt per-car offsets). Drawing here means every
     // context of the car - the world, the showrooms, the shop room - shows the
     // part with no per-caller work.
-    void setTunerAttachment( const EdenMesh &mesh, const EdenMaterial &material,
+    // One attachment per slot ("spoiler", "exhaust"): setting a slot replaces
+    // that slot's part only.
+    void setTunerAttachment( const char *pSlot, const EdenMesh &mesh, const EdenMaterial &material,
                              const char *pBodyNodeName, const Matrix4x4f &offset );
-    void clearTunerAttachment();
-    inline bool hasTunerAttachment() const { return tunerAttachment.Mesh.IndexCount > 0; }
+    // pSlot null = every slot back to stock.
+    void clearTunerAttachment( const char *pSlot = nullptr );
+    inline bool hasTunerAttachment() const { return !tunerAttachments.empty(); }
 
     // Car world pose: the cinematic pose with the 4 tires resting on the
     // surface (plane through the hub targets).
@@ -607,5 +613,5 @@ private:
         int32_t Node = -1;   // the node it hangs from (-1 = the car origin)
         Matrix4x4f Offset;
     };
-    TunerAttachment tunerAttachment;
+    std::map<std::string, TunerAttachment> tunerAttachments; // by slot
 };

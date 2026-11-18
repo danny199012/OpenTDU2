@@ -66,6 +66,14 @@ public:
     void setHorn( bool bOn );
     inline bool hasHorn() const { return hornLayer >= 0; }
 
+    // The tuner mod's exhaust pops and burble (docs/TUNER_MOD_PLAN.md 2):
+    // 0 = off (vanilla), 1 = the full tune. The sample is synthesized here
+    // (there is no retail pop in the banks [INF]); pops fire on a throttle lift
+    // at revs, on up / down shifts, and as a short crackle during the overrun
+    // after a lift. Survives unload() / load() (set by the car, not the bank).
+    inline void setTunerPops( float strength ) { tunerPops = strength; }
+    inline float getTunerPops() const { return tunerPops; }
+
     inline bool isLoaded() const { return pBank != nullptr; }
     inline bool isEngineOn() const { return bEngineRunning; }
     // Highest layer gain of the last update (0 = silent, ~1 = audible). The
@@ -108,6 +116,11 @@ private:
     };
 
     void playLayer( Layer &layer );
+    // Exhaust pops: schedule a burst / fire the ones that are due.
+    void queuePops( int32_t count, float firstDelay, float intensity );
+    void updatePops( const Params &params, float deltaTime );
+    void buildPopClips();
+    float popRandom(); // 0..1
     void updateLayer( Layer &layer, const Params &params, float loadRaw, float gainScale );
 
     Bank *pBank = nullptr; // owned
@@ -128,6 +141,21 @@ private:
     float smoothedSlipRatio = 0.0f;
     float smoothedSlipAngle = 0.0f;
     int32_t lastGear = 0;
+    // Tuner pops
+    struct PendingPop {
+        float Delay = 0.0f;  // s until it fires
+        float Volume = 1.0f;
+    };
+    float tunerPops = 0.0f;
+    std::shared_ptr<AudioClip> popClips[3];
+    std::vector<PendingPop> pendingPops;
+    float lastThrottle = 0.0f;
+    float lastRpm = 0.0f;
+    float crackleTime = 0.0f;  // s of overrun crackle left after a lift
+    float crackleTimer = 0.0f; // s to the next crackle pop
+    float popCooldown = 0.0f;  // s before a new burst may start
+    Vector3f popPosition;
+    uint32_t popRng = 0x9E3779B9u;
     Vector3f lastPosition;
     Vector3f smoothedVelocity;
 };

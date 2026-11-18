@@ -167,12 +167,8 @@ size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds, bool 
                     // The tuner mod's spoiler this car was left with.
                     if ( TunerModEnabled() && ( GetTunerParts().load(), GetTunerParts().isTunerCar( carIds[i] ) ) ) {
                         const auto parts = owner.OwnedCarTunerParts.find( carIds[i] );
-                        const auto slot = parts != owner.OwnedCarTunerParts.end() ? parts->second.Parts.find( "spoiler" )
-                                                                                  : decltype( parts->second.Parts.end() )();
-                        if ( parts != owner.OwnedCarTunerParts.end() && slot != parts->second.Parts.end() && !slot->second.empty() ) {
-                            if ( const TunerPart *pPart = GetTunerParts().findPart( slot->second ) ) {
-                                GetTunerParts().applyPart( *pCar, carIds[i], pPart );
-                            }
+                        if ( parts != owner.OwnedCarTunerParts.end() ) {
+                            GetTunerParts().applySaved( *pCar, carIds[i], parts->second.Parts );
                         }
                     }
                     // Its stickers: a canvas of its own (the room's other cars wear their own layouts).

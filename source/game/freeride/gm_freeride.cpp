@@ -3372,6 +3372,21 @@ void GMFreeRide::applyTunerParts() {
     if ( !car.isLoaded() ) {
         return;
     }
+    // The exhaust pops (the mod's audio): a tuner car pops, more with an
+    // exhaust fitted; vanilla / non-tuner cars stay silent.
+    {
+        float pops = 0.0f;
+        if ( TunerModEnabled() ) {
+            GetTunerParts().load();
+            const PlayerProfile &popProfile = GetPlayerProfile();
+            const auto popParts = popProfile.OwnedCarTunerParts.find( car.getIdCar() );
+            static const std::map<std::string, std::string> kNoParts;
+            pops = GetTunerParts().popStrength( car.getIdCar(), popParts != popProfile.OwnedCarTunerParts.end()
+                                                                    ? popParts->second.Parts
+                                                                    : kNoParts );
+        }
+        vehicleAudio.setTunerPops( pops );
+    }
     if ( gpRender == nullptr || gpRender->getEdenRenderer() == nullptr ) {
         return; // the drawOffscreen retry lands it
     }
@@ -3387,21 +3402,7 @@ void GMFreeRide::applyTunerParts() {
         car.clearTunerAttachment();
         return;
     }
-    const auto slot = found->second.Parts.find( "spoiler" );
-    if ( slot == found->second.Parts.end() || slot->second.empty() ) {
-        car.clearTunerAttachment();
-        return;
-    }
-    const TunerPart *pPart = GetTunerParts().findPart( slot->second );
-    if ( pPart == nullptr ) {
-        // A part the catalog lost (a renamed id, a file gone): the data stays
-        // saved, nothing is drawn.
-        OTDU_LOG_INFO( "Tuner: '%s' part '%s' is not in the catalog (kept as data, not drawn)\n",
-                       carDesc.FileName.c_str(), slot->second.c_str() );
-        car.clearTunerAttachment();
-        return;
-    }
-    GetTunerParts().applyPart( car, car.getIdCar(), pPart );
+    GetTunerParts().applySaved( car, car.getIdCar(), found->second.Parts );
 }
 
 void GMFreeRide::openChampionshipScreen( const LicenseInfo &championship ) {
@@ -4562,12 +4563,7 @@ void GMFreeRide::dressRoomCar( CinematicCar &roomCar ) {
     if ( TunerModEnabled() && ( GetTunerParts().load(), GetTunerParts().isTunerCar( carId ) ) ) {
         const auto parts = profile.OwnedCarTunerParts.find( carId );
         if ( parts != profile.OwnedCarTunerParts.end() ) {
-            const auto slot = parts->second.Parts.find( "spoiler" );
-            if ( slot != parts->second.Parts.end() && !slot->second.empty() ) {
-                if ( const TunerPart *pPart = GetTunerParts().findPart( slot->second ) ) {
-                    GetTunerParts().applyPart( roomCar, carId, pPart );
-                }
-            }
+            GetTunerParts().applySaved( roomCar, carId, parts->second.Parts );
         }
     }
     // The stickers: the canvas is bound to the room car's paint materials in drawOffscreen (the *RoomCarBound flags).

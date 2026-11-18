@@ -5,6 +5,7 @@
 #include "core/xmb.h"
 #include "filesystem/bank.h"
 #include "filesystem/gs_file.h"
+#include "system/cmd_line.h"
 
 #include <algorithm>
 
@@ -51,6 +52,143 @@ bool WantedByView( const std::string &name ) {
     return !bInternal;
 }
 } // namespace
+
+namespace {
+constexpr float kPopMinRpm = 3200.0f; // below this the engine does not pop [INF]
+constexpr size_t kMaxPendingPops = 10;
+} // namespace
+
+float VehicleAudio::popRandom() {
+    popRng ^= popRng << 13;
+    popRng ^= popRng >> 17;
+    popRng ^= popRng << 5;
+    return static_cast<float>( popRng & 0xFFFFFF ) / static_cast<float>( 0x1000000 );
+}
+
+// Three synthesized exhaust pops (mono, 44.1 kHz): a sharp noise crack over a
+// short low thump, each with its own length / pitch. [INF] - tuned by ear, not
+// a retail sample.
+void VehicleAudio::buildPopClips() {
+    if ( popClips[0] != nullptr ) {
+        return;
+    }
+    struct Variant { float Length, ThumpHz, ThumpLen, NoiseDecay, Bright; };
+    static const Variant kVariants[3] = {
+        { 0.14f, 95.0f, 0.060f, 38.0f, 0.55f },  // a hard crack
+        { 0.20f, 70.0f, 0.090f, 26.0f, 0.35f },  // a fatter bark
+        { 0.11f, 130.0f, 0.040f, 55.0f, 0.75f }, // a tight snap
+    };
+    const int32_t rate = 44100;
+    for ( int32_t v = 0; v < 3; v++ ) {
+        const Variant &var = kVariants[v];
+        auto clip = std::make_shared<AudioClip>();
+        clip->Name = "tuner_pop";
+        clip->Spec.format = SDL_AUDIO_F32;
+        clip->Spec.channels = 1;
+        clip->Spec.freq = rate;
+        clip->Channels = 1;
+        clip->Rate = rate;
+        clip->NumFrames = static_cast<uint32_t>( var.Length * rate );
+        clip->Frames.resize( clip->NumFrames );
+        clip->Duration = var.Length;
+        uint32_t rng = 0xA341316Cu + static_cast<uint32_t>( v ) * 0x9E3779B1u;
+        float lowpass = 0.0f;
+        for ( uint32_t i = 0; i < clip->NumFrames; i++ ) {
+            const float t = static_cast<float>( i ) / rate;
+            rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+            const float noise = ( static_cast<float>( rng & 0xFFFF ) / 32768.0f ) - 1.0f;
+            // the crack: white noise, mixed between raw (bright) and low-passed
+            lowpass += ( noise - lowpass ) * 0.25f;
+            const float crack = ( noise * var.Bright + lowpass * ( 1.0f - var.Bright ) * 1.6f ) *
+                                expf( -t * var.NoiseDecay * 4.0f );
+            // the thump: a falling sine
+            const float thump = sinf( 6.2831853f * var.ThumpHz * ( 1.0f - 0.35f * t / var.ThumpLen ) * t ) *
+                                expf( -t / ( var.ThumpLen * 0.45f ) ) * 0.9f;
+            // a 1 ms attack so the click does not tick on the first frame
+            const float attack = Min( t / 0.001f, 1.0f );
+            clip->Frames[i] = Clamp( ( crack * 0.9f + thump ) * attack, -1.0f, 1.0f ) * 0.8f;
+        }
+        popClips[v] = clip;
+    }
+}
+
+void VehicleAudio::queuePops( int32_t count, float firstDelay, float intensity ) {
+    if ( tunerPops <= 0.0f ) {
+        return;
+    }
+    float delay = firstDelay;
+    if ( CmdLine::HasArg( "-logtuner" ) ) {
+        OTDU_LOG_INFO( "VehicleAudio: tuner pops x%d (rpm %.0f, throttle %.2f, strength %.2f)\n", count, lastRpm,
+                       lastThrottle, tunerPops );
+    }
+    for ( int32_t i = 0; i < count && pendingPops.size() < kMaxPendingPops; i++ ) {
+        PendingPop pop;
+        pop.Delay = delay;
+        // later pops of a burst fade, like a dying burble
+        pop.Volume = intensity * ( 1.0f - 0.12f * static_cast<float>( i ) ) * ( 0.8f + 0.4f * popRandom() );
+        pendingPops.push_back( pop );
+        delay += 0.05f + 0.13f * popRandom();
+    }
+}
+
+void VehicleAudio::updatePops( const Params &params, float deltaTime ) {
+    if ( tunerPops <= 0.0f || !params.bEngineOn ) {
+        pendingPops.clear();
+        crackleTime = 0.0f;
+        lastThrottle = params.Throttle;
+        lastRpm = params.Rpm;
+        return;
+    }
+    popPosition = params.Position;
+    popCooldown = Max( popCooldown - deltaTime, 0.0f );
+    const bool bLift = lastThrottle > 0.55f && params.Throttle < 0.12f;
+    if ( bLift && params.Rpm > kPopMinRpm && popCooldown <= 0.0f ) {
+        // a lift at revs: 1..4 pops, plus a crackle tail on the overrun
+        const int32_t count = 1 + static_cast<int32_t>( popRandom() * 3.99f * Min( tunerPops, 1.0f ) );
+        queuePops( count, 0.04f + 0.08f * popRandom(), 0.9f * tunerPops );
+        crackleTime = 1.2f * tunerPops;
+        crackleTimer = 0.25f;
+        popCooldown = 0.5f;
+    }
+    // The overrun crackle: sparse little pops while off the throttle at revs.
+    if ( crackleTime > 0.0f ) {
+        crackleTime -= deltaTime;
+        if ( params.Throttle > 0.12f || params.Rpm < kPopMinRpm * 0.85f ) {
+            crackleTime = 0.0f;
+        } else {
+            crackleTimer -= deltaTime;
+            if ( crackleTimer <= 0.0f ) {
+                queuePops( 1, 0.0f, 0.45f * tunerPops );
+                crackleTimer = 0.10f + 0.28f * popRandom();
+            }
+        }
+    }
+    lastThrottle = params.Throttle;
+    lastRpm = params.Rpm;
+    // Fire what is due.
+    for ( size_t i = 0; i < pendingPops.size(); ) {
+        pendingPops[i].Delay -= deltaTime;
+        if ( pendingPops[i].Delay > 0.0f ) {
+            i++;
+            continue;
+        }
+        buildPopClips();
+        const std::shared_ptr<AudioClip> &clip = popClips[static_cast<int32_t>( popRandom() * 2.99f )];
+        GSAudio::VoiceParams voice;
+        voice.Client = PanelToClient( 2 ); // BackFiring -> ExhaustPipe
+        voice.Volume = Clamp( pendingPops[i].Volume, 0.0f, 1.5f );
+        voice.Pitch = 0.85f + 0.4f * popRandom();
+        voice.bSpatial = true;
+        voice.Position = popPosition;
+        voice.Velocity = smoothedVelocity;
+        voice.ClipNear = 6.0f;
+        voice.ClipMid = 40.0f;
+        voice.ClipFar = 90.0f;
+        voice.ClipMidVolume = 0.5f;
+        gpAudio->play( clip, voice );
+        pendingPops.erase( pendingPops.begin() + static_cast<std::ptrdiff_t>( i ) );
+    }
+}
 
 float VehicleAudio::Curve::eval( float x ) const {
     if ( Xs.empty() ) {
@@ -200,6 +338,8 @@ void VehicleAudio::unload() {
     smoothedSlipRatio = 0.0f;
     smoothedSlipAngle = 0.0f;
     lastGear = 0;
+    pendingPops.clear();
+    crackleTime = 0.0f;
 }
 
 void VehicleAudio::playLayer( Layer &layer ) {
@@ -332,6 +472,8 @@ void VehicleAudio::update( const Params &params, float deltaTime ) {
     const float rate = targetLoad > smoothedLoad ? 6.0f : 4.0f; // load / s
     smoothedLoad += Clamp( targetLoad - smoothedLoad, -rate * deltaTime, rate * deltaTime );
 
+    updatePops( params, deltaTime );
+
     const float gainScale = params.bEngineOn ? 1.0f : 0.0f;
     for ( Layer &layer : layers ) {
         if ( layer.bTrigger ) {
@@ -363,6 +505,17 @@ void VehicleAudio::setGear( int32_t gear ) {
         return;
     }
     const bool bUp = gear > previous;
+    // Tuner shift pops: an upshift at revs on the throttle cracks once or
+    // twice; a downshift at revs burbles (the rev-match blip).
+    if ( tunerPops > 0.0f && lastRpm > kPopMinRpm && popCooldown <= 0.0f ) {
+        if ( bUp && lastThrottle > 0.4f ) {
+            queuePops( 1 + static_cast<int32_t>( popRandom() * 1.99f ), 0.10f, 0.75f * tunerPops );
+            popCooldown = 0.4f;
+        } else if ( !bUp ) {
+            queuePops( 1 + static_cast<int32_t>( popRandom() * 2.99f ), 0.06f, 0.6f * tunerPops );
+            popCooldown = 0.4f;
+        }
+    }
     const int32_t index = bUp ? gearUp[1] : gearDown[1]; // chase camera: external
     if ( index >= 0 && layers[index].Clip != nullptr ) {
         playLayer( layers[index] );

@@ -14,6 +14,32 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 47): tuner mod - six spoilers, four exhaust-tip sets, exhaust pops
+
+Owner: "the tuner mod, can you add more content to it, more spoilers, exhaust tips, and work on the enhanced audio if we can for exhaust pops etc."
+
+### What changed
+- **Slots**: `CinematicCar` holds one attachment per slot (`setTunerAttachment(slot, ...)`, `clearTunerAttachment(slot)`); `TunerParts::applySaved` dresses a car from its whole saved loadout (replaces the three hard-coded "spoiler" blocks in gm_freeride.cpp / interior_walk.cpp). Slots: `spoiler`, `exhaust`.
+- **Menu** (`tuner_menu.*`): one row per slot the car takes. Up / Down (D-pad up / down) pick the row, Left / Right cycle its parts, validate buys.
+- **Parts** (`tools/mod/make_gt_wing.py`, own art): spoilers `wing_swan` (14,500), `wing_dual` (11,800), `wing_drift` (16,500); exhaust `exhaust_dual` (3,200), `exhaust_quad` (5,400), `exhaust_oval` (4,600), `exhaust_burnt` (6,800) with new `chrome.png` / `titanium.png`. All 7 tuner cars take the exhaust slot.
+- **`align = rear`** (tuner.txt): exhaust offsets are relative to the car's own body bounds (`getBodyBounds`: z past the rear face, y above the body bottom), so one entry fits every car length.
+- **Audio** (`vehicle_audio.*`): `setTunerPops(strength)`. Three synthesized pop samples (noise crack + falling thump, [INF] no retail pop sample is used), played on the ExhaustPipe client (BackFiring panel 2) at the car: 1-4 pops on a throttle lift above 3,200 rpm plus a ~1 s overrun crackle, 1-2 pops on an upshift under throttle, 1-3 on a downshift. Strength = the car's `pops =` (tuner.txt, default 1) x 1.0 with an exhaust fitted / 0.6 stock; 0 for non-tuner cars or the mod off. Set from `GMFreeRide::applyTunerParts`.
+
+### Verified
+- GTR wear runs (`-car GTR -tp 12615,16658 -heading 90`, userdata copy with `car_tuner_parts = 403:exhaust=...;spoiler=...`): all 7 new meshes load and draw - `docs/images/tuner_swan_quad_s47.webp`, `tuner_dual_oval_s47.webp`, `tuner_drift_burnt_s47.webp`.
+- `-logtuner` drive (hold / release accel at 6,500 rpm): `VehicleAudio: tuner pops xN` lines on shifts, on the lift and as overrun crackle at throttle 0.
+- Build OK (build 269+).
+
+### Not verified / ruled out
+- **Nobody listened to the pops** - the sample levels, pitch and rate are by-ear guesses; tune `buildPopClips` / `kPopMinRpm` / the burst counts in vehicle_audio.cpp. A wrong sound is a data-sized fix.
+- The garage menu rows were not screenshotted (it compiles and the part logic is exercised by the wear runs; walk into ETNR_A and press Up / Down to check the row highlight).
+- The GTR has its own stock quad tips: `exhaust_quad` / `_dual` sit on top of them (looks right), `_oval` / `_burnt` show next to them. A hide-stock-tips node mask would fix it (not found yet).
+- Flames and turbo flutter / blow-off not done.
+- The installed copy in `<userdata>/mods/packages/tuner-garage` is a copy: after editing the repo package, re-run the launcher install (or copy `tuner/`) before testing.
+
+### Next
+- Listen, then tune the pops. Then flames (a sprite at the exhaust per pop, position = the `align = rear` tip) and a body kit slot.
+
 ## Session 2026-11-18 (`main`): full garages block dealer purchases and offer the sell list, cars move between garages, the for-sale house card
 
 Owner: the three open items (buying a second house moves no cars; no screen to move a car between garages; the card of an unowned house uses the realtor layout) + "if you have 1 house with 2 slots and it is full, cars can't be bought from a dealership and it offers to sell a vehicle" (360 shots: "Not enough space in the garage(s) / Would you like to sell one or several vehicles?" Yes/No, then the trade-in list with Status / Category / Vehicles / Price columns, "You need: One spot in your garage", Select / Sell / Back).

@@ -25,6 +25,10 @@ struct TunerPart {
     std::string Mesh;           // the OBJ in tuner/parts/ (our art)
     Vector3f Offset;            // the default body-node-space position
     std::string Node = "BODY_HR"; // the car node it hangs from
+    // "rear": the offset is relative to the body's rear-bottom corner (x stays
+    // as written, y is above the body bottom, z is past the rear face), so one
+    // exhaust fits every car's length.
+    std::string Align;
 };
 
 // One [car:<_car_file_name>] block: a tuner car and the slots its garage
@@ -34,6 +38,7 @@ struct TunerCar {
     std::string FileName;
     std::vector<std::string> Slots;
     std::map<std::string, Vector3f> SlotOffsets; // per-slot position overrides
+    float Pops = 1.0f; // exhaust pop strength of this car (0 = none), `pops = ` in tuner.txt
 };
 
 class TunerParts {
@@ -68,7 +73,19 @@ public:
     // back to stock: the attachment is cleared. Needs the renderer the first
     // time a part's mesh is loaded; without one (or without the OBJ) it
     // applies nothing and says so in the log.
-    void applyPart( CinematicCar &car, int32_t carId, const TunerPart *pPart );
+    // pSlot names the slot being set/cleared ("spoiler", "exhaust").
+    void applyPart( CinematicCar &car, int32_t carId, const char *pSlot, const TunerPart *pPart );
+    // The exhaust pop strength for a car wearing `saved` (0 = not a tuner car):
+    // the car's `pops` value, full with an exhaust part fitted, 60 % without.
+    float popStrength( int32_t carId, const std::map<std::string, std::string> &saved ) const;
+    // Applies a car's whole saved loadout (slot -> part id, the profile's
+    // TunerCarParts::Parts): every slot the car takes is set to its saved part
+    // or cleared; an id the catalog lost is skipped (the data stays saved).
+    void applySaved( CinematicCar &car, int32_t carId, const std::map<std::string, std::string> &saved );
+    // Slots the whole catalog uses, in menu order (a car offers its own subset).
+    static const char *const *slotNames( size_t &count );
+    // The menu label of a slot ("Spoiler", "Exhaust tips").
+    static const char *slotLabel( const char *pSlot );
     // Frees the part meshes (game shutdown; the car instances borrow them and
     // drop the borrow on their own unload).
     void unloadMeshes();

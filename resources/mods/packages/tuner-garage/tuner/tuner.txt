@@ -11,7 +11,7 @@
 #                          one orphans the saved installs (they are skipped on
 #                          load, never lost - they come back if the id does).
 #     name = ...           the menu label
-#     slot = spoiler       the attach slot (v1: spoilers only)
+#     slot = spoiler       the attach slot: spoiler | exhaust
 #     price = 9500         what the garage charges [INF: no retail pricing
 #                          table exists; the tuning shop's levels are $12k steps]
 #     mesh = wing_gt.obj   the OBJ in this folder's parts/ (Blender -> OBJ+MTL,
@@ -23,12 +23,18 @@
 #                          where the part's origin lands on the car body node.
 #     node = BODY_HR       the car node the part hangs from (BODY_HR, BODY_MR;
 #                          default BODY_HR)
+#     align = rear         optional. The offset is then relative to THIS car's
+#                          body: x as written, y above the body bottom, z past
+#                          the rear face (so -0.03 = 3 cm beyond the bumper).
+#                          Exhaust tips use it - one entry fits every car. The
+#                          tip mesh's opening is at z=0 facing the rear, the
+#                          pipe running +Z into the car.
 #
 #   [car:<file name>]      a tuner car, keyed by the DBCarPhysicsData
 #                          _car_file_name (so both catalog rows of a car - e.g.
 #                          the two GTR rows - match). A car absent from this
 #                          list is not a tuner car.
-#     slots = spoiler      the slots its garage menu offers
+#     slots = spoiler, exhaust   the slots its garage menu offers
 #     spoiler_offset = ... overrides the slot's default offset for this car
 #
 # The retail roster is small: no R34, Evo, Supra, RX-7, S15 or NSX exists in
@@ -60,8 +66,69 @@ mesh = wing_street.obj
 offset = 0 0.78 -2.0
 node = BODY_HR
 
+[part:wing_swan]
+name = Swan Neck
+slot = spoiler
+price = 14500
+mesh = wing_swan.obj
+offset = 0 0.80 -2.0
+node = BODY_HR
+
+[part:wing_dual]
+name = Dual Element
+slot = spoiler
+price = 11800
+mesh = wing_dual.obj
+offset = 0 0.80 -2.0
+node = BODY_HR
+
+[part:wing_drift]
+name = Drift Tower
+slot = spoiler
+price = 16500
+mesh = wing_drift.obj
+offset = 0 0.80 -2.0
+node = BODY_HR
+
+# Exhaust tips: align = rear, so these fit any tuner car (see the header).
+[part:exhaust_dual]
+name = Dual Chrome
+slot = exhaust
+price = 3200
+mesh = exhaust_dual.obj
+offset = 0 0.22 -0.03
+node = BODY_HR
+align = rear
+
+[part:exhaust_quad]
+name = Quad Chrome
+slot = exhaust
+price = 5400
+mesh = exhaust_quad.obj
+offset = 0 0.22 -0.03
+node = BODY_HR
+align = rear
+
+[part:exhaust_oval]
+name = Burnt Oval
+slot = exhaust
+price = 4600
+mesh = exhaust_oval.obj
+offset = 0 0.22 -0.03
+node = BODY_HR
+align = rear
+
+[part:exhaust_burnt]
+name = Burnt Twin
+slot = exhaust
+price = 6800
+mesh = exhaust_burnt.obj
+offset = 0 0.22 -0.03
+node = BODY_HR
+align = rear
+
 [car:GTR]
-slots = spoiler
+slots = spoiler, exhaust
 # The GTR body carries its own boot-lip spoiler (BODY_HR geometry): without
 # the override the low lips (ducktail / street) tuck under it and half
 # disappear. Eyeballed against the stock lip (-logtuner bounds: z
@@ -70,19 +137,19 @@ slots = spoiler
 spoiler_offset = 0 0.82 -2.05
 
 [car:370Z]
-slots = spoiler
+slots = spoiler, exhaust
 
 [car:350Z_CPE]
-slots = spoiler
+slots = spoiler, exhaust
 
 [car:Impreza_WRX_STI_2007]
-slots = spoiler
+slots = spoiler, exhaust
 
 [car:RX8_Cpe]
-slots = spoiler
+slots = spoiler, exhaust
 
 [car:Delta_Integrale_Evo_2]
-slots = spoiler
+slots = spoiler, exhaust
 
 [car:Escort_RS_Cosworth]
-slots = spoiler
+slots = spoiler, exhaust

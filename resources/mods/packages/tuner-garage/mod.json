@@ -2,5 +2,5 @@
   "name": "Tuner garage (experimental)",
   "version": "0.1",
   "author": "OpenTDU2",
-  "description": "Adds a tuner garage to the game: a map spot on every island where the tuner-style cars (GT-R, 370Z, 350Z, Impreza WRX STI, RX-8, Delta Integrale, Escort RS Cosworth) get visual parts the vanilla game never had. First parts: spoilers (a GT wing, a ducktail, a street lip), shown live on your car and saved per car. Leave it off for the vanilla experience: no garage, no parts - and parts you already bought stay saved, untouched, until you turn the mod back on."
+  "description": "Adds a tuner garage to the game: a map spot on every island where the tuner-style cars (GT-R, 370Z, 350Z, Impreza WRX STI, RX-8, Delta Integrale, Escort RS Cosworth) get visual parts the vanilla game never had. Parts: six spoilers (GT wing, ducktail, street lip, swan neck, dual element, drift tower) and four exhaust tip sets, shown live on your car and saved per car, plus exhaust pops and burble on throttle lift-off and gear shifts. Leave it off for the vanilla experience: no garage, no parts - and parts you already bought stay saved, untouched, until you turn the mod back on."
 }

@@ -28,34 +28,35 @@ std::string FormatMoney( int32_t value ) {
 }
 } // namespace
 
-int32_t TunerMenu::installedIndex() const {
+int32_t TunerMenu::installedIndex( const SlotRow &row ) const {
     const PlayerProfile &profile = GetPlayerProfile();
     const auto found = profile.OwnedCarTunerParts.find( carId );
     if ( found == profile.OwnedCarTunerParts.end() ) {
         return -1;
     }
-    const auto slot = found->second.Parts.find( "spoiler" );
+    const auto slot = found->second.Parts.find( row.Slot );
     if ( slot == found->second.Parts.end() ) {
         return -1;
     }
     // A part the catalog no longer knows reads as stock (the data stays saved;
     // the apply step skips it the same way).
-    for ( size_t i = 0; i < parts.size(); i++ ) {
-        if ( StringCmpI( parts[i]->Id.c_str(), slot->second.c_str() ) == 0 ) {
+    for ( size_t i = 0; i < row.Parts.size(); i++ ) {
+        if ( StringCmpI( row.Parts[i]->Id.c_str(), slot->second.c_str() ) == 0 ) {
             return static_cast<int32_t>( i );
         }
     }
     return -1;
 }
 
-void TunerMenu::preview( int32_t index ) {
-    previewPart = index;
+void TunerMenu::preview( SlotRow &row, int32_t index ) {
+    row.Preview = index;
     if ( pCar == nullptr ) {
         return;
     }
-    GetTunerParts().applyPart( *pCar, carId, index >= 0 && index < static_cast<int32_t>( parts.size() )
-                                                  ? parts[static_cast<size_t>( index )]
-                                                  : nullptr );
+    GetTunerParts().applyPart( *pCar, carId, row.Slot.c_str(),
+                               index >= 0 && index < static_cast<int32_t>( row.Parts.size() )
+                                   ? row.Parts[static_cast<size_t>( index )]
+                                   : nullptr );
 }
 
 void TunerMenu::open( int32_t newCarId, const std::string &name, CinematicCar *pPreviewCar ) {
@@ -65,25 +66,39 @@ void TunerMenu::open( int32_t newCarId, const std::string &name, CinematicCar *p
     message.clear();
     messageTimer = 0.0f;
     GetTunerParts().load();
-    parts = GetTunerParts().partsForSlot( carId, "spoiler" );
-    fittedPart = previewPart = installedIndex();
+    rows.clear();
+    selected = 0;
+    size_t slotCount = 0;
+    const char *const *pSlots = TunerParts::slotNames( slotCount );
+    for ( size_t i = 0; i < slotCount; i++ ) {
+        SlotRow row;
+        row.Slot = pSlots[i];
+        row.Parts = GetTunerParts().partsForSlot( carId, pSlots[i] );
+        if ( row.Parts.empty() ) {
+            continue;
+        }
+        row.Fitted = row.Preview = installedIndex( row );
+        rows.push_back( std::move( row ) );
+    }
     // The room car wears what the profile says before the first preview move.
-    preview( previewPart );
-    OTDU_LOG_INFO( "Tuner: garage for car %d '%s' (%zu spoilers, fitted %d)\n", carId, carName.c_str(), parts.size(),
-                   fittedPart );
+    for ( SlotRow &row : rows ) {
+        preview( row, row.Preview );
+    }
+    OTDU_LOG_INFO( "Tuner: garage for car %d '%s' (%zu slots)\n", carId, carName.c_str(), rows.size() );
     PlayFrontEndCue( "mopen" );
 }
 
 void TunerMenu::close() {
     // A previewed-but-unbought part goes back to what is fitted (the sticker
     // editor's unbind rule).
-    if ( previewPart != fittedPart ) {
-        preview( fittedPart );
+    for ( SlotRow &row : rows ) {
+        if ( row.Preview != row.Fitted ) {
+            preview( row, row.Fitted );
+        }
     }
     carId = -1;
     pCar = nullptr;
-    parts.clear();
-    previewPart = fittedPart = -1;
+    rows.clear();
 }
 
 void TunerMenu::tick( float deltaTime ) {
@@ -91,24 +106,40 @@ void TunerMenu::tick( float deltaTime ) {
         return;
     }
     messageTimer = Max( 0.0f, messageTimer - deltaTime );
-    // One interactive row (the spoiler): left / right cycle stock <-> parts.
-    const int32_t last = static_cast<int32_t>( parts.size() ) - 1;
-    if ( last >= 0 ) {
-        if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
-            preview( previewPart < 0 ? last : previewPart - 1 ); // stock wraps to the last part
-            PlayFrontEndCue( "move" );
+    if ( rows.empty() ) {
+        if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
+            close();
+            PlayFrontEndCue( "back" );
         }
-        if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
-            preview( previewPart >= last ? -1 : previewPart + 1 ); // the last part wraps to stock
-            PlayFrontEndCue( "move" );
-        }
+        return;
     }
+    // Up / down pick the slot row, left / right cycle stock <-> parts of it.
+    if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) && selected > 0 ) {
+        selected--;
+        PlayFrontEndCue( "move" );
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) && selected + 1 < rows.size() ) {
+        selected++;
+        PlayFrontEndCue( "move" );
+    }
+    SlotRow &row = rows[selected];
+    const int32_t last = static_cast<int32_t>( row.Parts.size() ) - 1;
+    if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
+        preview( row, row.Preview < 0 ? last : row.Preview - 1 ); // stock wraps to the last part
+        PlayFrontEndCue( "move" );
+    }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
+        preview( row, row.Preview >= last ? -1 : row.Preview + 1 ); // the last part wraps to stock
+        PlayFrontEndCue( "move" );
+    }
+    const char *pLabel = TunerParts::slotLabel( row.Slot.c_str() );
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         bool bDone = false;
-        if ( previewPart == fittedPart ) {
-            message = previewPart < 0 ? "The stock spoiler is already fitted" : "This spoiler is already fitted";
+        if ( row.Preview == row.Fitted ) {
+            message = row.Preview < 0 ? std::string( "Stock " ) + pLabel + " already fitted"
+                                      : std::string( "This part is already fitted" );
         } else {
-            const TunerPart *pPart = previewPart >= 0 ? parts[static_cast<size_t>( previewPart )] : nullptr;
+            const TunerPart *pPart = row.Preview >= 0 ? row.Parts[static_cast<size_t>( row.Preview )] : nullptr;
             const int32_t price = pPart != nullptr ? pPart->Price : 0; // back to stock is free
             PlayerProfile &profile = GetPlayerProfile();
             if ( profile.Money < price ) {
@@ -117,15 +148,15 @@ void TunerMenu::tick( float deltaTime ) {
                 profile.Money -= price;
                 TunerCarParts &carParts = profile.OwnedCarTunerParts[carId];
                 if ( pPart == nullptr ) {
-                    carParts.Parts.erase( "spoiler" );
-                    message = "Stock spoiler fitted";
+                    carParts.Parts.erase( row.Slot );
+                    message = std::string( "Stock " ) + pLabel + " fitted";
                 } else {
-                    carParts.Parts["spoiler"] = pPart->Id;
+                    carParts.Parts[row.Slot] = pPart->Id;
                     message = "Installed: " + pPart->Name;
                 }
-                fittedPart = previewPart;
+                row.Fitted = row.Preview;
                 bDone = true;
-                OTDU_LOG_INFO( "Tuner: car %d spoiler '%s' for $%d (money now $%d)\n", carId,
+                OTDU_LOG_INFO( "Tuner: car %d %s '%s' for $%d (money now $%d)\n", carId, row.Slot.c_str(),
                                pPart != nullptr ? pPart->Id.c_str() : "stock", price, profile.Money );
                 SaveProfile( "tuner part bought" );
             }
@@ -160,28 +191,30 @@ void TunerMenu::draw( Renderer2D &renderer ) {
     renderer.drawText( pFont, FormatMoney( profile.Money ).c_str(), x0 + w - 20.0f, y0 + 12.0f, 24.0f, Rgba( 120, 255, 120 ),
                        eTextAlign::TA_Right );
     float y = y0 + 80.0f;
-    // The spoiler row: what the left / right keys preview, and what it costs.
-    {
-        renderer.drawRect( Rect2D( x0 + 10.0f, y - 4.0f, w - 20.0f, 40.0f ), Rgba( 24, 96, 78, 255 ) );
-        renderer.drawText( pFont, "Spoiler", x0 + 24.0f, y, textSize, Rgba( 255, 255, 255 ) );
-        std::string right;
+    // One row per slot the car takes: what left / right preview, and the price.
+    for ( size_t i = 0; i < rows.size(); i++ ) {
+        const SlotRow &row = rows[i];
+        if ( i == selected ) {
+            renderer.drawRect( Rect2D( x0 + 10.0f, y - 4.0f, w - 20.0f, 40.0f ), Rgba( 24, 96, 78, 255 ) );
+        }
+        renderer.drawText( pFont, TunerParts::slotLabel( row.Slot.c_str() ), x0 + 24.0f, y, textSize,
+                           Rgba( 255, 255, 255 ) );
+        const TunerPart *pPart = row.Preview >= 0 ? row.Parts[static_cast<size_t>( row.Preview )] : nullptr;
+        std::string right = pPart != nullptr ? pPart->Name : "Stock";
         uint32_t color = Rgba( 255, 255, 255 );
-        if ( parts.empty() ) {
-            right = "no parts for this car";
+        if ( row.Preview == row.Fitted ) {
+            right += " fitted";
             color = Rgba( 150, 150, 150 );
         } else {
-            const TunerPart *pPart = previewPart >= 0 ? parts[static_cast<size_t>( previewPart )] : nullptr;
-            right = pPart != nullptr ? pPart->Name : "Stock";
-            if ( previewPart == fittedPart ) {
-                right += " fitted";
-                color = Rgba( 150, 150, 150 );
-            } else {
-                const int32_t price = pPart != nullptr ? pPart->Price : 0;
-                right += price > 0 ? ": " + FormatMoney( price ) : ": free";
-                color = profile.Money >= price ? Rgba( 255, 255, 255 ) : Rgba( 255, 110, 110 );
-            }
+            const int32_t price = pPart != nullptr ? pPart->Price : 0;
+            right += price > 0 ? ": " + FormatMoney( price ) : ": free";
+            color = profile.Money >= price ? Rgba( 255, 255, 255 ) : Rgba( 255, 110, 110 );
         }
         renderer.drawText( pFont, right.c_str(), x0 + w - 24.0f, y, textSize, color, eTextAlign::TA_Right );
+        y += 44.0f;
+    }
+    if ( rows.empty() ) {
+        renderer.drawText( pFont, "no parts for this car", x0 + 24.0f, y, textSize, Rgba( 150, 150, 150 ) );
         y += 44.0f;
     }
     // The other slots the garage will sell (nothing in the catalog yet).
@@ -195,7 +228,7 @@ void TunerMenu::draw( Renderer2D &renderer ) {
         renderer.drawText( pFont, message.c_str(), x0 + w * 0.5f, y0 + h - 90.0f, textSize, Rgba( 255, 210, 80 ),
                            eTextAlign::TA_Center );
     }
-    renderer.drawText( pFont, "Left / Right: spoiler      A / Enter: fit      B / Esc: leave", x0 + w * 0.5f,
+    renderer.drawText( pFont, "Up / Down: slot    Left / Right: part    A / Enter: fit    B / Esc: leave", x0 + w * 0.5f,
                        y0 + h - 44.0f, bSidePanel ? 17.0f : 20.0f, Rgba( 210, 210, 210 ), eTextAlign::TA_Center );
     renderer.end();
 }
