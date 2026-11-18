@@ -441,13 +441,16 @@ private:
     float indicatorGlow[2] = { 0.0f, 0.0f };
     float lampBoost = 1.4f;                   // GLOSSFCT emission multiplier (setLampBoost)
     bool bInTunnel = false;                   // the tunnel_car_* weather keys
-    // Interior dashboard materials (HUD / HUD_01) and their ILUMCOLOR /
-    // HEADLIGHTSINTENSITY rest values.
-    struct DashMaterial {
-        int32_t Index = -1;      // interior.getMaterials() index
-        Vector4f RestIlum;       // the loaded ILUMCOLOR
-        Vector4f RestIntensity;  // the loaded HEADLIGHTSINTENSITY
-    } dash[2];
+    // The interior dashboard materials, the retail selection [CODE-dev,
+    // TestDrive2DEV.exe 0x71a680]: every material on the two dash shaders
+    // (TD_DashBoard caca000000000010 / TD_flashdashboard 7dad16b47eb51337)
+    // that ships a HeadlightsIntensity parameter. The per-frame driver writes
+    // that one parameter only - ILUMCOLOR / ILUMPARAM stay authored (the
+    // car's own backlight tint: the California ships white, another car red -
+    // and its illumination constants).
+    std::vector<int32_t> dashMaterials; // interior.getMaterials() indices
+    float dashboardGlow = 0.0f;         // the smoothed HEADLIGHTSINTENSITY
+    float dashboardWritten = -1.0f;     // the last value pushed to the materials
     // The dashboard sat-nav: interior materials on the TD_GPS shader
     // (7dad16b47eb57b95) and the GPS node subtrees (hidden at load,
     // re-shown when the map texture is bound).

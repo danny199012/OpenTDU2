@@ -41,8 +41,9 @@ constexpr LightMaterialName kLightMaterials[] = {
 };
 
 // Dashboard backlight colour when the headlights are on, and the
-// HeadlightsIntensity the TD_DashBoard shader multiplies it by.
-constexpr Vector4f kDashLitColor( 1.0f, 0.72f, 0.36f, 1.0f );
+// HeadlightsIntensity the TD_DashBoard shader multiplies the authored
+// ILUMCOLOR by (the color is the material's own - the driver writes the
+// intensity only, [CODE-dev] the collector 0x71a680).
 constexpr float kDashLitIntensity = 1.0f;
 
 // 8 byte scene node name (character i added into byte i & 7, little endian):
@@ -371,9 +372,8 @@ void CinematicCar::unload() {
     hardtopSkin.clear();
     bWindowsOpen = false;
     windowTime = windowTarget = 0.0f;
-    for ( DashMaterial &entry : dash ) {
-        entry = DashMaterial();
-    }
+    dashMaterials.clear();
+    dashboardGlow = 0.0f;
     lightMaterials.clear();
     causticNodes.clear();
     flareNodes.clear();
@@ -1221,35 +1221,30 @@ bool CinematicCar::load( const Desc &requested ) {
     setRimDiameters( rimDiameterFront, rimDiameterRear );
 
     // The light driver materials / nodes, and the interior dashboard
-    // materials (the night backlight): the ILUMCOLOR they ship with is
-    // restored while the backlight is off.
+    // materials (the night backlight). The dash selection is the retail law
+    // [CODE-dev 0x71a680]: the two dash shaders' materials that carry a
+    // HEADLIGHTSINTENSITY parameter; that one parameter is the only thing
+    // the per-frame driver writes (see updateLights) - ILUMCOLOR /
+    // ILUMPARAM stay authored.
     {
         collectLights();
         collectWipers();
-        for ( DashMaterial &entry : dash ) {
-            entry = DashMaterial();
-        }
+        dashMaterials.clear();
+        dashboardGlow = 0.0f;
         gpsMaterials.clear();
         if ( interior.isLoaded() ) {
-            static const char *const kDashNames[2] = { "HUD", "HUD_01" };
+            static constexpr uint64_t kDashShaderGuids[2] = { 0xcaca000000000010ull, 0x7dad16b47eb51337ull };
+            static const uint64_t kHeadlightsIntensity = GetIdentifier64bit( "HEADLIGHTSINTENSITY" );
             const std::vector<EdenMaterial> &interiorMaterials = interior.getMaterials();
-            for ( int32_t i = 0; i < 2; i++ ) {
-                for ( size_t m = 0; m < interiorMaterials.size(); m++ ) {
-                    if ( interiorMaterials[m].Name != kDashNames[i] ) {
-                        continue;
-                    }
-                    dash[i].Index = static_cast<int32_t>( m );
-                    auto it = interiorMaterials[m].Parameters.find( GetIdentifier64bit( "ILUMCOLOR" ) );
-                    if ( it != interiorMaterials[m].Parameters.end() ) {
-                        dash[i].RestIlum = it->second;
-                    }
-                    auto intensity =
-                        interiorMaterials[m].Parameters.find( GetIdentifier64bit( "HEADLIGHTSINTENSITY" ) );
-                    if ( intensity != interiorMaterials[m].Parameters.end() ) {
-                        dash[i].RestIntensity = intensity->second;
-                    }
-                    break;
+            for ( size_t m = 0; m < interiorMaterials.size(); m++ ) {
+                const EdenMaterial &material = interiorMaterials[m];
+                if ( material.ShaderSetGUID != kDashShaderGuids[0] && material.ShaderSetGUID != kDashShaderGuids[1] ) {
+                    continue;
                 }
+                if ( material.Parameters.find( kHeadlightsIntensity ) == material.Parameters.end() ) {
+                    continue;
+                }
+                dashMaterials.push_back( static_cast<int32_t>( m ) );
             }
             // The sat-nav materials (TD_GPS shader): setGpsTexture binds the
             // map render target into their satellitemap slot.
@@ -1259,8 +1254,8 @@ bool CinematicCar::load( const Desc &requested ) {
                 }
             }
         }
-        OTDU_LOG_INFO( "CinematicCar: %zu light materials, %d dashboard materials (lights)\n", lightMaterials.size(),
-                       ( dash[0].Index >= 0 ? 1 : 0 ) + ( dash[1].Index >= 0 ? 1 : 0 ) );
+        OTDU_LOG_INFO( "CinematicCar: %zu light materials, %zu dashboard materials (lights)\n", lightMaterials.size(),
+                       dashMaterials.size() );
     }
 
     // -logcarlights: the lamp / dashboard / satnav materials and the shader
@@ -1626,6 +1621,29 @@ void CinematicCar::updateLights( float deltaTime ) {
         highBeamTimer += deltaTime;
     } else {
         highBeamTimer = 0.0f;
+    }
+    // The dashboard backlight: retail writes HEADLIGHTSINTENSITY on the dash
+    // materials every frame [CODE-dev]; the port fades it (the
+    // TD_flashdashboard transition), the color stays the authored ILUMCOLOR.
+    if ( !dashMaterials.empty() && interior.isLoaded() ) {
+        const float target = ( headlightMode != 0 && bDashboardLit ) ? kDashLitIntensity : 0.0f;
+        const float rate = target > dashboardGlow ? 1.0f / 0.15f : 1.0f / 0.35f;
+        const float step = Min( 1.0f, deltaTime * rate );
+        dashboardGlow += ( target - dashboardGlow ) * step;
+        if ( dashboardGlow < 0.002f ) {
+            dashboardGlow = 0.0f;
+        } else if ( dashboardGlow > kDashLitIntensity - 0.002f ) {
+            dashboardGlow = kDashLitIntensity;
+        }
+        if ( dashboardGlow != dashboardWritten ) {
+            static const uint64_t kHeadlightsIntensity = GetIdentifier64bit( "HEADLIGHTSINTENSITY" );
+            std::vector<EdenMaterial> &interiorMaterials = interior.getMaterials();
+            for ( int32_t index : dashMaterials ) {
+                interiorMaterials[index].Parameters[kHeadlightsIntensity] =
+                    Vector4f( dashboardGlow, 0.0f, 0.0f, 0.0f );
+            }
+            dashboardWritten = dashboardGlow;
+        }
     }
 }
 
@@ -2041,24 +2059,11 @@ void CinematicCar::setDashboardLit( bool bOn ) {
         return;
     }
     bDashboardLit = bOn;
-    // TD_DashBoard reads IlumColor / IlumParam / HeadlightsIntensity. The
-    // material ships HEADLIGHTSINTENSITY = 0, which zeroes the backlight term,
-    // so the driver raises it with the headlights [INF: no readable caller].
-    for ( int32_t i = 0; i < 2; i++ ) {
-        if ( dash[i].Index < 0 ) {
-            continue;
-        }
-        EdenMaterial &material = interior.getMaterials()[dash[i].Index];
-        Vector4f ilum = dash[i].RestIlum;
-        Vector4f intensity = dash[i].RestIntensity;
-        if ( bOn ) {
-            ilum = kDashLitColor;
-            intensity = Vector4f( kDashLitIntensity, 0.0f, 0.0f, 0.0f );
-        }
-        material.Parameters[GetIdentifier64bit( "ILUMCOLOR" )] = ilum;
-        material.Parameters[GetIdentifier64bit( "HEADLIGHTSINTENSITY" )] = intensity;
-    }
     OTDU_LOG_INFO( "CinematicCar: dashboard %s\n", bOn ? "lit" : "dark" );
+    // The parameter write is per frame in updateLights (the fade): retail
+    // drives the dashboard through HEADLIGHTSINTENSITY alone [CODE-dev, the
+    // collector 0x71a680] - ILUMCOLOR / ILUMPARAM stay the authored values,
+    // which carry each car's own backlight tint.
 }
 
 bool CinematicCar::setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, const Vector4f &uvOffset ) {
