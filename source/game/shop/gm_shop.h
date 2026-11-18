@@ -76,6 +76,33 @@ private:
     bool bGoalShown = false;       // step 7 tick this[6]
     bool bWalkOffSinceBuy = false; // DAT_010268b6 (set by wmof)
     bool bDialogOpen = false;      // GENERAL dialog box (dbxo .. dbxc)
+    // The sell-vehicles list of the dealer's trade-in page (SHOPSCAR /buy/reprise, opened by the "garage full" and
+    // "not enough money" dialogs em_2 / em_0): the movie's native ASFlashList is the game's here - the rows, the
+    // cursor, the scroll and the check boxes are driven from the tick [INF].
+    struct SellRow {
+        int32_t CarId = -1;
+        int32_t Price = 0;
+        std::string Name;
+        std::string Group;
+        int32_t Upgrades = 0;
+        bool bSelected = false;
+    };
+    std::vector<SellRow> sellRows;
+    bool bSellOpenPending = false; // the dialog was answered yes: the list opens next
+    bool bSellList = false;        // the list is up
+    int32_t sellGeneration = 0;    // FlashPlayer::getListGeneration seen
+    int32_t sellCursor = 0;        // absolute row
+    int32_t sellTop = 0;           // first visible row
+    std::string lastDialogCase;    // /:DgbxCase of the last dbxo
+    bool bSellWasClosing = false;
+    void updateSellList();
+    void buildSellRows();
+    void fillSellLines();
+    void moveSellCursor( int32_t delta );
+    void toggleSellRow();
+    void refreshSellState();
+    void showSellStats();
+    void applySale();
     std::string selectableCinematic; // walk manager +0xd64 (camn)
     std::vector<std::string> pendingCommands;
     float explainEnd = 0.0f;

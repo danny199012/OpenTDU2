@@ -185,3 +185,38 @@ const std::vector<int32_t> &HouseGarageCars( const std::string &houseSpotName ) 
     const auto found = profile.HouseGarages.find( houseSpotName );
     return found != profile.HouseGarages.end() ? found->second : kNone;
 }
+
+int32_t GarageTotalCapacity() {
+    const PlayerProfile &profile = GetPlayerProfile();
+    int32_t total = 0;
+    for ( const std::string &house : profile.OwnedHouses ) {
+        total += HouseGarageCapacity( house );
+    }
+    return total;
+}
+
+int32_t GarageFreePlaces() {
+    const PlayerProfile &profile = GetPlayerProfile();
+    if ( profile.OwnedHouses.empty() ) {
+        return -1;
+    }
+    return std::max( 0, GarageTotalCapacity() - static_cast<int32_t>( profile.OwnedCars.size() ) );
+}
+
+bool MoveCarBetweenGarages( int32_t carId, const std::string &fromHouse, const std::string &toHouse ) {
+    PlayerProfile &profile = GetPlayerProfile();
+    HouseGarageCars( fromHouse ); // normalise the assignment first
+    std::vector<int32_t> &from = profile.HouseGarages[fromHouse];
+    std::vector<int32_t> &to = profile.HouseGarages[toHouse];
+    const auto found = std::find( from.begin(), from.end(), carId );
+    const bool bToOwned = std::find( profile.OwnedHouses.begin(), profile.OwnedHouses.end(), toHouse ) != profile.OwnedHouses.end();
+    if ( found == from.end() || !bToOwned || fromHouse == toHouse ||
+         static_cast<int32_t>( to.size() ) >= HouseGarageCapacity( toHouse ) ) {
+        return false;
+    }
+    from.erase( found );
+    to.push_back( carId );
+    OTDU_LOG_INFO( "Garage: car %d moved from '%s' to '%s'\n", carId, fromHouse.c_str(), toHouse.c_str() );
+    SaveProfile( "car moved" );
+    return true;
+}

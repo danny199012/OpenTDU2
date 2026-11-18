@@ -1806,6 +1806,20 @@ FlashPlayer::Value FlashPlayer::callMethod( Value &object, const std::string &na
         }
         return Value();
     }
+    if ( object.Type == Value::eType::Object && object.pObject != nullptr && object.pObject->Members.count( "__list" ) != 0 ) {
+        // ASFlashList (see A_CallFunction): the cursor line (0 based) and the view size; the rest is the game's.
+        std::map<std::string, Value> &members = object.pObject->Members;
+        if ( name == "GetViewLineSelected" ) {
+            return members["__sel"];
+        }
+        if ( name == "GetViewSize" ) {
+            return members["__view"];
+        }
+        if ( name == "OnRollOver" && !args.empty() ) {
+            members["__sel"] = Value::MakeNumber( args[0].toNumber() );
+        }
+        return Value();
+    }
     if ( object.Type == Value::eType::Object && object.pObject != nullptr && object.pObject->Members.count( "__math" ) != 0 ) {
         const double a = args.size() > 0 ? args[0].toNumber() : 0.0;
         const double b = args.size() > 1 ? args[1].toNumber() : 0.0;
@@ -2636,6 +2650,26 @@ FlashPlayer::Value FlashPlayer::execute( Clip *pClip, uint32_t offset, uint32_t 
             const Value function = lookupVariable( pScope, name, pLocals );
             if ( function.Type == Value::eType::Function ) {
                 push( callFunction( function.FunctionIndex, pScope, args, nullptr ) );
+            } else if ( name == "ASFlashList" ) {
+                // The retail list engine (a native class of the exe, MAIN.vmf / SHOPSCAR build `list = ASFlashList(
+                // clip, name, viewLines, columns)`): this runtime keeps its cursor only; the game fills the line
+                // clips and moves the cursor (FlashPlayer::getListSelection / setListSelection) [INF].
+                Value object;
+                object.Type = Value::eType::Object;
+                object.pObject = std::make_shared<Object>();
+                object.pObject->Members["__list"] = Value::MakeBool( true );
+                object.pObject->Members["__sel"] = Value::MakeNumber( 0.0 );
+                static int32_t listGeneration = 0;
+                object.pObject->Members["__gen"] = Value::MakeNumber( ++listGeneration );
+                double view = 5.0;
+                for ( const Value &arg : args ) {
+                    if ( arg.Type == Value::eType::Number ) {
+                        view = arg.Number;
+                        break;
+                    }
+                }
+                object.pObject->Members["__view"] = Value::MakeNumber( view );
+                push( object );
             } else {
                 push( Value() );
             }
@@ -2712,6 +2746,16 @@ bool FlashPlayer::sendKeyToClip( Clip &clip, uint8_t swfKey ) {
             bHandled |= sendKeyToClip( *instance.pClip, swfKey );
         }
     }
+    return bHandled;
+}
+
+bool FlashPlayer::sendKeyTo( const std::string &clipPath, uint8_t swfKey ) {
+    Clip *pClip = findClip( clipPath );
+    if ( pMovie == nullptr || pClip == nullptr ) {
+        return false;
+    }
+    const bool bHandled = sendKeyToClip( *pClip, swfKey );
+    runPendingActions();
     return bHandled;
 }
 
@@ -3571,4 +3615,44 @@ void FlashPlayer::drawEditText( Renderer2D &renderer, const FlashEditText &text,
             renderer.drawTriangles( bitmap.pTexture, quad, 6 );
         }
     }
+}
+
+int32_t FlashPlayer::getListSelection( const std::string &clipPath ) {
+    Clip *pClip = findClip( clipPath );
+    if ( pClip == nullptr ) {
+        return -1;
+    }
+    const auto found = pClip->Variables.find( "list" );
+    if ( found == pClip->Variables.end() || found->second.Type != Value::eType::Object || found->second.pObject == nullptr ||
+         found->second.pObject->Members.count( "__list" ) == 0 ) {
+        return -1;
+    }
+    return static_cast<int32_t>( found->second.pObject->Members["__sel"].toNumber() );
+}
+
+bool FlashPlayer::setListSelection( const std::string &clipPath, int32_t line ) {
+    Clip *pClip = findClip( clipPath );
+    if ( pClip == nullptr ) {
+        return false;
+    }
+    const auto found = pClip->Variables.find( "list" );
+    if ( found == pClip->Variables.end() || found->second.Type != Value::eType::Object || found->second.pObject == nullptr ||
+         found->second.pObject->Members.count( "__list" ) == 0 ) {
+        return false;
+    }
+    found->second.pObject->Members["__sel"] = Value::MakeNumber( line );
+    return true;
+}
+
+int32_t FlashPlayer::getListGeneration( const std::string &clipPath ) {
+    Clip *pClip = findClip( clipPath );
+    if ( pClip == nullptr ) {
+        return 0;
+    }
+    const auto found = pClip->Variables.find( "list" );
+    if ( found == pClip->Variables.end() || found->second.Type != Value::eType::Object || found->second.pObject == nullptr ||
+         found->second.pObject->Members.count( "__list" ) == 0 ) {
+        return 0;
+    }
+    return static_cast<int32_t>( found->second.pObject->Members["__gen"].toNumber() );
 }

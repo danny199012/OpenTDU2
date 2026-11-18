@@ -1305,6 +1305,12 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
     if ( strcmp( pKind, "estates" ) == 0 && spot.Name.compare( 0, 3, "EPH" ) == 0 && IsHouseOwned( spot.Id ) ) {
         pKind = "home";
     }
+    // A house still on sale is the `forsale` card (the realtor's layout is the ERE agency's, with its list of houses)
+    // [CODE-dev 0x970030: category 0 is `home` when owned, `forsale` otherwise].
+    if ( strcmp( pKind, "estates" ) == 0 && spot.Name.compare( 0, 3, "EPH" ) == 0 && !IsHouseOwned( spot.Id ) &&
+         FindHouseBySpotId( spot.Id ) != nullptr && !CmdLine::HasArg( "-oldspoticons" ) ) {
+        pKind = "forsale";
+    }
     player.setVariable( "/:WhatSpot", pKind );
     player.setVariable( "/:WhatSpotType", "spot" );
     std::string title = spot.Name;
@@ -1425,6 +1431,13 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
                 OTDU_LOG_INFO( "MapScreen: home card '%s': %zu car(s) of %d places, level %d\n", pHouseSpot->Name.c_str(), garage.size(),
                                HouseGarageCapacity( pHouseSpot->SpotName ), pHouseSpot->Level );
             }
+        }
+        // A house on sale (the `forsale` card): its garage capacity and level stars; the movie's text explains what a
+        // house is for [DATA: map.vmf m_HomeDesc_].
+        if ( pHouseSpot != nullptr && strcmp( pKind, "forsale" ) == 0 ) {
+            player.setVariable( "/:nb_garage_places", std::to_string( pHouseSpot->NbCarSlots ) );
+            player.setVariableNumber( "/:HouseLevel", pHouseSpot->Level + 1 );
+            player.setVariable( "/:HousePrice", "$" + FormatThousands( pHouseSpot->BuyPrice ) );
         }
         int32_t bought = 0;
         for ( size_t i = 0; i < stock.size(); i++ ) {

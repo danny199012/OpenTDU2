@@ -43,3 +43,10 @@ bool GrantHouse( const char *pSpotName, bool bSetHome );
 const std::vector<int32_t> &HouseGarageCars( const std::string &houseSpotName );
 // DBHouse._nbcarslots of a house by spot name (0 when unknown).
 int32_t HouseGarageCapacity( const std::string &houseSpotName );
+// The car places of every owned house together, and how many of them are still free (OwnedCars is what fills
+// them). A profile that owns no house at all has no limit (-1 free: a fresh free-ride profile) [INF].
+int32_t GarageTotalCapacity();
+int32_t GarageFreePlaces();
+// Moves a car from one owned house's garage to another's (the retail car-move screen); false when the car is not in
+// the first garage, the target is not owned or is full.
+bool MoveCarBetweenGarages( int32_t carId, const std::string &fromHouse, const std::string &toHouse );

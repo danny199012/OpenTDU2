@@ -14,6 +14,35 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`): full garages block dealer purchases and offer the sell list, cars move between garages, the for-sale house card
+
+Owner: the three open items (buying a second house moves no cars; no screen to move a car between garages; the card of an unowned house uses the realtor layout) + "if you have 1 house with 2 slots and it is full, cars can't be bought from a dealership and it offers to sell a vehicle" (360 shots: "Not enough space in the garage(s) / Would you like to sell one or several vehicles?" Yes/No, then the trade-in list with Status / Category / Vehicles / Price columns, "You need: One spot in your garage", Select / Sell / Back).
+
+### What changed
+- `house_shop.{h,cpp}`: `GarageTotalCapacity()` (sum of `DBHouse._nbcarslots` of the owned houses), `GarageFreePlaces()` (capacity - `OwnedCars`; -1 = no limit when no house is owned), `MoveCarBetweenGarages()`.
+- `gm_shop.cpp` `buyOrEvaluate` writes the SHOPSCAR `/:EnoughMoney` cases read from `TestMoney` (shopscar.vmf 0x11e48) [DATA]: 0 = poor but cars to sell, 2 = garages full + cars to sell, 3 = poor, 4 = full and nothing to sell. The movie raises its own dialogs `em_0` / `em_2` / `em_3` (texts "Not enough space in the garage(s)" / "Would you like to sell one or several vehicles?"); no purchase happens while the garages are full. `dealer_menu.cpp` (native dealer) refuses the same way.
+- **The trade-in list** (`/buy/reprise`, shopscar.vmf S573): the movie builds `list = ASFlashList(...)` - a native class of the exe. `flash_player.cpp` now gives that call a small object (cursor + view size, `GetViewLineSelected`, `GetViewSize`, `OnRollOver`) and `FlashPlayer::getListSelection / setListSelection / getListGeneration / sendKeyTo` expose it. `gm_shop.cpp` drives the list: rows = owned cars (class badge from `_vehiclecategory`, tuning level icon, name, price), Up / Down move + scroll (5 view lines), A ticks (`shca:addv`), X (`opt1` / key X) = Sell (`/:BuyOK` etc. as `X()` reads them), the confirm text fills `§NB_VEHICLES§` / `§PRICE§`, `shca:selv` sells the cars (profile money, `OwnedCars`, paint / rims / stickers / tuning dropped, garages normalised), then the purchase evaluates again. The stats panel follows the cursor car. Text fields of a line are on `line<N>/:name` / `/:price` (a text char's `../` is the clip holding it).
+- Sale value = 75 % of the dealer price [INF: the retail valuation is not read; a model no dealer sells has no price and its row is locked].
+- The dealer boxes show **Yes / No**: `/:YesNo` was copied as the string "true" (the movie wants a boolean) - fixes the "OK only" box (also noted in tuning_ui_spec).
+- `estate_menu.cpp`: buying a house places the cars that stood in no garage into the new one (`HouseGarageCars`); selling a house is refused when the cars no longer fit in the other houses (the movie's `m_NoGarPlaces`), and its cars move out.
+- **Move a vehicle**: `garage_move_menu.{h,cpp}` - native panel (the retail page was not found: the SHOPSCAR / Home garage pages only hold the "Select vehicle / Move vehicle" hint bar) [INF]. In a house garage interior press **X (pad) / M (keyboard)**: pick a car, pick the house (shows `Garage n / capacity`), A moves it (`house_garages` saved). The room shows the moved cars when it loads again (a live re-place left the old cars standing).
+- `map_screen.cpp`: an unowned `EPH_*` house opens the movie's `forsale` card (was `estates`, the realtor list): capacity, level stars, `/:HousePrice` (the card shows no price field).
+
+### Verified (profile with the Caravan = 2 places, 2 cars; `-gm SHOP -shopspot ECD_AUDI_1276I -shopaim 6 -money 500000`, the Audi buy key recipe)
+- Log: `eval Audi R8 V10 FSI Quattro: the garages are full (2 car(s) in 2 place(s)) -> EnoughMoney 2`, dialog `em_2` with the 360's texts and Yes / No (`docs/images/garage_full_dialog.webp`); Yes -> `sell list opened with 2 car(s)` (`dealer_sell_list.webp`: tick, `You need:` text clears, GT-R stats on the right), X -> confirm "Confirm sale of 1 vehicles for $54,000" (`dealer_sell_confirm.webp`), A -> `sold 1 car(s) for $54000 (money now $554000, 1 car(s) left, 1 free place(s))`, then `eval ... <= money 554000`.
+- A purchase with free places still works (`bought Audi R8 ... car 442`).
+- Move panel: `-gm FREERIDE -skipcine -island ibiza -atspot EPH_L0C_1254I -housegarage` + autoplay `500:press=validate;900:key=M;970:press=validate;1040:press=validate` -> `Garage: car 387 moved from 'EPH_L0C_1254I' to 'EPH_L3DI_5067I'`, profile `house_garages = EPH_L0C_1254I=403|EPH_L3DI_5067I=387` (`garage_move_panel.webp`); the map home card of the Caravan then lists only the GT-R (1 / 2).
+- `-mapcardicon estates,10 -mapcardextend` (`map_forsale_card.webp`): the for-sale card with Garage capacity 2 and 1 star.
+
+### Ruled out
+- `fake`-driven movie cursor (the movie's Up / Down only runs while `_root.fake` is set: the retail exe never sets it for the list) -> the game moves the cursor itself.
+- `ui.sendKey( 13 )` reaches the shop's walk A handler too (all visible key buttons get it): the list uses `sendKeyTo( "/buy/reprise", key )`.
+
+### Not done / next
+- Not checked with vision: the scroll of a list longer than 5 rows (code path only), the em_0 (poor, cars to sell) flow, the scroll bar lift (not moved), the "Select" hint label in the list bar is covered by the walk-pad icon (the movie's own).
+- The retail valuation of a car and its car-move screen are still unread; the move panel is native.
+- The story (non-free-ride) shop has no garage limit.
+
 ## Session 2026-11-18 (`main`): per-house garages, garage cars wear stickers + spoiler, the map's home card
 
 Owner: "garage cars stickers and spoilers; a car with a spoiler / stickers must be remembered; check owned properties remember the cars in the house's garage" (360 shots: the map card of Fontanelles house / Caravan: picture, Garage 2/2, level stars, Vehicles list with class badges).

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/garage_move_menu.h"
 #include <memory>
 #include <vector>
 
@@ -168,6 +169,7 @@ private:
     bool bHouse = false;
     bool bInGarage = false;
     std::string houseSpot;
+    GarageMoveMenu garageMove; // the house garage "Move a vehicle" panel (X / M)
     std::string houseIsland; // the streamed world of the living room (the yard)
     std::string livingBank, garageBank;
     std::string walkCamera; // the door camera of a room swap (startWalk)

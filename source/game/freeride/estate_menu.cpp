@@ -4,6 +4,7 @@
 
 #include "audio/frontend_audio.h"
 #include "flash/gs_flash.h"
+#include "game/house_shop.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
 #include "render/renderer_2d.h"
@@ -61,6 +62,9 @@ void EstateMenu::buy( const HouseRow &house ) {
         OTDU_LOG_INFO( "Estate: bought '%s' (spot '%s') for $%d (money now $%d, %d house(s))\n", house.Name.c_str(),
                        house.SpotName.c_str(), house.BuyPrice, profile.Money, profile.NbHouses );
         AwardCollectionMilestones( "COLLECTION_HOUSES", profile.NbHouses ); // 1, 3, 6, 10, 15 houses [DATA]
+        // The cars that did not fit in the old garages move into the new house now (HouseGarageCars places every
+        // owned car that stands in no garage, the home house first).
+        HouseGarageCars( profile.HomeHouse );
         SaveProfile( "house bought" );
     }
     messageTimer = 3.0f;
@@ -75,6 +79,20 @@ void EstateMenu::sell( const HouseRow &house ) {
         PlayFrontEndCue( "wrong" );
         return;
     }
+    // The cars must still fit in the other houses (the movie's m_NoGarPlaces: "not enough places in other houses for
+    // your vehicles") [DATA: shopscar.vmf text].
+    int32_t othersCapacity = 0;
+    for ( const std::string &owned : profile.OwnedHouses ) {
+        if ( owned != house.SpotName ) {
+            othersCapacity += HouseGarageCapacity( owned );
+        }
+    }
+    if ( static_cast<int32_t>( profile.OwnedCars.size() ) > othersCapacity ) {
+        message = "Not enough places in your other houses for your vehicles";
+        messageTimer = 3.0f;
+        PlayFrontEndCue( "wrong" );
+        return;
+    }
     profile.OwnedHouses.erase( found );
     profile.NbHouses = static_cast<int32_t>( profile.OwnedHouses.size() );
     profile.Money += house.SellPrice;
@@ -85,6 +103,7 @@ void EstateMenu::sell( const HouseRow &house ) {
     PlayFrontEndCue( "valid" );
     OTDU_LOG_INFO( "Estate: sold '%s' (spot '%s') for $%d (money now $%d, %d house(s))\n", house.Name.c_str(),
                    house.SpotName.c_str(), house.SellPrice, profile.Money, profile.NbHouses );
+    HouseGarageCars( profile.HomeHouse ); // the sold house's cars move to the other garages
     SaveProfile( "house sold" );
     messageTimer = 3.0f;
 }

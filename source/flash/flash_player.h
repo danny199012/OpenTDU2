@@ -202,6 +202,12 @@ public:
     // the clip timeline. True when the clip exists.
     bool gotoFrame( const std::string &clipPath, uint32_t frame, bool bPlay );
     Clip *findClip( const std::string &path );
+    // The cursor of a movie's ASFlashList (the clip's "list" variable, a native class of the retail exe that this
+    // runtime reduces to a cursor): the 0 based view line, -1 when the clip has no list yet.
+    int32_t getListSelection( const std::string &clipPath );
+    bool setListSelection( const std::string &clipPath, int32_t line );
+    // Counts the lists the movie created (a re-created list resets its cursor); 0 = none.
+    int32_t getListGeneration( const std::string &clipPath );
     // Binds a texture rectangle to the placeholder bitmap fills of the shapes the
     // clip holds (u0, v0, u1, v1 in 0..1). True when the clip exists.
     // Sets a clip's whole transform at once (stage px, degrees, percent): the
@@ -245,6 +251,9 @@ public:
     // code: 1 left, 2 right, 13 enter...) and mouse release on a button
     // (OverDownToOverUp) at a backbuffer position. True when handled.
     bool sendKey( uint8_t swfKey );
+    // The same, to the key buttons of one clip (and its children) only: a page that owns the keys while the root
+    // movie keeps its own handlers (the shop trade-in list).
+    bool sendKeyTo( const std::string &clipPath, uint8_t swfKey );
     // The clip event handlers a script assigns (clip.onEnterFrame = function ...)
     // run once per movie frame for the movies that opt in: the SHOPSCAR sticker
     // pages poll _root.CategoryLoaded this way. Off by default - the other

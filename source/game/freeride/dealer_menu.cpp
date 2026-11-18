@@ -5,6 +5,7 @@
 #include "database/gs_database.h"
 #include "flash/gs_flash.h"
 #include "game/cheats.h"
+#include "game/house_shop.h"
 #include "game/player_profile.h"
 #include "game/skill_levels.h"
 #include "input/gs_input.h"
@@ -183,6 +184,8 @@ bool DealerMenu::canBuySelected() {
         message = "This car is not for sale";
     } else if ( profile.Money < car.Price ) {
         message = "Not enough money";
+    } else if ( GarageFreePlaces() == 0 ) {
+        message = "Not enough space in the garage(s): sell a vehicle first";
     } else {
         return true;
     }

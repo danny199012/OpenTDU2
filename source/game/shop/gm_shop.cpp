@@ -1,4 +1,6 @@
 #include "shared.h"
+#include <set>
+#include <SDL3/SDL_scancode.h>
 #include "gm_shop.h"
 
 #include "audio/frontend_music.h"
@@ -8,6 +10,8 @@
 #include "database/gs_database.h"
 #include "flash/flash_player.h"
 #include "game/car_shop.h"
+#include "game/house_shop.h"
+#include "game/licenses.h"
 #include "game/player_profile.h"
 #include "input/gs_input.h"
 #include "render/gs_render.h"
@@ -1401,12 +1405,26 @@ bool GMShop::buyOrEvaluate( bool bEvalOnly ) {
     const ShopCar &car = cars[static_cast<size_t>( hoveredCar )];
     PlayerProfile &profile = GetPlayerProfile();
     const bool bEnough = static_cast<float>( car.Price ) <= static_cast<float>( profile.Money );
+    // The movie's TestMoney switch on /:EnoughMoney [DATA: shopscar.vmf, 0x11e48]: 0 = not enough money but cars to
+    // sell (dialog "em_0": sell vehicles?), 1 = go, 2 = no free garage place and cars to sell (dialog "em_2": "Not
+    // enough space in the garage(s). Would you like to sell one or several vehicles?"), 3 = not enough money,
+    // 4 = no free place and nothing to sell. The free-ride garage is the owned houses' car places.
+    const bool bHasCarsToSell = bFreeRide && !profile.OwnedCars.empty();
     if ( !bEnough ) {
-        ui.setVariableNumber( "/:EnoughMoney", 3.0 );
+        ui.setVariableNumber( "/:EnoughMoney", bHasCarsToSell ? 0.0 : 3.0 );
         ui.setVariable( "/:Message", "_Not enough money!" );
         ui.setVariableNumber( "/:BuyOK", 0.0 );
         ui.setVariableNumber( "/:PriceRed", 1.0 );
-        OTDU_LOG_INFO( "SHOP: eval %s: %d > money %d (not enough)\n", car.Name.c_str(), car.Price, profile.Money );
+        OTDU_LOG_INFO( "SHOP: eval %s: %d > money %d (not enough%s)\n", car.Name.c_str(), car.Price, profile.Money,
+                       bHasCarsToSell ? ", cars to sell" : "" );
+        return false;
+    }
+    if ( bFreeRide && GarageFreePlaces() == 0 ) {
+        ui.setVariableNumber( "/:EnoughMoney", bHasCarsToSell ? 2.0 : 4.0 );
+        ui.setVariableNumber( "/:BuyOK", 0.0 );
+        ui.setVariableNumber( "/:PriceRed", 0.0 );
+        OTDU_LOG_INFO( "SHOP: eval %s: the garages are full (%zu car(s) in %d place(s)) -> EnoughMoney %d\n",
+                       car.Name.c_str(), profile.OwnedCars.size(), GarageTotalCapacity(), bHasCarsToSell ? 2 : 4 );
         return false;
     }
     ui.setVariableNumber( "/:EnoughMoney", 1.0 );
@@ -1608,6 +1626,42 @@ void GMShop::onCommand( const std::string &command, const std::string &args ) {
             general.setVariable( pVariable, ui.getVariable( pVariable ) );
         }
         general.setVariable( "/:DialogBoxSource", "SHOPSCAR" );
+        // DBXO sets /:YesNo with a boolean (a string "true" is not true to the movie: the box showed OK only).
+        general.setVariableBool( "/:YesNo", ui.getVariable( "/:YesNo" ) == "true" || ui.getVariable( "/:YesNo" ) == "1" );
+        lastDialogCase = ui.getVariable( "/:DgbxCase" );
+        OTDU_LOG_INFO( "SHOP: dialog YesNo raw '%s'\n", ui.getVariable( "/:YesNo" ).c_str() );
+        // The sale confirm carries tokens the game fills: §NB_VEHICLES§ and §PRICE§ (the § marks are high bytes).
+        if ( lastDialogCase == "SellVehicles" ) {
+            int32_t total = 0;
+            int32_t count = 0;
+            for ( const SellRow &row : sellRows ) {
+                if ( row.bSelected ) {
+                    total += row.Price;
+                    count++;
+                }
+            }
+            const auto fill = [&]( const char *pToken, const std::string &value ) {
+                std::string text = general.getVariable( "/:Msg1Txt" );
+                const size_t at = text.find( pToken );
+                if ( at == std::string::npos ) {
+                    return;
+                }
+                size_t from = at;
+                size_t to = at + strlen( pToken );
+                while ( from > 0 && static_cast<unsigned char>( text[from - 1] ) >= 0x80 ) {
+                    from--;
+                }
+                while ( to < text.size() && static_cast<unsigned char>( text[to] ) >= 0x80 ) {
+                    to++;
+                }
+                text.replace( from, to - from, value );
+                general.setVariable( "/:Msg1Txt", text );
+            };
+            fill( "NB_VEHICLES", std::to_string( count ) );
+            fill( "PRICE", formatMoney( total ) );
+        }
+        OTDU_LOG_INFO( "SHOP: dialog case '%s', texts '%s' / '%s'\n", lastDialogCase.c_str(), ui.getVariable( "/:Msg1Txt" ).c_str(),
+                       ui.getVariable( "/:Msg2Txt" ).c_str() );
         scene.setDialogBoxVisible( true );
         bDialogOpen = true;
         general.invoke( "/", "DialogBox", {} );
@@ -1620,7 +1674,21 @@ void GMShop::onCommand( const std::string &command, const std::string &args ) {
         scene.setDialogBoxVisible( false );
         OTDU_LOG_INFO( "SHOP: dialog answer '%s'\n", general.getVariable( "/:PlayerAnswer" ).c_str() );
         ui.setVariable( "/:PlayerAnswer", general.getVariable( "/:PlayerAnswer" ) );
+        if ( general.getVariable( "/:PlayerAnswer" ) == "a" && ( lastDialogCase == "em_0" || lastDialogCase == "em_2" ) ) {
+            // "Would you like to sell one or several vehicles?" answered yes: the movie opens the trade-in page.
+            bSellOpenPending = true;
+            sellRows.clear();
+        }
         ui.invoke( "/", "DialogBox", {} );
+    } else if ( command == "shca" || command.compare( 0, 5, "shca:" ) == 0 ) {
+        // The trade-in page (/buy/reprise, cmdPrefix "shca:"): addv = tick the line, selv / sell = sell the ticked
+        // cars, info = the confirm question is up, seev = see the car [DATA: shopscar.vmf S573].
+        const std::string sub = command.size() > 5 ? command.substr( 5 ) : args;
+        if ( sub == "addv" ) {
+            toggleSellRow();
+        } else if ( sub == "selv" || sub == "sell" ) {
+            applySale();
+        }
     } else if ( command == "moup" ) {
         // FUN_0099c490 'moup': money display refresh (FUN_00abd0d0).
         updateMoneyVariables();
@@ -1913,6 +1981,259 @@ void GMShop::startTestDrive() {
     pGameInstance->setNextGameMode( eGameMode::GM_TestCar );
 }
 
+// ---- the trade-in list (SHOPSCAR /buy/reprise) ----------------------------------------------------------------
+
+namespace {
+constexpr int32_t kSellViewLines = 5;
+const char *const kSellRoot = "/buy/reprise";
+
+// What a car sells for: its dealer price less a quarter [INF: the retail valuation is not read; the 360 list shows
+// plain round dealer-like values]. 0 when no dealer sells the model (the row is then locked).
+int32_t SellValueOf( int32_t carId ) {
+    for ( const CarShop &shop : GetCarShops() ) {
+        for ( const ::ShopCar &car : shop.Cars ) {
+            if ( car.CarId == carId && car.Price > 0 ) {
+                return car.Price / 100 * 75;
+            }
+        }
+    }
+    return 0;
+}
+} // namespace
+
+void GMShop::buildSellRows() {
+    PlayerProfile &profile = GetPlayerProfile();
+    std::set<int32_t> keep;
+    for ( const SellRow &row : sellRows ) {
+        if ( row.bSelected ) {
+            keep.insert( row.CarId );
+        }
+    }
+    sellRows.clear();
+    for ( int32_t carId : profile.OwnedCars ) {
+        SellRow row;
+        row.CarId = carId;
+        row.Price = SellValueOf( carId );
+        row.Name = FindCarDisplayName( carId );
+        const int32_t physicsRow = FindCarPhysicsRow( carId );
+        if ( gpDatabase != nullptr && physicsRow >= 0 ) {
+            const int32_t category = static_cast<int32_t>( gpDatabase->getDocument().getRoot().getArrayElement(
+                "DBCarPhysicsData", static_cast<uint32_t>( physicsRow ) )["_vehiclecategory"].asInt() );
+            const char *pClass = VehicleClassName( category );
+            row.Group = pClass != nullptr && pClass[0] != '\0' ? pClass : "A";
+        } else {
+            row.Group = "A";
+        }
+        const auto tuning = profile.OwnedCarTuning.find( carId );
+        if ( tuning != profile.OwnedCarTuning.end() ) {
+            row.Upgrades = Clamp( tuning->second.Accel + tuning->second.Braking + tuning->second.Speed, 0, 5 );
+        }
+        row.bSelected = keep.count( carId ) != 0;
+        sellRows.push_back( row );
+    }
+}
+
+void GMShop::fillSellLines() {
+    FlashPlayer &ui = scene.getUi();
+    const std::string root = kSellRoot;
+    for ( int32_t i = 0; i < kSellViewLines; i++ ) {
+        const std::string line = root + "/line" + std::to_string( i + 1 );
+        const int32_t index = sellTop + i;
+        if ( index < static_cast<int32_t>( sellRows.size() ) ) {
+            const SellRow &row = sellRows[static_cast<size_t>( index )];
+            ui.setVariable( line + "/:name", row.Name );
+            ui.setVariable( line + "/:price", row.Price > 0 ? formatMoney( row.Price ) : std::string( "--" ) );
+            ui.gotoLabel( line + "/content/group", row.Group, false );
+            ui.gotoLabel( line + "/content/tun", "level" + std::to_string( row.Upgrades ), false );
+            ui.gotoLabel( line + "/content/check", row.bSelected ? "on" : "default", false );
+            ui.invoke( root, "SetLineState", { std::to_string( i + 1 ), row.Price > 0 ? "normal" : "lock" } );
+        } else {
+            ui.invoke( root, "SetLineState", { std::to_string( i + 1 ), "empty" } );
+        }
+    }
+    ui.setVariableNumber( root + ":nb_lines", kSellViewLines );
+    ui.invoke( root, "displayLines", { "show" } );
+}
+
+void GMShop::showSellStats() {
+    if ( sellRows.empty() || sellCursor < 0 || sellCursor >= static_cast<int32_t>( sellRows.size() ) ) {
+        return;
+    }
+    const SellRow &row = sellRows[static_cast<size_t>( sellCursor )];
+    ShopCar shown;
+    shown.IdCar = row.CarId;
+    shown.PhysicsRow = FindCarPhysicsRow( row.CarId );
+    shown.Name = row.Name;
+    shown.Price = row.Price;
+    if ( shown.PhysicsRow >= 0 ) {
+        fillCarVariables( shown );
+        scene.getUi().invoke( "/car_datas/datas_base", "SetDatas", {} );
+    }
+}
+
+void GMShop::refreshSellState() {
+    // The trade-in state the movie reads: /:BuyOK (the X "Sell" button goes on to the confirm), /:NoMoreDVDVehicle,
+    // /:NoMorePlaceReprise (0 = still not enough money), the "You need:" text [DATA: shopscar.vmf S573 X()].
+    if ( hoveredCar < 0 ) {
+        return;
+    }
+    FlashPlayer &ui = scene.getUi();
+    const PlayerProfile &profile = GetPlayerProfile();
+    const ShopCar &car = cars[static_cast<size_t>( hoveredCar )];
+    int32_t total = 0;
+    int32_t count = 0;
+    for ( const SellRow &row : sellRows ) {
+        if ( row.bSelected ) {
+            total += row.Price;
+            count++;
+        }
+    }
+    const int32_t freePlaces = GarageFreePlaces();
+    const bool bNeedPlace = freePlaces >= 0 && freePlaces + count < 1;
+    const int32_t deficit = Max( 0, car.Price - ( profile.Money + total ) );
+    std::string need;
+    if ( bNeedPlace ) {
+        need = "One spot in your garage";
+    }
+    if ( deficit > 0 ) {
+        need += ( need.empty() ? "" : " + " ) + formatMoney( deficit );
+    }
+    const bool bOk = count > 0 && !bNeedPlace && deficit == 0;
+    ui.setVariableNumber( "/:BuyOK", bOk ? 1.0 : 0.0 );
+    ui.setVariableNumber( "/:NoMoreDVDVehicle", 1.0 );
+    ui.setVariableNumber( "/:NoMorePlaceReprise", deficit == 0 ? 1.0 : 0.0 );
+    ui.setVariable( "/:reprise_need", need );
+    ui.setVariable( "/:TotalSellAmount", formatMoney( total ) );
+    ui.invoke( kSellRoot, "updateMoneyInfos", {} );
+    OTDU_LOG_INFO( "SHOP: sell list: %d selected for %s, need '%s', BuyOK %d\n", count, formatMoney( total ).c_str(),
+                   need.c_str(), bOk ? 1 : 0 );
+}
+
+void GMShop::moveSellCursor( int32_t delta ) {
+    if ( sellRows.empty() ) {
+        return;
+    }
+    FlashPlayer &ui = scene.getUi();
+    const std::string root = kSellRoot;
+    const int32_t next = Clamp( sellCursor + delta, 0, static_cast<int32_t>( sellRows.size() ) - 1 );
+    if ( next == sellCursor ) {
+        return;
+    }
+    const int32_t oldView = sellCursor - sellTop;
+    sellCursor = next;
+    bool bScroll = false;
+    if ( sellCursor < sellTop ) {
+        sellTop = sellCursor;
+        bScroll = true;
+    } else if ( sellCursor >= sellTop + kSellViewLines ) {
+        sellTop = sellCursor - kSellViewLines + 1;
+        bScroll = true;
+    }
+    const int32_t newView = sellCursor - sellTop;
+    ui.invoke( root, "PlayAnimSelectionOut", { std::to_string( oldView + 1 ) } );
+    ui.setListSelection( root, newView );
+    if ( bScroll ) {
+        fillSellLines();
+    }
+    ui.setVariableNumber( root + ":line_view", newView + 1 );
+    ui.invoke( root, "PlayAnimSelectionIn", { std::to_string( newView + 1 ) } );
+    showSellStats();
+}
+
+void GMShop::toggleSellRow() {
+    // FSCommand shca:addv: the line under the cursor is ticked / unticked.
+    FlashPlayer &ui = scene.getUi();
+    const int32_t view = ui.getListSelection( kSellRoot );
+    const int32_t index = sellTop + Max( 0, view );
+    if ( index < 0 || index >= static_cast<int32_t>( sellRows.size() ) ) {
+        return;
+    }
+    SellRow &row = sellRows[static_cast<size_t>( index )];
+    row.bSelected = !row.bSelected;
+    ui.gotoLabel( std::string( kSellRoot ) + "/line" + std::to_string( view + 1 ) + "/content/check",
+                  row.bSelected ? "check_on" : "check_off", true );
+    refreshSellState();
+}
+
+void GMShop::applySale() {
+    // FSCommand shca:selv / shca:sell: the ticked cars are sold - they leave the garages and the money rises.
+    PlayerProfile &profile = GetPlayerProfile();
+    int32_t total = 0;
+    int32_t count = 0;
+    for ( const SellRow &row : sellRows ) {
+        if ( !row.bSelected ) {
+            continue;
+        }
+        const int32_t carId = row.CarId;
+        profile.OwnedCars.erase( std::remove( profile.OwnedCars.begin(), profile.OwnedCars.end(), carId ),
+                                 profile.OwnedCars.end() );
+        profile.OwnedCarPaints.erase( carId );
+        profile.OwnedCarCustomPaints.erase( carId );
+        profile.OwnedCarRims.erase( carId );
+        profile.OwnedCarInteriors.erase( carId );
+        profile.OwnedCarStickers.erase( carId );
+        profile.OwnedCarTuning.erase( carId );
+        profile.OwnedCarRimSizes.erase( carId );
+        profile.OwnedCarTunerParts.erase( carId );
+        if ( profile.DrivenCarId == carId ) {
+            profile.DrivenCarId = -1; // back to the starter car
+        }
+        total += row.Price;
+        count++;
+    }
+    if ( count == 0 ) {
+        return;
+    }
+    profile.Money += total;
+    profile.NbCars = Max( 1, profile.NbCars - count );
+    HouseGarageCars( profile.HomeHouse ); // the sold cars leave their garages
+    OTDU_LOG_INFO( "SHOP: sold %d car(s) for $%d (money now $%d, %zu car(s) left, %d free place(s))\n", count, total,
+                   profile.Money, profile.OwnedCars.size(), GarageFreePlaces() );
+    SaveProfile( "cars sold" );
+    sellRows.clear();
+    bSellList = false;
+    updateMoneyVariables();
+    if ( hoveredCar >= 0 ) {
+        fillCarVariables( cars[static_cast<size_t>( hoveredCar )] );
+        scene.getUi().invoke( "/car_datas/datas_base", "SetDatas", {} );
+    }
+    buyOrEvaluate( true );
+}
+
+void GMShop::updateSellList() {
+    FlashPlayer &ui = scene.getUi();
+    const int32_t generation = ui.getListGeneration( kSellRoot );
+    FlashPlayer::Clip *pReprise = ui.findClip( kSellRoot );
+    if ( pReprise == nullptr || generation == 0 ) {
+        return;
+    }
+    // The page (re)creates its list when it opens: fill it then.
+    if ( generation != sellGeneration && ( bSellOpenPending || bSellList || !sellRows.empty() ) ) {
+        sellGeneration = generation;
+        bSellOpenPending = false;
+        buildSellRows();
+        sellCursor = 0;
+        sellTop = 0;
+        bSellList = true;
+        bSellWasClosing = false;
+        ui.setListSelection( kSellRoot, 0 );
+        fillSellLines();
+        ui.setVariableNumber( std::string( kSellRoot ) + ":line_view", 1 );
+        ui.invoke( kSellRoot, "PlayAnimSelectionIn", { "1" } );
+        showSellStats();
+        refreshSellState();
+        OTDU_LOG_INFO( "SHOP: sell list opened with %zu car(s)\n", sellRows.size() );
+        return;
+    }
+    if ( bSellList && pReprise->CurrentFrame >= 26 && !bSellWasClosing ) {
+        // The page closed (B, or X on the way to the confirm): the hovered car's stats come back.
+        bSellWasClosing = true;
+        if ( hoveredCar >= 0 && sellRows.empty() ) {
+            fillCarVariables( cars[static_cast<size_t>( hoveredCar )] );
+        }
+    }
+}
+
 void GMShop::routeInput() {
     // Pad / keyboard -> SHOPSCAR: the buttons hold the key conditions
     // (DefineButton2: 13 -> A(), 14 / 15 -> Move up / down); B is the root
@@ -1932,24 +2253,50 @@ void GMShop::routeInput() {
         }
         return;
     }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
-        if ( !ui.sendKey( 13 ) ) {
-            ui.invokeMethod( "/:Clip", "A", {} );
+    // The trade-in list: the cursor and the scroll are the game's (the movie's key handler only moves its own line
+    // while _root.fake is set); X = "Sell" (key 120), Y = "Invert" (key 121) [DATA: shopscar.vmf button 570].
+    const FlashPlayer::Clip *pReprise = ui.findClip( kSellRoot );
+    const bool bSellInput = bSellList && pReprise != nullptr && pReprise->CurrentFrame >= 20 && pReprise->CurrentFrame < 26 &&
+                            ui.getVariable( "/:Input" ) == "true";
+    if ( bSellInput ) {
+        if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+            ui.sendKeyTo( kSellRoot, 13 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
+            ui.sendKeyTo( kSellRoot, 8 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
+            moveSellCursor( -1 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
+            moveSellCursor( 1 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuOption1 ) || gpInput->wasKeyPressed( SDL_SCANCODE_X ) ) {
+            ui.sendKeyTo( kSellRoot, 120 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuOption2 ) || gpInput->wasKeyPressed( SDL_SCANCODE_Y ) ) {
+            ui.sendKeyTo( kSellRoot, 121 );
+        }
+    } else {
+        if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+            if ( !ui.sendKey( 13 ) ) {
+                ui.invokeMethod( "/:Clip", "A", {} );
+            }
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
+            ui.invokeMethod( "/:Clip", "B", {} );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
+            ui.sendKey( 14 );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
+            ui.sendKey( 15 );
         }
     }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
-        ui.invokeMethod( "/:Clip", "B", {} );
-    }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
-        ui.sendKey( 14 );
-    }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
-        ui.sendKey( 15 );
-    }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
+    if ( !bSellInput && gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
         ui.sendKey( 1 );
     }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
+    if ( !bSellInput && gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
         const bool bTaken = ui.sendKey( 2 );
         if ( bBuyWindow && CmdLine::HasArg( "-logbuywindow" ) ) {
             OTDU_LOG_INFO( "SHOP: buy window right: taken %d, Input '%s', buy_windows_pos '%s', num_option '%s'\n",
@@ -1979,6 +2326,9 @@ void GMShop::tick( float deltaTime ) {
         routeInput();
     }
     scene.tick( deltaTime );
+    if ( bFreeRide ) {
+        updateSellList();
+    }
     for ( const std::string &name : scene.takeEndEvents() ) {
         onCinematicEnd( name );
     }

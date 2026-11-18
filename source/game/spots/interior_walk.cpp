@@ -917,6 +917,20 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         }
         return eResult::None;
     }
+    if ( bHouse && bInGarage && !houseSpot.empty() ) {
+        // A house garage: X / M opens the car-move panel (cars between the owned houses garages).
+        if ( garageMove.isOpen() ) {
+            garageMove.tick( deltaTime );
+            // The room shows the moved cars when it loads again (placeDisplayCars has no re-place; a live re-place left
+            // the old cars standing with the new ones).
+            garageMove.takeMoved();
+            return eResult::None;
+        }
+        if ( homePage.empty() && ( gpInput->wasPressed( eInputAction::IA_MenuOption1 ) || gpInput->wasKeyPressed( SDL_SCANCODE_M ) ) ) {
+            garageMove.open( houseSpot );
+            return eResult::None;
+        }
+    }
     if ( ( bStickUi || bAvatarUi || bTuneUi ) && !bWalkInput ) {
         // One of the movie's own pages is up (wmof): the pad drives it, the
         // walk and the exit are the movie's to give back (wmon).
@@ -1097,6 +1111,7 @@ void InteriorWalk::draw() {
     if ( bActive ) {
         scene.draw();
         walk.drawEmoteWheel( gpRender->get2DRenderer() );
+        garageMove.draw( gpRender->get2DRenderer() );
     }
 }
 
