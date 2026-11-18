@@ -14,6 +14,39 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 54): tuner mod - exhaust tips rebuilt, five new parts
+
+The owner: "in the tuner mod please could you start adding more items also add some polish to
+the exhausts I Had claude work on some but think they could do with a little something they
+look a little odd".
+
+### What changed
+- `tools/mod/make_gt_wing.py` - the tip builder: cylindrical UVs (u around the tube, v along
+  the pipe; the old planar map put the burnt gradient ACROSS each tip - the session 47
+  "coloured egg" blobs), a rolled rim (the lip curls out and back onto the bore), a cone
+  throat closing dark and deep, a winding self-check per quad; chrome / titanium textures
+  repainted to the layout, `carbonsteel.png` added; five new meshes (`exhaust_n1`,
+  `exhaust_carbon`, `exhaust_quad_ti`, `exhaust_bigbore`, `wing_blade`).
+- `resources/mods/packages/tuner-garage/tuner/tuner.txt` - five catalog rows (15 parts),
+  `exhaust_oval` offset y 0.25, Impreza `exhaust_offset = 0 0.26 -0.03`.
+- `_session/preview_part.py` (scratch) - offline painter's-algorithm OBJ preview, so part
+  looks iterate without a game run.
+
+### Verified (build 288, headless)
+- Catalog: `Tuner: 15 parts, 7 tuner cars`; the Wangan Works menu lists and prices the new
+  sets, the room car previews live (`docs/images/tuner_menu_s54.webp`).
+- All 8 tip sets on the GTR: chrome sets read as pipes with rims and dark bores in the
+  diffuser cutouts (`tuner_exhaust_quad_s54.webp`), burnt titanium is muted violet-blue rim /
+  gold bore, no more candy-purple (`tuner_exhaust_burnt_s54.webp`, `tuner_exhaust_oval_s54.webp`).
+- Second body: the Impreza takes `align = rear` tips + the per-car exhaust lift
+  (`tuner_exhaust_impreza_s54.webp`); the Evo Blade replaces the GTR's stock lip and the
+  Impreza's stock STI wing via the existing hide boxes (`tuner_blade_carbon_s54.webp`).
+
+### Not done / next
+- The single oval still floats mid-bumper on the GTR (no centre cutout on that body - style,
+  the material is right now); pops audio still by ear unverified; body kit / neon rows remain
+  "coming soon".
+
 ## Session 2026-11-18 (`main`, 53): TDU Media - music, forecast schedule, News and DLC channels
 
 The owner: "yes please do the tv music, forecast icons and the news and dlc channel thanks".

@@ -16,15 +16,22 @@ Outputs (resources/mods/packages/tuner-garage/tuner/parts/):
   wing_swan.obj      a swan-neck GT wing (blade hung from curved pylons)
   wing_dual.obj      a dual-element wing (two stacked blades, big endplates)
   wing_drift.obj     a tall drift-tower wing on a wide stance
+  wing_blade.obj     an Evo-style low blade on short risers
   exhaust_dual.obj   two chrome round tips
   exhaust_quad.obj   four chrome round tips (two per side)
   exhaust_oval.obj   one wide burnt-titanium oval tip
   exhaust_burnt.obj  twin large burnt-titanium tips
+  exhaust_n1.obj     one big-bore chrome tip, offset to one side
+  exhaust_carbon.obj two carbon-shell tips with a polished bore
+  exhaust_quad_ti.obj  four burnt-titanium tips
+  exhaust_bigbore.obj  twin angle-cut chrome tips
 Exhaust parts: the tube opening is at z=0 facing the rear (-Z) and the pipe
 runs +Z into the car; tuner.txt sets `align = rear` so the engine puts the
-opening on the body's rear bounds.
-Each is one material (carbon / chrome / titanium), a few hundred triangles, plain OBJ with uvs
-and flat normals.
+opening on the body's rear bounds. Tips carry cylindrical UVs (u around the
+tube, v along the pipe) and chrome / titanium / carbonsteel.png are painted
+to that layout - see the exhaust section below.
+Each is one material (carbon / chrome / titanium / carbonsteel), a few hundred triangles, plain
+OBJ with uvs and flat normals.
 """
 import math
 import os
@@ -49,9 +56,9 @@ class Obj:
         self.normals = []  # (x, y, z)
         self.faces = []    # (vi, ti, ni) triples, one triangle per 3 entries
 
-    def v(self, x, y, z):
+    def v(self, x, y, z, uv=None):
         self.verts.append((x, y, z))
-        self.uvs.append((0.5 + x, 0.5 + z))  # a harmless planar map (no texture)
+        self.uvs.append(uv if uv is not None else (0.5 + x, 0.5 + z))  # planar map (wings)
         return len(self.verts)               # 1-based index
 
     def add_normal(self, n):
@@ -215,6 +222,21 @@ def wing_street():
     obj.write("wing_street")
 
 
+def wing_blade():
+    """Evo-style low blade: a shallow wide blade on short risers, small
+    endplates (the rally-wing silhouette). Origin: the deck plane."""
+    obj = Obj()
+    blade_y, chord, thick = 0.115, 0.185, 0.075
+    profile = [(z, blade_y + y) for (z, y) in airfoil_profile(chord, thick, camber=-0.10)]
+    extrude_profile(obj, profile, -0.79, 0.79)
+    for sx in (-0.48, 0.48):
+        box(obj, sx, 0.005, 0.10, 0.035, 0.0, blade_y)      # riser
+        box(obj, sx, -0.01, 0.16, 0.045, 0.0, 0.014)        # foot
+    for sx in (-0.795, 0.795):
+        box(obj, sx, 0.0, 0.010, chord + 0.025, blade_y - 0.03, blade_y + thick + 0.04)
+    obj.write("wing_blade")
+
+
 def wing_swan():
     """Swan-neck wing: a wide airfoil hung UNDER two curved pylons (the
     race-car look: the blade's lower surface stays clean). Origin: deck plane."""
@@ -272,65 +294,132 @@ def wing_drift():
 
 # ---------------------------------------------------------------------------
 # exhaust tips (opening at z=0 facing -Z, the pipe running +Z)
+#
+# UV layout: u (texture x) wraps around the tube - 0.75 is the top of the
+# tube, 0.25 the bottom, the chrome horizon at 0.0 / 0.5 - and v (texture y)
+# runs along the pipe, 0 = the mouth, 1 = deep in. The textures are painted
+# to that layout (see metal_textures): chrome reflects a sky / road split,
+# titanium burns violet at the mouth through gold to a black throat, and the
+# carbon tip is a weave shell with a polished bore.
 # ---------------------------------------------------------------------------
 
-def tip(obj, cx, cy, radius, length=0.22, wall=0.012, seg=20, squash=1.0):
-    """One tailpipe tip: an outer tube, a rolled rim at the opening, an inner
-    wall. squash < 1 makes it an oval (height scale)."""
-    def ring(z, r):
+def _ellipse_normal(a, squash):
+    """The outward normal of the ellipse cross-section at angle a."""
+    nx, ny = math.cos(a), math.sin(a) / max(squash, 1e-3)
+    ln = math.hypot(nx, ny) or 1.0
+    return nx / ln, ny / ln
+
+
+def tip(obj, cx, cy, radius, length=0.22, wall=0.012, seg=24, squash=1.0,
+        zcut=None, bore_v=(0.05, 0.72), throat_v=(0.90, 0.96)):
+    """One tailpipe tip: the outer tube, a rolled rim (the lip curls out and
+    back onto the bore, so the opening catches a highlight), the bore wall,
+    then a cone throat closing dark and deep. zcut(angle) -> dz tilts the
+    mouth plane (the angle-cut look). bore_v / throat_v place the bore and
+    the throat on the texture's v axis (the carbon finish moves the bore off
+    the weave rows)."""
+    r_in = radius - wall
+    _norm_cache = {}
+
+    def norm_idx(n):
+        key = (round(n[0], 3), round(n[1], 3), round(n[2], 3))
+        if key not in _norm_cache:
+            _norm_cache[key] = obj.add_normal(n)
+        return _norm_cache[key]
+
+    def ring(z, r, v, tilt=False):
         base = len(obj.verts) + 1
         for i in range(seg):
             a = 2.0 * math.pi * i / seg
-            obj.v(cx + math.cos(a) * r, cy + math.sin(a) * r * squash, z)
+            dz = zcut(a) if (tilt and zcut is not None) else 0.0
+            obj.v(cx + math.cos(a) * r, cy + math.sin(a) * r * squash, z + dz,
+                  uv=(0.5 + a / (2.0 * math.pi), v))
         return base
 
-    def wall_quads(r_a, z_a, r_b, z_b, outward):
-        ra, rb = ring(z_a, r_a), ring(z_b, r_b)
+    def band(ra, rb, normal_of):
+        """Quads between two rings; the winding is checked against the
+        declared normal (a slip would shade the band black) and flipped."""
         for i in range(seg):
             j = (i + 1) % seg
             a = 2.0 * math.pi * (i + 0.5) / seg
-            nx, ny = math.cos(a), math.sin(a) / max(squash, 1e-3)
-            ln = math.hypot(nx, ny) or 1.0
-            sign = 1.0 if outward else -1.0
-            ni = obj.add_normal((sign * nx / ln, sign * ny / ln, 0.0))
-            if outward:
-                obj.quad(ra + i, ra + j, rb + j, rb + i, ni)
-            else:
-                obj.quad(ra + j, ra + i, rb + i, rb + j, ni)
+            nx, ny, nz = normal_of(a)
+            ni = norm_idx((nx, ny, nz))
+            verts = (ra + i, ra + j, rb + j, rb + i)
+            p = [obj.verts[vi - 1] for vi in verts]
+            ux, uy, uz = (p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2])
+            wx, wy, wz = (p[2][0] - p[1][0], p[2][1] - p[1][1], p[2][2] - p[1][2])
+            gx, gy, gz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+            if gx * nx + gy * ny + gz * nz < 0:
+                verts = (verts[3], verts[2], verts[1], verts[0])
+            obj.faces.append((verts[0], verts[1], verts[2], ni))
+            obj.faces.append((verts[0], verts[2], verts[3], ni))
 
-    wall_quads(radius, 0.0, radius, length, True)               # outer tube
-    wall_quads(radius - wall, 0.0, radius - wall, length, False)  # inner wall
-    # the rolled rim: an annulus at the opening, facing the rear (-Z)
-    ro, ri = ring(0.0, radius), ring(0.0, radius - wall)
-    ni = obj.add_normal((0.0, 0.0, -1.0))
+    def radial(a, sign=1.0):
+        nx, ny = _ellipse_normal(a, squash)
+        return (sign * nx, sign * ny, 0.0)
+
+    def mix(n0, n1, t):
+        m = [n0[k] * (1.0 - t) + n1[k] * t for k in range(3)]
+        ln = math.sqrt(sum(c * c for c in m)) or 1.0
+        return (m[0] / ln, m[1] / ln, m[2] / ln)
+
+    # the rings, mouth to deep: the roll (4 rings across the wall thickness,
+    # bulging toward the viewer), the bore, the throat cone
+    bulge = wall * 0.9
+    roll_t = (0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0)
+    roll = [ring(-bulge * math.sin(t * math.pi), radius + (r_in - radius) * t,
+                 bore_v[0] if t == 1.0 else 0.02 + t * 0.01, tilt=True)
+            for t in roll_t]
+    back = ring(length, radius, 0.22)
+    bore_far = ring(length * 0.72, r_in * 0.98, bore_v[1])
+    throat = ring(length * 0.92, r_in * 0.30, throat_v[1])
+
+    band(back, roll[0], lambda a: radial(a))                       # outer tube
+    for k in range(3):                                             # the roll
+        t0 = roll_t[k]
+        band(roll[k], roll[k + 1],
+             lambda a, t0=t0: mix(radial(a), (0.0, 0.0, -1.0),
+                                  math.sin((t0 + (1.0 / 3.0) * 0.5) * math.pi)))
+    band(roll[3], bore_far, lambda a: radial(a, -1.0))             # bore wall
+    band(bore_far, throat,
+         lambda a: mix(radial(a, -1.0), (0.0, 0.0, -1.0), 0.55))   # throat cone
+    # the throat cap, facing the rear
+    ni = norm_idx((0.0, 0.0, -1.0))
+    centre = obj.v(cx, cy, length * 0.92, uv=(0.5, throat_v[1]))
     for i in range(seg):
         j = (i + 1) % seg
-        obj.quad(ro + j, ro + i, ri + i, ri + j, ni)
-    # a dark-ish baffle disc deep inside
-    base = ring(length, radius - wall)
-    centre = obj.v(cx, cy, length)
-    ni = obj.add_normal((0.0, 0.0, -1.0))
-    for i in range(seg):
-        j = (i + 1) % seg
-        obj.tri(centre, base + j, base + i, ni)
+        obj.tri(centre, throat + j, throat + i, ni)
 
 
 def exhaust(name, positions, radius, squash=1.0, material="chrome", texture="chrome.png",
-            kd=(0.62, 0.64, 0.68), ks=0.9, ns=120, length=0.22):
+            kd=(0.62, 0.64, 0.68), ks=0.9, ns=120, length=0.22, zcut=None,
+            bore_v=(0.05, 0.72), throat_v=(0.90, 0.96)):
     obj = Obj(material, texture, kd, ks, ns)
     for (cx, cy) in positions:
-        tip(obj, cx, cy, radius, length=length, squash=squash)
+        tip(obj, cx, cy, radius, length=length, squash=squash, zcut=zcut,
+            bore_v=bore_v, throat_v=throat_v)
     obj.write(name)
 
 
 def exhausts():
-    # origin: the mid-point of the pair at the opening; x = left/right, y = 0
+    # origin: the mid-point of the set at the opening; x = left/right, y = the
+    # tips' vertical centre
     exhaust("exhaust_dual", [(-0.46, 0.0), (0.46, 0.0)], 0.043)
     exhaust("exhaust_quad", [(-0.56, 0.0), (-0.40, 0.0), (0.40, 0.0), (0.56, 0.0)], 0.034)
-    exhaust("exhaust_oval", [(0.0, 0.0)], 0.085, squash=0.45, material="titanium",
+    exhaust("exhaust_oval", [(0.0, 0.0)], 0.105, squash=0.36, material="titanium",
             texture="titanium.png", kd=(0.55, 0.55, 0.60), ks=0.8, ns=90, length=0.26)
     exhaust("exhaust_burnt", [(-0.40, 0.0), (0.40, 0.0)], 0.058, material="titanium",
             texture="titanium.png", kd=(0.55, 0.55, 0.60), ks=0.8, ns=90, length=0.26)
+    # the second batch (session 54)
+    exhaust("exhaust_n1", [(0.42, 0.0)], 0.088, length=0.26)       # the single big bore
+    exhaust("exhaust_carbon", [(-0.45, 0.0), (0.45, 0.0)], 0.046, material="carbonsteel",
+            texture="carbonsteel.png", kd=(0.55, 0.55, 0.58), ks=0.6, ns=80,
+            bore_v=(0.35, 0.80))                                   # weave shell, steel bore
+    exhaust("exhaust_quad_ti", [(-0.56, 0.0), (-0.40, 0.0), (0.40, 0.0), (0.56, 0.0)],
+            0.034, material="titanium", texture="titanium.png",
+            kd=(0.55, 0.55, 0.60), ks=0.8, ns=90)
+    exhaust("exhaust_bigbore", [(-0.44, 0.0), (0.44, 0.0)], 0.066, length=0.24,
+            zcut=lambda a: 0.030 * math.cos(a - math.pi / 2.0))    # the oblique cut
 
 
 def png(path, width, height, pixel):
@@ -353,28 +442,67 @@ def png(path, width, height, pixel):
 
 
 def metal_textures():
-    """chrome.png: a bright steel with a horizon-style band. titanium.png: the
-    burnt gold / blue / violet heat gradient (our art)."""
+    """The finishes, painted to the tip UV layout: u (texture x) wraps around
+    the tube - 0.75 the top, 0.25 the bottom, the horizon at 0.0 / 0.5 - and
+    v (texture y) runs along the pipe (0 = the mouth). chrome: sky over the
+    top of the tube, road below, sharp horizon. titanium: burnt violet at the
+    mouth -> blue -> gold, black throat. carbonsteel: the carbon weave shell
+    with a polished bore. Every finish goes near-black past v 0.85 (the
+    throat)."""
+    W = H = 64
+
     def chrome(x, y):
-        t = y / 63.0
-        v = 118 - int(50 * abs(t - 0.5) * 2) + (x * 3 % 7)  # lit by the sun: keep it dark
-        if 0.40 < t < 0.52:
-            v = 28 + (x % 5)  # the dark horizon band
-        return (v, v, min(255, v + 6), 255)
+        t = y / float(H - 1)
+        if t > 0.85:
+            v = 26 + (x % 4)                        # the dark throat
+        else:
+            d = abs(x / float(W - 1) - 0.75)        # angular distance from the top
+            if d < 0.25:                            # sky, brightest at the very top
+                v = 190 - int(120 * (0.25 - d) / 0.25)
+            else:                                   # road
+                v = 34 + int(26 * (d - 0.25) / 0.25)
+        n = (x * 3 + y * 5) % 7 - 3
+        v = max(0, min(255, v + n))
+        return (v, v, min(255, v + 5), 255)
 
     def titanium(x, y):
-        t = x / 63.0  # along the pipe: gold at the opening -> blue -> violet
-        stops = [(205, 165, 70), (110, 120, 190), (95, 70, 150)]
-        k = min(int(t * 2.0), 1)
-        f = t * 2.0 - k
-        a, b = stops[k], stops[k + 1]
-        c = tuple(int(a[i] + (b[i] - a[i]) * f) for i in range(3))
-        n = (x * 5 + y * 11) % 9 - 4
+        t = y / float(H - 1)                        # along the pipe
+        # burnt titanium, kept dark and muted so it reads as heat-stained
+        # metal, not candy: violet-blue at the rim, bronze-gold further in
+        stops = [(0.00, (88, 66, 132)), (0.08, (76, 86, 148)),
+                 (0.24, (128, 122, 112)), (0.46, (172, 138, 86)),
+                 (0.72, (186, 156, 94)), (0.86, (30, 25, 28)),
+                 (1.00, (22, 18, 20))]
+        for k in range(len(stops) - 1):
+            t0, c0 = stops[k]
+            t1, c1 = stops[k + 1]
+            if t <= t1 or k == len(stops) - 2:
+                f = 0.0 if t1 <= t0 else min(1.0, max(0.0, (t - t0) / (t1 - t0)))
+                c = tuple(int(c0[i] + (c1[i] - c0[i]) * f) for i in range(3))
+                break
+        # the faint burn rings: a slow sinusoid along the pipe
+        ring = int(7 * math.sin(t * 40.0))
+        n = ((x * 5 + y * 11) % 9 - 4) + ring
         return (max(0, c[0] + n), max(0, c[1] + n), max(0, c[2] + n), 255)
 
-    png(os.path.join(OUT_DIR, "chrome.png"), 64, 64, chrome)
-    png(os.path.join(OUT_DIR, "titanium.png"), 64, 64, titanium)
-    print("  chrome.png, titanium.png (64x64)")
+    def carbonsteel(x, y):
+        t = y / float(H - 1)
+        if t <= 0.25:                               # the weave shell
+            strand = ((x + y) % 8) < 4
+            value = (30 if strand else 16) + (x * 7 + y * 13) % 5
+            return (value, value, value + 2, 255)
+        if t < 0.32:
+            return (10, 10, 11, 255)                # the shell / bore shadow line
+        if t <= 0.82:                               # the polished bore
+            d = abs(t - 0.55)
+            v = max(70, 210 - int(150 * d / 0.27)) + (x * 3 % 5)
+            return (v, v, min(255, v + 6), 255)
+        return (16, 14, 15, 255)                    # the dark throat
+
+    png(os.path.join(OUT_DIR, "chrome.png"), W, H, chrome)
+    png(os.path.join(OUT_DIR, "titanium.png"), W, H, titanium)
+    png(os.path.join(OUT_DIR, "carbonsteel.png"), W, H, carbonsteel)
+    print(f"  chrome.png, titanium.png, carbonsteel.png ({W}x{H})")
 
 
 def carbon_texture():
@@ -414,6 +542,7 @@ def main():
     wing_gt()
     wing_ducktail()
     wing_street()
+    wing_blade()
     wing_swan()
     wing_dual()
     wing_drift()

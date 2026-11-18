@@ -102,3 +102,26 @@ Each step is useful alone; stopping after any of them leaves something working.
 - **Shipped:** the car viewer + exporter (`-gm assetviewer -car <name>`, `docs/re/car_viewer_spec.md`): the DB car list, a loaded car in the asset viewer's 3D view, the tuner authoring loop (fit parts live, hide boxes as a wireframe overlay + masked-triangle highlight, offset nudge, copy the `tuner.txt` lines) and the whole-assembly OBJ export with the round-trip law proven (`-objroundtrip` delta 0.0000 on the GTR). The dump-and-guess loop for adding a car to the catalog (`-dumptunermask` + eyeballed boxes) is replaced by the panel.
 - **`hide_tris_<slot>`** in tuner.txt: exact triangle lists beside the boxes (a box that catches neighbour triangles is replaced by the item's tri numbers); verified on the GTR (656 -> 659 maskable with a 3-tri list on item 7).
 - The stock-lip / stock-tips replacement stays non-destructive (index-range swap at draw time) - the A/B pair `docs/images/tuner_ab_stock_s48.webp` / `tuner_ab_fitted_s48.webp` (lip + round tips vs GT wing + quad tips) re-verified after the runtime-override refactor.
+
+## Status (session 54, 2026-11-18)
+
+- **Exhaust tips rebuilt** (`tools/mod/make_gt_wing.py`): cylindrical UVs (u around the tube,
+  v along the pipe) replace the planar map - the burnt-titanium gradient used to run sideways
+  across each tip (the "coloured egg" blobs of session 47); geometry gained a rolled rim (the
+  lip curls out and back onto the bore, so the opening catches a highlight), a cone throat
+  closing dark and deep, and a winding self-check (every quad's geometric normal must agree
+  with its declared normal). The finishes are painted to the layout: chrome = sky/road split
+  with a sharp horizon, titanium = muted violet-blue rim -> bronze-gold -> black throat, new
+  carbonsteel = weave shell with a polished bore.
+- **Five new catalog items** (15 total): exhaust `exhaust_n1` (single big bore, $4,800),
+  `exhaust_carbon` (carbon shell + steel bore, $8,900), `exhaust_quad_ti` ($9,200),
+  `exhaust_bigbore` (twin angle-cut, $7,400) and spoiler `wing_blade` (Evo-style low blade,
+  $7,600) - all prices [INF]. `exhaust_oval` raised to y 0.25 (its lower rim sank into the
+  bumper edge), the Impreza gained `exhaust_offset = 0 0.26 -0.03` (its bumper lip otherwise
+  half-buries the tips; the parser already took any `<slot>_offset`).
+- **Verified** (build 288, headless): catalog loads 15 parts; the garage menu lists and prices
+  the new sets (`docs/images/tuner_menu_s54.webp`); all 8 tip sets render on the GTR
+  (`tuner_exhaust_quad_s54.webp`, `tuner_exhaust_burnt_s54.webp`, `tuner_exhaust_oval_s54.webp`);
+  `align = rear` on a second body + the per-car offset (`tuner_exhaust_impreza_s54.webp`);
+  the Evo Blade replaces the stock lip on the GTR and the stock STI wing on the Impreza
+  (`tuner_blade_carbon_s54.webp`).
