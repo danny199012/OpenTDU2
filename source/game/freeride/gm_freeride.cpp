@@ -750,16 +750,8 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             if ( pTuneRoomCar == nullptr && car.isLoaded() && !CmdLine::HasArg( "-notunecar" ) ) {
                 pTuneRoomCar = interior.placeStickerCar( car.getIdCar() );
                 if ( pTuneRoomCar != nullptr ) {
-                    const PlayerProfile &profile = GetPlayerProfile();
-                    const auto paint = profile.OwnedCarPaints.find( car.getIdCar() );
-                    if ( paint != profile.OwnedCarPaints.end() ) {
-                        pTuneRoomCar->applyDatabasePaint( paint->second );
-                    }
-                    const auto custom = profile.OwnedCarCustomPaints.find( car.getIdCar() );
-                    if ( custom != profile.OwnedCarCustomPaints.end() ) {
-                        pTuneRoomCar->applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour,
-                                                        custom->second.Colour2 );
-                    }
+                    dressRoomCar( *pTuneRoomCar );
+                    bTuneRoomCarBound = false;
                 }
             }
         }
@@ -3224,6 +3216,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                 interiorSpotId = nearSpotId;
                 bindStickerShop();
                 bindTunerGarage();
+                bindTuneRoomCar();
                 hud.closeEnterSpot();
                 hud.closeHint();
                 // The bike showroom (EUC_BD*): the only bike of the data, Default_Bike (id 666, the Ducati Diavel
@@ -4549,6 +4542,54 @@ bool GMFreeRide::stickerCarView() const {
     return paintMenu.isStickerPlacing() || ( interior.isStickUi() && stickerShop.wantsCarView() );
 }
 
+void GMFreeRide::dressRoomCar( CinematicCar &roomCar ) {
+    const int32_t carId = car.getIdCar();
+    const PlayerProfile &profile = GetPlayerProfile();
+    const auto paint = profile.OwnedCarPaints.find( carId );
+    if ( paint != profile.OwnedCarPaints.end() ) {
+        roomCar.applyDatabasePaint( paint->second );
+    }
+    const auto custom = profile.OwnedCarCustomPaints.find( carId );
+    if ( custom != profile.OwnedCarCustomPaints.end() ) {
+        roomCar.applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour, custom->second.Colour2 );
+    }
+    // The rims of the tuning shop (the room copy loads with the stock size).
+    const int32_t rimSize = ProfileRimSize( carId );
+    if ( rimSize > 0 ) {
+        roomCar.setRimDiameters( rimSize, rimSize );
+    }
+    // The tuner mod's saved spoiler.
+    if ( TunerModEnabled() && GetTunerParts().isTunerCar( carId ) ) {
+        GetTunerParts().load();
+        const auto parts = profile.OwnedCarTunerParts.find( carId );
+        if ( parts != profile.OwnedCarTunerParts.end() ) {
+            const auto slot = parts->second.Parts.find( "spoiler" );
+            if ( slot != parts->second.Parts.end() && !slot->second.empty() ) {
+                if ( const TunerPart *pPart = GetTunerParts().findPart( slot->second ) ) {
+                    GetTunerParts().applyPart( roomCar, carId, pPart );
+                }
+            }
+        }
+    }
+    // The stickers: the canvas is bound to the room car's paint materials in drawOffscreen (the *RoomCarBound flags).
+    OTDU_LOG_INFO( "FREERIDE: the room car '%s' wears paint %d, custom paint %d, rims %d, stickers %d\n", carDesc.FileName.c_str(),
+                   paint != profile.OwnedCarPaints.end() ? 1 : 0, custom != profile.OwnedCarCustomPaints.end() ? 1 : 0, rimSize,
+                   stickerCanvas.hasLayout() ? 1 : 0 );
+}
+
+// A tuning shop room (ETUN_*, the retail SHOPSCAR pages): the car is on the lift when you walk in, not only once the
+// movie's page opens.
+void GMFreeRide::bindTuneRoomCar() {
+    if ( !interior.isTuneUi() || pTuneRoomCar != nullptr || !car.isLoaded() || CmdLine::HasArg( "-notunecar" ) ) {
+        return;
+    }
+    pTuneRoomCar = interior.placeStickerCar( car.getIdCar() );
+    bTuneRoomCarBound = false;
+    if ( pTuneRoomCar != nullptr ) {
+        dressRoomCar( *pTuneRoomCar );
+    }
+}
+
 void GMFreeRide::bindStickerShop() {
     if ( !interior.isStickUi() || !StickerBankCatalog::isEnabled() ) {
         return;
@@ -4558,16 +4599,7 @@ void GMFreeRide::bindStickerShop() {
     pStickerRoomCar = car.isLoaded() ? interior.placeStickerCar( car.getIdCar() ) : nullptr;
     bStickerRoomCarBound = false;
     if ( pStickerRoomCar != nullptr ) {
-        const PlayerProfile &profile = GetPlayerProfile();
-        const auto paint = profile.OwnedCarPaints.find( car.getIdCar() );
-        if ( paint != profile.OwnedCarPaints.end() ) {
-            pStickerRoomCar->applyDatabasePaint( paint->second );
-        }
-        const auto custom = profile.OwnedCarCustomPaints.find( car.getIdCar() );
-        if ( custom != profile.OwnedCarCustomPaints.end() ) {
-            pStickerRoomCar->applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour,
-                                               custom->second.Colour2 );
-        }
+        dressRoomCar( *pStickerRoomCar );
     }
     stickerShop.bind( &interior.getScene().getUi(), &stickerCanvas, car.getIdCar(),
                       pStickerRoomCar != nullptr ? pStickerRoomCar : ( car.isLoaded() ? &car : nullptr ) );
@@ -4595,25 +4627,9 @@ void GMFreeRide::bindTunerGarageCar() {
         OTDU_LOG_INFO( "Tuner: the room has no car place - the menu sells without a live preview\n" );
         return;
     }
-    // The room car wears what the driven car wears (its paint, then its saved
-    // parts) before the first preview move.
-    const PlayerProfile &profile = GetPlayerProfile();
-    const auto paint = profile.OwnedCarPaints.find( car.getIdCar() );
-    if ( paint != profile.OwnedCarPaints.end() ) {
-        pTunerRoomCar->applyDatabasePaint( paint->second );
-    }
-    const auto custom = profile.OwnedCarCustomPaints.find( car.getIdCar() );
-    if ( custom != profile.OwnedCarCustomPaints.end() ) {
-        pTunerRoomCar->applyCustomPaint( custom->second.Type, custom->second.Colour1, custom->second.Bicolour,
-                                         custom->second.Colour2 );
-    }
-    const auto parts = profile.OwnedCarTunerParts.find( car.getIdCar() );
-    if ( parts != profile.OwnedCarTunerParts.end() ) {
-        const auto slot = parts->second.Parts.find( "spoiler" );
-        if ( slot != parts->second.Parts.end() && !slot->second.empty() ) {
-            GetTunerParts().applyPart( *pTunerRoomCar, car.getIdCar(), GetTunerParts().findPart( slot->second ) );
-        }
-    }
+    // The room car wears what the driven car wears (its paint, rims, saved parts) before the first preview move.
+    dressRoomCar( *pTunerRoomCar );
+    bTunerRoomCarBound = false;
     OTDU_LOG_INFO( "Tuner: the car is on the room's place, the garage turntable ready\n" );
 }
 
@@ -9011,6 +9027,12 @@ void GMFreeRide::drawOffscreen() {
     if ( pStickerRoomCar != nullptr && interior.isActive() && stickerCanvas.getTexture() != nullptr &&
          !bStickerRoomCarBound ) {
         bStickerRoomCarBound = pStickerRoomCar->bindStickerTexture( *pRenderer, stickerCanvas.getTexture() ) > 0;
+    }
+    for ( auto [ pRoom, pBound ] : { std::pair<CinematicCar *, bool *>( pTuneRoomCar, &bTuneRoomCarBound ),
+                                     std::pair<CinematicCar *, bool *>( pTunerRoomCar, &bTunerRoomCarBound ) } ) {
+        if ( pRoom != nullptr && interior.isActive() && stickerCanvas.getTexture() != nullptr && !*pBound ) {
+            *pBound = pRoom->bindStickerTexture( *pRenderer, stickerCanvas.getTexture() ) > 0;
+        }
     }
     if ( interior.isActive() ) {
         // The sticker place mode cuts outside to the car (the retail editor's

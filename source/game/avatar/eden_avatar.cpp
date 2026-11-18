@@ -233,6 +233,13 @@ const Bank *EdenAvatarLibrary::getClothesBank( const std::string &file ) {
     return pResult;
 }
 
+// The player's own avatar: the profile's AvatarConfig; a profile that never picked one (-gm FREERIDE straight in) is
+// the default the rooms fall back to, so its saved looks / edits still apply.
+static bool IsPlayerConfig( const char *pConfigId ) {
+    const std::string &config = GetPlayerProfile().AvatarConfig;
+    return StringCmpI( config.empty() ? "AVT_Male_Intro" : config.c_str(), pConfigId ) == 0;
+}
+
 EdenAvatar::EdenAvatar() {}
 
 EdenAvatar::~EdenAvatar() { unload(); }
@@ -291,7 +298,7 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
     }
     bWoman = pnj["_sex"].asInt() == 1;
     // The cosmetic clinic's edits belong to the player's own config only.
-    bPlayerFace = StringCmpI( GetPlayerProfile().AvatarConfig.c_str(), pConfigId ) == 0 && !CmdLine::HasArg( "-nosurgery" );
+    bPlayerFace = IsPlayerConfig( pConfigId ) && !CmdLine::HasArg( "-nosurgery" );
     // .avt BodyID (default: occidental body of the sex).
     uint16_t bodyId = bWoman ? 1 : 0;
     const std::string avtName = pnj["_fileconfigid"].asString();
@@ -321,8 +328,12 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
     // replaced. The slot <-> _parttype pairs are FUN_00cb2f30's
     // (skin_zones_spec.md 2.3) [CODE].
     const PlayerProfile &profile = GetPlayerProfile();
-    const bool bPlayer = !profile.WornClothes.empty() && StringCmpI( profile.AvatarConfig.c_str(), pConfigId ) == 0 &&
+    const bool bPlayer = !profile.WornClothes.empty() && IsPlayerConfig( pConfigId ) &&
                          !CmdLine::HasArg( "-noworn" );
+    if ( CmdLine::HasArg( "-logworn" ) ) {
+        OTDU_LOG_INFO( "Avatars: %s player %d, %zu worn, config '%s'\n", pConfigId, bPlayer ? 1 : 0, profile.WornClothes.size(),
+                       profile.AvatarConfig.c_str() );
+    }
     auto partTypeOf = []( const char *pSlot ) -> int32_t {
         static const struct {
             const char *pSlot;

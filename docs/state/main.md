@@ -11,6 +11,23 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+
+## Session 2026-11-18 (`main`): hairdresser cancel / beard page checked, saved looks and the car in shops audited
+
+Owner: "check the hairdresser cancel and beard page work; then check every bit of detail is remembered in a shop (haircut, clothing, face...) and in car places (sticker shop, tuner) - when walking in you should see your car".
+
+### What changed
+- `hair_ui.cpp`: the **beard page's Style row** sends a bare `hadr:edit:pilo:type` (no `scne` / `scpr`), which was ignored - the type never changed. Now handled (`bTypeRow`). Cancel (red-X icon -> "Would you like to cancel?" -> `hadr:edit:canc`) reverts the preview to the worn look (log `preview hair -1` = the preset hair). A page-level Back (`hadr:edit:maha:canc`) keeps the pending change and price in the square menu, as the movie intends [INF].
+- `eden_avatar.cpp`: `IsPlayerConfig` - a profile with an empty `avatar_config` (FREERIDE started directly) is the `AVT_Male_Intro` the rooms fall back to, so its worn clothes / face edits / tints now apply (they were silently skipped). `-logworn` prints player / worn counts.
+- `gm_freeride.{h,cpp}` `dressRoomCar`: ONE place that puts the driven car's paint, custom paint, saved rim size and tuner-mod spoiler on a shop room car, used by the sticker shop, the tuner garage and the tuning shop. `bindTuneRoomCar`: the tuning shop's car is on the lift when you walk in (it used to appear only after the movie's page opened); sticker canvas bound to the tune / tuner room cars too.
+
+### Verified
+- Crafted profile (`C:	emp\otdu2-persist`: worn hair 261, beard 241, glasses 307, hat 419, top 163, bottoms 133, tints 6, 49 face params, age / freckle 0.9, all in `clothes_owned`): the hairdresser and clinic head views wear all of it (`-logworn`: `6 worn`, sunglasses, cap, vest, freckled skin visible).
+- `-island hawai -atspot ETUN_A_3136` + validate: car on the lift, log `room car 'California' wears ... rims 21`; `ESTICK_B_8570`: the car on its turntable after turning in the room.
+
+### Not verified / next
+- Stickers on the tuning / tuner room cars (profile had none); beard page's "Cut" label stays "Clean shaven" after a style change (the movie re-reads it only on a cut move); worn clothes are dropped on load when not in `clothes_owned` (by design?). Other places that need the car (car wash, photographer, dealer test) not audited.
+
 ## Session 2026-11-18 (`main`): hairdresser pages redraw the hair live
 
 Owner: yes to "make the haircut pages redraw the hair live".

@@ -264,7 +264,9 @@ bool HairUi::onCommand( const std::string &command ) {
     }
     const bool bNext = tail.size() > 5 && tail.compare( tail.size() - 5, 5, ":scne" ) == 0;
     const bool bPrev = tail.size() > 5 && tail.compare( tail.size() - 5, 5, ":scpr" ) == 0;
-    if ( !bNext && !bPrev ) {
+    // The style row (icon box) sends a bare "<page>:type" - no scne / scpr - after writing the new type itself [DATA: log].
+    const bool bTypeRow = tail.compare( 0, 4, "type" ) == 0;
+    if ( !bNext && !bPrev && !bTypeRow ) {
         return true;
     }
     const int32_t step = bNext ? 1 : -1;

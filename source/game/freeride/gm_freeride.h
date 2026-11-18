@@ -203,7 +203,12 @@ private:
     bool bStickerCanvasBound = false;
     // The sticker shop's own copy of the car, parked on the room's car place
     // (the retail design studio shows it in the room); the canvas is bound to it.
+    // The player's car in a shop room (sticker shop, tuning shop, tuner garage): wears everything the driven car wears.
+    void dressRoomCar( CinematicCar &roomCar );
+    void bindTuneRoomCar();
     CinematicCar *pStickerRoomCar = nullptr;
+    bool bTuneRoomCarBound = false;
+    bool bTunerRoomCarBound = false;
     bool bStickerRoomCarBound = false;
     bool bStickerPreviewCamera = false; // the place-mode camera cut to the car
     float stickerCamYaw = 0.0f, stickerCamPitch = 0.35f, stickerCamDistance = 6.5f; // its orbit
