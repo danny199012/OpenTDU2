@@ -19,6 +19,7 @@ struct ClotheItem {
     int32_t Price = 0;
     int32_t PartType = 0;
     int32_t Sex = 0;            // _sex
+    int32_t MinAreaLevel = 0;   // _min_arealevel: the area level the shop's zone needs to stock it (0..4)
 };
 
 const std::vector<ClotheItem> &GetClothes();

@@ -65,3 +65,10 @@ const std::vector<AreaLevel> &GetAreaLevels();
 int32_t GetAreaPoints( const std::string &island, int32_t area );
 // The level row an ALP total reaches on an island (the island's own table, else the default one); null when none.
 const AreaLevel *FindAreaLevel( int32_t islandIndex, int32_t alp );
+// The area level (1 Stranger .. 5) of the zone the player is in, kept by the free ride each frame; -1 until it is
+// known. The tuners, hairdressers and clothes shops stock the items whose DBClothe._min_arealevel is <= it
+// [DATA: the field; the DBAreaLevel reward text "New items available in tuners, hairdressers, clothes shops"].
+void SetCurrentAreaLevel( int32_t level );
+int32_t GetCurrentAreaLevel();
+// True when an item needing minLevel is stocked at the current area level (always when the level is unknown).
+bool IsStockedAtAreaLevel( int32_t minLevel );

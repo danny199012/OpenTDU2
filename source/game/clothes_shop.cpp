@@ -52,6 +52,7 @@ const std::vector<ClotheItem> &GetClothes() {
         item.Price = static_cast<int32_t>( row["_price"].asInt() );
         item.PartType = static_cast<int32_t>( row["_parttype"].asInt() );
         item.Sex = static_cast<int32_t>( row["_sex"].asInt() );
+        item.MinAreaLevel = static_cast<int32_t>( row["_min_arealevel"].asInt() );
         if ( CmdLine::HasArg( "-logshops" ) ) {
             OTDU_LOG_INFO( "DBClothe id %d brand 0x%llx '%s' part %d sex %d $%d '%s' file '%s'\n", item.Id,
                            static_cast<unsigned long long>( brandHc ), item.Brand.c_str(), item.PartType, item.Sex,

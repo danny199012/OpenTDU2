@@ -6,6 +6,19 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 69): shops stock by area level
+
+The owner: "do the next progression slice" (the open item of 68: "New items available" was told, not enforced).
+
+### What changed
+- `DBClothe._min_arealevel` (0..4: 280 / 206 / 56 / 39 / 23 items [DATA]) is read into `ClotheItem::MinAreaLevel`. `skill_levels`: `SetCurrentAreaLevel` / `IsStockedAtAreaLevel`; `gm_freeride.cpp` keeps the level of the zone under the car (DBAreaLevel from the zone's ALP, see 68). The clothes shop's brand stock (`interior_walk.cpp`) and the hairdresser's cuts (`hair_ui.cpp`) list only items the current area level stocks. Tuners have no such field in the data read so far [INF: the reward text names them too].
+
+### Verified
+- Fresh profile: `FREERIDE: area level here 1, 209 of 327 clothes stocked`; with Ibiza Area 2 seeded to 950 ALP (roads + 20 events): `level 3, 304 of 327`. The shop screens themselves were not driven.
+
+### Not done / next
+- A worn item above the level disappears from the hairdresser's list; tuner stock; the retail `NewAreaTitle` popup page; whether the shop's own zone (not the car's) should decide [INF: the car is at the door].
+
 ## Session 2026-11-18 (`main`, 68): area levels (DBAreaLevel) and duels
 
 The owner: "please do Duels and DB Arealevel".

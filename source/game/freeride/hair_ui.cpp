@@ -115,7 +115,7 @@ void HairUi::refillCuts( Look &look, int32_t part ) {
     const int32_t group = GroupOfType( look.Type );
     const int32_t sex = PlayerClothesSex();
     for ( const ClotheItem &item : GetClothes() ) {
-        if ( item.PartType != part || item.Sex != sex || item.Price >= 999999 ) {
+        if ( item.PartType != part || item.Sex != sex || item.Price >= 999999 || !IsStockedAtAreaLevel( item.MinAreaLevel ) ) {
             continue;
         }
         const int32_t itemGroup = part == kPartHair ? HairGroupOf( item ) : BeardGroupOf( item );

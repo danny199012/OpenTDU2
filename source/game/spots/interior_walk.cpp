@@ -1149,6 +1149,7 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             closetItems.clear();
             for ( const ClotheItem &item : GetClothes() ) {
                 if ( item.PartType == closetPartType && ( item.Sex == sex || sex == 0 ) && item.Price < 999999 &&
+                     IsStockedAtAreaLevel( item.MinAreaLevel ) &&
                      ( brand != 0 ? item.BrandHashcode == brand : !item.Brand.empty() ) ) {
                     closetItems.push_back( item.Id );
                 }

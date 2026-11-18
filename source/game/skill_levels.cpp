@@ -186,6 +186,19 @@ const AreaLevel *FindAreaLevel( int32_t islandIndex, int32_t alp ) {
     return pBest;
 }
 
+namespace {
+int32_t gCurrentAreaLevel = -1;
+}
+void SetCurrentAreaLevel( int32_t level ) {
+    gCurrentAreaLevel = level;
+}
+int32_t GetCurrentAreaLevel() {
+    return gCurrentAreaLevel;
+}
+bool IsStockedAtAreaLevel( int32_t minLevel ) {
+    return gCurrentAreaLevel < 0 || minLevel <= gCurrentAreaLevel;
+}
+
 const RewardXp *FindRewardXp( const char *pEvent ) {
     for ( const RewardXp &xp : GetRewardXp() ) {
         if ( StringCmpI( xp.Event.c_str(), pEvent ) == 0 ) {

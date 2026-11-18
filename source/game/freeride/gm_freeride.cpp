@@ -8287,6 +8287,27 @@ void GMFreeRide::tick( float deltaTime ) {
                 }
                 last = pLevel->Level;
             }
+            // The level of the zone under the car stocks the shops (DBClothe._min_arealevel).
+            if ( islandIndex >= 0 ) {
+                const Vector3f here = carWorld.getTranslation();
+                int32_t zone = zones.find( here.x, here.z );
+                if ( zone < 0 ) {
+                    zone = zones.findNearest( here.x, here.z );
+                }
+                if ( zone >= 0 ) {
+                    const AreaLevel *pHere = FindAreaLevel( islandIndex, GetAreaPoints( island, zone + 1 ) );
+                    SetCurrentAreaLevel( pHere != nullptr ? pHere->Level : 1 );
+                    static int32_t loggedLevel = -1;
+                    if ( GetCurrentAreaLevel() != loggedLevel ) {
+                        loggedLevel = GetCurrentAreaLevel();
+                        int32_t stocked = 0;
+                        for ( const ClotheItem &item : GetClothes() ) {
+                            stocked += IsStockedAtAreaLevel( item.MinAreaLevel ) ? 1 : 0;
+                        }
+                        OTDU_LOG_INFO( "FREERIDE: area level here %d, %d of %zu clothes stocked\n", loggedLevel, stocked, GetClothes().size() );
+                    }
+                }
+            }
         }
         GetPlayerProfile().ExploredPercent = mapScreen.getExploredPercent();
     }
