@@ -846,11 +846,43 @@ void D3D12Device::flushDebugMessages( const char *pWhere ) {
         if ( FAILED( pInfoQueue->GetMessage( i, pMessage, &length ) ) ) {
             continue;
         }
-        if ( pMessage->Severity < D3D12_MESSAGE_SEVERITY_WARNING ||
-             pMessage->pDescription == nullptr ) {
+        if ( pMessage->pDescription == nullptr ) {
             continue;
         }
-        OTDU_LOG_WARN( "D3D12 debug (%s): %s\n", pWhere, pMessage->pDescription );
+        // The severities run CORRUPTION = 0, ERROR = 1, WARNING = 2, INFO = 3,
+        // MESSAGE = 4 - so the old "skip anything below WARNING" filter dropped
+        // exactly the messages that name a misuse. That is why a rejected
+        // pipeline state looked like a silent E_INVALIDARG (`TD_LightBeam vs2`,
+        // docs/backends.md section 6): the debug layer had said what was wrong
+        // and this function threw it away. Errors are errors now.
+        const std::string text = pMessage->pDescription;
+        bool bAlreadyReported = false;
+        for ( const std::string &reported : reportedDebugMessages ) {
+            if ( reported == text ) {
+                bAlreadyReported = true;
+                break;
+            }
+        }
+        if ( bAlreadyReported ) {
+            // The per-frame flush would otherwise repeat one misuse once a
+            // frame - and a message that is new is the one that matters.
+            continue;
+        }
+        if ( reportedDebugMessages.size() < kMaxReportedDebugMessages ) {
+            reportedDebugMessages.push_back( text );
+        }
+        switch ( pMessage->Severity ) {
+        case D3D12_MESSAGE_SEVERITY_CORRUPTION:
+        case D3D12_MESSAGE_SEVERITY_ERROR:
+            OTDU_LOG_ERROR( "D3D12 debug (%s): %s\n", pWhere, pMessage->pDescription );
+            break;
+        case D3D12_MESSAGE_SEVERITY_WARNING:
+            OTDU_LOG_WARN( "D3D12 debug (%s): %s\n", pWhere, pMessage->pDescription );
+            break;
+        default:
+            OTDU_LOG_DEBUG( "D3D12 debug (%s): %s\n", pWhere, pMessage->pDescription );
+            break;
+        }
     }
     pInfoQueue->ClearStoredMessages();
     pInfoQueue->Release();

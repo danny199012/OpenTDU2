@@ -32,6 +32,7 @@ with no shippable step in between. The backends are therefore added
 | Sampler heap (DXSO's runtime sampler array) | sampler set (`samplerHeap`) | **done** (`-d3d12-samplertest`, section 3.6) | - | - |
 | Constant buffers b0..b3 per stage + D3D9 material state | descriptor sets + push constants | **done** (`-d3d12-constest`, section 3.7) | - | - |
 | **An original `.sob` shader draws** (`-d3d12-edentest`) | `EdenRenderer` | **done for one material** (section 3.8) | - | - |
+| **Vertex/pixel interface** (a `.sob` shader may skip a varying register) | locations, which match by construction | **done** (`compilePair`, section 3.9) | - | - |
 | Every Eden shader stage compiled (`-d3d12-shadertest`) | n/a | **done** (section 3.5) | - | - |
 | ImGui overlay / build watermark | done | **done, opt-in** `-d3d12-ui` (driver stall, section 6) | - | - |
 | Scene (eden), 3D game modes | done | not yet (phase 3b step 2) | - | - |
@@ -64,7 +65,7 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-d3d12-scenetest` | with the self test: the scene path instead of the colour bars (section 3.3) |
 | `-d3d12-samplertest` | with the self test: a shader that indexes the D3D9 sampler heap dynamically, two quads, read back and measured (section 3.6) |
 | `-d3d12-constest` | with the self test: the per stage constant buffers b0..b3 and the D3D9 blend state, two quads and a blend pass, read back and measured (section 3.7) |
-| `-d3d12-edentest` | the first *original* TDU2 shader on D3D12: loads Euro/Shaders, picks a simple permutation of a real library, fills the constants with the shared filler and draws a quad (section 3.8; needs `-game`) |
+| `-d3d12-edentest [<text>]` | the first *original* TDU2 shader on D3D12: loads Euro/Shaders, picks a simple permutation of a real library, fills the constants with the shared filler and draws a quad (section 3.8; needs `-game`). `<text>` keeps only libraries whose name contains it (section 3.9) |
 | `-d3d12-shadertest [<text>]` | in the game bootstrap (`-game`): every `.sob` stage through the scene shader path, with a tally; `<text>` keeps only libraries whose name contains it (section 3.5) |
 | `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
 | `-renderer-shot <path.ppm>` | with the self test: write the last frame |
@@ -490,13 +491,119 @@ D3D12 Eden test: PASSED (the original shader painted the quad on Direct3D 12)
   the documented 17095 are the movie moment, not the filler: the refactor is a
   code move, and the diff shows it).
 
-**The open gap this probe found**: `TD_LightBeam vs2/ps1` **compiles** but
-`CreateGraphicsPipelineState` rejects it with `E_INVALIDARG` and no debug-layer
-message - even against a three-line hand-written pixel shader, so the vertex
-stage's DXBC is what the device refuses. The probe logs it and moves on to the
-next candidate; the next step is the stream-descriptor form of the same PSO
-(`ID3D12Device::CreatePipelineState`), which names the offending subobject, then
-comparing that VS against `TD_Lamp vs5` (which the device accepts).
+**The open gap this probe found** - `TD_LightBeam vs2/ps1` compiled but
+`CreateGraphicsPipelineState` rejected it with `E_INVALIDARG` - is closed in
+section 3.9. It was not the vertex bytecode: the two stages' varying slots
+disagreed, and the debug layer had been saying so all along.
+
+### 3.9 The vertex/pixel interface (`-d3d12-edentest TD_LightBeam`)
+
+Section 3.8 ended on a refused pipeline and two wrong conclusions, both now
+measured. The flag takes an optional library filter, so either pair can be drawn
+on its own:
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-edentest TD_LightBeam ``
+    -d3d12-debug -verbose -d3d12-dump-shaders E:\Cline\_dx_probe\pad ``
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx ``
+    -renderer-shot E:\Cline\_dx_probe\eden_beam.ppm -log E:\Cline\_dx_probe\eden_beam.log
+```
+
+**There was a message.** `D3D12Device::flushDebugMessages` skipped every message
+below `D3D12_MESSAGE_SEVERITY_WARNING`, and the severities count *up* from
+CORRUPTION (0) / ERROR (1) / WARNING (2) - so it dropped exactly the errors. With
+the filter fixed the device says what it always knew:
+
+```
+D3D12 debug (client): ID3D12Device::CreateGraphicsPipelineState: Vertex Shader - Pixel Shader
+  linkage error: Signatures between stages are incompatible. Semantic 'TEXCOORD' is
+  defined for mismatched hardware registers between the output stage and input stage.
+```
+
+**It was not the vertex bytecode.** D3D12 links the stages by varying *slot* -
+the k-th non-system-value output against the k-th input - while HLSL assigns
+those slots densely in declaration order. DXSO's locations are D3D9's varying
+*registers*, and a `.sob` shader may skip one: TD_LightBeam's VS writes oT0..oT4
+and oT7 (reflected: TEXCOORD0,1,2,3,4,7 plus DXSO's synthetic 10, 11 - eight
+slots), its PS reads t0,t1,t2,t7 - four slots, so TEXCOORD7 lands in slot 3
+instead of slot 5. A permutation whose interface is dense on both sides
+(`TD_Lamp`: TEXCOORD0,1) links by accident, which is why the first probe worked.
+
+**The fix is `D3D12ShaderCompiler::compilePair`.** The pair is compiled together;
+both signatures are reflected from the compiled DXBC (`D3DReflect`, system values
+dropped, ordered by slot) and, when they disagree, the pixel stage's
+`SPIRV_Cross_Input` is rebuilt with an unused `float4` pad for every vertex
+output it does not read, then recompiled and re-reflected. Three properties of
+FXC were measured before choosing that shape (each is a trap in section 6):
+
+| probe | measured |
+|---|---|
+| does FXC keep an unused pad input? | yes - the entry stays in the input signature with an **empty `Used`** mask |
+| pad width | `float4` only: two `float` pads were packed into **one** register (x and y of register 3) |
+| a system value first in the struct? | it takes the slot: `SV_Position` then `TEXCOORD0` -> registers 0 and 1, so the pads are emitted *before* the system values |
+
+Measured (build `226 (bed0c1a+dirty) - cline`, RTX 5070 Ti, debug layer on):
+
+```
+D3D12 shader TD_LightBeam: pixel stage relinked to 8 slot(s) (3 pad): vs [TEXCOORD0@0
+  TEXCOORD1@1 TEXCOORD2@2 TEXCOORD3@3 TEXCOORD4@4 TEXCOORD7@5 TEXCOORD10@6 TEXCOORD11@7],
+  ps [TEXCOORD0@0 TEXCOORD1@1 TEXCOORD2@2 TEXCOORD3@3 TEXCOORD4@4 TEXCOORD7@5 TEXCOORD10@6 TEXCOORD11@7]
+D3D12 Eden test: TD_LightBeam vs2/ps1 (one texture, unskinned, opaque); cbuffers vs [c, spec_state, clip_info]
+  b0=file, b1=spec, b2=zero, ps [c, D3D9SharedPS, spec_state] b0=file, b1=zero, b2=spec
+D3D12 Eden test: 30 frame(s) of a quad on 'NVIDIA GeForce RTX 5070 Ti' (1280x720); 110224 px
+  covered (11.96 %), mean 0.0/0.0/0.0; 18 of 256 vs and 10 of 224 ps registers written
+D3D12 Eden test: PASSED (the original shader painted the quad on Direct3D 12)
+```
+
+- The relink line is the proof: the two **reflected** lists are identical, so the
+  pixel stage's used semantics sit in the slots the vertex stage writes. A PSO is
+  only created from that state.
+- `110224 px` is the probe camera's exact quad arithmetic (section 3.8), i.e. the
+  rasteriser is running the padded struct and the pads did not shift the fields.
+- **The quad is black, and that is the shader's answer**, not a broken binding:
+  the beam's PS decodes its colour out of the texture and multiplies it by the
+  beam constants, and this material has no `.2DM` (its registers are the 1.0
+  stand-in) over a synthetic quad. `-d3d12-edentest TD_Lamp` is the colour case
+  and the regression A/B for the padded path - the same build still reads
+  `110224 px`, mean **43.0/48.0/57.5**, **47 colours**, the two lit checker shades
+  at exactly `43216 px` each, i.e. section 3.8's numbers unchanged.
+- The probe's synthetic mesh now gives every TEXCOORD `w = 1` - the beam's PS
+  does `1.0 / t1.w` for a projected lookup, and the old `w = 0` painted the whole
+  quad black before the interface was even involved (a second, independent
+  reason for black that the fix would otherwise have hidden).
+- `getPipeline`'s failure line now prints the two varying lists as well
+  (`D3D12ShaderCompiler::describeVaryings`), so a refused PSO names its interface
+  even when the debug layer is off.
+- **WARP reads the same frame**: `-d3d12-warp` gives the same relink line
+  (8 slots, 3 pads), the same `110224 px` and the same `18/10` register counts, so
+  the padded interface is the API contract, not one driver's packing.
+- **No regression**: `-d3d12-scenetest`'s PPM is byte-identical (`SHA256
+  E505B37F...C3F778CEB`), `-d3d12-samplertest` still reads 135.0/40.0/135.0 vs
+  87.5/40.0/182.5, `-d3d12-constest` passes, the Flash front end still draws
+  (54.80 % non-black, debug layer silent) and a Vulkan `-notitlescene` frame
+  renders normally.
+
+`-d3d12-dump-shaders` shows what the padded pixel stage looks like:
+
+```hlsl
+struct SPIRV_Cross_Input
+{
+    float4 in_Texcoord0 : TEXCOORD0;
+    float4 in_Texcoord1 : TEXCOORD1;
+    float4 in_Texcoord2 : TEXCOORD2;
+    float4 pad3 : TEXCOORD3;
+    float4 pad4 : TEXCOORD4;
+    float4 in_Texcoord7 : TEXCOORD7;
+    float4 pad10 : TEXCOORD10;
+    float4 pad11 : TEXCOORD11;
+};
+```
+
+What this does **not** cover: a pixel stage that reads a register the vertex stage
+does not write at all. D3D9 leaves that undefined, and `compilePair` refuses such
+a pair and names both lists rather than inventing a pad. How often that happens
+in the catalogue is exactly what the next measurement - a *pipeline* tally
+(compile every library's pairs and create a PSO for each) - will say.
 
 ## 4. The shader path
 
@@ -562,6 +669,12 @@ The register convention is fixed, so **one root signature serves every program**
 * **Vertex inputs are `TEXCOORD<location>`**: SPIRV-Cross writes that semantic for
   every SPIR-V location, so `D3D12Scene`'s input layout uses the same rule and a
   `.sob` shader's `dcl` slot needs no lookup table.
+* **...and so are the varyings between the stages - but their *slots* are not the
+  same number.** A vertex stage's k-th output must be the pixel stage's k-th
+  input, which is only true when both declare the same list in the same order;
+  DXSO's locations are D3D9's registers and may have gaps. `compilePair` reflects
+  both signatures and pads the pixel input struct (section 3.9), so a caller that
+  compiles a pair for an Eden program gets two stages the device will link.
 * The HLSL text is kept per stage: `-d3d12-dump-shaders <dir>` writes it out, and
   a failed stage's HLSL is dumped too (section 3.5).
 
@@ -630,10 +743,18 @@ own `discard`.
    vs5/ps1`), its constant file written by the *shared* filler
    (`render/eden/eden_constants.h`, extracted from `EdenRenderer`), the engine's
    checker in t0 and 110224 px (11.96 %) of lit checker on the frame, identical
-   on WARP. **Step 2b, the Eden scene itself** is what remains:
+   on WARP. Step 2a2, 2026-11-18: **the vertex/pixel interface** (section 3.9) -
+   the refused pair was a VS->PS *slot* mismatch (D3D9's sparse varying registers
+   against HLSL's dense ones), the debug layer had been reporting it into a filter
+   that dropped every error, and `D3D12ShaderCompiler::compilePair` now pads the
+   pixel stage's input struct to the vertex stage's outputs. `TD_LightBeam
+   vs2/ps1` binds and draws (110224 px, the same exact quad), `TD_Lamp`'s numbers
+   are unchanged, and every other probe is byte-identical. **Step 2b, the Eden
+   scene itself** is what remains:
    `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
-   `EdenProgram` -> pipeline cache, `FillEdenConstants` into the b0 CBV and the
-   b13 push constants, the sampler heap and texture table it already binds), then
+   `EdenProgram` -> pipeline cache via `compilePair`, `FillEdenConstants` into the
+   b0 CBV and the b13 push constants, the sampler heap and texture table it
+   already binds), then
    the render targets / shadow / reflection / post passes, and then the 3D game
    modes (still refused with one log line).
 5. **D3D11**: the same translated HLSL, a thin device; it is the cheap one once (4) exists.
@@ -643,14 +764,16 @@ own `discard`.
 Next step, precisely: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
 `PipelineDesc` handed to `D3D12Scene::getPipeline` and `recordPacket`'s push constants
 handed to `D3D12Scene::draw`, with `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`)
-going through `D3D12ShaderCompiler`. The four questions that came before it are
-answered: the shaders all compile (section 3.5), the sampler heap they index draws
-with the right state (section 3.6), the constant buffers and the D3D9 material
-state arrive (section 3.7), and one real permutation draws end to end with the
-renderer's own constants (section 3.8). The gap that probe opened - `TD_LightBeam
-vs2`'s DXBC is refused by `CreateGraphicsPipelineState` - is named there, with the
-stream-descriptor diagnostic as its next step; it must be closed before the whole
-catalogue can be trusted.
+going through `D3D12ShaderCompiler::compilePair` (section 3.9 - the pair, not the
+two stages, because the interface is a property of the pair). The five questions
+that came before it are answered: the shaders all compile (section 3.5), the
+sampler heap they index draws with the right state (section 3.6), the constant
+buffers and the D3D9 material state arrive (section 3.7), one real permutation
+draws end to end with the renderer's own constants (section 3.8), and the vertex
+and pixel stages now link for a shader that skips a varying register (section
+3.9). What is still unmeasured is the *breadth*: a catalogue-wide pipeline tally
+(compile every library's pairs and create a PSO for each) is the next thing to
+run before `EdenRenderer` is pointed at the backend.
 
 ## 6. Known gaps and traps
 
@@ -738,14 +861,43 @@ catalogue can be trusted.
   file. A strict `== "cbuffer_t"` match silently binds nothing - the measured
   symptom is a quad that collapses to a point (zero view-projection) and a frame
   with 0 covered pixels.
-- **A compiled stage is not necessarily a pipeline D3D12 accepts.**
-  `TD_LightBeam vs2/ps1` compiles to valid SM 5.1 DXBC (section 3.5) and still
-  fails `CreateGraphicsPipelineState` with `E_INVALIDARG`, with *no* debug-layer
-  message, even when the pixel stage is replaced by a three-line shader - so it
-  is the vertex bytecode. `-d3d12-edentest` logs it and moves to the next
-  candidate (that is how `TD_Lamp vs5/ps1` came to be the one drawn), and the
-  next step is the stream-descriptor form of the same PSO, which names the
-  subobject. Do not assume the tally (3.5) means every stage can be *bound*.
+- **`D3D12_MESSAGE_SEVERITY` counts *up* from CORRUPTION.** CORRUPTION = 0,
+  ERROR = 1, WARNING = 2, INFO = 3, MESSAGE = 4. A filter written as "skip what
+  is below WARNING" therefore drops **every error** - which is exactly how
+  `TD_LightBeam vs2`'s refused pipeline looked like an `E_INVALIDARG` with *no*
+  debug message for a whole session (section 3.9). `flushDebugMessages` now logs
+  CORRUPTION/ERROR as errors, WARNING as a warning and the rest only with
+  `-verbose`, and it remembers the descriptions it has already printed (the
+  per-frame flush otherwise repeats one misuse once a frame). Corollary: "the
+  debug layer is silent" is a claim to re-check after touching that filter.
+- **D3D12 links the vertex and pixel stages by varying *slot*, and HLSL slots are
+  dense.** The k-th non-system-value output is compared with the k-th input;
+  HLSL hands out those slots in declaration order, while DXSO's locations are
+  D3D9's varying *registers*, which a `.sob` shader may skip (`TD_LightBeam`'s VS
+  writes oT0..oT4 and oT7, its PS reads t0,t1,t2,t7). The pipeline is then
+  refused with *"Semantic 'TEXCOORD' is defined for mismatched hardware
+  registers between the output stage and input stage"* - and the stage that
+  "looks wrong" depends on the pairing, so blaming one bytecode is a trap: with a
+  three-line pixel shader the pair links or not for reasons that have nothing to
+  do with that shader. `compilePair` (section 3.9) pads the pixel input struct.
+  Three FXC facts that fix rests on, each measured with `D3DCompile` +
+  `D3DDisassemble`:
+  - an input declared but never read **stays** in the input signature with an
+    empty `Used` mask (so a pad is real state, not a comment);
+  - a `float` pad is **packed** with its neighbour (`float` TEXCOORD3 and `float`
+    TEXCOORD4 both landed in register 3, components x and y), so pads must be
+    `float4` - one whole register each;
+  - a system value declared first **takes** the slot (`SV_Position` then
+    `TEXCOORD0` -> registers 0 and 1), so varyings are emitted before system
+    values.
+  Do not assume the tally (3.5) means every stage can be *bound*: it measures
+  compilation, not linkage.
+- **A compiled stage is not necessarily a pipeline D3D12 accepts** - and the
+  reason may be the *pair*, not the stage. `TD_LightBeam vs2/ps1` compiles to
+  valid SM 5.1 DXBC (section 3.5) and failed `CreateGraphicsPipelineState` for a
+  VS->PS slot mismatch (section 3.9); `-d3d12-edentest` logs a refused pair and
+  moves to the next candidate, and `getPipeline`'s failure line prints both
+  varying lists (`D3D12ShaderCompiler::describeVaryings`).
 - **3D game modes are refused on D3D12.** `switchToNextGameMode` (`tdu_instance.cpp`) allows
   `GM_Login` and `GM_UiViewer` and logs `Renderer d3d12 cannot draw game mode X yet` for the
   rest: their `enter()` builds an EdenWorld through the Vulkan device. The front end (login,

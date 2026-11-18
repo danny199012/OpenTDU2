@@ -8,6 +8,18 @@
 
 struct TranslatedShader;
 
+// One varying of a compiled stage as the DXBC really declares it (a reflection
+// of the blob, not a guess). `Slot` is the *generic* slot - the position among
+// the stage's parameters that are not system values - which is what D3D12's
+// vertex/pixel linkage compares. The semantic index is D3D9's varying register
+// and can be larger than the slot when a shader skips a register (a VS that
+// writes oT0..oT4 and oT7 is six slots, not eight).
+struct ShaderVarying {
+    std::string Name;
+    uint32_t Index = 0;
+    uint32_t Slot = 0;
+};
+
 // The Direct3D 12 shader path (docs/backends.md section 4, phase 3b).
 //
 // TDU2's own shaders are D3D9 bytecode; the port already translates them to
@@ -54,6 +66,10 @@ struct D3D12ShaderStage {
     // root signature has to reserve for it.
     uint32_t PushConstantsSize = 0;
     uint32_t RootConstants = 0;
+    // The stage's varyings, in generic-slot order (a vertex stage's outputs, a
+    // pixel stage's inputs), reflected from the DXBC that was compiled. Empty
+    // when reflection fails.
+    std::vector<ShaderVarying> Varyings;
 };
 
 class D3D12ShaderCompiler {
@@ -85,6 +101,23 @@ public:
     // per shader, because a scene that silently loses a program is unreadable.
     static bool compile( const TranslatedShader &shader, D3D12ShaderStage &outStage, const char *pDebugName );
 
+    // Compiles the pair and makes their varyings line up (docs/backends.md
+    // section 3.9). D3D12 links a vertex and a pixel stage by *generic slot* -
+    // the k-th non-system-value output against the k-th input - while HLSL
+    // assigns those slots densely in declaration order. DXSO's locations are
+    // D3D9's varying *registers*, which a .sob shader may skip (TD_LightBeam's
+    // VS writes TEXCOORD0..4 and TEXCOORD7), so a pixel stage that reads
+    // TEXCOORD0,1,2,7 puts TEXCOORD7 in slot 3 and the device refuses the
+    // pipeline ("Semantic 'TEXCOORD' is defined for mismatched hardware
+    // registers"). This pads the pixel stage's input struct with an unused
+    // float4 per vertex output it does not read, which FXC keeps with an empty
+    // `Used` mask, so slot k is the same semantic in both stages.
+    static bool compilePair( const TranslatedShader &vertexShader,
+                             const TranslatedShader &pixelShader,
+                             D3D12ShaderStage &outVS,
+                             D3D12ShaderStage &outPS,
+                             const char *pDebugName );
+
     // Compiles HLSL text straight to DXBC with the same flags the generated
     // HLSL gets (SM 5.1, unbounded descriptor tables), and fills Bytecode /
     // HLSL / bReady. For the backends' own shaders - the 2D layer compiles its
@@ -101,4 +134,8 @@ public:
     static const char *vertexSemantic( uint32_t location );
     // The TEXCOORD index the semantic above names.
     static uint32_t vertexSemanticIndex( uint32_t location ) { return location; }
+
+    // The two stages' varying lists as one line, for the log when a pipeline is
+    // refused: "vs [TEXCOORD0@0 TEXCOORD1@1], ps [TEXCOORD0@0]" (section 3.9).
+    static std::string describeVaryings( const D3D12ShaderStage &vs, const D3D12ShaderStage &ps );
 };

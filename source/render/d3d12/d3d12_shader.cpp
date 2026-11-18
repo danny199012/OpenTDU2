@@ -7,9 +7,12 @@
 
 #include <windows.h>
 #include <d3d12.h>
+#include <d3d12shader.h> // ID3D12ShaderReflection: the linkage is measured, not guessed
 #include <d3dcompiler.h>
 
 #include <spirv_hlsl.hpp>
+
+#include <algorithm>
 
 namespace {
 uint32_t AlignUp( uint32_t value, uint32_t alignment ) {
@@ -191,10 +194,268 @@ bool CompileHLSL( const std::string &hlsl,
     }
     return !outBytecode.empty();
 }
+
+// ---------------------------------------------------------------------------
+// Vertex/pixel linkage (docs/backends.md section 3.9)
+//
+// D3D12 compares the two stages by the *slot* a varying occupies - the k-th
+// non-system-value output of the vertex stage against the k-th input of the
+// pixel stage - not by the semantic index. HLSL hands out those slots densely,
+// in the order the struct declares them, so a stage that skips a varying
+// register (D3D9 allows oT0..oT4 plus oT7) shifts everything after the gap.
+// The signatures below come from the compiled DXBC through D3DReflect, so the
+// slots are what the device will see, not what the SPIR-V said.
+// ---------------------------------------------------------------------------
+
+// The reflected inputs (bOutputs false) or outputs (true) of a stage, system
+// values dropped and ordered by generic slot.
+bool ReflectVaryings( const std::vector<uint8_t> &bytecode, bool bOutputs,
+                      std::vector<ShaderVarying> &outVaryings ) {
+    outVaryings.clear();
+    ID3D12ShaderReflection *pReflection = nullptr;
+    if ( bytecode.empty() ||
+         FAILED( D3DReflect( bytecode.data(), bytecode.size(), IID_PPV_ARGS( &pReflection ) ) ) ||
+         pReflection == nullptr ) {
+        return false;
+    }
+    D3D12_SHADER_DESC desc = {};
+    if ( FAILED( pReflection->GetDesc( &desc ) ) ) {
+        pReflection->Release();
+        return false;
+    }
+    const UINT count = bOutputs ? desc.OutputParameters : desc.InputParameters;
+    for ( UINT i = 0; i < count; i++ ) {
+        D3D12_SIGNATURE_PARAMETER_DESC parameter = {};
+        const HRESULT result = bOutputs ? pReflection->GetOutputParameterDesc( i, &parameter )
+                                        : pReflection->GetInputParameterDesc( i, &parameter );
+        if ( FAILED( result ) || parameter.SystemValueType != D3D_NAME_UNDEFINED ) {
+            continue;
+        }
+        ShaderVarying varying;
+        varying.Name = parameter.SemanticName != nullptr ? parameter.SemanticName : "";
+        varying.Index = parameter.SemanticIndex;
+        outVaryings.push_back( std::move( varying ) );
+    }
+    pReflection->Release();
+    std::sort( outVaryings.begin(), outVaryings.end(),
+               []( const ShaderVarying &a, const ShaderVarying &b ) { return a.Index < b.Index; } );
+    for ( uint32_t i = 0; i < outVaryings.size(); i++ ) {
+        outVaryings[i].Slot = i;
+    }
+    return true;
+}
+
+bool VaryingsLineUp( const std::vector<ShaderVarying> &vsVaryings,
+                     const std::vector<ShaderVarying> &psVaryings,
+                     uint32_t &outMismatchSlot ) {
+    outMismatchSlot = 0;
+    if ( psVaryings.size() > vsVaryings.size() ) {
+        outMismatchSlot = static_cast<uint32_t>( vsVaryings.size() );
+        return false;
+    }
+    for ( uint32_t i = 0; i < psVaryings.size(); i++ ) {
+        if ( psVaryings[i].Name != vsVaryings[i].Name || psVaryings[i].Index != vsVaryings[i].Index ) {
+            outMismatchSlot = i;
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string DescribeVaryings( const std::vector<ShaderVarying> &varyings ) {
+    std::string text = "[";
+    for ( const ShaderVarying &varying : varyings ) {
+        if ( text.size() > 1 ) {
+            text += ' ';
+        }
+        text += varying.Name + std::to_string( varying.Index ) + "@" + std::to_string( varying.Slot );
+    }
+    return text + "]";
+}
+struct InterfaceField {
+    std::string Line;
+    std::string Semantic;
+    uint32_t Index = 0;
+    bool bVarying = false;
+};
+
+// One `float4 name : TEXCOORD0;` line of SPIRV-Cross's input struct.
+bool ParseFieldLine( const std::string &line, InterfaceField &outField ) {
+    const size_t colon = line.find( ':' );
+    const size_t semicolon = line.find( ';', colon == std::string::npos ? 0 : colon );
+    if ( colon == std::string::npos || semicolon == std::string::npos || semicolon <= colon + 1 ) {
+        return false;
+    }
+    size_t begin = colon + 1;
+    while ( begin < semicolon && ( line[begin] == ' ' || line[begin] == '\t' ) ) {
+        begin++;
+    }
+    size_t end = begin;
+    while ( end < semicolon &&
+            ( std::isalnum( static_cast<unsigned char>( line[end] ) ) || line[end] == '_' ) ) {
+        end++;
+    }
+    if ( end == begin ) {
+        return false;
+    }
+    size_t digits = begin;
+    while ( digits < end && !std::isdigit( static_cast<unsigned char>( line[digits] ) ) ) {
+        digits++;
+    }
+    outField.Line = line;
+    outField.Semantic = line.substr( begin, digits - begin );
+    outField.Index =
+        digits < end ? static_cast<uint32_t>( std::strtoul( line.c_str() + digits, nullptr, 10 ) ) : 0;
+    // Only TEXCOORD is a generic varying in this backend: SPIRV-Cross writes
+    // `TEXCOORD<location>` for every stage output and for every pixel input
+    // (docs/backends.md section 4), everything else is a system value.
+    outField.bVarying = outField.Semantic == "TEXCOORD";
+    return true;
+}
+// Rebuilds the pixel stage's input struct so its k-th varying is the vertex
+// stage's k-th output. A slot the pixel stage does not read becomes an unused
+// `float4` pad with the vertex stage's semantic: FXC keeps it (measured - the
+// entry stays in the input signature with an empty `Used` mask), and float4 is
+// the only safe width because FXC packs two narrower unused pads into one
+// register (measured: `float` TEXCOORD3 and `float` TEXCOORD4 both landed on
+// register 3, x and y). Varyings are emitted before the system values for the
+// same reason: a system value declared first occupies the register a varying
+// would have taken (measured: SV_Position then TEXCOORD0 -> registers 0 and 1).
+bool PadPixelInputs( const std::vector<ShaderVarying> &vsVaryings,
+                     const std::vector<ShaderVarying> &psVaryings,
+                     const std::string &hlsl,
+                     std::string &outHlsl,
+                     uint32_t &outPads,
+                     uint32_t &outUnplaced ) {
+    outPads = 0;
+    outUnplaced = 0;
+    const size_t structStart = hlsl.find( "struct SPIRV_Cross_Input" );
+    if ( structStart == std::string::npos ) {
+        return false;
+    }
+    const size_t braceOpen = hlsl.find( '{', structStart );
+    const size_t braceClose = hlsl.find( "};", braceOpen );
+    if ( braceOpen == std::string::npos || braceClose == std::string::npos ) {
+        return false;
+    }
+
+    const std::string body = hlsl.substr( braceOpen + 1, braceClose - braceOpen - 1 );
+    const std::string newline = body.find( "\r\n" ) != std::string::npos ? "\r\n" : "\n";
+    std::vector<InterfaceField> varyings;
+    std::vector<std::string> systemValues;
+    size_t cursor = 0;
+    while ( cursor <= body.size() ) {
+        const size_t lineEnd = body.find( '\n', cursor );
+        std::string line =
+            body.substr( cursor, lineEnd == std::string::npos ? std::string::npos : lineEnd - cursor );
+        if ( !line.empty() && line.back() == '\r' ) {
+            line.pop_back();
+        }
+        if ( line.find_first_not_of( " \t" ) != std::string::npos ) {
+            InterfaceField field;
+            if ( !ParseFieldLine( line, field ) ) {
+                return false;
+            }
+            if ( field.bVarying ) {
+                varyings.push_back( std::move( field ) );
+            } else {
+                systemValues.push_back( line );
+            }
+        }
+        if ( lineEnd == std::string::npos ) {
+            break;
+        }
+        cursor = lineEnd + 1;
+    }
+    if ( varyings.size() != psVaryings.size() ) {
+        // The struct and the signature disagree - do not guess.
+        return false;
+    }
+
+    std::string rebuilt = newline;
+    uint32_t next = 0;
+    for ( const ShaderVarying &vsVarying : vsVaryings ) {
+        if ( next < psVaryings.size() && psVaryings[next].Name == vsVarying.Name &&
+             psVaryings[next].Index == vsVarying.Index ) {
+            rebuilt += varyings[next].Line + newline;
+            next++;
+            continue;
+        }
+        rebuilt += "    float4 pad" + std::to_string( vsVarying.Index ) + " : " + vsVarying.Name +
+                   std::to_string( vsVarying.Index ) + ";" + newline;
+        outPads++;
+    }
+    // Anything the vertex stage does not output cannot be placed; keep it so
+    // the compile still names it (the pipeline will be refused, with the slot).
+    for ( ; next < varyings.size(); next++ ) {
+        rebuilt += varyings[next].Line + newline;
+        outUnplaced++;
+    }
+    for ( const std::string &line : systemValues ) {
+        rebuilt += line + newline;
+    }
+
+    outHlsl = hlsl.substr( 0, braceOpen + 1 ) + rebuilt + hlsl.substr( braceClose );
+    return true;
+}
+
+// Makes the two stages line up; returns false (with outError) when that cannot
+// be done, so the caller can name the reason instead of the device's
+// E_INVALIDARG.
+bool LinkVaryings( D3D12ShaderStage &vs, D3D12ShaderStage &ps, const char *pDebugName,
+                   std::string &outError ) {
+    uint32_t mismatch = 0;
+    if ( VaryingsLineUp( vs.Varyings, ps.Varyings, mismatch ) ) {
+        return true;
+    }
+    if ( ps.Varyings.empty() || vs.Varyings.empty() ) {
+        outError = "the shader interface could not be reflected";
+        return false;
+    }
+
+    std::string padded;
+    uint32_t pads = 0;
+    uint32_t unplaced = 0;
+    if ( !PadPixelInputs( vs.Varyings, ps.Varyings, ps.HLSL, padded, pads, unplaced ) ) {
+        outError = "pixel inputs " + DescribeVaryings( ps.Varyings ) + " do not line up with vertex outputs " +
+                   DescribeVaryings( vs.Varyings ) + " (the input struct could not be rewritten)";
+        return false;
+    }
+
+    std::vector<uint8_t> bytecode;
+    std::string error;
+    if ( !CompileHLSL( padded, eShaderType::ST_Pixel, pDebugName, bytecode, error ) ) {
+        outError = "the padded pixel stage does not compile: " + error;
+        return false;
+    }
+    ps.HLSL = padded;
+    ps.Bytecode = bytecode;
+    ps.Error.clear();
+    ps.Varyings.clear();
+    ReflectVaryings( ps.Bytecode, false, ps.Varyings );
+
+    if ( unplaced > 0 || !VaryingsLineUp( vs.Varyings, ps.Varyings, mismatch ) ) {
+        outError = "pixel inputs " + DescribeVaryings( ps.Varyings ) + " do not line up with vertex outputs " +
+                   DescribeVaryings( vs.Varyings ) + " (" + std::to_string( unplaced ) +
+                   " input(s) the vertex stage does not output)";
+        return false;
+    }
+
+    OTDU_LOG_INFO( "D3D12 shader %s: pixel stage relinked to %u slot(s) (%u pad): vs %s, ps %s\n",
+                   pDebugName != nullptr ? pDebugName : "?", static_cast<uint32_t>( vs.Varyings.size() ),
+                   pads, DescribeVaryings( vs.Varyings ).c_str(), DescribeVaryings( ps.Varyings ).c_str() );
+    return true;
+}
 } // namespace
 
 
 const char *D3D12ShaderCompiler::vertexSemantic( uint32_t ) { return "TEXCOORD"; }
+
+std::string D3D12ShaderCompiler::describeVaryings( const D3D12ShaderStage &vs,
+                                                   const D3D12ShaderStage &ps ) {
+    return "vs outputs " + DescribeVaryings( vs.Varyings ) + ", ps inputs " +
+           DescribeVaryings( ps.Varyings );
+}
 
 bool D3D12ShaderCompiler::compileHlsl( const char *pHlsl,
                                        eShaderType type,
@@ -211,6 +472,28 @@ bool D3D12ShaderCompiler::compileHlsl( const char *pHlsl,
         return false;
     }
     outStage.bReady = true;
+    ReflectVaryings( outStage.Bytecode, type == eShaderType::ST_Vertex, outStage.Varyings );
+    return true;
+}
+
+bool D3D12ShaderCompiler::compilePair( const TranslatedShader &vertexShader,
+                                       const TranslatedShader &pixelShader,
+                                       D3D12ShaderStage &outVS,
+                                       D3D12ShaderStage &outPS,
+                                       const char *pDebugName ) {
+    if ( !compile( vertexShader, outVS, pDebugName ) ) {
+        return false;
+    }
+    if ( !compile( pixelShader, outPS, pDebugName ) ) {
+        return false;
+    }
+    std::string error;
+    if ( !LinkVaryings( outVS, outPS, pDebugName, error ) ) {
+        // The pair cannot be drawn; the caller logs this instead of the
+        // device's E_INVALIDARG (which it now also prints - section 6).
+        outPS.Error = error;
+        return false;
+    }
     return true;
 }
 
@@ -273,6 +556,9 @@ bool D3D12ShaderCompiler::compile( const TranslatedShader &shader,
         return false;
     }
     outStage.bReady = true;
+    // The interface as the DXBC declares it; compilePair compares the two
+    // stages with it (section 3.9).
+    ReflectVaryings( outStage.Bytecode, shader.Stage == eShaderType::ST_Vertex, outStage.Varyings );
     if ( Logger::IsVerbose() ) {
         // -verbose: one line per stage, so a shader whose constants land in the
         // wrong place (or that asks for more than the root signature has) is

@@ -208,6 +208,11 @@ private:
     bool bDeviceLost = false;
     bool bInFrame = false;
     bool bDebugLayer = false;
+    // The first `kMaxReportedDebugMessages` debug-layer descriptions, so the
+    // per-frame flush reports a misuse once instead of once a frame (an error
+    // used to be dropped entirely - see flushDebugMessages).
+    static constexpr size_t kMaxReportedDebugMessages = 256;
+    std::vector<std::string> reportedDebugMessages;
     bool bTestPattern = false;
 };
 

@@ -16,6 +16,112 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-18 (ninety-eighth, `cline`): the Direct3D 12 vertex/pixel interface - the pipeline the device refused was a VS->PS *slot* mismatch, and the debug layer's errors had been filtered away by our own code
+
+Continuation of the entry below on *"please continue with Direct X 12 support
+thanks"*: the "next" it named - rebuild the refused PSO as a stream descriptor to
+name the offending subobject - turned out to be unnecessary twice over. The
+device *was* naming the problem; the backend threw the message away, and the
+problem was the pair, not the vertex bytecode (`docs/backends.md` 3.9, 6).
+
+### What changed
+
+- `source/render/d3d12/d3d12_device.{h,cpp}` - **`flushDebugMessages` no longer
+  drops errors.** It skipped every message with
+  `Severity < D3D12_MESSAGE_SEVERITY_WARNING`, and the enum counts *up* from
+  CORRUPTION (0) / ERROR (1) / WARNING (2): every D3D12 ERROR was discarded. Now
+  CORRUPTION/ERROR log as errors, WARNING as a warning, INFO/MESSAGE only at
+  `-verbose`, and `reportedDebugMessages` (capped at 256) stops the per-frame
+  flush repeating one misuse once a frame.
+- `source/render/d3d12/d3d12_shader.{h,cpp}` - **`ShaderVarying`** (name, semantic
+  index, generic slot) and **`D3D12ShaderStage::Varyings`**, reflected from the
+  compiled DXBC with `D3DReflect` (system values dropped, ordered by slot) in
+  both `compile` and `compileHlsl`. New **`compilePair`** compiles the two stages
+  and links them: `LinkVaryings` compares the slot lists and, when they differ,
+  `PadPixelInputs` rebuilds `struct SPIRV_Cross_Input` with an unused `float4`
+  pad per vertex output the pixel stage does not read (varyings before system
+  values), recompiles it with the same flags and re-reflects - the pair is only
+  accepted when the reflected lists are equal. `describeVaryings` prints both
+  lists for a log line.
+- `source/render/d3d12/d3d12_scene.cpp` - `-d3d12-edentest [<text>]` takes a
+  library filter (the A/B between the two candidate pairs); the probe compiles
+  with `compilePair`; its synthetic mesh gives every TEXCOORD `w = 1` (a D3D9
+  shader may divide by it); and `getPipeline`'s failure line now names the two
+  varying interfaces.
+- `docs/backends.md` - **section 3.9** (the diagnosis, the three measured FXC
+  facts, the frame, the padded HLSL), section 4 (the varying bullets), section 5
+  (step 2a2, next = the catalogue-wide pipeline tally then 2b), section 6 (two
+  traps: the severity filter, the slot/dense-HLSL rule) and the status matrix.
+- `PROGRESS.md` - the D3D12 row.
+
+
+### Verified (build 226 (bed0c1a+dirty) - cline)
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-edentest -d3d12-debug -verbose `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx `
+    -renderer-shot E:\Cline\_dx_probe\eden_w.ppm -log E:\Cline\_dx_probe\eden_w.log
+```
+
+```
+D3D12 shader TD_LightBeam: pixel stage relinked to 8 slot(s) (3 pad): vs [TEXCOORD0@0
+  TEXCOORD1@1 TEXCOORD2@2 TEXCOORD3@3 TEXCOORD4@4 TEXCOORD7@5 TEXCOORD10@6 TEXCOORD11@7],
+  ps [TEXCOORD0@0 TEXCOORD1@1 TEXCOORD2@2 TEXCOORD3@3 TEXCOORD4@4 TEXCOORD7@5 TEXCOORD10@6 TEXCOORD11@7]
+D3D12 Eden test: TD_LightBeam vs2/ps1 (one texture, unskinned, opaque); ...
+D3D12 Eden test: 30 frame(s) ... 110224 px covered (11.96 %), mean 0.0/0.0/0.0;
+  18 of 256 vs and 10 of 224 ps registers written
+D3D12 Eden test: PASSED
+```
+
+- **The pair the device refused now binds and draws**, and 110224 px is the
+  probe camera's exact quad arithmetic, so the padded struct did not shift a
+  field. The frame is a black quad on magenta: the beam's pixel shader decodes
+  its colour out of the texture and multiplies it by constants this probe has no
+  `.2DM` for, so black is the shader's answer - and the *unchanged* `TD_Lamp`
+  numbers are what says the padding did not break the used inputs.
+- `-d3d12-edentest TD_Lamp`: 110224 px, mean **43.0/48.0/57.5**, **47 colours**,
+  the two lit checker shades at exactly `43216 px` each - section 3.8's numbers,
+  identical.
+- `-d3d12-scenetest`: PPM byte-identical, `SHA256
+  E505B37F0063C7750BF39A9DC4579FD4E97937722B5DC825B7C1470C3F778CEB`.
+- `-d3d12-samplertest`: 135.0/40.0/135.0 vs 87.5/40.0/182.5; `-d3d12-constest`:
+  PASSED; Flash front end: 54.80 % non-black, same as documented; Vulkan
+  `-notitlescene` renders. No `D3D12 debug (...)` line in any of those logs.
+- **WARP**: `-d3d12-warp` on the same command gives the same relink line, the same
+  `110224 px` and the same `18/10` register counts.
+
+### Ruled out (with the test that ruled it out)
+
+- **"the vertex bytecode is what the device refuses"** (last entry's conclusion) -
+  no: the debug layer says *"Vertex Shader - Pixel Shader linkage error ...
+  Semantic 'TEXCOORD' is defined for mismatched hardware registers"*, and the VS
+  compiles and links as soon as the *pixel* struct is padded.
+- **"there is no debug message"** - no: the message existed and our own filter
+  deleted it. `D3D12_MESSAGE_SEVERITY` counts up from CORRUPTION, so
+  `< WARNING` is "error", not "noise".
+- **"pad with `float`, it is only a placeholder"** - no: two `float` pads were
+  packed into one register (components x and y of register 3), measured with
+  `D3DCompile` + `D3DDisassemble`; `float4` pads take a whole register each, and
+  an unused input stays in the signature with an empty `Used` mask.
+- **"pad the vertex stage instead"** - no: an output that is declared but never
+  written is stripped from the output signature (measured), so only the pixel
+  side can be padded - which is why the fix is pair-aware.
+
+### Next
+
+1. **A catalogue-wide pipeline tally**: `-d3d12-shadertest` measures compilation
+   per stage (3.5); the new question is linkage, which is a property of the pair.
+   Compile every library's (VS item, PS item) pairs, create a PSO for each and
+   report the refusals - the measurement that decides whether step 2b can be
+   trusted across all 116 libraries.
+2. **Step 2b**: `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at
+   `D3D12Scene` (programs through `compilePair`, `FillEdenConstants` -> the b0
+   CBVs and the b13 root constants, the sampler heap and texture table it
+   already binds), then the render targets / shadow / reflection passes and the
+   3D game modes.
+3. Still open from before: the ImGui-on-NVIDIA stall (`-d3d12-ui`; WARP is fine)
+   and the flaky process teardown (section 6).
+
 ## Session 2026-11-18 (ninety-seventh, `cline`): an original TDU2 shader draws on Direct3D 12 - `-d3d12-edentest` puts `TD_Lamp vs5/ps1` on the frame through the *shared* constant filler, identical on WARP, and finds a vertex stage the device refuses
 
 Continuation of the entry below on *"please continue with Direct X 12 support

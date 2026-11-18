@@ -654,8 +654,13 @@ const void *D3D12Scene::getPipeline( const PipelineDesc &desc ) {
     }
     const HRESULT result = pD3D12Device->CreateGraphicsPipelineState( &pso, IID_PPV_ARGS( &pState ) );
     if ( FAILED( result ) ) {
-        OTDU_LOG_ERROR( "D3D12 scene: CreateGraphicsPipelineState failed (0x%08x)\n",
-                        static_cast<uint32_t>( result ) );
+        // The device's own message is the first thing to read (the debug layer's
+        // errors are kept now - see D3D12Device::flushDebugMessages); the
+        // varying lists come next, because a VS/PS slot mismatch is otherwise
+        // an E_INVALIDARG with nothing to point at (docs/backends.md 3.9).
+        OTDU_LOG_ERROR( "D3D12 scene: CreateGraphicsPipelineState failed (0x%08x); %s\n",
+                        static_cast<uint32_t>( result ),
+                        D3D12ShaderCompiler::describeVaryings( *desc.pVS, *desc.pPS ).c_str() );
         pDevice->flushPendingDebugMessages();
         return nullptr;
     }
@@ -1773,9 +1778,13 @@ static bool DrawEdenProbe( D3D12Device &device,
             case 3: // NORMAL: facing the camera
                 pValue[2] = -1.0f;
                 break;
-            case 5: // TEXCOORD
+            case 5: // TEXCOORD: the uv in xy, and w = 1 like a real mesh - a D3D9
+                    // shader may divide by it (TD_LightBeam's ps does
+                    // `1.0 / t1.w` for a projected lookup, and w = 0 painted the
+                    // whole quad black).
                 pValue[0] = corners[v][0] * 0.5f + 0.5f;
                 pValue[1] = 1.0f - ( corners[v][1] * 0.5f + 0.5f );
+                pValue[3] = 1.0f;
                 break;
             case 1: // BLENDWEIGHT
                 pValue[0] = 1.0f;
@@ -2010,6 +2019,12 @@ bool D3D12RunEdenTest() {
     static const char *kCandidates[] = { "TD_CarAlpha",    "TD_CloudsPerlin", "TD_ElectricalNetwork",
                                          "TD_ChipsStack",  "TD_LightBeam",    "TD_Lamp",
                                          "TD_GPS",         "TD_Flare" };
+    // "-d3d12-edentest <text>": only libraries whose name contains <text>, so a
+    // named pair can be drawn on its own (the A/B for a fix that changes which
+    // candidate comes first). A bare flag leaves the next token to another
+    // switch - CmdLine::GetArgValue does not look at the leading '-'.
+    const char *pFilterArg = CmdLine::GetArgValue( "-d3d12-edentest" );
+    const char *pFilter = ( pFilterArg != nullptr && pFilterArg[0] != '-' ) ? pFilterArg : nullptr;
     EdenShaderSystem shaderSystem;
     if ( !shaderSystem.initialize() ) {
         OTDU_LOG_ERROR( "D3D12 Eden test: the shader libraries could not be loaded (Euro/Shaders)\n" );
@@ -2040,6 +2055,9 @@ bool D3D12RunEdenTest() {
     for ( int pass = 0; pass < 2 && !bPassed && !bAbort; pass++ ) {
         const bool bRequireTexture = pass == 0;
         for ( const char *pName : kCandidates ) {
+            if ( pFilter != nullptr && ToUpper( pName ).find( ToUpper( pFilter ) ) == std::string::npos ) {
+                continue;
+            }
             ShaderLibrary *pLibrary = shaderSystem.findLibrary( pName );
             if ( pLibrary == nullptr ) {
                 OTDU_LOG_WARN( "D3D12 Eden test: no library '%s' in Euro/Shaders\n", pName );
@@ -2059,8 +2077,11 @@ bool D3D12RunEdenTest() {
                 }
                 D3D12ShaderStage vs;
                 D3D12ShaderStage ps;
-                if ( !D3D12ShaderCompiler::compile( *pProgram->pVS, vs, pName ) ||
-                     !D3D12ShaderCompiler::compile( *pProgram->pPS, ps, pName ) ) {
+                // compilePair, not compile twice: D3D12 links the stages by
+                // varying slot and a D3D9 shader may skip a register, so the
+                // pixel stage's input struct is padded to the vertex stage's
+                // output list (docs/backends.md 3.9).
+                if ( !D3D12ShaderCompiler::compilePair( *pProgram->pVS, *pProgram->pPS, vs, ps, pName ) ) {
                     OTDU_LOG_WARN( "D3D12 Eden test: %s vs%u/ps%u does not compile: %s %s\n", pName,
                                    permutation.VSAttrib, permutation.PSAttrib, vs.Error.c_str(),
                                    ps.Error.c_str() );
