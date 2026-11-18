@@ -34,3 +34,14 @@ Written 2026-11-18 (`main`). Tags as in `CLAUDE.md`. Everything here is `[INF]`:
 - Vinyl alpha is composited like a sticker; there is no UV-layout template export yet (needed by the creation tool; `car_obj_export` is the starting point).
 - Vinyl packs are not yet bundled as a single archive with a manifest/hash (marketplace step).
 - Only the first 24 entries of a pack show (`kGridSquares`, the movie's 4 x 6 grid).
+
+## Buy / save / respawn (2026-11-18)
+Same scripted run, then `...;1060:press=validate (A on the livery);1200:press=validate (apply);1300:press=back;1400:press=back;1520-1580:press=right x4;1600:press=validate (Valid & Pay);1800:press=validate (yes)`: log `paid 3000 (1 sticker(s) on car 387)` = the $2,000 pack + $1,000 labour; `profile.sav` carries `car_stickers = 387:mod_testlivery;0;0.5;0.5;1;0;...` and `sticker_banks = mod_testlivery`; a fresh `-gm FREERIDE` logs `'California' wears 1 sticker(s)` and the stripe is on the car. **A profile that owns a mod pack keeps the layout line even if the pack folder is later removed; the placement then draws nothing (art null) until the pack is back.**
+
+## UV template tool (`tools/mod/vinyl_template.py`)
+`opentdu2.exe -gm assetviewer -exportcar <FileName>` writes `<userdata>/export/<FileName>/<FileName>_ext.obj`; then
+
+    python tools/mod/vinyl_template.py <..._ext.obj> --id <_id_car> --out <mods>/stickers
+
+writes `<car>_vinyl/pack.ini` (`vinyl=1`, `cars=<id>`) and `<car>_vinyl_template.png` (1024², next to the pack folder, not in it: every PNG in a pack is an entry). The template draws only the sticker-slot materials (`Paint`, `Paint_SK`; the OBJ's raw UV0, V down = canvas pixel y = v * 1024) as a filled coverage with the island outlines and a 128 px grid. [DATA: GTR] the unwrap is one left/right-symmetric cross: bonnet and front at the top, the roof/centre column, the two flanks left and right, the tail at the bottom (`docs/images/vinyl_template_gtr.webp`). The car's `_id_car` is the number in the shop log (`StickerShopUi: car 387 bound`).
+Not verified: a livery painted on the template and checked on the car (the tool's V orientation is by the shader's UV0 sampling; the stripe test only proves a horizontal band). Next: paint a marker (e.g. a red square over the bonnet island) on the GTR template, bind it with `-stickertest`, and confirm it lands where the template says.
