@@ -6,6 +6,11 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 63): panorama XP ruled out as a trigger; the real feature is DBPhotograph
+
+Tried to pay `CRUISING_PHOTOS_<ISLAND>` from the discovery code's "panorama nodes". `-logdiscovery`: the 2 Ibiza nodes are `D_SCENE` at (0,0,0) and `PLANE_01` at (0,19,-20) - a scene root and a plane, not viewpoints. Code reverted, nothing shipped.
+- Lead: `DBPhotograph` (-dumpdbtable) has rows with `_name_hc` ("Bienvenidos"), `_description_hc`, `_money 5000`, `_weather`, `_dayperiod`, `_position`, `_playercar`, `_specialitem`, `_champ1`: photo-challenge spots (Mikey's `PHOTOGRAH` / `PHOTOGRAPH_END_*` calls count them). Next step: read the table fully, find where `_position` maps to a world spot (spots.bin `photograph` kind), build the photo challenge (reach spot in the weather/time-of-day, take the photo), then `CRUISING_PHOTOS_*` and the two phone calls follow.
+
 ## Session 2026-11-18 (`main`, 62): championship points table - the medal now follows a real rank
 
 ### What changed
