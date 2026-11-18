@@ -8,6 +8,23 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+
+## Session 2026-11-18 (`main`): surgery sliders redraw the face live + the head camera swings round (owner video)
+
+Owner: "make the sliders redraw the face live. You sit on the bench and can pan the camera left and right in a semi circle" (video `2026-11-18 12-46-15.mp4`: profile -> front orbit of the head, black tee, sliders change the face as they move).
+
+### What changed
+- `eden_avatar.{h,cpp}` `setFaceEdit`: copies the 49 FaceParamArray bytes (the FaceFX evaluation reads `getFaceParams()` every frame) and writes age / freckle into the TD_Skinface materials. `intro_cinematic.h` `setPlayerFaceEdit` forwards it to the player avatar.
+- `surgery_ui.{h,cpp}`: `setFaceSink` callback, fired on bind, every slider update, Random and Cancel (cancel restores the baseline face). `gm_freeride.cpp` wires it to `interior.getScene().setPlayerFaceEdit`.
+- Head orbit: `IntroCinematic::setHeadOrbit/addHeadOrbit` rotate the C_HEAD camera about the avatar's `Head` bone (yaw clamped to +-1.45 rad ~ 166 deg); `InteriorWalk::tick` feeds it from the mouse X / right stick X while the surgeon page is up. RS right = behind the head, RS left = front.
+
+### Verified
+- `-interior ESUR_A -autoplay "400:press=validate;480:press=validate;560:press=validate;660..:press=right|left"`: log `SurgeryUi: HeadDepth = 15` vs `= 0`, price `$100`, mean pixel difference of the head region between the two runs 8.0 (identical timing).
+- `look=1,0` / `look=-1,0` held: the head stays centred while the camera goes from profile to behind / to the front (frames in the session).
+
+### Not done / next
+- Default view: the retail one starts nearer the profile and the avatar wears a black tee (ours: olive shirt from the intro preset). Orbit speed / limits are INF. Hair salon could reuse the orbit. Eyes colour / eyebrow type choice boxes not wired.
+
 ## Session 2026-11-18 (`main`): surgery shows the head close-up (360 comparison)
 
 Owner: "check surgery, see if it shows this camera preview" (360 recomp shots: head close-up on the green striped wall + the Head page list).

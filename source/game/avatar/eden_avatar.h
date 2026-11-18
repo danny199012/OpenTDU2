@@ -55,6 +55,9 @@ public:
     // .avt FaceParamArray (key 9d93, 49 signed bytes, struct +0xa2; the
     // FaceFX customisation registers, docs/re/facefx_spec.md).
     inline const int8_t *getFaceParams() const { return faceParams; }
+    // The clinic's live edit: the 49 FaceParamArray bytes (read each frame by the FaceFX evaluation) and the
+    // age / freckle skin values, without a reload.
+    void setFaceEdit( const int8_t *pParams, float age, float freckle );
     // TD_Skinface facialAnimCoef1 / facialAnimCoef2 (FaceFX normal map
     // weights, FUN_00caf700).
     void setFacialCoefficients( const Vector4f &coef1, const Vector4f &coef2 );

@@ -537,6 +537,21 @@ void EdenAvatar::setFacialCoefficients( const Vector4f &coef1, const Vector4f &c
     }
 }
 
+void EdenAvatar::setFaceEdit( const int8_t *pParams, float age, float freckle ) {
+    memcpy( faceParams, pParams, sizeof( faceParams ) );
+    const uint64_t specParmId = GetIdentifier64bit( "SPECPARM" );
+    const uint64_t coeffsId = GetIdentifier64bit( "COEFFS" );
+    for ( auto &pPart : parts ) {
+        for ( EdenMaterial &material : pPart->getMaterials() ) {
+            if ( material.ShaderSetGUID != 0xd5013ed0dbcdcdcdull && material.ShaderSetGUID != 0xd5013ed0dbcddbcaull ) {
+                continue;
+            }
+            material.Parameters[specParmId].w = age;
+            material.Parameters[coeffsId].y = freckle;
+        }
+    }
+}
+
 void EdenAvatar::applySkin( const BankEntry *pAvt ) {
     // .avt keys (FUN_00cbd030): 6cb0 SkinAmbiant, 1a6c SkinDiffuse, e173
     // SkinSpecular, cbfd (SpecCoeff, SpecPow, RIMCoeff), e9ce (DiffWrap,

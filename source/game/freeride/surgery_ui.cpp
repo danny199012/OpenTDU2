@@ -129,6 +129,7 @@ void SurgeryUi::bind( FlashPlayer *pNewUi, const int8_t *pBaselineParams, float 
     memcpy( params, pBaselineParams, sizeof( params ) );
     baseAge = age = baselineAge;
     baseFreckle = freckle = baselineFreckle;
+    pushFace();
 }
 
 int32_t SurgeryUi::totalPrice( int32_t *pChanged ) const {
@@ -233,6 +234,7 @@ bool SurgeryUi::onCommand( const std::string &command ) {
                 freckle = Clamp( value, 0, kSliderMax ) / static_cast<float>( kSliderMax );
             }
             OTDU_LOG_INFO( "SurgeryUi: %s = %d\n", pSlider->Var, value );
+            pushFace();
         } else {
             OTDU_LOG_INFO( "SurgeryUi: slider update for unknown var '%s' (value '%s')\n", var.c_str(),
                            pUi->getVariable( "/:" + var ).c_str() );
@@ -245,6 +247,7 @@ bool SurgeryUi::onCommand( const std::string &command ) {
         memcpy( params, baseParams, sizeof( params ) );
         age = baseAge;
         freckle = baseFreckle;
+        pushFace();
         pushPrice();
     } else if ( rest == "edit:rand" ) {
         // Random: every FaceFX slider drawn within -60..60 [INF: the retail range is ENC].
@@ -257,6 +260,7 @@ bool SurgeryUi::onCommand( const std::string &command ) {
             }
         }
         pushValues();
+        pushFace();
         pushPrice();
     }
     return true;

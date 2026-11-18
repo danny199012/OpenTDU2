@@ -711,6 +711,9 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             if ( profile.FaceParams.size() == 49 ) {
                 memcpy( baseParams, profile.FaceParams.data(), sizeof( baseParams ) );
             }
+            surgeryUi.setFaceSink( [this]( const int8_t *pParams, float age, float freckle ) {
+                interior.getScene().setPlayerFaceEdit( pParams, age, freckle ); // the avatar on screen follows the sliders
+            } );
             surgeryUi.bind( interior.getAvatarUi(), baseParams, profile.FaceAge >= 0.0f ? profile.FaceAge : baseAge,
                             profile.FaceFreckle >= 0.0f ? profile.FaceFreckle : baseFreckle );
             GetPlayerProfile().PhoneState["BeenInSurgeryShop"] = 1;

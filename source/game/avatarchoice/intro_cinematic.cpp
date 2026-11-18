@@ -1695,6 +1695,10 @@ bool IntroCinematic::buildInCarFallback() {
     return true;
 }
 
+void IntroCinematic::addHeadOrbit( float delta ) {
+    headOrbitYaw = Clamp( headOrbitYaw + delta, -1.45f, 1.45f ); // about 83 degrees each way
+}
+
 void IntroCinematic::updateView() {
     if ( bCameraOverride ) {
         camera = cameraOverride;
@@ -1761,6 +1765,19 @@ void IntroCinematic::updateView() {
                 }
             }
         }
+    }
+    if ( bHeadOrbit && !bCameraOverride && player.Avatar ) {
+        // The clinic's head view (retail: the right stick / mouse pan the camera in a half circle around the head).
+        // Pivot: the avatar's Head bone, so the head stays framed while the camera swings round it.
+        Vector3f head = player.World.getTranslation() + Vector3f( 0.0f, 1.45f, 0.0f );
+        const int32_t headBone = player.Avatar->getSkeleton().findBone( EdenNameHash4( "Head" ) );
+        if ( headBone >= 0 && static_cast<size_t>( headBone ) < player.WorldBones.size() ) {
+            head = ( player.World * player.WorldBones[static_cast<size_t>( headBone )] ).getTranslation();
+        }
+        const Vector3f pivot = head;
+        const Quaternionf swing = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), headOrbitYaw );
+        camera.Position = pivot + swing.rotate( camera.Position - pivot );
+        camera.Rotation = camera.Rotation * Conjugate( swing );
     }
     view.setCamera( camera );
     // Listener: the camera (FUN_00d944b0; Micro = 0 for these cinematics).

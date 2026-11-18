@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 
+#include <functional>
+
 class FlashPlayer;
 
 // The retail cosmetic clinic screen: SHOPSAVATAR.vmf's surgeon page (root labels
@@ -23,10 +25,19 @@ public:
     // pUi: the movie (null unbinds). The player's current face is the baseline.
     void bind( FlashPlayer *pNewUi, const int8_t *pBaselineParams, float baselineAge, float baselineFreckle );
     inline bool isBound() const { return pUi != nullptr; }
+    // Called with the working face (49 params, age, freckle) whenever it changes: the avatar on screen follows.
+    using FaceSink = std::function<void( const int8_t *, float, float )>;
+    void setFaceSink( FaceSink sink ) { faceSink = std::move( sink ); }
     // Returns true when the command was a surg: one.
     bool onCommand( const std::string &command );
 
 private:
+    void pushFace() const {
+        if ( faceSink ) {
+            faceSink( params, age, freckle );
+        }
+    }
+    FaceSink faceSink;
     void pushValues();
     void pushPrice();
     int32_t totalPrice( int32_t *pChanged ) const;
