@@ -120,6 +120,8 @@ struct PlayerProfile {
     std::map<std::string, int32_t> EventsDone;
     // Wrecks found per island (index in DiscoveryPoints::getWrecks).
     std::map<std::string, std::vector<uint32_t>> FoundWrecks;
+    // The photo viewpoints done (photospot.xml / DBPhotograph _hashcode); saved as photos_taken.
+    std::vector<uint32_t> TakenPhotos;
     // The map spots discovered per island (the spots.bin record ids, the same
     // values MapScreen's Spot::Id holds): a spot's icon only shows on the map
     // once the car drove within discovery range of the building - the retail

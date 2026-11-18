@@ -205,6 +205,10 @@ void PhoneCalls::checkNudges( const Context &context ) {
     if ( wrecks == 0 && after( 25.0f ) && request( "TREASURE_HUNT" ) ) {
         return;
     }
+    // 8. PHOTOGRAH: on Ibiza while no photo has been taken [CODE-dev; the delay is INF].
+    if ( context.Island == "ibiza" && state( "BeenInPhotograph" ) == 0 && after( 20.0f ) && request( "PHOTOGRAH" ) ) {
+        return;
+    }
     // 5. RS_ASPHALT: the first Asphalt licence is obtained and the next not started [INF: the retail reads
     // the ERS_A / ERS_B championship states in the refresh 0x9a33d0].
     {

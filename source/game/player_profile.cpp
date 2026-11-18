@@ -627,6 +627,17 @@ void LoadProfile() {
                 list.push_back( static_cast<uint32_t>( id ) );
                 pText = *pEnd == ',' ? pEnd + 1 : pEnd;
             }
+        } else if ( key == "photos_taken" ) {
+            const char *pText = value.c_str();
+            while ( *pText != 0 ) {
+                char *pEnd = nullptr;
+                const unsigned long id = strtoul( pText, &pEnd, 10 );
+                if ( pEnd == pText ) {
+                    break;
+                }
+                profile.TakenPhotos.push_back( static_cast<uint32_t>( id ) );
+                pText = *pEnd == ',' ? pEnd + 1 : pEnd;
+            }
         } else if ( key.compare( 0, 5, "done_" ) == 0 ) {
             // done_<EVENT> = times earned (DBRewardXP events)
             profile.EventsDone[key.substr( 5 )] = number;
@@ -984,6 +995,11 @@ bool SaveProfile( const char *pReason ) {
             }
             file << "\n";
         }
+        file << "photos_taken = ";
+        for ( size_t i = 0; i < profile.TakenPhotos.size(); i++ ) {
+            file << ( i > 0 ? "," : "" ) << profile.TakenPhotos[i];
+        }
+        file << "\n";
         for ( const auto &event : profile.EventsDone ) {
             file << "done_" << event.first << " = " << event.second << "\n";
         }

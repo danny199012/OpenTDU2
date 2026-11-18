@@ -1139,6 +1139,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     opponents.setRoads( &mapScreen.getRoadNodes(), &mapScreen.getRoadEdges(), &mapScreen.getRoadShapes() );
     GetCruisingZones().load( islandName );
     discovery.load( islandName );
+    photoSpots.load();
     // The island's buildings (dealerships, shops, houses...): one exterior bank
     // per spot type, streamed around the car in tick(). The story house is a
     // spot too, but its bank is drawn by the C_FIRST_OUTRO set (FirstOutro): it
@@ -3892,6 +3893,74 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
     }
 }
 
+// A photo was taken with the photo camera: when it is framed on one of the Photographer's viewpoints
+// (within 60 m of it, the subject within 15 degrees of the view axis, inside the hour window) the
+// challenge is done: prize, CRUISING_PHOTOS_<ISLAND> XP, the phone calls' BeenInPhotograph [INF
+// tolerances, see photo_spots.h].
+void GMFreeRide::judgePhoto( const Vector3f &shotPosition, const Vector3f &shotForward ) {
+    const int32_t island = PhotoSpots::IslandIndex( islandName );
+    const Vector3f forward = shotForward;
+    const float hour = static_cast<float>( weatherCycle.getHour() ) + static_cast<float>( weatherCycle.getMinute() ) / 60.0f;
+    const int32_t index = photoSpots.match( island, shotPosition, forward, hour, 60.0f, 15.0f );
+    if ( index < 0 ) {
+        OTDU_LOG_INFO( "Photo: no viewpoint framed (hour %.1f)\n", hour );
+        return;
+    }
+    const PhotoSpot &spot = photoSpots.getSpots()[index];
+    PlayerProfile &profile = GetPlayerProfile();
+    if ( std::find( profile.TakenPhotos.begin(), profile.TakenPhotos.end(), spot.Hash ) != profile.TakenPhotos.end() ) {
+        OTDU_LOG_INFO( "Photo: '%s' was already taken\n", spot.Name.c_str() );
+        return;
+    }
+    profile.TakenPhotos.push_back( spot.Hash );
+    profile.Money += spot.Money;
+    profile.PhoneState["BeenInPhotograph"] = 1;
+    int32_t onIsland = 0;
+    for ( uint32_t hash : profile.TakenPhotos ) {
+        for ( const PhotoSpot &other : photoSpots.getSpots() ) {
+            onIsland += other.Hash == hash && other.Island == island ? 1 : 0;
+        }
+    }
+    std::string upper = islandName;
+    for ( char &c : upper ) {
+        c = static_cast<char>( toupper( static_cast<unsigned char>( c ) ) );
+    }
+    AwardSkillEvent( ( "CRUISING_PHOTOS_" + upper ).c_str() );
+    hud.showHint( "Photo: " + spot.Name + "  +$" + std::to_string( spot.Money ) + "  (" + std::to_string( onIsland ) + "/" +
+                      std::to_string( photoSpots.countOnIsland( island ) ) + ")",
+                  6.0f );
+    OTDU_LOG_INFO( "Photo: '%s' taken (+$%d, %d of %d on %s)\n", spot.Name.c_str(), spot.Money, onIsland,
+                   photoSpots.countOnIsland( island ), islandName.c_str() );
+    if ( onIsland == photoSpots.countOnIsland( island ) ) {
+        // Every photo of the island: Mikey's PHOTOGRAPH_END_<ISLAND> call.
+        phoneCalls.request( island == 0 ? "PHOTOGRAPH_END_IBIZA" : "PHOTOGRAPH_END_HAWAI" );
+    }
+    SaveProfile( "photo taken" );
+}
+
+// Near an untaken viewpoint (100 m) the player is told once a minute where the photo is [INF: the retail
+// shows the spot on the map and the photo screen opens at it].
+void GMFreeRide::tickPhotoHint( float deltaTime, const Vector3f &carPosition ) {
+    photoHintTimer = Max( 0.0f, photoHintTimer - deltaTime );
+    if ( photoHintTimer > 0.0f ) {
+        return;
+    }
+    const int32_t island = PhotoSpots::IslandIndex( islandName );
+    const PlayerProfile &profile = GetPlayerProfile();
+    for ( const PhotoSpot &spot : photoSpots.getSpots() ) {
+        if ( spot.Island != island ||
+             std::find( profile.TakenPhotos.begin(), profile.TakenPhotos.end(), spot.Hash ) != profile.TakenPhotos.end() ) {
+            continue;
+        }
+        const float dx = spot.Viewpoint.x - carPosition.x, dz = spot.Viewpoint.z - carPosition.z;
+        if ( dx * dx + dz * dz < 100.0f * 100.0f ) {
+            hud.showHint( "Photo spot: " + spot.Name + " - pause menu > Take photo", 6.0f );
+            photoHintTimer = 60.0f;
+            return;
+        }
+    }
+}
+
 void GMFreeRide::openLicenseResult( const std::string &test, bool bPassed, LicenseTest::eResult result, float time,
                                     bool bLicenceNew ) {
     resultTest = test;
@@ -6259,6 +6328,7 @@ void GMFreeRide::tick( float deltaTime ) {
         hud.setVisible( false );
         hud.setHidden( true ); // no goal bar / progress clip in the photo either
         photoCamera.open( carWorld.getTranslation(), camera );
+        photoShotsSeen = photoCamera.getPhotoCount();
     }
     if ( photoCamera.isOpen() ) {
         if ( photoCamera.tick( deltaTime, carWorld.getTranslation() ) ) {
@@ -6268,6 +6338,10 @@ void GMFreeRide::tick( float deltaTime ) {
             return;
         }
         photoCamera.getCamera( camera );
+        if ( photoCamera.getPhotoCount() > photoShotsSeen ) {
+            photoShotsSeen = photoCamera.getPhotoCount();
+            judgePhoto( camera.Position, EdenRotationFromQuaternion( camera.Rotation ).transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) ) );
+        }
         // The buildings stream around the free camera (it can fly away from the
         // car), like the drive.
         if ( spotExteriors.tick( view, camera.Position, bSpotExteriors ) && outro.isLoaded() ) {
@@ -7426,6 +7500,22 @@ void GMFreeRide::tick( float deltaTime ) {
     hudState.CameraMode = chase.getMode();
     hudState.OdometerKm = vehicle.getOdometer() / 1000.0f;
     const Vector3f carPosition = carWorld.getTranslation();
+    tickPhotoHint( deltaTime, carPosition );
+    // test: -phototest <n> frames spot n of this island exactly (from its viewpoint, aimed at the subject).
+    if ( const char *pPhotoTest = CmdLine::GetArgValue( "-phototest" ) ) {
+        static int32_t photoTestFrames = 0;
+        if ( ++photoTestFrames == 200 ) {
+            const int32_t island = PhotoSpots::IslandIndex( islandName );
+            int32_t seen = 0;
+            for ( const PhotoSpot &spot : photoSpots.getSpots() ) {
+                if ( spot.Island == island && seen++ == atoi( pPhotoTest ) ) {
+                    Vector3f aim = spot.Subject - spot.Viewpoint;
+                    aim = aim * ( 1.0f / aim.length() );
+                    judgePhoto( spot.Viewpoint, aim );
+                }
+            }
+        }
+    }
     const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
     const Vector3f flat = Vector3f( forward.x, 0.0f, forward.z ).normalized();
     // The grass flattens around the car (grass_spec.md 12). The half extents

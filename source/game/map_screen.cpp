@@ -1378,8 +1378,13 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
         player.setVariable( "/:NbHairs", "0" );
     } else if ( strcmp( pKind, "photograph" ) == 0 ) {
         title = "Photographer";
-        player.setVariable( "/:NbPhotosTaken", "0" );
-        player.setVariable( "/:NbPhotosTotal", "2" );
+        // The viewpoints done on this island (DBPhotograph _hashcode: Ibiza 0x7..0x1b, Hawaii 0x1d..0x30), of 20.
+        int32_t taken = 0;
+        for ( uint32_t hash : GetPlayerProfile().TakenPhotos ) {
+            taken += ( roadIsland == "hawai" ) == ( hash >= 0x1d ) ? 1 : 0;
+        }
+        player.setVariable( "/:NbPhotosTaken", std::to_string( taken ).c_str() );
+        player.setVariable( "/:NbPhotosTotal", "20" );
     } else if ( strcmp( pKind, "airport" ) == 0 ) {
         title = "Airport";
     } else if ( strcmp( pKind, "club" ) == 0 ) {

@@ -42,6 +42,7 @@ struct RenderTarget;
 #include "game/freeride/tune_ui.h"
 #include "game/freeride/tuner_menu.h"
 #include "game/freeride/discovery_points.h"
+#include "game/freeride/photo_spots.h"
 #include "game/freeride/race_events.h"
 #include "game/freeride/race_gates.h"
 #include "game/freeride/spot_holograms.h"
@@ -427,6 +428,11 @@ private:
     // car that writes a PNG of the frame; bPendingPhoto waits for the pause
     // menu's out animation before it opens.
     PhotoCamera photoCamera;
+    PhotoSpots photoSpots;          // the Photographer's viewpoints (photospot.xml + DBPhotograph)
+    int32_t photoShotsSeen = 0;     // photoCamera.getPhotoCount() already judged
+    float photoHintTimer = 0.0f;
+    void judgePhoto( const Vector3f &shotPosition, const Vector3f &shotForward );
+    void tickPhotoHint( float deltaTime, const Vector3f &carPosition );
     bool bPendingPhoto = false;
     EdenSceneView::Camera camera;
     std::string islandName;       // -island (ibiza | hawai | casino)

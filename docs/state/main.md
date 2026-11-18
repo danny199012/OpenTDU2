@@ -6,6 +6,19 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 64): photograph challenges (the 20 viewpoints per island) built
+
+### What changed
+- **Data found** [DATA]: `euro/bnk/scenarics/photospot.xml` has 40 `VIEWPOINT`s (island 0 Ibiza / 1 Hawaii, 20 each): `pos_vp` (camera), `pos_spot` (subject), `car_pos`, `ideal_angle_*` / `ideal_zoom` with `tol_*`, `start_hour..end_hour`; `hashcode` = `DBPhotograph._hashcode` (name, `_money` 5000, `_playercar`, `_weather`, `_dayperiod`).
+- `source/game/freeride/photo_spots.{h,cpp}` (new): loads both and `match()`es a shot. `gm_freeride.cpp`: `judgePhoto` runs after each shutter press of the existing pause-menu `PhotoCamera`; a shot within 60 m of a viewpoint, subject within 15 deg of the view axis, inside the hour window = done: `+_money`, `CRUISING_PHOTOS_<ISLAND>` XP (20 allowed), `BeenInPhotograph`, all 20 -> `PHOTOGRAPH_END_*` call; `tickPhotoHint` shows "Photo spot: <name>" within 100 m of an untaken one. Saved as `photos_taken`. `map_screen.cpp` Photographer popup shows taken / 20. `phone_calls.cpp`: `PHOTOGRAH` nudge on Ibiza while none taken.
+- `[INF]` The retail angle/zoom tolerance convention (`ideal_angle_x/y`, `ideal_zoom`) is not decoded, so the 15 deg axis test replaces it; `_weather`, `_playercar` and `_dayperiod` are not enforced.
+
+### Verified
+- `-phototest 1` (frames spot 1 exactly) on a named scratch profile: `Photo: 'Ibiza's docklands' taken (+$5000, 1 of 20 on ibiza)`, XP `CRUISING_PHOTOS_IBIZA` +40, saved `money`, `photos_taken`, `phone_state_BeenInPhotograph`; a second run logs `was already taken`. **Not** verified with the real camera by hand (pad / screen), nor the map popup text on screen.
+
+### Not done / next
+- Decode the angle/zoom tolerances (compare `ideal_*` with the viewpoint->subject vector to find the convention); enforce weather / car; spawn the requested car at `car_pos`; the Hawaii island in a run (only Ibiza exercised).
+
 ## Session 2026-11-18 (`main`, 63): panorama XP ruled out as a trigger; the real feature is DBPhotograph
 
 Tried to pay `CRUISING_PHOTOS_<ISLAND>` from the discovery code's "panorama nodes". `-logdiscovery`: the 2 Ibiza nodes are `D_SCENE` at (0,0,0) and `PLANE_01` at (0,19,-20) - a scene root and a plane, not viewpoints. Code reverted, nothing shipped.
