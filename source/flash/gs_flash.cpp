@@ -206,6 +206,13 @@ FlashMovie *GSFlash::getMovie( const char *pName ) {
         OTDU_LOG_INFO( "Movie '%s':\n", key.c_str() );
         DumpMovieButtons( pResult );
     }
+    if ( key != "main" && CmdLine::HasArg( "-dumplabelslate" ) ) {
+        // The frame labels of a movie a mode loads later (home: media_in, mylife_in ...).
+        OTDU_LOG_INFO( "Movie '%s' frame labels:\n", key.c_str() );
+        for ( const std::string &label : pResult->getVMF().getFrameLabels() ) {
+            OTDU_LOG_INFO( "  LABEL '%s'\n", label.c_str() );
+        }
+    }
     movies[key] = std::move( pMovie );
     return pResult;
 }

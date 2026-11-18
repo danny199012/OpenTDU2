@@ -14,6 +14,23 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 49): house Diary - the My Photos page is filled
+
+The owner: "work on some of the screens ... start implementing TDU Media, TDU House and TDU Life as well as walk in closets for houses". Survey: the closet (clothes worn on the avatar) and MyTDUHouse (furniture, colours, walls, floors) were already in (houses_spec 10-13); what was empty is the rest of the Diary.
+
+### What changed
+- `source/game/spots/interior_walk.{h,cpp}` - `updateAlbum`: My Photos shows `<userdata>/photos/photo_*.png` in the retail book (lure bitmap override, captions, pager); `phpa` / `phph` / `phsp:phcl` handled; `-dumphomeclips <cmd>` / `-dumphomedepth`.
+- `source/flash/gs_flash.cpp` - `-dumplabelslate`.
+- `docs/re/houses_spec.md` 14.
+
+### Verified (build 283+, 0 crashes)
+- `-gm FREERIDE -skipcine -nopad -fixedtimestep -enterhouse EPH_L3DI_5067I -walkaim diary -autoplay "300:press=validate;440:press=down;460:press=down;480:press=validate;700:shot=..."`: 6 test PNGs -> page 1/2 four thumbnails + name; page 2 photos 5-6. `docs/images/house_my_photos_album.webp`, `house_my_photos_page2.webp`.
+
+### Not done / next
+- MyTDULife is a Back-only wait screen (`mylf:self`/`mylf:wait`): needs its protocol decoded (dump `-dumphomeclips mylf:wait`) and an offline stats fill (money, level, cars, houses from the profile).
+- Photos: Zoom / Delete. Leaderboards lists. `td_media` selectable ("This is not wired yet", interior_walk.cpp ~1062) - HOME.vmf has no media label; find which movie TDU Media is.
+- Closet: `came` avatar camera still ignored.
+
 ## Session 2026-11-18 (`main`, 48): mod sticker packs + full-car vinyl packs
 
 The owner: "make custom menus using the real UI ... more stickers in the packs ... a unique Vinyl pack ... full car like nfsu2 ... a sticker marketplace ... a tool for pure custom vinyl/sticker creations" - started with (a) mod sticker packs and (b) full-car vinyl packs.

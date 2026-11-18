@@ -13,6 +13,9 @@
 #include "game/freeride/tuner.h"
 #include "game/freeride/tuner_parts.h"
 #include "game/freeride/sticker_bank.h"
+#include "render/image_file.h"
+#include "render/texture_cache.h"
+#include <filesystem>
 #include "game/freeride/surgery_menu.h"
 #include "database/gs_database.h"
 #include "game/player_profile.h"
@@ -1134,6 +1137,9 @@ void InteriorWalk::playHeadView( float distance ) {
 
 void InteriorWalk::onUiCommand( const std::string &command, const std::string &args ) {
     OTDU_LOG_INFO( "InteriorWalk: FSCommand %s %s (page '%s')\n", command.c_str(), args.c_str(), homePage.c_str() );
+    if ( const char *pDump = CmdLine::GetArgValue( "-dumphomeclips" ); pDump != nullptr && command == pDump ) {
+        scene.getUi().dumpClips( "/", CmdLine::GetArgInt( "-dumphomedepth", 6 ) ); // a page's clip tree at this FSCommand
+    }
     if ( bStickUi || bAvatarUi || bTuneUi ) {
         FlashPlayer &ui = scene.getUi();
         if ( command == "wmof" || command == "camn" ) {
@@ -1327,6 +1333,28 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
         ui.setVariable( "/:PlayerAnswer", general.getVariable( "/:PlayerAnswer" ) );
         ui.invoke( "/", "DialogBox", {} );
         OTDU_LOG_INFO( "InteriorWalk: dialog answer '%s'\n", general.getVariable( "/:PlayerAnswer" ).c_str() );
+    } else if ( command == "phpa" || command == "phph" ) {
+        // My Photos: the book asks for its pages (phpa) / moved the focus (phph) [DATA: seen at run time].
+        if ( command == "phpa" ) {
+            bAlbumOpen = true;
+            albumShownPage = -1;
+            albumFiles.clear();
+            std::error_code error;
+            if ( gpFile != nullptr ) {
+                const std::filesystem::path folder = gpFile->getUserDataFolder() / "photos";
+                for ( const auto &entry : std::filesystem::directory_iterator( folder, error ) ) {
+                    const std::string name = entry.path().filename().string();
+                    if ( name.compare( 0, 6, "photo_" ) == 0 && entry.path().extension() == ".png" ) {
+                        albumFiles.push_back( entry.path().string() );
+                    }
+                }
+                std::sort( albumFiles.begin(), albumFiles.end() );
+            }
+            OTDU_LOG_INFO( "InteriorWalk: My Photos: %zu photo(s)\n", albumFiles.size() );
+        }
+        updateAlbum( true );
+    } else if ( command == "phsp:phcl" ) {
+        bAlbumOpen = false;
     } else if ( command == "myhs:open" ) {
         // MyTDUHouse (the diary's furniture page): the walk with the
         // MyTDUHouse header [DATA]; the furniture choice itself is not wired.
@@ -1354,6 +1382,51 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
     } else if ( command.compare( 0, 5, "myhs:" ) == 0 && command != "myhs:open" ) {
         myHouseMode = false;
     }
+}
+
+void InteriorWalk::updateAlbum( bool bForce ) {
+    // The book's slots are /diary/photo_book_content/book/photo1..4 (the movie's own path_photo); each has a `lure`
+    // placeholder shape that takes the picture, `photo_name` is its caption, `/:num_page` / `/:nb_pages` the pager
+    // [DATA: clip dump]. The page number is the movie's (PhNextPage / PhPrevPage move it).
+    if ( !bAlbumOpen || gpRender == nullptr ) {
+        return;
+    }
+    static std::unordered_map<std::string, GPUTexture *> textures; // never destroyed: a texture a frame still uses hangs the device
+    FlashPlayer &ui = scene.getUi();
+    const int32_t count = static_cast<int32_t>( albumFiles.size() );
+    const int32_t pages = Max( 1, ( count + 3 ) / 4 );
+    int32_t page = atoi( ui.getVariable( "/:num_page" ).c_str() ) - 1;
+    page = Clamp( page, 0, pages - 1 );
+    if ( !bForce && page == albumShownPage ) {
+        return;
+    }
+    albumShownPage = page;
+    ui.setVariable( "/:nb_pages", std::to_string( pages ) );
+    ui.setVariable( "/:num_page", std::to_string( page + 1 ) );
+    for ( int32_t slot = 0; slot < 4; slot++ ) {
+        const std::string path = "/diary/photo_book_content/book/photo" + std::to_string( slot + 1 );
+        const int32_t index = page * 4 + slot;
+        GPUTexture *pTexture = nullptr;
+        if ( index < count ) {
+            const std::string &file = albumFiles[static_cast<size_t>( index )];
+            auto found = textures.find( file );
+            if ( found == textures.end() ) {
+                std::vector<uint8_t> pixels;
+                uint32_t width = 0, height = 0;
+                GPUTexture *pLoaded = nullptr;
+                if ( LoadImageFileRGBA( std::filesystem::path( file ), pixels, width, height ) && width > 0 && height > 0 ) {
+                    pLoaded = gpRender->getTextureCache().createFromRGBA( width, height, pixels.data(), file.c_str() );
+                }
+                found = textures.emplace( file, pLoaded ).first;
+            }
+            pTexture = found->second;
+            ui.setVariable( path + ":photo_name", std::filesystem::path( file ).stem().string() );
+        } else {
+            ui.setVariable( path + ":photo_name", std::string() );
+        }
+        ui.setBitmapOverride( path + "/lure", pTexture, 0.0f, 0.0f, 1.0f, 1.0f );
+    }
+    OTDU_LOG_INFO( "InteriorWalk: My Photos page %d/%d (%d photo(s))\n", page + 1, pages, count );
 }
 
 void InteriorWalk::updateClosetItem() {
@@ -1388,6 +1461,7 @@ void InteriorWalk::openHomePage( const std::string &type ) {
 }
 
 void InteriorWalk::routeHomeInput() {
+    updateAlbum( false );
     // Pad / keyboard -> HOME.vmf, the SHOPSCAR routing (gm_shop.cpp
     // routeInput): the buttons' key conditions (13 validate, 14 / 15 up /
     // down, 1 / 2 left / right), B() of the focus clip /:Clip [DATA + INF].

@@ -199,6 +199,11 @@ private:
     // The walk-in closet: the owned DBClothe ids of the open category.
     int32_t closetPartType = 0;
     std::vector<int32_t> closetItems;
+    // MyTDULife's My Photos page: <userdata>/photos PNGs shown 4 to a page in the book's slots.
+    std::vector<std::string> albumFiles;
+    bool bAlbumOpen = false;
+    int32_t albumShownPage = -1;
+    void updateAlbum( bool bForce );
     int32_t closetIndex = 0;
     bool myHouseMode = false;
     bool bDialogOpen = false; // the GENERAL dialog box (dbxo .. dbxc)

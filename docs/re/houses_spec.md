@@ -466,3 +466,24 @@ A second zone (l2e's `MAT_Floor2_23`) takes the same finish [INF]. Verified by `
 <spot>` (new test hook: straight into any house's living room) + `-surfaceedit`: EPH_L2E_0345I
 floor 2 materials / wall 1, EPH_L1D_1455I 1 / 1, EPH_L0C_1254I 2 / 0
 (`docs/images/house_mytduhouse_floor_other_houses.webp`: l1d wood -> marble, l2e slate -> marble).
+
+## 14. MyTDULife: the My Photos page (session 2026-11-18, `main`, 49)
+
+The Diary's Info menu (`diary_in`) is four buttons: MyTDULife (`mylf:self` -> `mylf:wait`, a Back-only
+"connecting" screen: online data), MyTDUHouse (section 10), **My Photos** (`phsp:phin` -> `phpa`) and
+Leaderboards (Instant / Multiplayer challenges). My Photos is a book `/diary/photo_book_content/book/photo1..4`
+(the movie's own `path_photo` variable) [DATA, `-dumphomeclips phph`]. Each slot has a `lure` placeholder
+shape, a caption variable `photo_name` (the text field `../../:photo_name` of `ph_name_scroll`) and the
+pager reads `/:num_page` / `/:nb_pages`. FSCommands [DATA, run time]: `phpa` book opened, `phph` focus moved,
+`phsp:phcl` closed, `sndp:wrong` on Zoom with no photo; PhNextPage / PhPrevPage page the movie's own counter.
+The game fills it: `InteriorWalk::updateAlbum` lists `<userdata>/photos/photo_*.png` (the photo camera's
+output, photo_camera_spec 2), binds the PNG with `setBitmapOverride(photoN/lure)`, sets the captions and
+the pager; the page follows `/:num_page`. Verified: 6 photos = 2 pages, page 2 = photos 5-6 plus two empty
+slots (`docs/images/house_my_photos_album.webp`, `house_my_photos_page2.webp`). New tools:
+`-dumplabelslate` (frame labels of movies a mode loads later, e.g. home), `-dumphomeclips <fscommand>`
+(+ `-dumphomedepth`) = the clip tree at that FSCommand.
+
+**Not done**: Zoom (A: `PhotoZoomed`, needs the zoom clip's own image), Delete (Y), the photo's real
+caption / date; MyTDULife (offline local stats page - protocol `mylf:*` not decoded); Leaderboards
+(the two lists open, nothing fills them); the Media selectable (`td_media`: HOME.vmf has no media
+label, so TDU Media is another movie - not found yet); the closet's avatar camera.
