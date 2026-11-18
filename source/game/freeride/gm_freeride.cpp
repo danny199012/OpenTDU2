@@ -3373,18 +3373,49 @@ void GMFreeRide::applyTunerParts() {
     if ( !car.isLoaded() ) {
         return;
     }
+    // The loadout the car wears: the saved profile, or the -tunerfit test
+    // string ("slot=part;slot=part", also the `<slot>_finish` /
+    // `exhaust_flames` keys: checks a car's offsets / stock-part boxes
+    // without touching the save).
+    std::map<std::string, std::string> saved;
+    bool bFromFit = false;
+    if ( TunerModEnabled() ) {
+        GetTunerParts().load();
+        if ( const char *pFit = CmdLine::GetArgValue( "-tunerfit" ) ) {
+            bFromFit = true;
+            std::string text( pFit );
+            size_t pos = 0;
+            while ( pos < text.size() ) {
+                size_t end = text.find( ';', pos );
+                end = end == std::string::npos ? text.size() : end;
+                const std::string pair = text.substr( pos, end - pos );
+                const size_t eq = pair.find( '=' );
+                if ( eq != std::string::npos ) {
+                    saved[pair.substr( 0, eq )] = pair.substr( eq + 1 );
+                }
+                pos = end + 1;
+            }
+        } else {
+            const auto found = GetPlayerProfile().OwnedCarTunerParts.find( car.getIdCar() );
+            if ( found != GetPlayerProfile().OwnedCarTunerParts.end() ) {
+                saved = found->second.Parts;
+            }
+        }
+    }
     // The exhaust pops (the mod's audio): a tuner car pops, more with an
-    // exhaust fitted; vanilla / non-tuner cars stay silent.
+    // exhaust fitted; vanilla / non-tuner cars stay silent. The pop flames
+    // (session 56) follow the same exhaust: a fitted exhaust part with tips
+    // and a flame style that is not off.
     {
         float pops = 0.0f;
+        tunerFlameId.clear();
         if ( TunerModEnabled() ) {
-            GetTunerParts().load();
-            const PlayerProfile &popProfile = GetPlayerProfile();
-            const auto popParts = popProfile.OwnedCarTunerParts.find( car.getIdCar() );
-            static const std::map<std::string, std::string> kNoParts;
-            pops = GetTunerParts().popStrength( car.getIdCar(), popParts != popProfile.OwnedCarTunerParts.end()
-                                                                    ? popParts->second.Parts
-                                                                    : kNoParts );
+            pops = GetTunerParts().popStrength( car.getIdCar(), saved );
+            if ( const TunerFlame *pFlame = GetTunerParts().flameFor( saved ) ) {
+                if ( GetTunerParts().findCar( car.getIdCar() ) != nullptr ) {
+                    tunerFlameId = pFlame->Id;
+                }
+            }
         }
         vehicleAudio.setTunerPops( pops );
     }
@@ -3396,33 +3427,77 @@ void GMFreeRide::applyTunerParts() {
         car.clearTunerAttachment();
         return;
     }
-    GetTunerParts().load();
-    const PlayerProfile &profile = GetPlayerProfile();
-    // -tunerfit "slot=part;slot=part": test flag, fits parts on the driven car
-    // without touching the save (checks a car's offsets / stock-part boxes).
-    if ( const char *pFit = CmdLine::GetArgValue( "-tunerfit" ) ) {
-        std::map<std::string, std::string> fit;
-        std::string text( pFit );
-        size_t pos = 0;
-        while ( pos < text.size() ) {
-            size_t end = text.find( ';', pos );
-            end = end == std::string::npos ? text.size() : end;
-            const std::string pair = text.substr( pos, end - pos );
-            const size_t eq = pair.find( '=' );
-            if ( eq != std::string::npos ) {
-                fit[pair.substr( 0, eq )] = pair.substr( eq + 1 );
-            }
-            pos = end + 1;
-        }
-        GetTunerParts().applySaved( car, car.getIdCar(), fit );
-        return;
-    }
-    const auto found = profile.OwnedCarTunerParts.find( car.getIdCar() );
-    if ( found == profile.OwnedCarTunerParts.end() ) {
+    if ( !bFromFit && saved.empty() ) {
         car.clearTunerAttachment();
         return;
     }
-    GetTunerParts().applySaved( car, car.getIdCar(), found->second.Parts );
+    GetTunerParts().applySaved( car, car.getIdCar(), saved );
+}
+
+void GMFreeRide::updateTunerFlames( const Vector3f &velocity ) {
+    // The pops that fired this frame (the audio's own schedule: a lift at
+    // revs, a shift, the overrun crackle) each spit fire from every pipe of
+    // the fitted exhaust: a hot core, an orange body, a few sparks and a wisp
+    // of soot. Port-native [INF]: nothing in the original draws exhaust fire.
+    const std::vector<float> fired = vehicleAudio.takeFiredPops();
+    if ( fired.empty() || tunerFlameId.empty() || gpRender == nullptr ) {
+        return;
+    }
+    const TunerFlame *pFlame = GetTunerParts().findFlame( tunerFlameId );
+    std::vector<Vector3f> tips;
+    Vector3f back;
+    if ( pFlame == nullptr || !car.getTunerAttachmentTips( "exhaust", carWorld, tips, back ) ) {
+        return;
+    }
+    EdenSurfaceFx &fx = gpRender->getSurfaceFx();
+    static std::mt19937 rng( 5656u );
+    auto rnd = [&]() { return std::uniform_real_distribution<float>( 0.0f, 1.0f )( rng ); };
+    const Vector3f up( 0.0f, 1.0f, 0.0f );
+    const Vector3f sideways = back.cross( up ).normalized();
+    for ( const float loudness : fired ) {
+        const float power = Clamp( loudness, 0.25f, 1.4f );
+        for ( const Vector3f &tip : tips ) {
+            // a bit of variation between the pipes: not every pipe spits
+            // every pop, and the sizes differ
+            if ( rnd() < 0.25f ) {
+                continue;
+            }
+            const Vector3f mouth = tip + back * 0.05f;
+            // the muzzle flash: one big, short, near-opaque puff at the mouth
+            fx.emitBurst( mouth + back * 0.08f, velocity * 0.95f + back * 2.0f,
+                          Vector4f( pFlame->Core.x, pFlame->Core.y, pFlame->Core.z, 0.9f ), 0.20f * power, 0.06f,
+                          0.0f, 2.0f );
+            // the hot core: small, white-hot, gone in a blink
+            for ( int32_t k = 0; k < 5; k++ ) {
+                const Vector3f jitter = sideways * ( ( rnd() - 0.5f ) * 2.0f ) + up * ( ( rnd() - 0.2f ) * 1.4f );
+                fx.emitBurst( mouth + back * ( 0.06f * static_cast<float>( k ) ),
+                              velocity * 0.9f + back * ( 6.0f + 7.0f * rnd() ) * power + jitter * 0.4f,
+                              Vector4f( pFlame->Core.x, pFlame->Core.y, pFlame->Core.z, 1.0f ),
+                              ( 0.09f + 0.06f * rnd() ) * power, 0.10f + 0.08f * rnd(), -0.5f, 2.2f );
+            }
+            // the body of the flame: the coloured tongue licking out
+            for ( int32_t k = 0; k < 10; k++ ) {
+                const Vector3f jitter = sideways * ( ( rnd() - 0.5f ) * 2.6f ) + up * ( ( rnd() - 0.1f ) * 1.8f );
+                fx.emitBurst( mouth + back * ( 0.08f * static_cast<float>( k ) ),
+                              velocity * 0.9f + back * ( 4.0f + 9.0f * rnd() ) * power + jitter * 0.5f,
+                              Vector4f( pFlame->Body.x, pFlame->Body.y, pFlame->Body.z, 0.9f ),
+                              ( 0.13f + 0.12f * rnd() ) * power, 0.16f + 0.18f * rnd(), -1.2f, 1.8f );
+            }
+            // sparks that fall
+            for ( int32_t k = 0; k < 4; k++ ) {
+                const Vector3f jitter = sideways * ( ( rnd() - 0.5f ) * 4.0f ) + up * ( rnd() * 2.0f );
+                fx.emitBurst( mouth, velocity * 0.8f + back * ( 4.0f + 7.0f * rnd() ) + jitter,
+                              Vector4f( 1.0f, 0.78f + 0.2f * rnd(), 0.35f, 0.95f ), 0.013f + 0.012f * rnd(),
+                              0.22f + 0.25f * rnd(), 9.81f, 0.8f );
+            }
+            // soot
+            fx.emitBurst( mouth + back * 0.15f, velocity * 0.85f + back * 1.5f + up * ( 0.5f + 0.5f * rnd() ),
+                          Vector4f( 0.22f, 0.21f, 0.2f, 0.24f ), 0.10f + 0.08f * rnd(), 0.5f + 0.3f * rnd(), -0.6f, 1.1f );
+        }
+    }
+    if ( CmdLine::HasArg( "-logtuner" ) ) {
+        OTDU_LOG_INFO( "Tuner: %zu pop flame(s) '%s' from %zu tip(s)\n", fired.size(), tunerFlameId.c_str(), tips.size() );
+    }
 }
 
 void GMFreeRide::openChampionshipScreen( const LicenseInfo &championship ) {
@@ -8462,6 +8537,7 @@ void GMFreeRide::tick( float deltaTime ) {
                 }
                 vehicleAudio.setGear( vehicle.getGear() );
                 vehicleAudio.update( ap, deltaTime );
+                updateTunerFlames( vehicle.getVelocity() );
             }
         }
         // The player's horn (CarVSTConfig "Horn" of the car's own sound bank):

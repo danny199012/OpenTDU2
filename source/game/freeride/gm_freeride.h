@@ -296,6 +296,7 @@ private:
     Quaternionf tuneInsetRot;
     void renderTuneInset();
     bool bTunerApplied = false; // the driven car wears its saved parts
+    std::string tunerFlameId;   // the pop-flame style of the fitted exhaust ("" = none)
     float tunerCamYaw = 0.6f;   // the room turntable
     void bindTunerGarage();
     void bindTunerGarageCar();
@@ -444,6 +445,9 @@ private:
     // retries through bTunerApplied), on leaving the tuner garage, and when
     // the player gets back in the car.
     void applyTunerParts();
+    // The tuner exhaust's pop flames: spits fire from the fitted pipes for
+    // every pop the engine audio fired this frame (session 56).
+    void updateTunerFlames( const Vector3f &velocity );
     // "Take photo" of the pause screen (PhotoCamera): a free camera around the
     // car that writes a PNG of the frame; bPendingPhoto waits for the pause
     // menu's out animation before it opens.

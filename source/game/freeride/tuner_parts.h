@@ -21,6 +21,21 @@ struct TunerFinish {
     std::string Name;    // the menu label
     std::string Texture; // the PNG in tuner/parts/
     Vector3f Tint = Vector3f( 1.0f, 1.0f, 1.0f );
+    // The slot the finish is offered for ("exhaust", "spoiler"; empty = the
+    // exhaust, the session-55 default).
+    std::string Slot = "exhaust";
+    // `paint = body`: the tint is the car's own body colour at the moment it is
+    // applied (the "Painted" spoiler: it matches the paint shop's colour).
+    bool bBodyPaint = false;
+};
+
+// A pop-flame style (session 56, `[flame:<id>]` in tuner.txt): the colour of
+// the fire the exhaust spits with each pop. `off` is built in (no block).
+struct TunerFlame {
+    std::string Id;
+    std::string Name;
+    Vector3f Core = Vector3f( 1.0f, 0.95f, 0.7f ); // the hot centre
+    Vector3f Body = Vector3f( 1.0f, 0.5f, 0.1f );  // the licking edge
 };
 
 // The tuner-garage mod's data (docs/TUNER_MOD_PLAN.md 1, session 42): the part
@@ -42,6 +57,9 @@ struct TunerPart {
     // as written, y is above the body bottom, z is past the rear face), so one
     // exhaust fits every car's length.
     std::string Align;
+    // Where the flames leave the part (part space, the pipe openings): `tip =
+    // x y z`, one line per pipe. Empty = this part spits no flames.
+    std::vector<Vector3f> Tips;
 };
 
 // One [car:<_car_file_name>] block: a tuner car and the slots its garage
@@ -76,6 +94,25 @@ public:
     // The tip finishes in catalog order (the menu cycles these; "mesh
     // default" - no finish - is the menu's index -1).
     inline const std::vector<TunerFinish> &getFinishes() const { return finishes; }
+    // The finishes a slot offers, catalog order.
+    std::vector<const TunerFinish *> finishesForSlot( const char *pSlot ) const;
+    // The save key of a slot's finish ("spoiler_finish", "exhaust_finish").
+    static std::string finishKey( const char *pSlot );
+    // The menu's swatch colour of a finish (0..1 RGB): the average of its
+    // pixels after the tint (the body colour for a `paint = body` finish).
+    Vector3f finishSwatch( const TunerFinish &finish, uint32_t bodyColour ) const;
+    // The pop-flame styles in catalog order (the menu's "Pop flames" row:
+    // Off, then these). The save key is `exhaust_flames` = a style id | off;
+    // absent = the first style.
+    inline const std::vector<TunerFlame> &getFlames() const { return flames; }
+    const TunerFlame *findFlame( const std::string &id ) const;
+    // The style a saved loadout wears (nullptr = flames off or no exhaust
+    // that can spit).
+    const TunerFlame *
+    flameFor( const std::map<std::string, std::string> &saved ) const;
+    // The exhaust part a loadout fits (nullptr = stock / unknown id).
+    const TunerPart *
+    exhaustFor( const std::map<std::string, std::string> &saved ) const;
 
     // Is this DBCarPhysicsData row a tuner car (its _car_file_name has a
     // [car:...] block)? The duplicate catalog rows of one car (the GTR ships
@@ -112,6 +149,7 @@ public:
     // Re-colours a fitted part in place (the menu's finish cycle): swaps the
     // attachment material's colour texture. pFinishId null = back to the
     // mesh's own texture. No attachment on the slot = nothing to do.
+    // (Any slot: the exhaust tips, the spoilers.)
     void applyFinish( CinematicCar &car,
                       const char *pSlot,
                       const char *pFinishId );
@@ -166,14 +204,24 @@ private:
     const TunerPart *partForMesh( const std::string &meshFile ) const;
     // The finish's tinted texture, created once per finish (the cache owns
     // it; the car materials borrow it). nullptr = not loadable.
-    GPUTexture *finishTexture( const TunerFinish &finish );
+    // bodyColour: the car's body paint (RGBA8, low byte red) for a
+    // `paint = body` finish; part of the cache key.
+    GPUTexture *finishTexture( const TunerFinish &finish, uint32_t bodyColour );
+    // The finish's pixels after the tint (shared by the GPU texture and the
+    // swatch). False = unreadable.
+    bool finishPixels( const TunerFinish &finish,
+                       uint32_t bodyColour,
+                       std::vector<uint8_t> &pixels,
+                       uint32_t &width,
+                       uint32_t &height ) const;
 
     std::vector<TunerPart> parts;
     std::vector<TunerFinish> finishes;
+    std::vector<TunerFlame> flames;
     std::vector<TunerCar> cars;
     bool bLoaded = false;
     std::map<std::string, std::vector<ObjMeshDraw>> meshes; // by OBJ file name
-    std::map<std::string, GPUTexture *> finishTextures;     // by finish id
+    std::map<std::string, GPUTexture *> finishTextures;     // by finish id[#colour]
     // The viewer's live hide-box edits: (car file name, slot) -> boxes.
     std::map<std::pair<std::string, std::string>,
              std::vector<std::pair<Vector3f, Vector3f>>>

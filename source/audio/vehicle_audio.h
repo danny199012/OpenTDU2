@@ -73,6 +73,13 @@ public:
     // after a lift. Survives unload() / load() (set by the car, not the bank).
     inline void setTunerPops( float strength ) { tunerPops = strength; }
     inline float getTunerPops() const { return tunerPops; }
+    // The pops that fired since the last call (one entry per pop, its
+    // loudness 0..~1.5): the tuner flames spit with each one. Drains the list.
+    inline std::vector<float> takeFiredPops() {
+        std::vector<float> out;
+        out.swap( firedPops );
+        return out;
+    }
 
     inline bool isLoaded() const { return pBank != nullptr; }
     inline bool isEngineOn() const { return bEngineRunning; }
@@ -149,6 +156,7 @@ private:
     float tunerPops = 0.0f;
     std::shared_ptr<AudioClip> popClips[3];
     std::vector<PendingPop> pendingPops;
+    std::vector<float> firedPops; // takeFiredPops()
     float lastThrottle = 0.0f;
     float lastRpm = 0.0f;
     float crackleTime = 0.0f;  // s of overrun crackle left after a lift

@@ -186,6 +186,9 @@ void VehicleAudio::updatePops( const Params &params, float deltaTime ) {
         voice.ClipFar = 90.0f;
         voice.ClipMidVolume = 0.5f;
         gpAudio->play( clip, voice );
+        if ( firedPops.size() < 32 ) {
+            firedPops.push_back( voice.Volume );
+        }
         pendingPops.erase( pendingPops.begin() + static_cast<std::ptrdiff_t>( i ) );
     }
 }

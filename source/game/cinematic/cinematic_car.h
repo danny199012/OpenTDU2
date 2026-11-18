@@ -136,6 +136,17 @@ public:
     // = no-op.
     void setTunerAttachmentTexture( const char *pSlot, GPUTexture *pTexture );
     inline bool hasTunerAttachment() const { return !tunerAttachments.empty(); }
+    // The flame origins of a fitted part (its exhaust tips, tuner.txt `tip =`
+    // lines): setTunerAttachmentTips stores them part-space on the slot's
+    // attachment; getTunerAttachmentTips returns them in world space for the
+    // car pose `world`, plus the direction the pipe points (the rear). False =
+    // no attachment on the slot or no tips.
+    void setTunerAttachmentTips( const char *pSlot,
+                                 const std::vector<Vector3f> &tips );
+    bool getTunerAttachmentTips( const char *pSlot,
+                                 const Matrix4x4f &world,
+                                 std::vector<Vector3f> &outPositions,
+                                 Vector3f &outDirection ) const;
 
     // Car world pose: the cinematic pose with the 4 tires resting on the
     // surface (plane through the hub targets).
@@ -713,6 +724,7 @@ private:
         EdenMaterial Material;
         int32_t Node = -1; // the node it hangs from (-1 = the car origin)
         Matrix4x4f Offset;
+        std::vector<Vector3f> Tips; // part-space flame origins (exhaust tips)
     };
     std::map<std::string, TunerAttachment> tunerAttachments; // by slot
     // The stock parts a fitted tuner part replaces (the retail spoiler lip,

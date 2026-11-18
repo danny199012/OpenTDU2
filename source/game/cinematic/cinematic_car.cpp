@@ -3667,6 +3667,41 @@ void CinematicCar::setTunerAttachmentTexture( const char *pSlot,
     pRenderer->updateProgram( found->second.Material );
 }
 
+void CinematicCar::setTunerAttachmentTips( const char *pSlot,
+                                           const std::vector<Vector3f> &tips ) {
+    const auto found = tunerAttachments.find( pSlot != nullptr ? pSlot : "" );
+    if ( found != tunerAttachments.end() ) {
+        found->second.Tips = tips;
+    }
+}
+
+bool CinematicCar::getTunerAttachmentTips( const char *pSlot,
+                                           const Matrix4x4f &world,
+                                           std::vector<Vector3f> &outPositions,
+                                           Vector3f &outDirection ) const {
+    outPositions.clear();
+    const auto found = tunerAttachments.find( pSlot != nullptr ? pSlot : "" );
+    if ( found == tunerAttachments.end() || found->second.Tips.empty() ) {
+        return false;
+    }
+    const TunerAttachment &attachment = found->second;
+    const Matrix4x4f nodeT = attachment.Node >= 0
+                                 ? car.getNodeTransform( attachment.Node )
+                                 : Matrix4x4f();
+    const Matrix4x4f partWorld = world * nodeT * attachment.Offset;
+    for ( const Vector3f &tip : attachment.Tips ) {
+        outPositions.push_back( partWorld.transformPoint( tip ) );
+    }
+    // The tip meshes open at z = 0 facing the rear, the pipe running +Z
+    // into the car: the exhaust points out along the part's -Z.
+    outDirection = partWorld.transformVector( Vector3f( 0.0f, 0.0f, -1.0f ) );
+    const float length = outDirection.length();
+    if ( length > 1e-4f ) {
+        outDirection = outDirection * ( 1.0f / length );
+    }
+    return true;
+}
+
 // The stock spoiler / exhaust tips of a tuner car are triangles of the body's
 // big items. tuner.txt gives each a box (hide_spoiler / hide_exhaust, item
 // space): the triangles whose centroid is inside go to their own index

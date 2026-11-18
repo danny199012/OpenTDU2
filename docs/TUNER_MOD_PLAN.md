@@ -146,3 +146,11 @@ Each step is useful alone; stopping after any of them leaves something working.
   `car_tuner_parts = 403:exhaust=exhaust_dual;exhaust_finish=gold;spoiler=wing_street`
   (`tuner_finish_menu_s55.webp`); a plain respawn wears the saved gold; a bogus finish id logs
   `is not in the catalog (kept as data, not drawn)` and the mesh default draws.
+
+## Status (session 56, 2026-11-18)
+
+- **Garage UI** rebuilt as cards with swatch strips (`docs/images/tuner_menu_s56.webp`); finishes are per slot
+  (`<slot>_finish`), 11 spoiler finishes (painted-to-body, gloss / pearl / coloured paints, four carbons).
+- **Pop flames** from fitted tuner exhausts (`[flame:<id>]`, `tip =`, `exhaust_flames`), fired by the pop audio
+  events (`docs/images/tuner_flames_s56.webp`). Order of work step 2 is complete (audio + flames); turbo
+  flutter and body kits remain.

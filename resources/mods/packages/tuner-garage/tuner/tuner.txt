@@ -30,11 +30,18 @@
 #                          tip mesh's opening is at z=0 facing the rear, the
 #                          pipe running +Z into the car.
 #
-#   [finish:<id>]          a tip finish (the look of an exhaust part, chosen
-#                          in the garage's "Tip finish" row; saved as
-#                          exhaust_finish). texture = the PNG in parts/;
+#     tip = x y z          optional, repeat per pipe: where the pop flames leave
+#                          the part (part space; the opening is at z = 0).
+#
+#   [finish:<id>]          a finish (the look of a part, chosen in the garage's
+#                          "Tip finish" / "Spoiler finish" rows; saved as
+#                          <slot>_finish). texture = the PNG in parts/;
 #                          tint = r g b multipliers (optional).
 #     name = ...           the menu label
+#     slot = exhaust       exhaust (default) | spoiler
+#     paint = body         optional: tint with the car's own body colour
+#
+#   [flame:<id>]           a pop-flame style (name, core = r g b, body = r g b)
 #
 #   [car:<file name>]      a tuner car, keyed by the DBCarPhysicsData
 #                          _car_file_name (so both catalog rows of a car - e.g.
@@ -115,6 +122,8 @@ mesh = exhaust_dual.obj
 offset = 0 0.22 -0.03
 node = BODY_HR
 align = rear
+tip = -0.46 0 -0.02
+tip = 0.46 0 -0.02
 
 [part:exhaust_quad]
 name = Quad Chrome
@@ -124,6 +133,10 @@ mesh = exhaust_quad.obj
 offset = 0 0.22 -0.03
 node = BODY_HR
 align = rear
+tip = -0.56 0 -0.02
+tip = -0.4 0 -0.02
+tip = 0.4 0 -0.02
+tip = 0.56 0 -0.02
 
 [part:exhaust_oval]
 name = Burnt Oval
@@ -135,6 +148,7 @@ mesh = exhaust_oval.obj
 offset = 0 0.25 -0.03
 node = BODY_HR
 align = rear
+tip = 0 0 -0.02
 
 [part:exhaust_burnt]
 name = Burnt Twin
@@ -144,6 +158,8 @@ mesh = exhaust_burnt.obj
 offset = 0 0.22 -0.03
 node = BODY_HR
 align = rear
+tip = -0.4 0 -0.02
+tip = 0.4 0 -0.02
 
 [part:exhaust_n1]
 name = N1 Big Bore
@@ -153,6 +169,7 @@ mesh = exhaust_n1.obj
 offset = 0 0.22 -0.03
 node = BODY_HR
 align = rear
+tip = 0.42 0 -0.02
 
 [part:exhaust_carbon]
 name = Carbon Dual
@@ -162,6 +179,8 @@ mesh = exhaust_carbon.obj
 offset = 0 0.22 -0.03
 node = BODY_HR
 align = rear
+tip = -0.45 0 -0.02
+tip = 0.45 0 -0.02
 
 [part:exhaust_quad_ti]
 name = Quad Titanium
@@ -171,6 +190,10 @@ mesh = exhaust_quad_ti.obj
 offset = 0 0.22 -0.03
 node = BODY_HR
 align = rear
+tip = -0.56 0 -0.02
+tip = -0.4 0 -0.02
+tip = 0.4 0 -0.02
+tip = 0.56 0 -0.02
 
 [part:exhaust_bigbore]
 name = Angle Cut Twin
@@ -180,6 +203,8 @@ mesh = exhaust_bigbore.obj
 offset = 0 0.22 -0.03
 node = BODY_HR
 align = rear
+tip = -0.44 -0.049 -0.02
+tip = 0.44 -0.049 -0.02
 
 # Tip finishes: the look of an exhaust part, chosen in the garage's "Tip
 # finish" row and saved as exhaust_finish in the profile (session 55). A
@@ -222,6 +247,107 @@ texture = ceramic.png
 name = Gunmetal
 texture = ceramic.png
 tint = 1.9 2.0 2.15
+
+# Spoiler finishes (session 56): `slot = spoiler` offers the finish in the
+# garage's "Spoiler finish" row (saved as spoiler_finish). `paint = body`
+# multiplies the car's own paint colour into the texture, so "Painted" matches
+# the paint shop's colour (it is baked when the finish is applied: repaint the
+# car, then re-pick the finish or re-enter the garage). The coloured carbons
+# are carbon_twill.png with a tint. "Mesh default" is the OBJ's own material
+# (the dark carbon of the wing mesh).
+[finish:s_painted]
+name = Painted (body colour)
+slot = spoiler
+texture = paint_gloss.png
+paint = body
+
+[finish:s_gloss]
+name = Gloss Black
+slot = spoiler
+texture = paint_gloss.png
+tint = 0.045 0.045 0.05
+
+[finish:s_pearl]
+name = Pearl White
+slot = spoiler
+texture = paint_gloss.png
+tint = 0.96 0.95 0.92
+
+[finish:s_red]
+name = Race Red
+slot = spoiler
+texture = paint_gloss.png
+tint = 0.72 0.04 0.05
+
+[finish:s_blue]
+name = Racing Blue
+slot = spoiler
+texture = paint_gloss.png
+tint = 0.05 0.16 0.62
+
+[finish:s_orange]
+name = Candy Orange
+slot = spoiler
+texture = paint_gloss.png
+tint = 0.95 0.30 0.03
+
+[finish:s_primer]
+name = Primer Grey
+slot = spoiler
+texture = paint_gloss.png
+tint = 0.40 0.41 0.43
+
+[finish:s_twill]
+name = Twill Carbon
+slot = spoiler
+texture = carbon_twill.png
+
+[finish:s_forged]
+name = Forged Carbon
+slot = spoiler
+texture = carbon_forged.png
+
+[finish:s_bluecarbon]
+name = Blue Carbon
+slot = spoiler
+texture = carbon_twill.png
+tint = 0.45 0.85 2.6
+
+[finish:s_goldcarbon]
+name = Gold Carbon
+slot = spoiler
+texture = carbon_twill.png
+tint = 2.4 1.55 0.55
+
+# Pop flames (session 56): the fire a tuner exhaust spits with each pop, on a
+# throttle lift at revs, on shifts and in the overrun crackle. Only a fitted
+# exhaust part that has `tip =` lines spits (the stock pipe does not). The
+# garage's "Pop flames" row cycles Off and these (saved as exhaust_flames);
+# the first block is the default. core = the hot centre, body = the edge.
+[flame:orange]
+name = Classic Orange
+core = 1.0 0.93 0.62
+body = 1.0 0.46 0.08
+
+[flame:blue]
+name = Blue (LPG)
+core = 0.82 0.92 1.0
+body = 0.18 0.42 1.0
+
+[flame:violet]
+name = Violet
+core = 0.95 0.82 1.0
+body = 0.62 0.2 1.0
+
+[flame:green]
+name = Toxic Green
+core = 0.9 1.0 0.7
+body = 0.25 0.95 0.2
+
+[flame:white]
+name = Magnesium White
+core = 1.0 1.0 1.0
+body = 0.85 0.9 1.0
 
 [car:GTR]
 slots = spoiler, exhaust

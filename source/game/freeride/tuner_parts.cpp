@@ -75,8 +75,9 @@ bool TunerParts::load() {
     std::string block; // "part" / "finish" / "car", and the id after the ':'
     TunerPart part;
     TunerFinish finish;
+    TunerFlame flame;
     TunerCar car;
-    bool bInPart = false, bInFinish = false, bInCar = false;
+    bool bInPart = false, bInFinish = false, bInCar = false, bInFlame = false;
     auto flush = [&]() {
         if ( bInPart && !part.Id.empty() && !part.Mesh.empty() ) {
             parts.push_back( part );
@@ -84,13 +85,17 @@ bool TunerParts::load() {
         if ( bInFinish && !finish.Id.empty() && !finish.Texture.empty() ) {
             finishes.push_back( finish );
         }
+        if ( bInFlame && !flame.Id.empty() ) {
+            flames.push_back( flame );
+        }
         if ( bInCar && !car.FileName.empty() && !car.Slots.empty() ) {
             cars.push_back( car );
         }
         part = TunerPart();
         finish = TunerFinish();
+        flame = TunerFlame();
         car = TunerCar();
-        bInPart = bInFinish = bInCar = false;
+        bInPart = bInFinish = bInCar = bInFlame = false;
     };
     size_t pos = 0;
     while ( pos <= text.size() ) {
@@ -98,7 +103,13 @@ bool TunerParts::load() {
         if ( end == std::string::npos ) {
             end = text.size();
         }
-        std::string line = Trim( text.substr( pos, end - pos ) );
+        std::string line = text.substr( pos, end - pos );
+        // A CRLF checkout (core.autocrlf) leaves a '\r' that Trim keeps: it
+        // ended up in `mesh = wing_gt.obj` and the OBJ was never found.
+        while ( !line.empty() && ( line.back() == '\r' || line.back() == '\n' ) ) {
+            line.pop_back();
+        }
+        line = Trim( line );
         pos = end + 1;
         if ( pos > text.size() ) {
             break;
@@ -125,6 +136,10 @@ bool TunerParts::load() {
                     finish = TunerFinish();
                     finish.Id = ToLower( id );
                     bInFinish = true;
+                } else if ( block == "flame" ) {
+                    flame = TunerFlame();
+                    flame.Id = ToLower( id );
+                    bInFlame = true;
                 } else if ( block == "car" ) {
                     car = TunerCar();
                     car.FileName = id;
@@ -154,6 +169,11 @@ bool TunerParts::load() {
                 part.Node = value;
             } else if ( key == "align" ) {
                 part.Align = ToLower( value );
+            } else if ( key == "tip" ) {
+                Vector3f tip;
+                if ( ParseVector3( value, tip ) ) {
+                    part.Tips.push_back( tip );
+                }
             }
         } else if ( bInFinish ) {
             if ( key == "name" ) {
@@ -162,6 +182,18 @@ bool TunerParts::load() {
                 finish.Texture = value;
             } else if ( key == "tint" ) {
                 ParseVector3( value, finish.Tint );
+            } else if ( key == "slot" ) {
+                finish.Slot = ToLower( value );
+            } else if ( key == "paint" ) {
+                finish.bBodyPaint = ToLower( value ) == "body";
+            }
+        } else if ( bInFlame ) {
+            if ( key == "name" ) {
+                flame.Name = value;
+            } else if ( key == "core" ) {
+                ParseVector3( value, flame.Core );
+            } else if ( key == "body" ) {
+                ParseVector3( value, flame.Body );
             }
         } else if ( bInCar ) {
             if ( key == "slots" ) {
@@ -229,8 +261,10 @@ bool TunerParts::load() {
     }
     flush();
     bLoaded = true;
-    OTDU_LOG_INFO( "Tuner: %zu parts, %zu finishes, %zu tuner cars ('%s'%s)\n",
-                   parts.size(), finishes.size(), cars.size(), kTunerFile,
+    OTDU_LOG_INFO( "Tuner: %zu parts, %zu finishes, %zu flame styles, %zu "
+                   "tuner cars ('%s'%s)\n",
+                   parts.size(), finishes.size(), flames.size(), cars.size(),
+                   kTunerFile,
                    CmdLine::HasArg( "-logtuner" ) ? ", -logtuner" : "" );
     for ( const TunerCar &entry : cars ) {
         OTDU_LOG_INFO( "Tuner: car '%s' (slots: %s)\n", entry.FileName.c_str(),
@@ -302,50 +336,159 @@ const TunerFinish *TunerParts::findFinish( const std::string &id ) const {
     return nullptr;
 }
 
-GPUTexture *TunerParts::finishTexture( const TunerFinish &finish ) {
-    const auto cached = finishTextures.find( finish.Id );
+static std::string FinishCacheKey( const TunerFinish &finish,
+                                   uint32_t bodyColour ) {
+    char key[64];
+    if ( finish.bBodyPaint ) {
+        snprintf( key, sizeof( key ), "%s#%08x", finish.Id.c_str(),
+                  bodyColour );
+        return key;
+    }
+    return finish.Id;
+}
+
+bool TunerParts::finishPixels( const TunerFinish &finish,
+                               uint32_t bodyColour,
+                               std::vector<uint8_t> &pixels,
+                               uint32_t &width,
+                               uint32_t &height ) const {
+    const std::string texturePath = std::string( kPartsFolder ) + finish.Texture;
+    auto resolved = gpFile->resolvePath( texturePath.c_str() );
+    if ( !resolved || !LoadImageFileRGBA( *resolved, pixels, width, height ) ||
+         width == 0 || height == 0 ) {
+        return false;
+    }
+    // The tint is baked into the pixels: any colour is a data row (gold is
+    // chrome.png with a tint = ), no shader or texture change needed. A
+    // `paint = body` finish multiplies the car's own paint colour in.
+    Vector3f tint = finish.Tint;
+    if ( finish.bBodyPaint ) {
+        tint = Vector3f( static_cast<float>( bodyColour & 0xff ) / 255.0f,
+                         static_cast<float>( ( bodyColour >> 8 ) & 0xff ) / 255.0f,
+                         static_cast<float>( ( bodyColour >> 16 ) & 0xff ) / 255.0f );
+    }
+    if ( tint.x != 1.0f || tint.y != 1.0f || tint.z != 1.0f ) {
+        for ( size_t i = 0; i + 3 < pixels.size(); i += 4 ) {
+            pixels[i + 0] = static_cast<uint8_t>(
+                Min( 255.0f, static_cast<float>( pixels[i + 0] ) * tint.x ) );
+            pixels[i + 1] = static_cast<uint8_t>(
+                Min( 255.0f, static_cast<float>( pixels[i + 1] ) * tint.y ) );
+            pixels[i + 2] = static_cast<uint8_t>(
+                Min( 255.0f, static_cast<float>( pixels[i + 2] ) * tint.z ) );
+        }
+    }
+    return true;
+}
+
+GPUTexture *TunerParts::finishTexture( const TunerFinish &finish,
+                                       uint32_t bodyColour ) {
+    const std::string cacheKey = FinishCacheKey( finish, bodyColour );
+    const auto cached = finishTextures.find( cacheKey );
     if ( cached != finishTextures.end() ) {
         return cached->second;
     }
     if ( gpRender == nullptr ) {
         return nullptr; // no renderer yet: the caller retries (drawOffscreen)
     }
-    const std::string texturePath = std::string( kPartsFolder ) + finish.Texture;
-    auto resolved = gpFile->resolvePath( texturePath.c_str() );
     std::vector<uint8_t> pixels;
     uint32_t width = 0, height = 0;
-    if ( !resolved || !LoadImageFileRGBA( *resolved, pixels, width, height ) ||
-         width == 0 || height == 0 ) {
-        OTDU_LOG_WARN( "Tuner: finish '%s': '%s' is not readable\n",
-                       finish.Id.c_str(), texturePath.c_str() );
-        finishTextures[finish.Id] = nullptr;
+    if ( !finishPixels( finish, bodyColour, pixels, width, height ) ) {
+        OTDU_LOG_WARN( "Tuner: finish '%s': '%s%s' is not readable\n",
+                       finish.Id.c_str(), kPartsFolder, finish.Texture.c_str() );
+        finishTextures[cacheKey] = nullptr;
         return nullptr;
-    }
-    // The tint is baked into the pixels: any colour is a data row (gold is
-    // chrome.png with a tint = ), no shader or texture change needed.
-    if ( finish.Tint.x != 1.0f || finish.Tint.y != 1.0f || finish.Tint.z != 1.0f ) {
-        for ( size_t i = 0; i + 3 < pixels.size(); i += 4 ) {
-            pixels[i + 0] = static_cast<uint8_t>(
-                Min( 255.0f, static_cast<float>( pixels[i + 0] ) * finish.Tint.x ) );
-            pixels[i + 1] = static_cast<uint8_t>(
-                Min( 255.0f, static_cast<float>( pixels[i + 1] ) * finish.Tint.y ) );
-            pixels[i + 2] = static_cast<uint8_t>(
-                Min( 255.0f, static_cast<float>( pixels[i + 2] ) * finish.Tint.z ) );
-        }
     }
     // Named per finish (not per texture) so two finishes on one base PNG stay
     // distinct in the texture cache.
     GPUTexture *pTexture = gpRender->getTextureCache().createFromRGBA(
         width, height, pixels.data(),
-        ( std::string( "tuner_finish_" ) + finish.Id ).c_str() );
-    finishTextures[finish.Id] = pTexture;
-    OTDU_LOG_INFO( "Tuner: finish '%s' ('%s'%s) loaded\n", finish.Id.c_str(),
-                   texturePath.c_str(),
-                   finish.Tint.x != 1.0f || finish.Tint.y != 1.0f ||
-                           finish.Tint.z != 1.0f
-                       ? ", tinted"
-                       : "" );
+        ( std::string( "tuner_finish_" ) + cacheKey ).c_str() );
+    finishTextures[cacheKey] = pTexture;
+    OTDU_LOG_INFO( "Tuner: finish '%s' ('%s%s'%s) loaded\n", cacheKey.c_str(),
+                   kPartsFolder, finish.Texture.c_str(),
+                   finish.bBodyPaint ? ", body paint"
+                                     : ( finish.Tint.x != 1.0f ||
+                                                 finish.Tint.y != 1.0f ||
+                                                 finish.Tint.z != 1.0f
+                                             ? ", tinted"
+                                             : "" ) );
     return pTexture;
+}
+
+std::vector<const TunerFinish *>
+TunerParts::finishesForSlot( const char *pSlot ) const {
+    const_cast<TunerParts *>( this )->load();
+    std::vector<const TunerFinish *> out;
+    for ( const TunerFinish &finish : finishes ) {
+        if ( StringCmpI( finish.Slot.c_str(), pSlot ) == 0 ) {
+            out.push_back( &finish );
+        }
+    }
+    return out;
+}
+
+std::string TunerParts::finishKey( const char *pSlot ) {
+    return std::string( pSlot ) + "_finish";
+}
+
+Vector3f TunerParts::finishSwatch( const TunerFinish &finish,
+                                   uint32_t bodyColour ) const {
+    std::vector<uint8_t> pixels;
+    uint32_t width = 0, height = 0;
+    if ( !finishPixels( finish, bodyColour, pixels, width, height ) ) {
+        return Vector3f( 0.5f, 0.5f, 0.5f );
+    }
+    double r = 0.0, g = 0.0, b = 0.0;
+    size_t count = 0;
+    for ( size_t i = 0; i + 3 < pixels.size(); i += 4 ) {
+        r += pixels[i + 0];
+        g += pixels[i + 1];
+        b += pixels[i + 2];
+        count++;
+    }
+    if ( count == 0 ) {
+        return Vector3f( 0.5f, 0.5f, 0.5f );
+    }
+    const double scale = 1.0 / ( 255.0 * static_cast<double>( count ) );
+    return Vector3f( static_cast<float>( r * scale ),
+                     static_cast<float>( g * scale ),
+                     static_cast<float>( b * scale ) );
+}
+
+const TunerFlame *TunerParts::findFlame( const std::string &id ) const {
+    const_cast<TunerParts *>( this )->load();
+    for ( const TunerFlame &flame : flames ) {
+        if ( StringCmpI( flame.Id.c_str(), id.c_str() ) == 0 ) {
+            return &flame;
+        }
+    }
+    return nullptr;
+}
+
+const TunerPart *TunerParts::exhaustFor(
+    const std::map<std::string, std::string> &saved ) const {
+    const auto exhaust = saved.find( "exhaust" );
+    if ( exhaust == saved.end() || exhaust->second.empty() ) {
+        return nullptr;
+    }
+    return findPart( exhaust->second );
+}
+
+const TunerFlame *TunerParts::flameFor(
+    const std::map<std::string, std::string> &saved ) const {
+    const TunerPart *pExhaust = exhaustFor( saved );
+    if ( pExhaust == nullptr || pExhaust->Tips.empty() || flames.empty() ) {
+        return nullptr;
+    }
+    const auto style = saved.find( "exhaust_flames" );
+    if ( style == saved.end() || style->second.empty() ) {
+        return &flames.front();
+    }
+    if ( StringCmpI( style->second.c_str(), "off" ) == 0 ) {
+        return nullptr;
+    }
+    const TunerFlame *pFlame = findFlame( style->second );
+    return pFlame != nullptr ? pFlame : &flames.front();
 }
 
 Vector3f TunerParts::offsetFor( int32_t carId, const TunerPart &part ) const {
@@ -500,21 +643,20 @@ void TunerParts::applySaved( CinematicCar &car,
     size_t slotCount = 0;
     const char *const *pSlots = slotNames( slotCount );
     const TunerCar *pCar = findCar( carId );
-    // The tip finish rides in the same map (exhaust_finish = <finish id>); a
-    // finish the catalog lost is skipped like an unknown part id.
-    const auto finishKey = saved.find( "exhaust_finish" );
-    const char *pFinishId = finishKey != saved.end() && !finishKey->second.empty()
-                                ? finishKey->second.c_str()
-                                : nullptr;
     for ( size_t i = 0; i < slotCount && pCar != nullptr; i++ ) {
         const auto found = saved.find( pSlots[i] );
         if ( found == saved.end() || found->second.empty() ) {
             continue;
         }
         if ( const TunerPart *pPart = findPart( found->second ) ) {
+            // The slot's finish rides in the same map (<slot>_finish = <finish
+            // id>); a finish the catalog lost is skipped like an unknown part.
+            const auto finishKeyFound = saved.find( finishKey( pSlots[i] ) );
             applyPart( car, carId, pSlots[i], pPart,
-                       StringCmpI( pSlots[i], "exhaust" ) == 0 ? pFinishId
-                                                               : nullptr );
+                       finishKeyFound != saved.end() &&
+                               !finishKeyFound->second.empty()
+                           ? finishKeyFound->second.c_str()
+                           : nullptr );
         } else {
             OTDU_LOG_INFO( "Tuner: part '%s' (%s) is not in the catalog (kept "
                            "as data, not drawn)\n",
@@ -537,7 +679,7 @@ void TunerParts::applyFinish( CinematicCar &car,
                            "data, not drawn)\n", pFinishId );
             return;
         }
-        pTexture = finishTexture( *pFinish );
+        pTexture = finishTexture( *pFinish, car.getBodyPaintColour() );
         if ( pTexture == nullptr ) {
             return;
         }
@@ -606,6 +748,7 @@ void TunerParts::applyPart( CinematicCar &car,
     car.setTunerAttachment( pSlot, found->second.front().Mesh,
                             found->second.front().Material, pPart->Node.c_str(),
                             Matrix4x4f::Translation( offset ) );
+    car.setTunerAttachmentTips( pSlot, pPart->Tips );
     // The tip finish lands on the attachment's own material copy (per car),
     // so two cars can wear one mesh in different looks.
     applyFinish( car, pSlot, pFinishId );
