@@ -2068,6 +2068,13 @@ void GMShop::showSellStats() {
     if ( shown.PhysicsRow >= 0 ) {
         fillCarVariables( shown );
         scene.getUi().invoke( "/car_datas/datas_base", "SetDatas", {} );
+        if ( hoveredCar >= 0 ) {
+            // The top-left price stays the dealer car's, not the sell value of the row.
+            const std::string price = formatMoney( cars[static_cast<size_t>( hoveredCar )].Price );
+            for ( const char *pVar : { "/:CurrentPrice", "/:TotalPrice", "/:current_price", "/:TotalPriceStr" } ) {
+                scene.getUi().setVariable( pVar, price );
+            }
+        }
     }
 }
 
