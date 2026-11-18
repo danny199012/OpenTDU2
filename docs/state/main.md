@@ -14,6 +14,30 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (60, `main`): TDUSC Huracan - the model container is read, the vertex blob is DirectStorage GDeflate
+
+The owner: "Decode a car (Huracan)". Spec section 7 of `docs/re/tdusc_pkg_format.md`; reader `tools/tdusc/tdusc_read.py`.
+
+### What changed
+- `tools/tdusc/tdusc_read.py` (ls / info / strings / export by game path; `export` writes only into a folder the owner names).
+- `docs/re/tdusc_pkg_format.md` sections 7-8.
+
+### Verified
+- `GRAPH\CARS\LAMBORGHINI\HURACAN` = 194 files; `PSI` lists mesh -> material paths; `P3D` plain section lists per-mesh bounding
+  boxes, vertex formats (`TANBNORMPOS_UV0_UV1_`: vtan 4 B, vnor 8 B, vpos 12 B, vuvs 8 B), node names and a collision hull.
+- The blob header is GDeflate: id 4 / magic 0xfb / tiles / 64 KiB tiles / cumulative tile ends; decompressed size matches the main
+  header on 13/13 files (e.g. W_R_03 = 3 x 65536 + 9884 = 206,492).
+
+### Ruled out
+- raw deflate, zlib, gzip, LZ4 block, zstd (+ magicless), brotli, lzma raw, bz2 on the blob: all fail.
+- DirectStorage via ctypes (`DStorageCreateCompressionCodec(1, ...)`) -> `E_NOTIMPL`: my guessed interface id (or the call) is wrong;
+  11,019 GUID-like constants in the DLLs scanned, none accepted.
+
+### Not done / next
+- **A GDeflate CPU decoder** (Microsoft publishes the format and a reference decoder; needs fetching or writing), then: split the decoded
+  blob by the stream offsets, build an OBJ of the Huracan LR body, view it in Blender, then HR / wheels, `PMA` + `PTX` for the look.
+- `PTX` -> DDS, the PMA parameter layout, PWS compression.
+
 ## Session 2026-11-18 (59, `main`): TDUSC .PKG format - records decode AND the name table is solved: 154,623 named files
 
 The owner installed TDUSC from Steam and asked to "dig through the game ... mod pack ... clothes, cars, islands,

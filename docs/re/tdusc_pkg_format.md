@@ -90,3 +90,34 @@ brand folders: AC ... WMOTORS, incl. **LAMBORGHINI**: Centenario, Diablo VT, Hur
 * "The PKGs are AES-encrypted": no, record payloads are plain LZ4 / raw texture data. The first sample was the
   masked TOC and a fill gap, not the content.
 * A single XOR key over the WHOLE file: only the name table is masked, the records are not. (A 160-byte self-similarity peak was a multiple of the real 32-byte period, found later from the repeating `oL7bFfNR` cells.)
+
+## 7. A car model: `P3D` / `PSI` / `PMA` (Huracan, session 58) [DATA]
+
+`GRAPH\CARS\LAMBORGHINI\HURACAN` is 194 files: 13 `MESH\*.P3D` (LODs `UHR` / `HR` / `MR` / `LR`, the interior `_I_` set, six wheel
+meshes `W_F_nn` / `W_R_nn`), 20 `PSI`, 92 `PMA\*` materials, 53 `TEXTURES\*.PTX`, 17 `ANIMATIONS\*.PAN` (doors, wipers, aero,
+pilot poses). `P3D` and `PTX` are **stored** (`kind 0`); `PSI`, `PMA`, `PAN` are LZ4 frames.
+
+* **`PSI`** = RIFF `PA__` with a `SCENINST` head: a plain table of `DATA:/GRAPH/CARS/.../MESH/<x>.P3D` followed by
+  `DATA:/GRAPH/CARS/.../PMA/<set>/<material>.PMA` + a part name (`Body`, `GIBLOCKER`, ...): which mesh uses which materials.
+* **`P3D`** = `SCENE___` `ENDI` container (v3, platform `PC` 9). A plain section (1.7 - 15.7 KB for a car LOD) holds the scene: per
+  `MESH` a bounding box (min xyz, max xyz) + bounding sphere (10 floats), then one entry per part with the vertex format
+  string (`TANBNORMPOS_UV0_UV1_`, `COLOTANB...`), the vertex count, the streams `vtan` / `vnor` / `vpos` / `vuvs` (+ `vcol`) with
+  their byte offsets into the vertex blob (the Huracan LR body: 708 vertices, `vtan` at 0, `vnor` 0xb10, `vpos` 0x2130, `vuvs`
+  0x4260 => 4, 8, 12 and 8 bytes per vertex), then index counts; then the node names (`D_CAR`, `D_Exhaust_Flash_L/R`, `D_Wiper`,
+  `Fork_FL/RL`, `Engine`, `Convex_$PHYS_$CBLOCK_$CCAM_01` = the collision hull ...).
+* **The vertex / index blob is DirectStorage GDeflate** (file offset = main header word 13): `u8 id = 4`, `u8 magic = 0xfb (id ^ 0xff)`,
+  `u16 numTiles`, `u32 { tileSizeIdx : 2, lastTileSize : 18, reserved }` (tiles are 64 KiB), then `u32 tileEnd[numTiles]`
+  (cumulative compressed end offsets), then the tile data. Uncompressed size = `(numTiles-1) * 65536 + lastTileSize` and
+  equals main header word 18 (Huracan LR: 46,272; wheel W_R_03: 206,492 = 3 x 64 KiB + 9,884). Verified on 13 files.
+  GDeflate is **not** plain deflate (raw deflate / zlib / LZ4 / zstd / brotli / lzma were all tried and fail); it is Microsoft's
+  published GPU-friendly deflate (32 interleaved bitstreams per tile), so a CPU decoder is a well-defined job.
+  `dstorage.dll` + `dstoragecore.dll` ship in the TDUSC folder; calling `DStorageCreateCompressionCodec(GDEFLATE, ...)` through
+  ctypes returned `E_NOTIMPL` with my guessed interface id, so that route is open but unproven.
+
+`tools/tdusc/tdusc_read.py` (`ls` / `info` / `strings` / `export`) reads any entry by its game path.
+
+## 8. Ruled out (model blob)
+
+* The executable's strings say nothing (it is packed: no `PKGB` / `SCENE___` literal); not pursued.
+* A second 32-byte text key on the blob: an artefact of overlapping hexdumps, not a mask.
+
