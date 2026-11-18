@@ -26,11 +26,16 @@ struct D3D12ShaderStage;
 // The root signature (one for every program, because the compiler remaps every
 // shader into this convention - see d3d12_shader.h):
 //
-//   0  CBV          b0        vertex stage constants (unused yet)
-//   1  CBV          b0        pixel stage constants (unused yet)
-//   2  32-bit const b13 space1  the D3D9 push constants (render state)
-//   3  SRV table    t0..t15   the material's textures
-//   4  sampler table s0..s15  the D3D9 sampler set (render/sampler_heap.h)
+//   0..3   CBV          b0..b3     vertex stage constant buffers
+//   4..7   CBV          b0..b3     pixel stage constant buffers
+//   8      32-bit const b13 space1 the D3D9 push constants (render state)
+//   9      SRV table    t0..t15    the material's textures
+//   10     sampler table s0..s15   the D3D9 sampler set (render/sampler_heap.h)
+//
+// A stage's cbuffers are numbered b0..bN in SPIR-V order by the compiler; four
+// per stage covers the widest .sob stage measured (-d3d12-shadertest). They are
+// filled per draw from a host visible ring - a root CBV is a GPU address - see
+// draw() and uploadConstants().
 //
 // The samplers are a descriptor table, not static samplers: DXSO hands every
 // Eden shader a *runtime* sampler array (`sampler_heap[] : register(s0, space0)`)
@@ -39,7 +44,9 @@ struct D3D12ShaderStage;
 // same entries, in the same order, as EdenRenderer's Vulkan sampler set, so a
 // material samples the same texels on both backends.
 //
-// Everything else is per pipeline state: blend, cull, depth, the vertex layout.
+// Everything else is per pipeline state: blend, cull, depth, the vertex layout -
+// and, for a D3D9 material, its own blend factors, write mask, depth func and
+// cull mode (PipelineDesc::D3D9State, docs/backends.md section 3.7).
 class D3D12Scene {
 public:
     // One vertex attribute, as the mesh declares it: the SPIR-V location the
@@ -51,6 +58,42 @@ public:
         uint32_t Stream = 0;
         uint32_t Format = 0; // DXGI_FORMAT
         uint32_t Offset = 0;
+    };
+
+    // How many constant buffers one stage binds per draw: the compiler remaps a
+    // stage's cbuffers into b0..bN in SPIR-V order (d3d12_shader.h), and the
+    // widest .sob stage measured by -d3d12-shadertest has three (the D3D9
+    // constant file, spec_state_t, clip_info_t). Four leaves that plus one.
+    static constexpr uint32_t kMaxConstantBuffers = 4;
+
+    // One stage's constant buffers for a draw (b0..b3). Eden fills them from its
+    // D3D9 constant files (EdenRenderer::fillConstants); a shader that declares
+    // no cbuffer - the built-in mesh pair - passes nullptr and reads zeros.
+    struct StageConstants {
+        const void *pData[kMaxConstantBuffers] = {};
+        uint32_t Sizes[kMaxConstantBuffers] = {};
+    };
+
+    // D3D9 pipeline state in the D3D9 enumeration values EdenMaterial stores
+    // (MAT. render states +0x30), so a material's values pass through unchanged.
+    // Passing one replaces Blend / Cull / bDepthTest: a D3D9 material cannot
+    // always be expressed as the four eBlendMode cases (SRCCOLOR / INVDESTCOLOR,
+    // subtract, MIN / MAX, a write mask, a depth func).
+    //
+    // The blend factor and the alpha test are *not* pipeline state on D3D12: the
+    // factor is dynamic state (OMSetBlendFactor, draw()'s blendFactor argument)
+    // and the alpha test is a `discard` DXSO already emits, driven by the spec
+    // constant block (b2) and the push constant alpha reference - so neither is
+    // part of the pipeline cache key.
+    struct D3D9State {
+        uint8_t SrcBlend = 2;         // D3DBLEND_ONE
+        uint8_t DstBlend = 1;         // D3DBLEND_ZERO
+        uint8_t BlendOp = 1;          // D3DBLENDOP_ADD
+        uint8_t DepthFunc = 0;        // D3DCMPFUNC, 0: LESSEQUAL (EdenMaterial's default)
+        uint8_t ColorWriteMask = 0xf; // D3DCOLORWRITEENABLE bits (R 1, G 2, B 4, A 8)
+        uint8_t CullMode = 3;         // D3DCULL (1 none, 2 CW, 3 CCW, 4 two-sided)
+        bool bMirrored = false;       // negative determinant / cube face: swaps 2 and 4
+        bool isBlended() const { return !( SrcBlend == 2 && DstBlend == 1 ); }
     };
 
     struct PipelineDesc {
@@ -65,6 +108,10 @@ public:
         bool bDepthTest = true;
         bool bDepthWrite = true;
         bool bFrontFaceCW = false;
+        // D3D9 material state; when set, SrcBlend / DstBlend / BlendOp,
+        // ColorWriteMask, DepthFunc and CullMode replace Blend / Cull above
+        // (bDepthTest / bDepthWrite still apply).
+        const D3D9State *pState = nullptr;
     };
 
     // An uploaded mesh: vertex + index buffer live in an upload heap for the
@@ -125,12 +172,23 @@ public:
     // Both descriptor heaps (the SRV table and the sampler heap) are made the
     // command list's set here, because a descriptor table is only valid while
     // its heap is bound.
+    //
+    // 'pVSConstants' / 'pPSConstants' are the stages' b0..b3 blocks (Eden's
+    // constant files, an engine shader's cbuffers). They are copied into the
+    // frame slot's upload ring here - a root CBV needs a GPU virtual address and
+    // the caller's bytes are CPU side and may be overwritten right after the
+    // call - so the ring, not the caller, decides the address. A null or empty
+    // entry binds the zero block. 'blendFactor' is D3D12's dynamic blend factor
+    // (D3DBLENDFACTOR / D3DBLEND_INVBLENDFACTOR).
     void draw( const void *pPipeline,
                const Mesh &mesh,
                const void *pConstants,
                uint32_t constantsBytes,
                const uint64_t *pTextureSrvs,
-               uint32_t numTextures );
+               uint32_t numTextures,
+               const StageConstants *pVSConstants = nullptr,
+               const StageConstants *pPSConstants = nullptr,
+               float blendFactor = 1.0f );
 
     // -d3d12-dump-shaders <dir>: the HLSL of every pipeline the scene builds,
     // so a black draw can be read instead of guessed at.
@@ -141,6 +199,19 @@ private:
     // The table heap: a bump allocator over shader-visible SRV descriptors,
     // reset when the frame slot changes (the slot's fence has retired it).
     static constexpr uint32_t kTableDescriptors = 4096;
+    // The constant ring, one upload buffer per frame slot: every draw copies its
+    // b0..b3 blocks into it and points the root CBVs at the copy. Sized for a
+    // full Eden frame - a VS + PS constant file pair is ~8 KB per draw once
+    // aligned, so 64 MB is ~7600 draws, and the ring resets when the slot's fence
+    // has passed. An overflow is logged once per frame and the draw keeps the
+    // zero block (a measurable frame is better than a corrupted ring).
+    static constexpr uint64_t kConstantRingBytes = 64ull * 1024ull * 1024ull;
+    // A root CBV cannot be null, and the alignment D3D12 requires for a constant
+    // buffer view's offset.
+    static constexpr uint64_t kConstantAlignment = 256;
+    // D3D12's cbuffer limit (the debug layer rejects a view whose shader reads
+    // past 64 KB).
+    static constexpr uint32_t kMaxConstantBytes = 64 * 1024;
 
     D3D12Device *pDevice = nullptr;
     void *pRootSignature = nullptr;
@@ -155,14 +226,34 @@ private:
     // reads out of the push constants, exactly like the Vulkan sampler set.
     void *pSamplerHeap = nullptr;
     uint64_t samplerHeapGpuStart = 0;
+    // The constant ring: two mapped upload buffers (one per frame slot), the
+    // bump cursor of each, and the zero block a draw binds for a cbuffer it
+    // does not fill. One ring per D3D12Device::kFramesInFlight slot - the same
+    // count as D3D12UI::kFrameSlots, kept locally so this header needs no
+    // d3d12_device.h.
+    static constexpr uint32_t kFrameSlots = 2;
+    void *pConstantRing[kFrameSlots] = {};
+    void *pConstantRingMapped[kFrameSlots] = {};
+    uint64_t constantRingCursor[kFrameSlots] = {};
+    // The device frame number the slot's cursor was reset for: D3D12Device::
+    // beginFrame has waited the slot's fence, so a new frame means the range is
+    // free again.
+    uint64_t constantRingFrame[kFrameSlots] = {};
+    void *pZeroConstants = nullptr;
+    uint64_t zeroConstantsGpu = 0;
+    bool bConstantOverflowReported = false;
     std::unordered_map<std::string, void *> pipelines;
     std::string shaderDumpDir;
     uint32_t dumpedShaders = 0;
 
     bool createRootSignature();
     bool createSamplerHeap();
+    bool createConstantRing();
     // Reserves 'count' contiguous descriptors and returns their base index.
     uint32_t allocateTable( uint32_t count );
+    // Copies one stage's blocks into the frame slot's ring; outGpu[i] is the
+    // address to bind at b<i> (the zero block when the entry is empty).
+    void uploadConstants( const StageConstants *pStage, uint64_t *outGpu );
     void dumpShader( const char *pName, const D3D12ShaderStage &stage );
 };
 
@@ -182,6 +273,18 @@ bool D3D12RunSceneTest( D3D12Device &device, uint32_t frames, const ColorRGBA &c
 // if the index is not reaching the sampler. Returns false on a device loss or
 // when the measured colours do not differ.
 bool D3D12RunSamplerTest( D3D12Device &device, uint32_t frames, const ColorRGBA &clearColor );
+
+// -d3d12-constest: the other half of the draw an Eden material makes - its
+// *constant buffers* (docs/backends.md section 3.7). b0 and b1 of the vertex
+// stage carry a projection and a per-draw offset, b0 and b2 of the pixel stage a
+// tint and a scale; two quads are drawn with the same pipeline and different
+// blocks, and the frame is read back. The halves can only differ if every one of
+// those slots reaches its stage (an ignored b1 puts both quads in the same place,
+// an ignored b2 leaves the right half at full brightness). The same frame also
+// measures the D3D9 state path: a third quad is drawn with SRC_ALPHA /
+// INV_SRC_ALPHA over the first, so a blend state that never reached the pipeline
+// shows as an unwritten pixel.
+bool D3D12RunConstTest( D3D12Device &device, uint32_t frames, const ColorRGBA &clearColor );
 
 // -d3d12-shadertest: the measurement that sizes the Eden port (docs/backends.md
 // section 3.5). Every vertex and pixel stage of every .sob library in

@@ -16,6 +16,119 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-18 (ninety-sixth, `cline`): the Direct3D 12 constant buffers and the D3D9 material state - `-d3d12-constest` reads back the exact arithmetic on the RTX 5070 Ti and on WARP
+
+Continuation of the entry below on *"please continue with Direct X 12 support
+thanks"*: phase 3b **step 1d**. The last entry ended with "step 2 proper: hand
+`EdenRenderer`'s `PipelineDesc` to `D3D12Scene::getPipeline`", but an Eden draw
+also needs two things `D3D12Scene` could not do yet, and they are cheap to prove
+before touching the renderer: the stage **constant buffers** (its root signature
+declared `b0` per stage and never bound it, while a real `.sob` stage reads
+`b0..b2` - the D3D9 constant file, `spec_state_t`, `clip_info_t`) and
+**`EdenMaterial`'s D3D9 pipeline state** (blend factors / op, write mask, depth
+func, `D3DCULL`), which `PipelineDesc`'s four `eBlendMode` cases cannot express
+(`docs/backends.md` 3.7, 4, 6).
+
+### What changed
+
+- `source/render/d3d12/d3d12_scene.{h,cpp}` - the root signature grew from 5 to
+  **11 parameters**: four CBVs per stage (`b0..b3` vertex and pixel), the b13
+  space1 root constants, the t0..t15 texture table and the s0..s15 sampler table.
+  `StageConstants` (`pData[4]` / `Sizes[4]`) is the per-stage block set a draw
+  passes; `draw()` grew `pVSConstants` / `pPSConstants` (defaults: nullptr) and a
+  `blendFactor`.
+- `source/render/d3d12/d3d12_scene.cpp` - **`createConstantRing()`**: one mapped
+  UPLOAD buffer per frame slot (64 MB, so ~7600 Eden draws a frame) plus a 4 KB
+  zero block; **`uploadConstants()`** copies a stage's blocks 256-byte aligned
+  (what a root CBV's location requires), resets the cursor when the slot's frame
+  number changes (`beginFrame` has waited that fence), and binds the zero block
+  for a register the shader does not fill (a root CBV cannot be null). An
+  overflow is one warning per frame, and the draws from there read zeros instead
+  of a corrupted ring.
+- `source/render/d3d12/d3d12_scene.{h,cpp}` - **`PipelineDesc::D3D9State`**:
+  `SrcBlend` / `DstBlend` / `BlendOp` / `DepthFunc` / `ColorWriteMask` /
+  `CullMode` / `bMirrored`, in D3D9 enumeration values so `EdenMaterial`'s fields
+  pass through unchanged. New `ToD3D12Blend` / `ToD3D12BlendOp` /
+  `ToD3D12Comparison` tables, and the cull rules mirror
+  `EdenRenderer::getPipeline` (3 -> 1 two-sided, 2 = front-face cull, 4 = normal
+  back-face cull, 2 <-> 4 when mirrored). The PSO key includes every one of those
+  fields; the blend factor is **not** in the key - it is `OMSetBlendFactor`,
+  dynamic state, set per draw.
+- `source/render/d3d12/d3d12_scene.cpp` - **`-d3d12-constest`**
+  (`D3D12RunConstTest`): a hand-written HLSL pair with two cbuffers per stage (VS
+  b0 scale + b1 offset, PS b0 tint + b2 scale multiplier, **PS b1 deliberately
+  never written**) and three draws - red on the left, green * 0.5 on the right,
+  then blue at alpha 0.5 over the left with `SRC_ALPHA` / `INV_SRC_ALPHA`. The
+  frame is read back (`D3D12Device::requestReadback`) and the halves' means
+  compared with what the arithmetic says.
+- `source/render/d3d12/d3d12_device.cpp` - `-d3d12-constest` dispatched in
+  `D3D12RunSelfTest` ahead of `-d3d12-samplertest`.
+- `docs/backends.md` - status matrix row, the new flag, **section 3.7** (the
+  test, the numbers, WARP, what it rules out), section 4 (the D3D12 binding side
+  is complete for an Eden draw), section 5 (step 1d, and the next step), section
+  6 (two new traps: a root CBV is a GPU address, so per-draw constants go through
+  a ring; the blend factor and the alpha test are not PSO state - plus the cull
+  mapping spelled out).
+- `PROGRESS.md` - the D3D12 row.
+
+### Verified (build 223 (1c326db+dirty) - cline)
+
+```powershell
+# the constants and the state, hardware (debug layer on)
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-constest -d3d12-debug `
+    -renderer-selftest 60 -renderer-shot E:\Cline\_st_const.ppm -log E:\Cline\_st_const.log
+# ... and on the software adapter
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-constest -d3d12-warp -d3d12-debug `
+    -renderer-selftest 20 -log E:\Cline\_st_const_warp.log
+```
+
+```
+D3D12 constant test: 60 frame(s) of two quads on 'NVIDIA GeForce RTX 5070 Ti' (1280x720);
+  left mean 128.0/0.0/127.0 (373248 px), right mean 0.0/127.0/0.0 (373248 px)
+D3D12 constant test: PASSED (b0/b1/b2 reached both stages and SRC_ALPHA blending applied)
+```
+
+- The means are the arithmetic exactly: 0.5 red + 0.5 blue on the left, 0.5
+  green on the right. `373248` px per half is `576 x 648` - a 0.9-NDC quad of
+  each half of the frame - so the coverage check is exact.
+- WARP: `128.0/0.0/128.0` and `0.0/128.0/0.0`, same pixel counts. Debug layer
+  silent on both. So it is the API contract, not one driver's blend rounding.
+- **No regression**: `-d3d12-scenetest`'s PPM is byte-identical to the previous
+  build (`SHA256 E505B37F0063C775...C3F778CEB`), `-d3d12-samplertest` still reads
+  `135.0/40.0/135.0` vs `87.5/40.0/182.5` (dR/dB 47.5), and the Flash front end
+  still draws on D3D12 (17035 distinct colours, 54.80 % non-black; the earlier
+  17037 was the movie moment).
+
+### Ruled out (with the test that ruled it out)
+
+- **"the blocks are packed by order, so the pixel stage's b1 is what the shader
+  reads"** - no: its b1 is never written and its b2 is, and the right half's
+  green is 127, i.e. the 0.5 multiplier arrived from register 2. A block list
+  compacted into b0/b1 would have put it at b1 and the half would read 255.
+- **"one draw's constants leak into the next"** - three draws, one pipeline (two
+  with the blend), same frame, different blocks; the halves stay stable across
+  60 frames, which is what the per-slot ring cursor and the 256-byte alignment
+  buy (each block has its own range until the slot's fence has passed).
+- **"the D3D9 state is expressible as the four `eBlendMode` cases"** - the blended
+  quad needs `SRC_ALPHA` / `INV_SRC_ALPHA` with a source alpha of 0.5, which no
+  `eBlendMode` value carries next to an opaque pipeline in the same cache; the
+  measured 0.5 red + 0.5 blue is that state, applied.
+- **"the wider root signature changes the frames that already worked"** - the
+  scene test's PPM hashes identically and the sampler test's numbers are
+  unchanged, both re-run on the same build.
+
+### Next
+
+1. **Step 2 proper**: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
+   `PipelineDesc` (+ `D3D9State` filled from the `EdenMaterial` fields
+   `getPipeline` already keys on) handed to `D3D12Scene::getPipeline`;
+   `recordPacket`'s push constants and the three constant files to
+   `D3D12Scene::draw`; `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`) through
+   `D3D12ShaderCompiler`. Then the render targets / shadow / reflection passes
+   and the 3D game modes.
+2. Still open from before: the ImGui-on-NVIDIA stall (`-d3d12-ui`; WARP is fine)
+   and the flaky process teardown (section 6).
+
 ## Session 2026-11-17 (ninety-fifth, `cline`): the Direct3D 12 sampler heap - dynamic sampler indexing draws, measured on the RTX 5070 Ti and on WARP
 
 Continuation of the entry below on *"please continue with Direct X 12 support

@@ -977,7 +977,12 @@ bool D3D12RunSelfTest() {
         // A dark clear colour under the bars, so a black bar cannot be confused
         // with an uninitialised buffer.
         const ColorRGBA clearColor( 0.05f, 0.06f, 0.08f, 1.0f );
-        if ( CmdLine::HasArg( "-d3d12-samplertest" ) ) {
+        if ( CmdLine::HasArg( "-d3d12-constest" ) ) {
+            // The constant buffers b0..b3 and the D3D9 pipeline state
+            // (docs/backends.md section 3.7): the two things an Eden draw needs
+            // on top of the sampler heap.
+            bOk = D3D12RunConstTest( device, static_cast<uint32_t>( frames ), clearColor );
+        } else if ( CmdLine::HasArg( "-d3d12-samplertest" ) ) {
             // The sampler heap (docs/backends.md section 4): a shader that
             // indexes the D3D9 sampler set dynamically, which is the access
             // every Eden draw makes.

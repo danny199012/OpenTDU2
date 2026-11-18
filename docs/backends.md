@@ -30,6 +30,7 @@ with no shippable step in between. The backends are therefore added
 | Scene shader path (SPIR-V -> HLSL -> SM 5.1 DXBC) | n/a (SPIR-V) | **done** (section 4) | - | - |
 | Scene pipelines / meshes / texture tables | done | **done** (one root signature, section 4) | - | - |
 | Sampler heap (DXSO's runtime sampler array) | sampler set (`samplerHeap`) | **done** (`-d3d12-samplertest`, section 3.6) | - | - |
+| Constant buffers b0..b3 per stage + D3D9 material state | descriptor sets + push constants | **done** (`-d3d12-constest`, section 3.7) | - | - |
 | Every Eden shader stage compiled (`-d3d12-shadertest`) | n/a | **done** (section 3.5) | - | - |
 | ImGui overlay / build watermark | done | **done, opt-in** `-d3d12-ui` (driver stall, section 6) | - | - |
 | Scene (eden), 3D game modes | done | not yet (phase 3b step 2) | - | - |
@@ -61,6 +62,7 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-renderer-selftest [frames]` | the self test below: no game, no data, exit 0/1 |
 | `-d3d12-scenetest` | with the self test: the scene path instead of the colour bars (section 3.3) |
 | `-d3d12-samplertest` | with the self test: a shader that indexes the D3D9 sampler heap dynamically, two quads, read back and measured (section 3.6) |
+| `-d3d12-constest` | with the self test: the per stage constant buffers b0..b3 and the D3D9 blend state, two quads and a blend pass, read back and measured (section 3.7) |
 | `-d3d12-shadertest [<text>]` | in the game bootstrap (`-game`): every `.sob` stage through the scene shader path, with a tally; `<text>` keeps only libraries whose name contains it (section 3.5) |
 | `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
 | `-renderer-shot <path.ppm>` | with the self test: write the last frame |
@@ -340,6 +342,86 @@ D3D12 sampler test: PASSED (dynamic sampler-heap indexing reaches the sampler)
   (`SHA256 E505B37F...778CEB`), because its shader samples through s0, which is
   entry 0 - linear wrap - exactly what the static sampler it used to get was.
 
+### 3.7 The constant buffers and the material state (`-d3d12-constest`)
+
+The sampler heap (3.6) made the *texture* half of an Eden draw possible. The
+other half is the data: DXSO's constant file for a stage is a cbuffer, and the
+compiler remaps a stage's cbuffers into **b0..bN in SPIR-V order**
+(`d3d12_shader.cpp`) - measured, the widest `.sob` stage has three (the D3D9
+constant file, `spec_state_t`, `clip_info_t`). The root signature therefore has
+**four CBVs per stage** (b0..b3, vertex and pixel), and every draw copies its
+blocks into a per-frame-slot upload ring and points the root CBVs at the copy
+(a root CBV is a GPU virtual address; the caller's bytes are CPU side and may be
+overwritten the moment the call returns - the Vulkan path's `allocateTransient`
+does the same thing).
+
+The same commit maps **`EdenMaterial`'s D3D9 state** into the pipeline:
+`D3DBLEND` source/destination factors, `D3DBLENDOP`, `D3DCOLORWRITEENABLE` bits,
+`D3DCMPFUNC` and `D3DCULL` (with the mirroring-view swap and the 3 -> 1
+"two sided" rule `EdenRenderer::getPipeline` applies), passed as
+`PipelineDesc::D3D9State` so a material's raw values need no translation. Two
+things deliberately stay *out* of the pipeline: the constant blend factor
+(`D3DBLENDFACTOR`, dynamic state on D3D12 - `OMSetBlendFactor`), and the alpha
+test, which DXSO already compiles into a `discard` driven by the spec constant
+block and the push constant alpha reference.
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-constest -d3d12-debug `
+    -renderer-selftest 60 -renderer-shot E:\Cline\_st_const.ppm -log E:\Cline\_st_const.log
+```
+
+The probe is a measurement, not a look. One quad mesh, one pipeline, and the
+shader pair has the shape an Eden draw has: **two** cbuffers in the vertex stage
+(b0 a scale, b1 a per-draw offset) and **two** in the pixel stage (b0 a tint,
+b2 a scale multiplier - b1 is deliberately left unfilled, so a backend that
+packs blocks by order instead of by register cannot pass). Three draws:
+
+| draw | blocks | expected |
+|---|---|---|
+| left quad | vs b1 = (-0.52, 0), ps b0 = red | (255, 0, 0) |
+| right quad | vs b1 = (+0.52, 0), ps b0 = green, ps b2 = 0.5 | (0, 128, 0) |
+| left again, blended | ps b0 = blue at alpha 0.5, SRC_ALPHA / INV_SRC_ALPHA | 0.5 red + 0.5 blue = (128, 0, 128) |
+
+Measured (build `223 (1c326db+dirty) - cline`, 1280x720, debug layer on and
+silent, exit 0):
+
+```
+D3D12 constant test: 60 frame(s) of two quads on 'NVIDIA GeForce RTX 5070 Ti' (1280x720);
+  left mean 128.0/0.0/127.0 (373248 px), right mean 0.0/127.0/0.0 (373248 px)
+D3D12 constant test: PASSED (b0/b1/b2 reached both stages and SRC_ALPHA blending applied)
+```
+
+- The means are the arithmetic: 0.5 red + 0.5 blue on the left, 0.5 green on the
+  right. `373248` covered pixels is exactly `576 x 648` - a 0.9-NDC quad of each
+  half of the frame - so the coverage check is exact.
+  (`docs/images/d3d12_const_test.webp` is that frame: purple left, half-green
+  right.)
+- **The same numbers on WARP** (`-d3d12-warp`, 20 frames): `128.0/0.0/128.0` and
+  `0.0/128.0/0.0`, `373248` px each. The result is the API contract, not one
+  driver's blend rounding (the 1-level difference on B is UNORM rounding of
+  127.5).
+- **No regression, measured at the same build**: `-d3d12-scenetest`'s PPM is
+  **byte-identical** to the pre-change one (`SHA256
+  E505B37F0063C775...C3F778CEB`), `-d3d12-samplertest` reads the same
+  135.0/40.0/135.0 vs 87.5/40.0/182.5 (dR 47.5), and the Flash front end still
+  draws on D3D12 (17035 distinct colours, 54.80 % non-black - the earlier
+  17037 is the movie moment, not the layer).
+
+What the test rules out, and how:
+
+- **"the blocks land at the wrong register"** - the left quad's position comes
+  from **b1**, not b0; if the blocks were packed by order the offset would be
+  read from b1 anyway... so the *pixel* stage carries the discriminating case:
+  its b1 is never written, its b2 is. A backend that compacted the blocks would
+  read the scale multiplier from b=1 and colour the right half at 255.
+- **"a draw's constants leak into the next"** - the three draws reuse the same
+  pipeline and mesh with different blocks in the same frame; the ring gives each
+  its own range, and the halves stay distinct frame after frame (60 of them).
+- **"the D3D9 state is the four `eBlendMode` cases in disguise"** - the blended
+  quad is SRC_ALPHA / INV_SRC_ALPHA with a 0.5 source alpha, which no
+  `eBlendMode` value expresses together with an opaque pass in one pipeline
+  cache; an unwritten blend state leaves the left half at 255 red.
+
 ## 4. The shader path
 
 The scene cannot be ported until the shaders can be consumed per backend. Both
@@ -432,6 +514,15 @@ descriptor sets), the push-constant block (`kPushConstantsSize` = 128 B) becomes
 root constants or a CBV, and the pipeline state (blend / cull / depth / stencil in
 `PipelineDesc`) maps to `D3D12_GRAPHICS_PIPELINE_STATE_DESC`.
 
+On D3D12 the binding side is now complete for everything an Eden draw needs
+(section 3.7): the root signature has four CBVs per stage (b0..b3, filled from a
+64 MB per-frame upload ring - `D3D12Scene::uploadConstants`), the b13 space1 root
+constants, the t0..t15 texture table and the s0..s15 sampler table. The D3D9
+material state (`D3DBLEND` / `D3DBLENDOP` / `D3DCMPFUNC` / `D3DCULL` /
+`D3DCOLORWRITEENABLE`) passes through `PipelineDesc::D3D9State` untranslated; the
+blend factor is `OMSetBlendFactor` (dynamic state) and the alpha test is DXSO's
+own `discard`.
+
 ## 5. Order of work
 
 1. **D3D12 device + swapchain + self test** - done (2026-11-16).
@@ -453,13 +544,17 @@ root constants or a CBV, and the pipeline state (blend / cull / depth / stencil 
    section 3.6) - a shader-visible sampler descriptor heap in the root
    signature's last parameter, the same fourteen entries as the Vulkan sampler
    set (`render/sampler_heap.h`), so a shader can index the D3D9 sampler set the
-   way DXSO emits it. Step 2, the Eden scene itself:
+   way DXSO emits it. Same day, step 1d: **the constant buffers and the D3D9
+   material state** (`-d3d12-constest`, section 3.7) - b0..b3 per stage from a
+   per-frame upload ring, and `EdenMaterial`'s raw D3D9 state mapped into the PSO
+   (blend factors / op, write mask, depth func, D3DCULL). Measured exact: left
+   half 128/0/127 (0.5 red + 0.5 blue), right half 0/127/0 (0.5 green), on the
+   RTX 5070 Ti and on WARP. **Step 2, the Eden scene itself** is what remains:
    `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
-   `EdenProgram` -> pipeline cache, `fillConstants` into the b13 space1 root
-   constants, the constants UBO as the b0 CBV, and the **sampler heap** as a
-   sampler descriptor table - section 4's last paragraph), then the render targets
-   / shadow / reflection / post passes, and then the 3D game modes (still refused
-   with one log line).
+   `EdenProgram` -> pipeline cache, `fillConstants` into the b0 CBV and the b13
+   push constants, the sampler heap and texture table it already binds), then the
+   render targets / shadow / reflection / post passes, and then the 3D game modes
+   (still refused with one log line).
 5. **D3D11**: the same translated HLSL, a thin device; it is the cheap one once (4) exists.
 6. **D3D9**: the original bytecode path (a near pass-through), with SM 3.0 limits documented
    where the engine's own shaders cannot follow.
@@ -467,9 +562,10 @@ root constants or a CBV, and the pipeline state (blend / cull / depth / stencil 
 Next step, precisely: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
 `PipelineDesc` handed to `D3D12Scene::getPipeline` and `recordPacket`'s push constants
 handed to `D3D12Scene::draw`, with `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`)
-going through `D3D12ShaderCompiler`. The two questions that came before it are
-answered: the shaders all compile (section 3.5) and the sampler heap they index
-draws with the right state (section 3.6).
+going through `D3D12ShaderCompiler`. The three questions that came before it are
+answered: the shaders all compile (section 3.5), the sampler heap they index draws
+with the right state (section 3.6), and the constant buffers and the D3D9 material
+state reach the pipeline and the draw (section 3.7).
 
 ## 6. Known gaps and traps
 
@@ -528,8 +624,25 @@ draws with the right state (section 3.6).
   may be bound at once, so the scene's two are exactly SRV + SAMPLER.
 - **The front face is decided in screen space, where Y points down.** A Vulkan
   pipeline with `frontFace = counter-clockwise` maps to
-  `D3D12_RASTERIZER_DESC::FrontCounterClockwise = FALSE`. Not yet exercised: the
-  scene test culls nothing on purpose, until Eden's meshes set the convention.
+  `D3D12_RASTERIZER_DESC::FrontCounterClockwise = FALSE`. D3D9 spells its
+  culling the other way round (`D3DCULL_CW` 2 culls the *front* faces of a
+  clockwise-front mesh), so `PipelineDesc::D3D9State` maps 4 -> `CULL_BACK`,
+  2 -> `CULL_FRONT`, 1 / 3 -> `CULL_NONE`, and swaps 2 and 4 for a mirroring
+  view - the exact rules `EdenRenderer::getPipeline` applies to Vulkan, mirrored
+  rather than translated. The scene test culls nothing on purpose.
+- **A root CBV is a GPU virtual address, not bytes.** Per-draw constants have to
+  be copied into a host-visible buffer before the draw - `D3D12Scene` keeps a
+  64 MB mapped UPLOAD ring per frame slot (`uploadConstants`), 256-byte aligned
+  because that is the alignment a root CBV requires. Passing a pointer to a
+  stack block (the Vulkan habit with `vkCmdPushConstants`) is not an option here,
+  and a draw does not know when the GPU reads a block, so the ring is what makes
+  the *next* draw's overwrite harmless.
+- **D3D12's blend factor and alpha test are not pipeline state.** `SRC_ALPHA` /
+  `INV_SRC_ALPHA` are, but `D3DBLENDFACTOR` / `D3DBLEND_INVBLENDFACTOR` read the
+  *dynamic* constant - `OMSetBlendFactor` per draw, deliberately out of the
+  pipeline cache key - and D3D9's alpha test is already a `discard` in the DXSO
+  shader (spec constant block + the push constant alpha reference), so a PSO
+  alpha-test field would be dead state that disagrees with the shader.
 - **3D game modes are refused on D3D12.** `switchToNextGameMode` (`tdu_instance.cpp`) allows
   `GM_Login` and `GM_UiViewer` and logs `Renderer d3d12 cannot draw game mode X yet` for the
   rest: their `enter()` builds an EdenWorld through the Vulkan device. The front end (login,

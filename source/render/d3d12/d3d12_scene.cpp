@@ -56,6 +56,18 @@ std::string MakePipelineKey( const D3D12ShaderStage &vs,
                             static_cast<char>( desc.bDepthTest ), static_cast<char>( desc.bDepthWrite ),
                             static_cast<char>( desc.bFrontFaceCW ), static_cast<char>( desc.NumStreams ) };
     key.append( state, sizeof( state ) );
+    // The D3D9 material state: every field that reaches the PSO. The blend factor
+    // and the alpha reference are draw state on D3D12 and deliberately absent.
+    if ( desc.pState != nullptr ) {
+        const char d3d9[8] = { static_cast<char>( desc.pState->SrcBlend ),
+                               static_cast<char>( desc.pState->DstBlend ),
+                               static_cast<char>( desc.pState->BlendOp ),
+                               static_cast<char>( desc.pState->DepthFunc ),
+                               static_cast<char>( desc.pState->ColorWriteMask ),
+                               static_cast<char>( desc.pState->CullMode ),
+                               static_cast<char>( desc.pState->bMirrored ? 1 : 0 ), 0 };
+        key.append( d3d9, sizeof( d3d9 ) );
+    }
     for ( uint32_t i = 0; i < desc.NumStreams; i++ ) {
         key.append( reinterpret_cast<const char *>( &desc.pStrides[i] ), sizeof( uint32_t ) );
     }
@@ -64,7 +76,55 @@ std::string MakePipelineKey( const D3D12ShaderStage &vs,
     }
     return key;
 }
+
+// D3DBLEND -> D3D12_BLEND. The two enumerations agree on almost nothing past ZERO
+// and ONE, so the table is spelled out; an unknown value falls back to ONE, which
+// is what D3D9 does for an out-of-range render state.
+D3D12_BLEND ToD3D12Blend( uint8_t d3dBlend ) {
+    switch ( d3dBlend ) {
+    case 1: return D3D12_BLEND_ZERO;
+    case 3: return D3D12_BLEND_SRC_COLOR;
+    case 4: return D3D12_BLEND_INV_SRC_COLOR;
+    case 5: return D3D12_BLEND_SRC_ALPHA;
+    case 6: return D3D12_BLEND_INV_SRC_ALPHA;
+    case 7: return D3D12_BLEND_DEST_ALPHA;
+    case 8: return D3D12_BLEND_INV_DEST_ALPHA;
+    case 9: return D3D12_BLEND_DEST_COLOR;
+    case 10: return D3D12_BLEND_INV_DEST_COLOR;
+    case 11: return D3D12_BLEND_SRC_ALPHA_SAT;
+    case 14: return D3D12_BLEND_BLEND_FACTOR;
+    case 15: return D3D12_BLEND_INV_BLEND_FACTOR;
+    case 2:
+    default: return D3D12_BLEND_ONE;
+    }
+}
+
+// D3DBLENDOP -> D3D12_BLEND_OP (index 0 is not a D3D9 value; ADD is the default).
+D3D12_BLEND_OP ToD3D12BlendOp( uint8_t d3dOp ) {
+    switch ( d3dOp ) {
+    case 2: return D3D12_BLEND_OP_SUBTRACT;
+    case 3: return D3D12_BLEND_OP_REV_SUBTRACT;
+    case 4: return D3D12_BLEND_OP_MIN;
+    case 5: return D3D12_BLEND_OP_MAX;
+    case 1:
+    default: return D3D12_BLEND_OP_ADD;
+    }
+}
+
+// D3DCMPFUNC -> D3D12_COMPARISON_FUNC. Index 0 is EdenMaterial's "not set" value
+// and means LESSEQUAL, exactly like EdenRenderer::getPipeline's table.
+D3D12_COMPARISON_FUNC ToD3D12Comparison( uint8_t d3dFunc ) {
+    static constexpr D3D12_COMPARISON_FUNC kFuncs[9] = {
+        D3D12_COMPARISON_FUNC_LESS_EQUAL, D3D12_COMPARISON_FUNC_NEVER,
+        D3D12_COMPARISON_FUNC_LESS,       D3D12_COMPARISON_FUNC_EQUAL,
+        D3D12_COMPARISON_FUNC_LESS_EQUAL, D3D12_COMPARISON_FUNC_GREATER,
+        D3D12_COMPARISON_FUNC_NOT_EQUAL,  D3D12_COMPARISON_FUNC_GREATER_EQUAL,
+        D3D12_COMPARISON_FUNC_ALWAYS
+    };
+    return kFuncs[d3dFunc <= 8 ? d3dFunc : 0];
+}
 } // namespace
+
 
 D3D12Scene::D3D12Scene() = default;
 
@@ -88,38 +148,45 @@ bool D3D12Scene::createRootSignature() {
     samplerRange.RegisterSpace = 0;
     samplerRange.OffsetInDescriptorsFromTableStart = 0;
 
-    D3D12_ROOT_PARAMETER params[5] = {};
-    // 0 / 1: the stage constant buffers (Eden's material block lands here).
-    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    params[0].Descriptor.ShaderRegister = 0;
-    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    params[1].Descriptor.ShaderRegister = 0;
-    params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    // 2: the D3D9 push constants as root constants (d3d12_shader.h's b13, in
+    // The root parameter order, named once: four constant buffers per stage
+    // (b0..b3), the push constants, the texture table and the sampler table.
+    D3D12_ROOT_PARAMETER params[11] = {};
+    // 0..3: the vertex stage's cbuffers b0..b3 (Eden's VS constant file, then the
+    // spec / clip blocks the compiler numbered after it).
+    for ( uint32_t i = 0; i < D3D12Scene::kMaxConstantBuffers; i++ ) {
+        params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        params[i].Descriptor.ShaderRegister = i;
+        params[i].Descriptor.RegisterSpace = 0;
+        params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        params[4 + i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        params[4 + i].Descriptor.ShaderRegister = i;
+        params[4 + i].Descriptor.RegisterSpace = 0;
+        params[4 + i].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    }
+    // 8: the D3D9 push constants as root constants (d3d12_shader.h's b13, in
     // register space 1 so the remap key cannot collide with a D3D9 sampler slot).
-    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    params[2].Constants.ShaderRegister = D3D12ShaderCompiler::kPushConstantRegister;
-    params[2].Constants.RegisterSpace = D3D12ShaderCompiler::kPushConstantSpace;
-    params[2].Constants.Num32BitValues = kMaxRootConstants;
-    params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    // 3: the material's textures.
-    params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    params[3].DescriptorTable.NumDescriptorRanges = 1;
-    params[3].DescriptorTable.pDescriptorRanges = &srvRange;
-    params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    // 4: the D3D9 sampler set, as a table rather than static samplers. DXSO
+    params[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    params[8].Constants.ShaderRegister = D3D12ShaderCompiler::kPushConstantRegister;
+    params[8].Constants.RegisterSpace = D3D12ShaderCompiler::kPushConstantSpace;
+    params[8].Constants.Num32BitValues = kMaxRootConstants;
+    params[8].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    // 9: the material's textures.
+    params[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[9].DescriptorTable.NumDescriptorRanges = 1;
+    params[9].DescriptorTable.pDescriptorRanges = &srvRange;
+    params[9].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    // 10: the D3D9 sampler set, as a table rather than static samplers. DXSO
     // gives every Eden shader a *runtime* sampler array whose index is read from
     // the push constants; a static sampler cannot be indexed dynamically, so the
     // table is what makes an Eden draw possible at all (docs/backends.md
     // section 4). Its entries are filled by createSamplerHeap.
-    params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    params[4].DescriptorTable.NumDescriptorRanges = 1;
-    params[4].DescriptorTable.pDescriptorRanges = &samplerRange;
-    params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    params[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[10].DescriptorTable.NumDescriptorRanges = 1;
+    params[10].DescriptorTable.pDescriptorRanges = &samplerRange;
+    params[10].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_ROOT_SIGNATURE_DESC desc = {};
-    desc.NumParameters = 5;
+    desc.NumParameters = 11;
     desc.pParameters = params;
     // No static samplers: registers s0..s15 belong to the sampler table above.
     desc.NumStaticSamplers = 0;
@@ -173,11 +240,16 @@ bool D3D12Scene::createRootSignature() {
     if ( !createSamplerHeap() ) {
         return false;
     }
-    OTDU_LOG_INFO( "D3D12 scene: root signature ready (b0 constants, b%u space%u root constants, "
-                   "t0..t%u, s0..s%u sampler table, %u heap entries)\n",
+    if ( !createConstantRing() ) {
+        return false;
+    }
+    OTDU_LOG_INFO( "D3D12 scene: root signature ready (b0..b%u per stage, b%u space%u root constants, "
+                   "t0..t%u, s0..s%u sampler table, %u heap entries, %llu MB constants per frame)\n",
+                   D3D12Scene::kMaxConstantBuffers - 1,
                    D3D12ShaderCompiler::kPushConstantRegister,
                    D3D12ShaderCompiler::kPushConstantSpace, kTextureTableSize - 1,
-                   kSamplerTableSize - 1, kSamplerHeapSize );
+                   kSamplerTableSize - 1, kSamplerHeapSize,
+                   static_cast<unsigned long long>( D3D12Scene::kConstantRingBytes / ( 1024 * 1024 ) ) );
     return true;
 }
 
@@ -233,6 +305,112 @@ bool D3D12Scene::createSamplerHeap() {
 }
 
 
+bool D3D12Scene::createConstantRing() {
+    ID3D12Device *pD3D12Device = pDevice->getDevice();
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap.CreationNodeMask = 1;
+    heap.VisibleNodeMask = 1;
+
+    auto createBuffer = [&]( uint64_t size, ID3D12Resource *&pResource, void *&pMapped ) {
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Width = size;
+        desc.Height = 1;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_UNKNOWN;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        if ( FAILED( pD3D12Device->CreateCommittedResource( &heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                            IID_PPV_ARGS( &pResource ) ) ) ) {
+            return false;
+        }
+        // Mapped for the whole session, like the 2D layer's ring: every draw
+        // writes its blocks straight into the ring, no staging copy.
+        const D3D12_RANGE noRead = { 0, 0 };
+        if ( FAILED( pResource->Map( 0, &noRead, &pMapped ) ) || pMapped == nullptr ) {
+            return false;
+        }
+        return true;
+    };
+
+    for ( uint32_t slot = 0; slot < kFrameSlots; slot++ ) {
+        ID3D12Resource *pResource = nullptr;
+        void *pMapped = nullptr;
+        if ( !createBuffer( kConstantRingBytes, pResource, pMapped ) ) {
+            SafeRelease( pResource );
+            OTDU_LOG_ERROR( "D3D12 scene: the constant ring (%llu MB per frame slot) could not be "
+                            "created\n",
+                            static_cast<unsigned long long>( kConstantRingBytes / ( 1024 * 1024 ) ) );
+            return false;
+        }
+        pConstantRing[slot] = pResource;
+        pConstantRingMapped[slot] = pMapped;
+        constantRingCursor[slot] = 0;
+        constantRingFrame[slot] = 0;
+    }
+    // The zero block: a root CBV cannot be null, so a stage that fills fewer than
+    // four cbuffers still has a valid address at every register.
+    ID3D12Resource *pZero = nullptr;
+    void *pZeroMapped = nullptr;
+    if ( !createBuffer( kMaxConstantBytes, pZero, pZeroMapped ) ) {
+        SafeRelease( pZero );
+        OTDU_LOG_ERROR( "D3D12 scene: the zero constant block could not be created\n" );
+        return false;
+    }
+    memset( pZeroMapped, 0, kMaxConstantBytes );
+    pZeroConstants = pZero;
+    zeroConstantsGpu = pZero->GetGPUVirtualAddress();
+    return true;
+}
+
+// Copies one stage's blocks into the frame slot's ring. The ring is reset when a
+// new frame starts (beginFrame has waited the slot's fence) and every block is
+// 256 byte aligned, which is what a root CBV requires of its location.
+void D3D12Scene::uploadConstants( const StageConstants *pStage, uint64_t *outGpu ) {
+    for ( uint32_t i = 0; i < kMaxConstantBuffers; i++ ) {
+        outGpu[i] = zeroConstantsGpu;
+    }
+    if ( pStage == nullptr || zeroConstantsGpu == 0 ) {
+        return;
+    }
+    const uint32_t slot = pDevice->getFrameSlot() % kFrameSlots;
+    if ( pConstantRingMapped[slot] == nullptr ) {
+        return;
+    }
+    if ( constantRingFrame[slot] != pDevice->getFrameNumber() ) {
+        constantRingFrame[slot] = pDevice->getFrameNumber();
+        constantRingCursor[slot] = 0;
+        bConstantOverflowReported = false;
+    }
+    ID3D12Resource *pBuffer = static_cast<ID3D12Resource *>( pConstantRing[slot] );
+    uint8_t *pBase = static_cast<uint8_t *>( pConstantRingMapped[slot] );
+    for ( uint32_t i = 0; i < kMaxConstantBuffers; i++ ) {
+        if ( pStage->pData[i] == nullptr || pStage->Sizes[i] == 0 ) {
+            continue;
+        }
+        const uint32_t size = Min( pStage->Sizes[i], kMaxConstantBytes );
+        const uint64_t aligned = ( constantRingCursor[slot] + kConstantAlignment - 1 ) &
+                                 ~( kConstantAlignment - 1 );
+        const uint64_t next = aligned + ( ( size + kConstantAlignment - 1 ) & ~( kConstantAlignment - 1 ) );
+        if ( next > kConstantRingBytes ) {
+            if ( !bConstantOverflowReported ) {
+                bConstantOverflowReported = true;
+                OTDU_LOG_WARN( "D3D12 scene: the per frame constant ring (%llu MB) is full; draws "
+                               "from here read the zero block\n",
+                               static_cast<unsigned long long>( kConstantRingBytes / ( 1024 * 1024 ) ) );
+            }
+            continue;
+        }
+        memcpy( pBase + aligned, pStage->pData[i], size );
+        constantRingCursor[slot] = next;
+        outGpu[i] = pBuffer->GetGPUVirtualAddress() + aligned;
+    }
+}
+
 bool D3D12Scene::initialize( D3D12Device *pDeviceIn ) {
     if ( pDeviceIn == nullptr || !pDeviceIn->isReady() ) {
         return false;
@@ -251,6 +429,15 @@ void D3D12Scene::destroy() {
         SafeRelease( pPipeline );
     }
     pipelines.clear();
+    for ( uint32_t slot = 0; slot < kFrameSlots; slot++ ) {
+        SafeRelease( reinterpret_cast<ID3D12Resource *&>( pConstantRing[slot] ) );
+        pConstantRingMapped[slot] = nullptr;
+        constantRingCursor[slot] = 0;
+        constantRingFrame[slot] = 0;
+    }
+    SafeRelease( reinterpret_cast<ID3D12Resource *&>( pZeroConstants ) );
+    zeroConstantsGpu = 0;
+    bConstantOverflowReported = false;
     SafeRelease( reinterpret_cast<ID3D12DescriptorHeap *&>( pSamplerHeap ) );
     SafeRelease( reinterpret_cast<ID3D12DescriptorHeap *&>( pSrvTable ) );
     SafeRelease( reinterpret_cast<ID3D12RootSignature *&>( pRootSignature ) );
@@ -325,43 +512,86 @@ const void *D3D12Scene::getPipeline( const PipelineDesc &desc ) {
     }
 
     D3D12_BLEND_DESC blend = {};
-    blend.RenderTarget[0].BlendEnable = desc.Blend != eBlendMode::BM_Opaque;
     blend.RenderTarget[0].LogicOpEnable = FALSE;
     blend.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
-    switch ( desc.Blend ) {
-    case eBlendMode::BM_Alpha:
-        blend.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-        blend.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-        break;
-    case eBlendMode::BM_PremultipliedAlpha:
-        blend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-        blend.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-        break;
-    case eBlendMode::BM_Additive:
-        blend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-        blend.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
-        break;
-    case eBlendMode::BM_Opaque:
-    default:
-        blend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-        blend.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
-        break;
+    if ( desc.pState != nullptr ) {
+        // A D3D9 material: the factors and the op are its own render states.
+        // Alpha *testing* is not here - DXSO's pixel shader already discards
+        // (docs/backends.md section 6), driven by the spec constant block and the
+        // push constant alpha reference.
+        blend.RenderTarget[0].BlendEnable = desc.pState->isBlended() ? TRUE : FALSE;
+        blend.RenderTarget[0].SrcBlend = ToD3D12Blend( desc.pState->SrcBlend );
+        blend.RenderTarget[0].DestBlend = ToD3D12Blend( desc.pState->DstBlend );
+        blend.RenderTarget[0].BlendOp = ToD3D12BlendOp( desc.pState->BlendOp );
+        // D3D9 has one alpha blend state; the Vulkan port keeps ONE /
+        // INV_SRC_ALPHA there, and so does this (the colour factors do not carry
+        // over: a D3D9 material has no separate alpha pair).
+        blend.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+        blend.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+        blend.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        const uint8_t mask = desc.pState->ColorWriteMask;
+        blend.RenderTarget[0].RenderTargetWriteMask =
+            ( ( mask & 1 ) ? D3D12_COLOR_WRITE_ENABLE_RED : 0 ) |
+            ( ( mask & 2 ) ? D3D12_COLOR_WRITE_ENABLE_GREEN : 0 ) |
+            ( ( mask & 4 ) ? D3D12_COLOR_WRITE_ENABLE_BLUE : 0 ) |
+            ( ( mask & 8 ) ? D3D12_COLOR_WRITE_ENABLE_ALPHA : 0 );
+    } else {
+        blend.RenderTarget[0].BlendEnable = desc.Blend != eBlendMode::BM_Opaque;
+        switch ( desc.Blend ) {
+        case eBlendMode::BM_Alpha:
+            blend.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+            blend.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+            break;
+        case eBlendMode::BM_PremultipliedAlpha:
+            blend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+            blend.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+            break;
+        case eBlendMode::BM_Additive:
+            blend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+            blend.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+            break;
+        case eBlendMode::BM_Opaque:
+        default:
+            blend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+            blend.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
+            break;
+        }
+        blend.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+        blend.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+        blend.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+        blend.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        blend.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     }
-    blend.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-    blend.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-    blend.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
-    blend.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-    blend.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
     D3D12_RASTERIZER_DESC rasterizer = {};
     rasterizer.FillMode = D3D12_FILL_MODE_SOLID;
-    rasterizer.CullMode = desc.Cull == eCullMode::CM_Back     ? D3D12_CULL_MODE_BACK
-                          : desc.Cull == eCullMode::CM_Front ? D3D12_CULL_MODE_FRONT
-                                                             : D3D12_CULL_MODE_NONE;
-    // Direct3D decides the front face in screen space, where Y points down, so
-    // a Vulkan pipeline that calls counter-clockwise "front" maps to
-    // FrontCounterClockwise = FALSE (docs/backends.md section 6).
-    rasterizer.FrontCounterClockwise = desc.bFrontFaceCW ? TRUE : FALSE;
+    if ( desc.pState != nullptr ) {
+        // EdenRenderer::getPipeline's mapping, mirrored: its data uses 1 / 3 for
+        // "no culling", 4 for the normal back-face cull and 2 for the front-face
+        // cull, and a mirroring world matrix swaps the last two. D3D9 and D3D12
+        // both decide the front face in screen space (Y down), so clockwise front
+        // faces is the same FrontCounterClockwise = FALSE the Vulkan path gets
+        // from its flipped viewport.
+        uint8_t cull = desc.pState->CullMode;
+        if ( cull == 3 ) {
+            cull = 1;
+        }
+        if ( desc.pState->bMirrored && ( cull == 2 || cull == 4 ) ) {
+            cull = cull == 2 ? 4 : 2;
+        }
+        rasterizer.CullMode = cull == 4   ? D3D12_CULL_MODE_BACK
+                              : cull == 2 ? D3D12_CULL_MODE_FRONT
+                                          : D3D12_CULL_MODE_NONE;
+        rasterizer.FrontCounterClockwise = FALSE;
+    } else {
+        rasterizer.CullMode = desc.Cull == eCullMode::CM_Back     ? D3D12_CULL_MODE_BACK
+                              : desc.Cull == eCullMode::CM_Front ? D3D12_CULL_MODE_FRONT
+                                                                 : D3D12_CULL_MODE_NONE;
+        // Direct3D decides the front face in screen space, where Y points down, so
+        // a Vulkan pipeline that calls counter-clockwise "front" maps to
+        // FrontCounterClockwise = FALSE (docs/backends.md section 6).
+        rasterizer.FrontCounterClockwise = desc.bFrontFaceCW ? TRUE : FALSE;
+    }
     rasterizer.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
     rasterizer.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
     rasterizer.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
@@ -372,7 +602,10 @@ const void *D3D12Scene::getPipeline( const PipelineDesc &desc ) {
     D3D12_DEPTH_STENCIL_DESC depth = {};
     depth.DepthEnable = desc.bDepthTest ? TRUE : FALSE;
     depth.DepthWriteMask = desc.bDepthWrite ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
-    depth.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    // D3DCMPFUNC of the material (TD_ShadowBox uses GREATEREQUAL); the
+    // non-D3D9 path keeps LESSEQUAL, the default.
+    depth.DepthFunc = desc.pState != nullptr ? ToD3D12Comparison( desc.pState->DepthFunc )
+                                             : D3D12_COMPARISON_FUNC_LESS_EQUAL;
     depth.StencilEnable = FALSE;
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso = {};
@@ -410,9 +643,10 @@ const void *D3D12Scene::getPipeline( const PipelineDesc &desc ) {
         dumpShader( ( base + "_vs" ).c_str(), *desc.pVS );
         dumpShader( ( base + "_ps" ).c_str(), *desc.pPS );
     }
-    OTDU_LOG_INFO( "D3D12 scene: pipeline %u (%u attributes, %u stream(s), blend %u, cull %u, depth %s%s)\n",
+    OTDU_LOG_INFO( "D3D12 scene: pipeline %u (%u attributes, %u stream(s), %s, depth %s%s)\n",
                    static_cast<uint32_t>( pipelines.size() ), desc.NumAttributes, desc.NumStreams,
-                   static_cast<uint32_t>( desc.Blend ), static_cast<uint32_t>( desc.Cull ),
+                   desc.pState != nullptr ? ( desc.pState->isBlended() ? "D3D9 blend" : "D3D9 opaque" )
+                                          : ( desc.Blend != eBlendMode::BM_Opaque ? "blend" : "opaque" ),
                    desc.bDepthTest ? "test" : "off", desc.bDepthWrite ? "+write" : "" );
     return pState;
 }
@@ -498,7 +732,10 @@ void D3D12Scene::draw( const void *pPipeline,
                        const void *pConstants,
                        uint32_t constantsBytes,
                        const uint64_t *pTextureSrvs,
-                       uint32_t numTextures ) {
+                       uint32_t numTextures,
+                       const StageConstants *pVSConstants,
+                       const StageConstants *pPSConstants,
+                       float blendFactor ) {
     if ( pDevice == nullptr || pPipeline == nullptr || mesh.pVertexBuffer == nullptr ||
          mesh.pIndexBuffer == nullptr || mesh.NumIndices == 0 ) {
         return;
@@ -507,6 +744,25 @@ void D3D12Scene::draw( const void *pPipeline,
     // The root signature comes first: a descriptor table set before it is an
     // error (D3D12 error #708), and the driver does not always survive it.
     pList->SetGraphicsRootSignature( static_cast<ID3D12RootSignature *>( pRootSignature ) );
+
+    // The constant buffers, b0..b3 of each stage: copied into this frame slot's
+    // ring now, because the caller's bytes are CPU side and may be gone by the
+    // time the GPU reads them. A block the caller does not fill binds the zero
+    // block - a root CBV cannot be null, and a shader that does not read it does
+    // not care.
+    uint64_t vsGpu[kMaxConstantBuffers] = {};
+    uint64_t psGpu[kMaxConstantBuffers] = {};
+    uploadConstants( pVSConstants, vsGpu );
+    uploadConstants( pPSConstants, psGpu );
+    for ( uint32_t i = 0; i < kMaxConstantBuffers; i++ ) {
+        pList->SetGraphicsRootConstantBufferView( i, vsGpu[i] );
+        pList->SetGraphicsRootConstantBufferView( kMaxConstantBuffers + i, psGpu[i] );
+    }
+    // D3D12's blend factor is dynamic state, not pipeline state (D3DBLENDFACTOR /
+    // D3DBLEND_INVBLENDFACTOR read it); it is set for every draw, which is what
+    // makes a 4-byte change not a new pipeline.
+    const FLOAT factor[4] = { blendFactor, blendFactor, blendFactor, blendFactor };
+    pList->OMSetBlendFactor( factor );
 
     // Both heaps, every draw: the 2D layer and ImGui each bind a heap of their
     // own, so the set this draw needs has to be re-established here (a table is
@@ -542,18 +798,19 @@ void D3D12Scene::draw( const void *pPipeline,
                 CpuHandle( base.ptr + static_cast<SIZE_T>( i ) * srvDescriptorSize );
             pD3D12Device->CopyDescriptorsSimple( 1, destination, source, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
         }
-        pList->SetGraphicsRootDescriptorTable( 3, GpuHandle( srvTableGpuStart + index * srvDescriptorSize ) );
+        pList->SetGraphicsRootDescriptorTable( kMaxConstantBuffers * 2 + 1,
+                                               GpuHandle( srvTableGpuStart + index * srvDescriptorSize ) );
     }
 
     // The sampler heap: the same table for every draw. Which entry a sample uses
     // is the shader's business (it indexes the array with a push constant).
     if ( pSamplerHeap != nullptr ) {
-        pList->SetGraphicsRootDescriptorTable( 4, GpuHandle( samplerHeapGpuStart ) );
+        pList->SetGraphicsRootDescriptorTable( kMaxConstantBuffers * 2 + 2, GpuHandle( samplerHeapGpuStart ) );
     }
 
     if ( pConstants != nullptr && constantsBytes > 0 ) {
         const uint32_t dwords = Min<uint32_t>( constantsBytes / 4, kMaxRootConstants );
-        pList->SetGraphicsRoot32BitConstants( 2, dwords, pConstants, 0 );
+        pList->SetGraphicsRoot32BitConstants( kMaxConstantBuffers * 2, dwords, pConstants, 0 );
     }
     pList->SetPipelineState( static_cast<ID3D12PipelineState *>( const_cast<void *>( pPipeline ) ) );
 
@@ -1052,6 +1309,263 @@ bool D3D12RunSamplerTest( D3D12Device &device, uint32_t frames, const ColorRGBA 
                    bPassed ? "PASSED" : "FAILED",
                    bPassed ? "reaches the sampler"
                            : "produced identical halves - the index is not reaching the sampler" );
+    return bPassed;
+}
+
+// -d3d12-constest (docs/backends.md section 3.7): the constant buffers and the
+// D3D9 pipeline state, measured. The shader pair is the shape an Eden draw has -
+// two cbuffers in the vertex stage (b0 the projection, b1 a per-draw offset) and
+// two in the pixel stage (b0 the tint, b2 a scale, with b1 deliberately unused so
+// a backend that packs the blocks by order instead of by register fails) - and
+// the same mesh is drawn twice with different blocks. A third draw uses the
+// D3D9 state path: SRC_ALPHA / INV_SRC_ALPHA over the left quad.
+//
+// The arithmetic is exact, which is why the test needs no eyes:
+//   left  = red (1,0,0) * 1, then blue (0,0,1) at alpha 0.5 over it
+//           -> 0.5 red + 0.5 blue = (128, 0, 128)
+//   right = green (0,1,0) * 0.5 (the b2 block) -> (0, 128, 0)
+// An ignored b1 puts both quads in the middle (the right half would read red, not
+// green); an ignored b2 leaves the right half at 255 green; a blend state that
+// never reached the pipeline leaves the left half at 255 red.
+bool D3D12RunConstTest( D3D12Device &device, uint32_t frames, const ColorRGBA &clearColor ) {
+    constexpr uint32_t kDXGI_R32G32_FLOAT = 16;
+
+    static const char *pVSSource =
+        "cbuffer Transform : register(b0, space0)\n"
+        "{\n"
+        "    float4 gScale;\n"
+        "};\n"
+        "cbuffer Offset : register(b1, space0)\n"
+        "{\n"
+        "    float4 gOffset;\n"
+        "};\n"
+        "struct VSIn  { float2 pos : TEXCOORD0; };\n"
+        "struct VSOut { float4 pos : SV_Position; };\n"
+        "VSOut main( VSIn input )\n"
+        "{\n"
+        "    VSOut output;\n"
+        "    output.pos = float4( input.pos.x * gScale.x + gOffset.x,\n"
+        "                         input.pos.y * gScale.y + gOffset.y, 0.5, 1.0 );\n"
+        "    return output;\n"
+        "}\n";
+    static const char *pPSSource =
+        "cbuffer Tint : register(b0, space0)\n"
+        "{\n"
+        "    float4 gTint;\n"
+        "};\n"
+        "cbuffer ScaleBias : register(b2, space0)\n"
+        "{\n"
+        "    float4 gScaleBias;\n"
+        "};\n"
+        "struct PSIn { float4 pos : SV_Position; };\n"
+        "float4 main( PSIn input ) : SV_Target\n"
+        "{\n"
+        "    return float4( gTint.rgb * gScaleBias.rgb, gTint.a );\n"
+        "}\n";
+
+    D3D12Scene scene;
+    if ( !scene.initialize( &device ) ) {
+        OTDU_LOG_ERROR( "D3D12 constant test: the scene could not be initialised\n" );
+        return false;
+    }
+    if ( const char *pDump = CmdLine::GetArgValue( "-d3d12-dump-shaders" ) ) {
+        scene.setShaderDumpDir( pDump );
+    }
+
+    D3D12ShaderStage vs;
+    D3D12ShaderStage ps;
+    if ( !D3D12ShaderCompiler::compileHlsl( pVSSource, eShaderType::ST_Vertex, vs, "constant_probe.vert" ) ||
+         !D3D12ShaderCompiler::compileHlsl( pPSSource, eShaderType::ST_Pixel, ps, "constant_probe.frag" ) ) {
+        OTDU_LOG_ERROR( "D3D12 constant test: shader compile failed: %s %s\n", vs.Error.c_str(),
+                        ps.Error.c_str() );
+        scene.destroy();
+        return false;
+    }
+
+    struct ProbeVertex {
+        float Position[2];
+    };
+    const ProbeVertex quad[4] = { { { -1.0f, -1.0f } }, { { -1.0f, 1.0f } }, { { 1.0f, 1.0f } }, { { 1.0f, -1.0f } } };
+    const uint32_t indices[6] = { 0, 1, 2, 0, 2, 3 };
+    const uint32_t stride = sizeof( ProbeVertex );
+
+    D3D12Scene::Attribute attributes[1] = { { 0, 0, kDXGI_R32G32_FLOAT, 0 } };
+    D3D12Scene::PipelineDesc opaque;
+    opaque.pVS = &vs;
+    opaque.pPS = &ps;
+    opaque.pAttributes = attributes;
+    opaque.NumAttributes = 1;
+    opaque.pStrides = &stride;
+    opaque.NumStreams = 1;
+    // D3D9's default opaque state, spelled out the way EdenMaterial carries it.
+    D3D12Scene::D3D9State opaqueState;
+    opaqueState.SrcBlend = 2;  // ONE
+    opaqueState.DstBlend = 1;  // ZERO
+    opaqueState.BlendOp = 1;   // ADD
+    opaqueState.DepthFunc = 0; // LESSEQUAL (EdenMaterial's default)
+    opaqueState.ColorWriteMask = 0xf;
+    opaqueState.CullMode = 3; // D3DCULL_CCW (two sided in Eden's data)
+    opaque.pState = &opaqueState;
+    opaque.bDepthTest = true;
+    opaque.bDepthWrite = true;
+    const void *pOpaque = scene.getPipeline( opaque );
+
+    D3D12Scene::PipelineDesc blended = opaque;
+    D3D12Scene::D3D9State blendState = opaqueState;
+    blendState.SrcBlend = 5; // SRC_ALPHA
+    blendState.DstBlend = 6; // INV_SRC_ALPHA
+    blended.pState = &blendState;
+    blended.bDepthTest = false;
+    blended.bDepthWrite = false;
+    const void *pBlended = scene.getPipeline( blended );
+    if ( pOpaque == nullptr || pBlended == nullptr ) {
+        OTDU_LOG_ERROR( "D3D12 constant test: the pipelines could not be created\n" );
+        scene.destroy();
+        return false;
+    }
+
+    D3D12Scene::Mesh mesh;
+    if ( !scene.createMesh( quad, sizeof( quad ), stride, indices, 6, mesh ) ) {
+        OTDU_LOG_ERROR( "D3D12 constant test: the quad could not be uploaded\n" );
+        scene.destroy();
+        return false;
+    }
+
+    // The blocks, 16 bytes each at the register the shader declares.
+    struct Block {
+        float Value[4];
+    };
+    const Block kScale = { { 0.45f, 0.9f, 0.0f, 0.0f } };
+    const Block kLeftOffset = { { -0.52f, 0.0f, 0.0f, 0.0f } };
+    const Block kRightOffset = { { 0.52f, 0.0f, 0.0f, 0.0f } };
+    const Block kRed = { { 1.0f, 0.0f, 0.0f, 1.0f } };
+    const Block kGreen = { { 0.0f, 1.0f, 0.0f, 1.0f } };
+    const Block kBlueHalf = { { 0.0f, 0.0f, 1.0f, 0.5f } };
+    const Block kFull = { { 1.0f, 1.0f, 1.0f, 1.0f } };
+    const Block kHalf = { { 0.5f, 0.5f, 0.5f, 1.0f } };
+
+    D3D12Scene::StageConstants leftVS = {};
+    leftVS.pData[0] = &kScale;
+    leftVS.Sizes[0] = sizeof( kScale );
+    leftVS.pData[1] = &kLeftOffset;
+    leftVS.Sizes[1] = sizeof( kLeftOffset );
+    D3D12Scene::StageConstants rightVS = leftVS;
+    rightVS.pData[1] = &kRightOffset;
+    D3D12Scene::StageConstants redPS = {};
+    redPS.pData[0] = &kRed;
+    redPS.Sizes[0] = sizeof( kRed );
+    redPS.pData[2] = &kFull; // b2, with b1 left empty on purpose
+    redPS.Sizes[2] = sizeof( kFull );
+    D3D12Scene::StageConstants greenPS = redPS;
+    greenPS.pData[0] = &kGreen;
+    greenPS.pData[2] = &kHalf;
+    D3D12Scene::StageConstants bluePS = redPS;
+    bluePS.pData[0] = &kBlueHalf;
+
+    bool bQuit = false;
+    uint32_t presented = 0;
+    for ( uint32_t i = 0; i < frames && !bQuit; i++ ) {
+        SDL_Event event;
+        while ( SDL_PollEvent( &event ) ) {
+            if ( event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ) {
+                bQuit = true;
+            }
+        }
+        if ( bQuit || !device.beginFrame( clearColor ) ) {
+            break;
+        }
+        scene.draw( pOpaque, mesh, nullptr, 0, nullptr, 0, &leftVS, &redPS );
+        scene.draw( pOpaque, mesh, nullptr, 0, nullptr, 0, &rightVS, &greenPS );
+        // The state path: blue at alpha 0.5 over the left quad, with the D3D9
+        // blend factor left at 1 (it is dynamic state, not this pipeline's).
+        scene.draw( pBlended, mesh, nullptr, 0, nullptr, 0, &leftVS, &bluePS );
+        if ( i + 1 == frames ) {
+            // endFrame copies the frame it just recorded (before Present).
+            device.requestReadback();
+        }
+        device.endFrame();
+        presented++;
+        if ( device.hasDeviceLost() ) {
+            break;
+        }
+    }
+    device.waitIdle();
+    const std::vector<uint8_t> &pixels = device.getLastReadback();
+
+    scene.destroyMesh( mesh );
+    scene.destroy();
+
+    if ( presented == 0 || device.hasDeviceLost() ) {
+        OTDU_LOG_ERROR( "D3D12 constant test: no frame was presented%s\n",
+                        device.hasDeviceLost() ? " - DEVICE LOST" : "" );
+        return false;
+    }
+    if ( pixels.empty() ) {
+        OTDU_LOG_ERROR( "D3D12 constant test: the frame could not be read back\n" );
+        return false;
+    }
+
+    // The two halves over the pixels the quads cover (the texture-free shader
+    // writes saturated colours, so "far from the clear colour" is a quad pixel).
+    const uint32_t pixelWidth = device.getBackbufferWidth();
+    const uint32_t pixelHeight = device.getBackbufferHeight();
+    if ( pixels.size() < static_cast<size_t>( pixelWidth ) * pixelHeight * 4 ) {
+        OTDU_LOG_ERROR( "D3D12 constant test: the readback is %zu bytes, expected %u\n", pixels.size(),
+                        pixelWidth * pixelHeight * 4 );
+        return false;
+    }
+    const int background[3] = { static_cast<int>( clearColor.r * 255.0f + 0.5f ),
+                                static_cast<int>( clearColor.g * 255.0f + 0.5f ),
+                                static_cast<int>( clearColor.b * 255.0f + 0.5f ) };
+    double sum[2][3] = {};
+    uint32_t covered[2] = {};
+    for ( uint32_t y = 0; y < pixelHeight; y++ ) {
+        for ( uint32_t x = 0; x < pixelWidth; x++ ) {
+            const uint8_t *pPixel = &pixels[( static_cast<size_t>( y ) * pixelWidth + x ) * 4];
+            const int dr = static_cast<int>( pPixel[0] ) - background[0];
+            const int dg = static_cast<int>( pPixel[1] ) - background[1];
+            const int db = static_cast<int>( pPixel[2] ) - background[2];
+            if ( dr * dr + dg * dg + db * db < 12 * 12 ) {
+                continue;
+            }
+            const uint32_t half = x < pixelWidth / 2 ? 0 : 1;
+            sum[half][0] += pPixel[0];
+            sum[half][1] += pPixel[1];
+            sum[half][2] += pPixel[2];
+            covered[half]++;
+        }
+    }
+
+    const uint32_t halfPixels = ( pixelWidth / 2 ) * pixelHeight;
+    const uint32_t minCoverage = Max<uint32_t>( 1, halfPixels / 50 ); // 2 % of a half
+    if ( covered[0] < minCoverage || covered[1] < minCoverage ) {
+        OTDU_LOG_ERROR( "D3D12 constant test: the quads did not draw (left %u px, right %u px of %u)\n",
+                        covered[0], covered[1], halfPixels );
+        return false;
+    }
+
+    float mean[2][3] = {};
+    for ( uint32_t half = 0; half < 2; half++ ) {
+        for ( uint32_t channel = 0; channel < 3; channel++ ) {
+            mean[half][channel] = static_cast<float>( sum[half][channel] ) / covered[half];
+        }
+    }
+    // left = 0.5 red + 0.5 blue, right = 0.5 green; 20 levels of slack absorbs
+    // the UNORM rounding of the blend.
+    const bool bLeft = std::fabs( mean[0][0] - 128.0f ) <= 20.0f && mean[0][1] <= 20.0f &&
+                       std::fabs( mean[0][2] - 128.0f ) <= 20.0f;
+    const bool bRight = mean[1][0] <= 20.0f && std::fabs( mean[1][1] - 128.0f ) <= 20.0f &&
+                        mean[1][2] <= 20.0f;
+    const bool bPassed = bLeft && bRight;
+    OTDU_LOG_INFO( "D3D12 constant test: %u frame(s) of two quads on '%s' (%ux%u); left mean "
+                   "%.1f/%.1f/%.1f (%u px), right mean %.1f/%.1f/%.1f (%u px)\n",
+                   presented, device.getDeviceName(), pixelWidth, pixelHeight, mean[0][0], mean[0][1],
+                   mean[0][2], covered[0], mean[1][0], mean[1][1], mean[1][2], covered[1] );
+    OTDU_LOG_INFO( "D3D12 constant test: %s (%s)\n", bPassed ? "PASSED" : "FAILED",
+                   bPassed ? "b0/b1/b2 reached both stages and SRC_ALPHA blending applied"
+                           : "a half reads the wrong colour - see the means (red on the right: b1 "
+                             "did not move the quad; 255 green: b2 did not reach the shader; 255 red "
+                             "on the left: the blend state did not apply)" );
     return bPassed;
 }
 
