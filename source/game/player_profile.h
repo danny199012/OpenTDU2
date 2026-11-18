@@ -175,6 +175,9 @@ struct PlayerProfile {
     // Licence tests passed (the .ig2 name, RSA7T01 ...) -> the best time in
     // seconds; a licence is obtained when all its tests are (licenses.h).
     std::map<std::string, float> PassedTests;
+    // Championship points per race: race -> racer name ("PLAYER" for the player) -> points of the
+    // race's place (10 8 6 4 3 2 1 0, [CODE-dev 0xa3aa70]); the medal ranks the sums. Saved as champ_points.
+    std::map<std::string, std::map<std::string, int32_t>> ChampRacePoints;
     // DBClothe _id_num of the clothes bought at a clothes shop.
     std::vector<int32_t> OwnedClothes;
     // The DBHouse _spotname of the houses owned (bought at a realtor, ERE_*).

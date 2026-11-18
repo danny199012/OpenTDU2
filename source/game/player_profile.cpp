@@ -316,6 +316,34 @@ void LoadProfile() {
                 }
                 at = end + 1;
             }
+        } else if ( key == "champ_points" ) {
+            // "<race>=<name>:<points>;<name>:<points>|<race>=..."
+            size_t at = 0;
+            while ( at < value.size() ) {
+                size_t end = value.find( '|', at );
+                if ( end == std::string::npos ) {
+                    end = value.size();
+                }
+                const std::string item = value.substr( at, end - at );
+                const size_t eq = item.find( '=' );
+                if ( eq != std::string::npos && eq > 0 ) {
+                    std::map<std::string, int32_t> &race = profile.ChampRacePoints[item.substr( 0, eq )];
+                    size_t from = eq + 1;
+                    while ( from < item.size() ) {
+                        size_t stop = item.find( ';', from );
+                        if ( stop == std::string::npos ) {
+                            stop = item.size();
+                        }
+                        const std::string pair = item.substr( from, stop - from );
+                        const size_t colon = pair.rfind( ':' );
+                        if ( colon != std::string::npos && colon > 0 ) {
+                            race[pair.substr( 0, colon )] = atoi( pair.c_str() + colon + 1 );
+                        }
+                        from = stop + 1;
+                    }
+                }
+                at = end + 1;
+            }
         } else if ( key == "clothes_owned" ) {
             const char *pText = value.c_str();
             while ( *pText != 0 ) {
@@ -824,6 +852,18 @@ bool SaveProfile( const char *pReason ) {
         for ( const auto &test : profile.PassedTests ) {
             file << ( bFirstTest ? "" : "," ) << test.first << ":" << test.second;
             bFirstTest = false;
+        }
+        file << "\n";
+        file << "champ_points = ";
+        bool bFirstRace = true;
+        for ( const auto &race : profile.ChampRacePoints ) {
+            file << ( bFirstRace ? "" : "|" ) << race.first << "=";
+            bFirstRace = false;
+            bool bFirstRacer = true;
+            for ( const auto &racer : race.second ) {
+                file << ( bFirstRacer ? "" : ";" ) << racer.first << ":" << racer.second;
+                bFirstRacer = false;
+            }
         }
         file << "\n";
         file << "clothes_owned = ";

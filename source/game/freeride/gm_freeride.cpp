@@ -3747,12 +3747,22 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         // A race with opponents is won in first place; behind the winner it is
         // "Beaten" with the place [INF: the retail result rule is ENC].
         std::string placeText;
+        // The player crossed the line (before a place behind the winner relabels the result "Beaten").
+        const bool bFinishedLine = result == LicenseTest::eResult::Passed;
+        std::map<std::string, int32_t> racePoints; // this race's championship points, by racer
         if ( opponents.isActive() ) {
             if ( result == LicenseTest::eResult::Passed || result == LicenseTest::eResult::Beaten ) {
                 if ( result == LicenseTest::eResult::Passed ) {
                     opponents.playerFinished( time );
                 }
                 const int32_t place = opponents.getPlayerPosition();
+                // Championship points by place: 10 8 6 4 3 2 1, then 0 [CODE-dev 0xa3aa70].
+                static const int32_t kPlacePoints[7] = { 10, 8, 6, 4, 3, 2, 1 };
+                int32_t index = 0;
+                for ( const RaceOpponents::Standing &standing : opponents.getStandings() ) {
+                    racePoints[standing.bPlayer ? "PLAYER" : standing.Name] = index < 7 ? kPlacePoints[index] : 0;
+                    index++;
+                }
                 const char *pSuffix = place == 1 ? "st" : place == 2 ? "nd" : place == 3 ? "rd" : "th";
                 placeText = "  " + std::to_string( place ) + pSuffix + " of " + std::to_string( opponents.getRacerCount() );
                 if ( place > 1 ) {
@@ -3783,7 +3793,14 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         if ( !bLicenceTest || result == LicenseTest::eResult::Abandoned ) {
             hud.showGoal( text );
         }
-        if ( result == LicenseTest::eResult::Passed ) {
+        // A championship race counts once the player finishes it, whatever the place: the championship is
+        // ranked on points and the medal follows the rank [CODE-dev 0xa3c8f0; INF that the finish counts].
+        const LicenseInfo *pRaceChampionship = findRaceChampionship( test );
+        const bool bChampFinish = pRaceChampionship != nullptr && bFinishedLine && result == LicenseTest::eResult::Beaten;
+        if ( pRaceChampionship != nullptr && !racePoints.empty() && bFinishedLine ) {
+            GetPlayerProfile().ChampRacePoints[test] = racePoints;
+        }
+        if ( result == LicenseTest::eResult::Passed || bChampFinish ) {
             PlayerProfile &profile = GetPlayerProfile();
             auto best = profile.PassedTests.find( test );
             const bool bFirstPass = best == profile.PassedTests.end();
@@ -3813,7 +3830,28 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
                     // [INF: no championship points table is kept].
                     const char *pClass = VehicleClassName( pChampionship->VehicleCategory[0] );
                     if ( pClass != nullptr && pClass[0] != '\0' && ChampionshipFamily( *pChampionship ) != "cup" ) {
-                        const int32_t rank = opponents.isActive() ? Max( 1, opponents.getPlayerPosition() ) : 1;
+                        // Rank by the points summed over the championship's races; a race with no opponents
+                        // (time attack, speedtrap) scores 10 for the player and nothing for the others [INF].
+                        std::map<std::string, int32_t> totals;
+                        totals["PLAYER"] = 0;
+                        for ( const std::string &raceName : pChampionship->Challenges ) {
+                            const auto raceFound = profile.ChampRacePoints.find( raceName );
+                            if ( raceFound == profile.ChampRacePoints.end() ) {
+                                totals["PLAYER"] += IsRaceRunnable( raceName ) ? 10 : 0;
+                                continue;
+                            }
+                            for ( const auto &entry : raceFound->second ) {
+                                totals[entry.first] += entry.second;
+                            }
+                        }
+                        int32_t rank = 1;
+                        for ( const auto &entry : totals ) {
+                            if ( entry.first != "PLAYER" && entry.second > totals["PLAYER"] ) {
+                                rank++;
+                            }
+                        }
+                        OTDU_LOG_INFO( "FREERIDE: championship '%s' points: player %d, rank %d\n", pChampionship->Name.c_str(),
+                                       totals["PLAYER"], rank );
                         const std::string suffix = std::string( pClass ) + ( pChampionship->Order == 2 ? "H" : "" );
                         static const char *const kMedals[3] = { "BRONZE", "SILVER", "GOLD" };
                         const int32_t medal = rank <= 3 ? 4 - rank : 0;

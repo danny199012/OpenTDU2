@@ -6,6 +6,19 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 62): championship points table - the medal now follows a real rank
+
+### What changed
+- Points per place **10 8 6 4 3 2 1 0** [CODE-dev `0xa3aa70`, jump table `0xa3aab0`; ties share the first place of the tie, `0xa3aad0`, not built]. The ranking `0xa3b6e0` sums each race's points per racer over the championship's races and sorts descending; the medal reads the player's index (`0xa3c8f0`).
+- `gm_freeride.cpp`: each championship race with opponents stores its places' points (`PlayerProfile::ChampRacePoints`, saved as `champ_points`); a **finished** race now counts even when beaten [INF - the retail ranks on points so a championship cannot need every win]; completion ranks the player by the summed points (races without opponents: 10 for the player, 0 for the rest [INF]) and pays bronze/silver/gold accordingly (3rd/2nd/1st). Log: `championship '<name>' points: player N, rank R`.
+- `player_profile.{h,cpp}`: the `champ_points` save/load.
+
+### Verified
+- Build links; a seeded `champ_points` line survives a run. The race-to-completion path was **not** driven headlessly (it needs finishing a whole championship).
+
+### Not done / next
+- Tie handling; the speed-mode races; prize money now pays on a beaten finish too (first finish) - check against the 360 if that is wrong.
+
 ## Session 2026-11-18 (`main`, 61): championship medal XP (RACING_CHAMP_BRONZE/SILVER/GOLD) wired from the dev exe's rule
 
 ### What changed
