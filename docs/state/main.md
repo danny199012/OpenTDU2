@@ -6,6 +6,19 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 60): phone-call progression rules from the dev exe's trigger table (6 more calls fire)
+
+The owner: *"with dev build can we try do all progression stuff"* — scoped (asked) to the phone-call triggers first; the rest of the progression backlog is untouched.
+
+### What changed
+- `source/game/freeride/phone_calls.cpp` `checkNudges` — added, in the retail order of `SCPhoneCalls 0x9a2c30` [CODE-dev]: `CALL_C4_NOT_PASSED` (Classic school's first licence started, not obtained), `RS_ASPHALT` (first Asphalt licence obtained, next not started), `TUNER_CALL`, and the championship nudges `NEW_ASPHALT_CAR`/`ASPHALT_CHAMP`, `NEW_SUV_CAR`/`DIRT_CHAMP`, `CLASSIC_CHAMP` (family unfinished; new-car call while no car of `_vehiclecategory` 1..7 / 9..12 is owned). Conditions are [INF] readings of the state objects; the 15 min play gate and TUNER_CALL's rule are chosen.
+
+### Verified
+- Scratch profile (`C:	emp\otdu2-phone-userdata`, story_step 12, play time 3000 s, shops visited) with `-gm FREERIDE -skipcine -no3d -nopad -fixedtimestep -exitframe 4000`: log `PhoneCalls: ring 'NEW_ASPHALT_CAR' (npc 0x180 ...)`.
+
+### Not done / next
+- `EVENT_JANE`, `PHOTOGRAH`/`PHOTOGRAPH_END_*`, `HAWAI_CALL` (no state in the port); `ASPHALT_CHAMP`/`DIRT_CHAMP` path and `CALL_C4_NOT_PASSED` not exercised headlessly. Still open from the backlog: `DBAreaLevel` area points (dev exe loader at `0x49a1c0`, earner not found), medal/duel/photo XP, story-step enter/leave cases.
+
 ## Session 2026-11-18 (`main`, 59): the tuning shop runs the RETAIL SHOPSCAR car_tuner screen (default; `-notuneui` = native)
 
 The owner: *"please work on the tuning shop menu ui"*. ETUN_* rooms load `shopscar.vmf` at its `after_mkt` label; `TuneUi`

@@ -7,6 +7,7 @@
 #include "game/freeride/freeride_hud.h"
 #include "filesystem/bank.h"
 #include "game/player_profile.h"
+#include "game/licenses.h"
 #include "render/gs_render.h"
 #include "render/texture_cache.h"
 
@@ -141,6 +142,40 @@ void PhoneCalls::checkNudges( const Context &context ) {
     };
     const int32_t playTime = state( "PlayTime" );
     auto after = [&]( float minutes ) { return static_cast<float>( playTime ) > minutes * 60.0f; };
+    // 1. CALL_C4_NOT_PASSED: the Classic school's first licence was started and not finished [INF: the
+    // retail reads the classic test-state object +0x28 and a global flag, 0x9a2c30].
+    for ( const LicenseInfo *pLicense : GetSchoolLicenses( 'C', 0 ) ) {
+        bool bStarted = false;
+        for ( const std::string &test : pLicense->Challenges ) {
+            bStarted = bStarted || IsTestPassed( test );
+        }
+        if ( bStarted && !IsLicenseObtained( *pLicense ) && request( "CALL_C4_NOT_PASSED" ) ) {
+            return;
+        }
+        break; // the first licence of the school only
+    }
+    // Car categories owned (DBCarPhysicsData._vehiclecategory: 1..7 = Cat A, 9..12 = Cat B).
+    auto ownsCategory = [&]( int32_t low, int32_t high ) {
+        std::vector<int32_t> ids = profile.OwnedCars;
+        for ( const OwnedCar &car : profile.Garage ) {
+            ids.push_back( car.IdCar );
+        }
+        const XmbValue root = gpDatabase->getDocument().getRoot();
+        const uint32_t rows = root.getArraySize( "DBCarPhysicsData" );
+        for ( int32_t id : ids ) {
+            for ( uint32_t i = 0; i < rows; i++ ) {
+                const XmbValue car = root.getArrayElement( "DBCarPhysicsData", i );
+                if ( static_cast<int32_t>( car["_id_car"].asInt() ) == id ) {
+                    const int32_t category = static_cast<int32_t>( car["_vehiclecategory"].asInt() );
+                    if ( category >= low && category <= high ) {
+                        return true;
+                    }
+                    break;
+                }
+            }
+        }
+        return false;
+    };
     // 3. REALTOR_CALL: one house and two or more cars (the garage is cramped).
     const size_t cars = std::max( profile.Garage.size(), profile.OwnedCars.size() + 1 );
     if ( profile.OwnedHouses.size() == 1 && cars >= 2 && request( "REALTOR_CALL" ) ) {
@@ -169,6 +204,52 @@ void PhoneCalls::checkNudges( const Context &context ) {
     }
     if ( wrecks == 0 && after( 25.0f ) && request( "TREASURE_HUNT" ) ) {
         return;
+    }
+    // 5. RS_ASPHALT: the first Asphalt licence is obtained and the next not started [INF: the retail reads
+    // the ERS_A / ERS_B championship states in the refresh 0x9a33d0].
+    {
+        const std::vector<const LicenseInfo *> asphalt = GetSchoolLicenses( 'A', 0 );
+        if ( asphalt.size() >= 2 && IsLicenseObtained( *asphalt[0] ) && !IsLicenseObtained( *asphalt[1] ) ) {
+            bool bStarted = false;
+            for ( const std::string &test : asphalt[1]->Challenges ) {
+                bStarted = bStarted || IsTestPassed( test );
+            }
+            if ( !bStarted && request( "RS_ASPHALT" ) ) {
+                return;
+            }
+        }
+    }
+    // 10. TUNER_CALL: a one-shot [INF: the retail flag +0x44 is set by the refresh; here, a car owned and
+    // nothing ever bought at a tuning shop after 15 minutes].
+    if ( after( 15.0f ) && cars >= 2 && profile.OwnedCarTuning.empty() && request( "TUNER_CALL" ) ) {
+        return;
+    }
+    // 12. Championship nudges [CODE-dev 0x9a2c30]: a family not finished -> the new-car call while the
+    // player has no car of its category, else the "do not drop out" call. [INF: 15 minutes of play first.]
+    if ( after( 15.0f ) ) {
+        auto familyDone = [&]( const char *pFamily ) {
+            bool bAny = false;
+            for ( int32_t island = 0; island < 2; island++ ) {
+                for ( const LicenseInfo *pChamp : GetChampionships( island ) ) {
+                    if ( ChampionshipFamily( *pChamp ).compare( 0, strlen( pFamily ), pFamily ) == 0 ) {
+                        bAny = true;
+                        if ( !IsChampionshipComplete( *pChamp ) ) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return bAny;
+        };
+        if ( !familyDone( "asphalt" ) && request( ownsCategory( 1, 7 ) ? "ASPHALT_CHAMP" : "NEW_ASPHALT_CAR" ) ) {
+            return;
+        }
+        if ( !familyDone( "dirt" ) && request( ownsCategory( 9, 12 ) ? "DIRT_CHAMP" : "NEW_SUV_CAR" ) ) {
+            return;
+        }
+        if ( !familyDone( "classic" ) && request( "CLASSIC_CHAMP" ) ) {
+            return;
+        }
     }
     // 11. On Hawaii: the racing schools, some minutes after the arrival.
     if ( context.Island == "hawai" ) {
