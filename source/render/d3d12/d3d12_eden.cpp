@@ -25,45 +25,55 @@
 
 namespace {
 
-// A stage's cbuffers, by what they *are* rather than by their number.
+// A stage's cbuffer slots, by what they *are* rather than by their number.
 //
 // SPIRV-Cross hands back the *instance* names DXSO emitted (`c`,
 // `spec_state`, `clip_info`, `D3D9SharedPS`), so anything naming the
 // specialization state is the spec block, the clip/shared blocks stay the zero
 // block (the Vulkan renderer binds a zero buffer there too) and everything else
-// is the stage's constant file. The returned string names the binding, for the
-// log (docs/backends.md 3.8, where a strict `== "cbuffer_t"` match silently
-// bound nothing and the frame held 0 covered pixels).
-std::string AssignStageBlocks( const D3D12ShaderStage &stage,
-                               D3D12Scene::StageConstants &out,
-                               const void *pFile,
-                               uint32_t fileBytes,
-                               const void *pSpec,
-                               uint32_t specBytes ) {
-    std::string bound;
+// is the stage's constant file. This classifies them *once per program* (the
+// strings are read here): the per-draw path must not build a std::string to find
+// out where its constants go - that alone was a measurable part of the 2 us a
+// draw costs (docs/backends.md 3.14).
+enum eStageBlockKind : uint8_t { SBK_Zero = 0, SBK_File = 1, SBK_Spec = 2 };
+
+void ClassifyStageBlocks( const D3D12ShaderStage &stage, uint8_t *outKinds ) {
     const uint32_t count =
         Min<uint32_t>( static_cast<uint32_t>( stage.ConstantBufferNames.size() ), D3D12Scene::kMaxConstantBuffers );
     for ( uint32_t i = 0; i < count; i++ ) {
         const std::string name = ToUpper( stage.ConstantBufferNames[i] );
-        const char *pWhat = nullptr;
         if ( name.find( "SPEC" ) != std::string::npos ) {
+            outKinds[i] = SBK_Spec;
+        } else if ( name.find( "CLIP" ) == std::string::npos && name.find( "SHARED" ) == std::string::npos ) {
+            outKinds[i] = SBK_File;
+        } else {
+            outKinds[i] = SBK_Zero;
+        }
+    }
+}
+
+// The StageConstants of one stage from its classification: no allocation, no
+// string, four pointer writes (docs/backends.md 3.8 for what each slot means).
+void AssignStageBlocks( const uint8_t *pKinds,
+                        D3D12Scene::StageConstants &out,
+                        const void *pFile,
+                        uint32_t fileBytes,
+                        const void *pSpec,
+                        uint32_t specBytes ) {
+    for ( uint32_t i = 0; i < D3D12Scene::kMaxConstantBuffers; i++ ) {
+        switch ( pKinds[i] ) {
+        case SBK_Spec:
             out.pData[i] = pSpec;
             out.Sizes[i] = specBytes;
-            pWhat = "spec";
-        } else if ( name.find( "CLIP" ) == std::string::npos && name.find( "SHARED" ) == std::string::npos ) {
+            break;
+        case SBK_File:
             out.pData[i] = pFile;
             out.Sizes[i] = fileBytes;
-            pWhat = "file";
+            break;
+        default:
+            break;
         }
-        if ( pWhat == nullptr ) {
-            pWhat = "zero";
-        }
-        if ( !bound.empty() ) {
-            bound += ", ";
-        }
-        bound += "b" + std::to_string( i ) + "=" + pWhat;
     }
-    return bound;
 }
 
 // The widest float register a stage's constant table names, exactly the cache
@@ -181,6 +191,8 @@ void D3D12Eden::beginScene( const EdenSceneParams &params ) {
     scene = params;
     sceneEpoch++;
     viewProjection = scene.Projection.mulPrecise( scene.View );
+    // One warning per parameter per scene, like EdenRenderer's own set.
+    warnedParameters.clear();
 }
 
 const D3D12EdenProgram *D3D12Eden::getProgram( const EdenProgram *pEdenProgram ) {
@@ -212,6 +224,8 @@ const D3D12EdenProgram *D3D12Eden::getProgram( const EdenProgram *pEdenProgram )
     }
     D3D12EdenMapTextureRegisters( out.PS.HLSL, out.PSRegisters, out.RegisterCollisions );
     D3D12EdenMapTextureRegisters( out.VS.HLSL, out.VSRegisters, out.RegisterCollisions );
+    ClassifyStageBlocks( out.VS, out.VSKinds );
+    ClassifyStageBlocks( out.PS, out.PSKinds );
     for ( uint32_t i = 0; i < D3D12Scene::kTextureTableSize; i++ ) {
         const uint32_t slot = out.PSRegisters[i] != 0xFFFFFFFFu ? out.PSRegisters[i] : out.VSRegisters[i];
         if ( slot == 0xFFFFFFFFu ) {
@@ -388,7 +402,7 @@ bool D3D12Eden::draw( const D3D12EdenMesh &mesh, const EdenMaterial &material, c
     fillStage( vsBlock, pProgram->VSUsedRegisters, kEdenVSFloatRegisters );
     fillStage( psBlock, pProgram->PSUsedRegisters, kEdenPSFloatRegisters );
 
-    std::unordered_set<std::string> warnedParameters;
+    std::unordered_set<std::string> &warnedParameters = this->warnedParameters;
     EdenConstantsContext context;
     context.pScene = &scene;
     context.pViewProjection = &viewProjection;
@@ -406,9 +420,9 @@ bool D3D12Eden::draw( const D3D12EdenMesh &mesh, const EdenMaterial &material, c
 
     D3D12Scene::StageConstants vsConstants;
     D3D12Scene::StageConstants psConstants;
-    AssignStageBlocks( pProgram->VS, vsConstants, vsBlock.data(), pProgram->VSBytes, specDwords,
+    AssignStageBlocks( pProgram->VSKinds, vsConstants, vsBlock.data(), pProgram->VSBytes, specDwords,
                        sizeof( specDwords ) );
-    AssignStageBlocks( pProgram->PS, psConstants, psBlock.data(), pProgram->PSBytes, specDwords,
+    AssignStageBlocks( pProgram->PSKinds, psConstants, psBlock.data(), pProgram->PSBytes, specDwords,
                        sizeof( specDwords ) );
 
     // The push block: the alpha reference the DXSO pixel stage discards on, and

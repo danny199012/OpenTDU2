@@ -291,12 +291,20 @@ What this measured, and what it changed:
   tables, not 25,600: 767,820 hits and 180 misses. The 180 misses are one per
   distinct set per frame slot over 30 frames - the cache is rebuilt once per
   frame, as designed (3.13), and a material's set is stable within a frame.
-- **~2 us per draw, single-threaded** (1.8-2.8 us across these runs; the machine
-  was also running the probe's own readback). 25,600 draws took 53 ms of CPU to
-  record, so a 7,600-draw world pass is ~15-21 ms - more than the frame budget.
-  The Vulkan renderer records in parallel (`EdenRenderer::ParallelRecord`), so
-  the D3D12 draw path needs the same before the scene is usable - the next
-  performance item, and the reason this section reports the CPU time at all.
+- **~1.4 us per draw, single-threaded** - after the per-draw string building came
+  out of the path. The first version classified a stage's cbuffer slots with a
+  `std::string` per draw (`ToUpper` + `find` + `+=`) and built the
+  warned-parameter `unordered_set` inside `draw`: 25,600 draws took 53.04 ms.
+  Classifying the slots once per program (`D3D12EdenProgram::VSKinds` /
+  `PSKinds`) and keeping the warning set on the renderer (cleared in
+  `beginScene`, like `EdenRenderer`) brought that to **35.72 ms - 33 % less, with
+  a byte-identical frame** (78,784 px, the same table counts). A 7,600-draw world
+  pass is therefore ~10.6 ms of recording, which is inside a frame but leaves no
+  room for the shadow / reflection passes: the Vulkan renderer records in
+  parallel (`EdenRenderer::ParallelRecord`) and the D3D12 path needs the same -
+  the next performance item, and the reason this section reports the CPU time at
+  all.
+
 - **A bank probe's pipelines are per primitive** (25 pipelines for 25 draws,
   32 for the playhouse): each primitive is its own mesh, and the pipeline key
   includes the mesh declaration. In a world, primitives of one program share a
@@ -326,10 +334,10 @@ module and a game frame, in the order they unblock each other:
    reflection maps and the HDR colour target and then samples them - an offscreen
    target plus a depth-as-texture SRV is the missing mechanism, and it is what
    the shadow / reflection / post passes of section 5 need.
-3. **A parallel record.** ~2 us per draw on one thread (3.14) is more than a
-   world frame's budget; `EdenRenderer::ParallelRecord` is the Vulkan answer and
-   the D3D12 path needs its equivalent (PPO command lists, or a cheaper constant
-   fill).
+3. **A parallel record.** ~1.4 us per draw on one thread (3.14) is ~10.6 ms for a
+   world pass - inside a frame, but with nothing left for the shadow / reflection
+   passes; `EdenRenderer::ParallelRecord` is the Vulkan answer and the D3D12 path
+   needs its equivalent (PPO command lists, or a cheaper constant fill).
 
 ### 3.5 The shader tally (`-d3d12-shadertest`)
 

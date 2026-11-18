@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 struct EdenDrawParams;
@@ -90,6 +91,11 @@ struct D3D12EdenProgram {
     // "t0->s2(name) t2->s4 ...", for a log line.
     std::string RegisterMap;
     std::string Failure;
+    // What each cbuffer slot binds (0 zero, 1 the constant file, 2 the spec
+    // block), classified once here: a draw must not build strings to find out
+    // where its constants go.
+    uint8_t VSKinds[D3D12Scene::kMaxConstantBuffers] = {};
+    uint8_t PSKinds[D3D12Scene::kMaxConstantBuffers] = {};
 };
 
 // One uploaded primitive: the D3D12 buffers, the declaration the pipeline needs
@@ -190,6 +196,10 @@ private:
     std::vector<uint8_t> vsBlock;
     std::vector<uint8_t> psBlock;
     uint8_t push[128] = {};
+    // The "a material parameter with no value" warning set: one per renderer, not
+    // one per draw (EdenRenderer keeps it the same way) - a per-draw hash set is
+    // an allocation inside the frame.
+    std::unordered_set<std::string> warnedParameters;
 
     uint64_t numDraws = 0;
     uint64_t numConstantBytes = 0;

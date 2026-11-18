@@ -86,10 +86,13 @@ numbers, not on a refactor that draws nothing.
 - **The descriptor cache holds at scale**: 25,600 draws bind **6 tables**
   (767,820 hits / 180 misses) - the misses are one per distinct set per frame
   slot over 30 frames, as designed.
-- **~2 us per draw, single-threaded** (1.8-2.8 across the runs): 25,600 draws
-  took 53 ms of CPU to record, so a 7,600-draw world pass is ~15-21 ms - more
-  than a frame's budget. The Vulkan renderer records in parallel
-  (`EdenRenderer::ParallelRecord`).
+- **~1.4 us per draw, single-threaded** - the first version built a `std::string`
+  per draw to classify the stage's cbuffer slots and allocated the
+  warned-parameter set inside `draw` (25,600 draws: 53.04 ms). Classifying the
+  slots once per program and keeping the warning set on the renderer brought it
+  to **35.72 ms, 33 % less, with an identical frame** (78,784 px). A
+  7,600-draw world pass is ~10.6 ms; the Vulkan renderer records in parallel
+  (`EdenRenderer::ParallelRecord`) and that is still the next performance item.
 
 ### Next
 
