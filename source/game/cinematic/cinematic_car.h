@@ -23,8 +23,16 @@ class CinematicCar {
 public:
     struct Desc {
         std::string FileName = "California";
-        // The driven car: keeps the body's vertex data so it can crumple (addDent / updateCrumple).
+        // The driven car: keeps the body's vertex data so it can crumple
+        // (addDent / updateCrumple).
         bool bAllowCrumple = false;
+        // The tools' car viewer: keeps the car model's primitive vertices /
+        // indices after load (no clearPrimitiveData), so the tuner masks can be
+        // re-collected live when the viewer edits the hide boxes.
+        bool bKeepPrimitiveData = false;
+        // The exporter: keeps every model's parsed .3dg (EdenModel
+        // setKeepParsedGeometry) so the OBJ writer reads the real vertices.
+        bool bKeepParsedGeometry = false;
         // The bank the model is loaded from when it is not the physics row's
         // own bank. Empty = FileName. Used by the bike prototype (-bike: the
         // cut Ducati Diavel model with the Default_Bike physics row), whose
@@ -50,7 +58,8 @@ public:
         bool bInterior = true;
     };
     // Ground height at (x, z) searched below y.
-    using SurfaceFunction = std::function<bool( float x, float z, float y, float &outHeight )>;
+    using SurfaceFunction =
+        std::function<bool( float x, float z, float y, float &outHeight )>;
 
 public:
     CinematicCar();
@@ -61,11 +70,14 @@ public:
     inline bool isLoaded() const { return car.isLoaded(); }
     inline float getTireRadius() const { return tireRadius; }
 
-    // Crumpling (docs/re/damage_spec.md 3f): a dent pushes the body surface around a model-space point
-    // along a model-space direction by depth metres (merged with a nearby one, capped); updateCrumple
-    // rewrites the vertices at most every 0.2 s while dents changed. clearDents puts the body back.
+    // Crumpling (docs/re/damage_spec.md 3f): a dent pushes the body surface
+    // around a model-space point along a model-space direction by depth metres
+    // (merged with a nearby one, capped); updateCrumple rewrites the vertices
+    // at most every 0.2 s while dents changed. clearDents puts the body back.
     // Only a car loaded with Desc::bAllowCrumple.
-    void addDent( const Vector3f &modelPoint, const Vector3f &modelDirection, float depth );
+    void addDent( const Vector3f &modelPoint,
+                  const Vector3f &modelDirection,
+                  float depth );
     void clearDents();
     void updateCrumple( float deltaTime );
     inline size_t getNumDents() const { return dents.size(); }
@@ -111,20 +123,26 @@ public:
     // part with no per-caller work.
     // One attachment per slot ("spoiler", "exhaust"): setting a slot replaces
     // that slot's part only.
-    void setTunerAttachment( const char *pSlot, const EdenMesh &mesh, const EdenMaterial &material,
-                             const char *pBodyNodeName, const Matrix4x4f &offset );
+    void setTunerAttachment( const char *pSlot,
+                             const EdenMesh &mesh,
+                             const EdenMaterial &material,
+                             const char *pBodyNodeName,
+                             const Matrix4x4f &offset );
     // pSlot null = every slot back to stock.
     void clearTunerAttachment( const char *pSlot = nullptr );
     inline bool hasTunerAttachment() const { return !tunerAttachments.empty(); }
 
     // Car world pose: the cinematic pose with the 4 tires resting on the
     // surface (plane through the hub targets).
-    Matrix4x4f fitOnGround( Vector3f position, const Quaternionf &rotation,
+    Matrix4x4f fitOnGround( Vector3f position,
+                            const Quaternionf &rotation,
                             const SurfaceFunction &surfaceHeight ) const;
     // Environment cube of the car reflections: the dynamic cube rendered
     // around the car, or a static cube (bDynamic false: the CUBECAR texture
     // of the garage bank).
-    void assignEnvironment( EdenRenderer &renderer, GPUTexture *pCube, bool bDynamic = true );
+    void assignEnvironment( EdenRenderer &renderer,
+                            GPUTexture *pCube,
+                            bool bDynamic = true );
     // Door opening (docs: /tmp/claude-0/spec_garage_car.md 3): side 0 left
     // (DOOR_L, car slot 29), 1 right (DOOR_R, 30). FUN_00c67230 /
     // FUN_00c67200 store the angle at car +0xa794 / +0xa790; without the
@@ -133,7 +151,9 @@ public:
     // door subtree (mirror, window, INT_LR_x) and the interior bank panel
     // INT_HR_x (instanced on the door, FUN_00c69e30) follow.
     void setDoorAngle( int32_t side, float angle );
-    inline float getDoorAngle( int32_t side ) const { return doorAngle[side & 1]; }
+    inline float getDoorAngle( int32_t side ) const {
+        return doorAngle[side & 1];
+    }
     // Side windows (FUN_00c66150 / FUN_00c66110): lowered windows are the
     // WND_x1 nodes moved onto the WND_x2 rest transform (the door frame at the
     // bottom of the glass), raised back to their own rest pose. The rests are
@@ -144,10 +164,14 @@ public:
     void setWindowsOpen( bool bOpen );
     void updateWindows( float deltaTime );
     inline bool areWindowsOpen() const { return bWindowsOpen; }
-    inline bool isWindowsAnimating() const { return windowTarget != windowTime; }
+    inline bool isWindowsAnimating() const {
+        return windowTarget != windowTime;
+    }
     // 0 raised, 1 lowered (the animated position of WND_x1).
     inline float getWindowsFactor() const { return windowTime; }
-    inline bool hasWindows() const { return windows[0].Raised >= 0 || windows[1].Raised >= 0; }
+    inline bool hasWindows() const {
+        return windows[0].Raised >= 0 || windows[1].Raised >= 0;
+    }
     // Exterior lights (docs/re/car_lights_spec.md, ported from the upstream
     // read of FUN_00c5ee20 / FUN_00c588d0 / FUN_00c57ef0). The lamp materials
     // carry a GLOSSLIGHT mask (california_lgt_g) whose channels select the
@@ -184,7 +208,8 @@ public:
     void updateWipers( float deltaTime, float rainAlpha );
     // World-space pivot and tip of one blade (0 left, 1 right) right now;
     // false when the wipers are parked or this car has none.
-    bool getWiperSweep( uint32_t half, Vector3f &outPivot, Vector3f &outTip ) const;
+    bool
+    getWiperSweep( uint32_t half, Vector3f &outPivot, Vector3f &outTip ) const;
     inline bool hasWipers() const { return !wipers.empty(); }
     inline int32_t getIndicator() const { return indicatorSide; }
     void setBrakeLights( bool bOn );
@@ -200,9 +225,13 @@ public:
     // one soft additive quad per lit lamp, in world space (the car drawn at
     // `world`), appended to `out` (EdenLampGlowFrame). Uses the state the
     // last applyLights() wrote.
-    // The world positions of the left / right headlamp lenses (the 'L' glow anchors); false when the car has none.
-    bool getHeadlampPositions( const Matrix4x4f &world, Vector3f &outLeft, Vector3f &outRight ) const;
-    void appendLampGlows( const Matrix4x4f &world, std::vector<EdenLampGlow> &out ) const;
+    // The world positions of the left / right headlamp lenses (the 'L' glow
+    // anchors); false when the car has none.
+    bool getHeadlampPositions( const Matrix4x4f &world,
+                               Vector3f &outLeft,
+                               Vector3f &outRight ) const;
+    void appendLampGlows( const Matrix4x4f &world,
+                          std::vector<EdenLampGlow> &out ) const;
     // Night dashboard / interior lighting (TD_DashBoard reads IlumParam /
     // IlumColor / HeadlightsIntensity): the material ships
     // HEADLIGHTSINTENSITY = 0, which zeroes its whole backlight term, so the
@@ -216,7 +245,9 @@ public:
     // (1, 1, 2, 0)). Also re-shows the GPS subtrees, hidden at load since
     // session 45 (unprojected they draw as a black sail). Returns false when
     // the interior carries no GPS material / slot.
-    bool setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, const Vector4f &uvOffset );
+    bool setGpsTexture( EdenRenderer &renderer,
+                        GPUTexture *pTexture,
+                        const Vector4f &uvOffset );
     inline bool hasGps() const { return !gpsMaterials.empty(); }
     inline bool isGpsBound() const { return bGpsBound; }
     // How this car's GPS quad maps the texture (read from its UVs at load).
@@ -230,20 +261,52 @@ public:
     void updateHardtop( float deltaTime );
     inline bool isHardtopOpen() const { return hardtopTime > 0.0f; }
     inline bool hasHardtop() const { return bHardtop; }
-    inline bool isHardtopAnimating() const { return hardtopTarget != hardtopTime; }
+    inline bool isHardtopAnimating() const {
+        return hardtopTarget != hardtopTime;
+    }
     // Model space transform of a car node (names longer than 8 characters
     // are folded, e.g. DVRSEAT_LR); false if absent.
-    bool getNodeModelTransform( const char *pName, Matrix4x4f &outTransform ) const;
+    bool getNodeModelTransform( const char *pName,
+                                Matrix4x4f &outTransform ) const;
     // Model space bounds of the high resolution body (BODY_HR).
     bool getBodyBounds( Vector3f &outMin, Vector3f &outMax ) const;
-    // The body plus the separate rear bumper node(s) (names containing UMP_R_H):
-    // where a bolt-on rear part (the exhaust tips) has to stand. Model space.
+    // The body plus the separate rear bumper node(s) (names containing
+    // UMP_R_H): where a bolt-on rear part (the exhaust tips) has to stand.
+    // Model space.
     bool getRearBounds( Vector3f &outMin, Vector3f &outMax ) const;
-    void draw( EdenRenderer &renderer, const Matrix4x4f &world, const WeatherPreset *pWeather,
+    void draw( EdenRenderer &renderer,
+               const Matrix4x4f &world,
+               const WeatherPreset *pWeather,
                bool bEnvironmentAssigned );
 
     // The level of detail loaded ("" = high).
     inline const std::string &getLod() const { return lodName; }
+    // The actually loaded car file name (Desc::FileName, the DB row's
+    // _car_file_name; the tuner catalog keys on it).
+    inline const std::string &getFileName() const { return fileName; }
+    // The assembled models (the tools' car viewer / exporter). rimRear is
+    // empty unless the car ships a distinct rear rim.
+    inline EdenModel &getInteriorModel() { return interior; }
+    inline EdenModel &getRimModel() { return rim; }
+    inline EdenModel &getRimRearModel() { return rimRear; }
+    inline EdenModel &getTireModel() { return tire; }
+    // The stock-part masks (collectTunerMasks): the triangles tuner.txt's
+    // hide boxes / tri lists catch, per body item. The car viewer highlights
+    // them while a part or box is edited.
+    struct TunerMask {
+        size_t Item = 0;
+        EdenMesh Mesh; // the item's streams + the reordered buffer
+        uint32_t Counts[3] = { 0, 0,
+                               0 }; // exhaust, rest, spoiler (triangles x 3)
+        GPUBuffer *pIndices = nullptr;
+    };
+    inline const std::vector<TunerMask> &getTunerMasks() const {
+        return tunerMasks;
+    }
+    // Re-runs collectTunerMasks (the viewer after a hide-box edit). Needs
+    // Desc::bKeepPrimitiveData - the mask collection reads the car model's
+    // primitive vertices, which a normal load frees after the wipers.
+    void refreshTunerMasks();
     // DBCarPhysicsData._id_car of the loaded car file (-1 if unknown).
     int32_t getIdCar() const;
 
@@ -254,7 +317,8 @@ public:
     static bool DescFromDatabase( int32_t carId, Desc &outDesc );
     // The same for a given rims row (the shop slots / the test drive carry
     // their own rims hashcode; 0 = the car's default rims).
-    static bool FindDatabaseDesc( int32_t idCar, uint64_t rimsHashcode, Desc &outDesc );
+    static bool
+    FindDatabaseDesc( int32_t idCar, uint64_t rimsHashcode, Desc &outDesc );
     // The buy window's live preview: the shown car takes the browsed DBRims
     // row (the retail slot rebuild on the wheels page, FUN_009f28a0 ->
     // 0xacee30 broadcast): the two rim meshes + the diameters reload. No-op
@@ -277,12 +341,14 @@ public:
     // window paints its colour squares with it [INF: the retail swatch render
     // callback FUN_009ee3c0 reads a per-row colour pair it computed elsewhere].
     bool getDatabasePaintSwatch( int32_t paintIndex, float outRgb[3] );
-    // The swatch of a colour id (a DBInterior `_interior_color_n`): the car's own colour library first, then
-    // colors.2dm. The interior palette squares of the buy window.
+    // The swatch of a colour id (a DBInterior `_interior_color_n`): the car's
+    // own colour library first, then colors.2dm. The interior palette squares
+    // of the buy window.
     bool getLibrarySwatch( const std::string &colorId, float outRgb[3] );
     // The same for a colour library material by name (the DBInterior
     // _interior_color_<n> ids 'C_N_02' ...): false when no library has it.
-    static bool FindLibrarySwatch( const std::string &materialName, float outRgb[3] );
+    static bool FindLibrarySwatch( const std::string &materialName,
+                                   float outRgb[3] );
 
     // Database paint (docs/re/paint_spec.md 3.2 / 3.3, FUN_00d8e6a0 ->
     // FUN_00c5ff20 mode 0): row paintIndex of the car's DBCarsAndColors rows
@@ -299,7 +365,10 @@ public:
     // colour on Paint2. restorePaint() puts the dealer paint back (the values
     // the first custom paint found). getBodyPaintColour() is the body's
     // current colour (RampClr2). [INF: the colour -> ramp mapping is [ENC]]
-    bool applyCustomPaint( int32_t type, uint32_t colour1, bool bBicolour, uint32_t colour2 );
+    bool applyCustomPaint( int32_t type,
+                           uint32_t colour1,
+                           bool bBicolour,
+                           uint32_t colour2 );
     void restorePaint();
     uint32_t getBodyPaintColour();
     // Number of DBCarsAndColors rows of a car.
@@ -313,7 +382,8 @@ public:
     static std::vector<PaintInfo> DatabasePaints( int32_t carId );
     // The DBCarsAndColors row's _color_id_1 of the car's paint ("" when the
     // row does not exist): the test-drive request's ColorId.
-    static std::string DatabasePaintColorId( int32_t carId, int32_t paintIndex );
+    static std::string DatabasePaintColorId( int32_t carId,
+                                             int32_t paintIndex );
 
     // The sticker layer (docs/re/paint_spec.md 4/6): the TD_CarPaint2 pixel
     // shader lerps a sticker texture sampled on s5 over the paint; s5 is the
@@ -330,19 +400,23 @@ public:
     // wet car keeps a slight darkening and extra gloss. Call every frame with
     // the simulated 0..1 values; the clean parameter values are captured once
     // (and after every repaint) so the blend never accumulates.
-    void applySurfaceState( float mud, float dirt, float hardness, float wetness );
+    void
+    applySurfaceState( float mud, float dirt, float hardness, float wetness );
 
-    // Car damage (docs/re/damage_spec.md): 0 clean, 1 scratched, 2 deformed, 3 broken. From state 2 the
-    // exterior glass binds the retail damaged-glass art (common_car's glass_b, a starred pane) in its
-    // DETAIL2 slot - the CarPaint glass shader fades the base toward it - and back to the clean glass
-    // base (g_i) below. Idempotent: it only touches the materials when the state changes.
+    // Car damage (docs/re/damage_spec.md): 0 clean, 1 scratched, 2 deformed, 3
+    // broken. From state 2 the exterior glass binds the retail damaged-glass
+    // art (common_car's glass_b, a starred pane) in its DETAIL2 slot - the
+    // CarPaint glass shader fades the base toward it - and back to the clean
+    // glass base (g_i) below. Idempotent: it only touches the materials when
+    // the state changes.
     void applyDamageState( int32_t state );
-    // Damage by zone (VehicleDynamics::getZoneDamage, 0..65535 each): the doors come loose (a
-    // door not shut properly) and the bumpers sag and hang off [owner's retail captures, the
-    // model's separate BUMP_F_* / BUMP_R_* / DOOR_L / DOOR_R nodes]. Cheap when nothing changed.
+    // Damage by zone (VehicleDynamics::getZoneDamage, 0..65535 each): the doors
+    // come loose (a door not shut properly) and the bumpers sag and hang off
+    // [owner's retail captures, the model's separate BUMP_F_* / BUMP_R_* /
+    // DOOR_L / DOOR_R nodes]. Cheap when nothing changed.
     void applyPartDamage( float front, float rear, float left, float right );
-    // The detachable parts (bumpers, bonnet, boot lid): which are gone at these zone values, and the
-    // part of the model to throw (CarDebris).
+    // The detachable parts (bumpers, bonnet, boot lid): which are gone at these
+    // zone values, and the part of the model to throw (CarDebris).
     inline const CarPartRig &getPartRig() const { return partRig; }
 
 private:
@@ -423,8 +497,9 @@ private:
     std::vector<uint32_t> lightBoxMaterials[3];
     // Light state (car +0x280 driver: +0x1d0 brake, +0x1d1 reverse, +0x1d4
     // light mode, +0x1db / +0x1dc left / right blinker, +0x1f10 blink timer).
-    int32_t headlightMode = -1; // -1 follow setHeadlights, 0 off, 1 weather, 2 forced
-    bool bHeadlights = false;   // the setHeadlights request (mode -1)
+    int32_t headlightMode =
+        -1; // -1 follow setHeadlights, 0 off, 1 weather, 2 forced
+    bool bHeadlights = false; // the setHeadlights request (mode -1)
     bool bBraking = false;
     bool bReverse = false;
     int32_t indicatorSide = -1;   // -1 off, 0 left, 1 right
@@ -448,12 +523,14 @@ private:
     std::vector<LampAnchor> lampAnchors;
     void collectLampAnchors();
     // The values applyLights wrote last (the glows follow them).
-    float appliedHeadlight = 0.0f, appliedPosition = 0.0f, appliedBrake = 0.0f, appliedReverse = 0.0f;
-    float appliedNight = 0.0f; // 0 day .. 1 night (car_headlight_flare_intensity)
+    float appliedHeadlight = 0.0f, appliedPosition = 0.0f, appliedBrake = 0.0f,
+          appliedReverse = 0.0f;
+    float appliedNight =
+        0.0f; // 0 day .. 1 night (car_headlight_flare_intensity)
     // The blinker lamp's rise / fall (a bulb, not a switch) [INF].
     float indicatorGlow[2] = { 0.0f, 0.0f };
-    float lampBoost = 1.4f;                   // GLOSSFCT emission multiplier (setLampBoost)
-    bool bInTunnel = false;                   // the tunnel_car_* weather keys
+    float lampBoost = 1.4f; // GLOSSFCT emission multiplier (setLampBoost)
+    bool bInTunnel = false; // the tunnel_car_* weather keys
     // The interior dashboard materials, the retail selection [CODE-dev,
     // TestDrive2DEV.exe 0x71a680]: every material on the two dash shaders
     // (TD_DashBoard caca000000000010 / TD_flashdashboard 7dad16b47eb51337)
@@ -463,14 +540,14 @@ private:
     // and its illumination constants).
     std::vector<int32_t> dashMaterials; // interior.getMaterials() indices
     float dashboardGlow = 0.0f;         // the smoothed HEADLIGHTSINTENSITY
-    float dashboardWritten = -1.0f;     // the last value pushed to the materials
+    float dashboardWritten = -1.0f; // the last value pushed to the materials
     // The dashboard sat-nav: interior materials on the TD_GPS shader
     // (7dad16b47eb57b95) and the GPS node subtrees (hidden at load,
     // re-shown when the map texture is bound).
     std::vector<int32_t> gpsMaterials; // interior.getMaterials() indices
     std::vector<int32_t> gpsNodes;     // interior nodes of the GPS subtrees
     GpsUvLayout gpsLayout;
-    bool bGpsBound = false;            // setGpsTexture ran for this load
+    bool bGpsBound = false; // setGpsTexture ran for this load
     bool bDashboardLit = false;
     // The cockpit gauge needles (setDashboardNeedles): the interior model's
     // needle mesh nodes and the rest pose each is rotated from.
@@ -486,8 +563,9 @@ private:
     // Cockpit level of detail (FUN_00c66380): LOD 4 shows the interior
     // bank (COCK_HR, INT_HR_L/R), LOD 3 the exterior low resolution cockpit
     // (COCK_LR, INT_LR_L/R).
-    std::vector<int32_t> cockpitLowNodes;    // car nodes
-    std::vector<int32_t> interiorDrawnNodes; // interior nodes (COCK_HR subtree, INT_HR_L/R)
+    std::vector<int32_t> cockpitLowNodes; // car nodes
+    std::vector<int32_t>
+        interiorDrawnNodes; // interior nodes (COCK_HR subtree, INT_HR_L/R)
     // The windscreen glass (GLASS_F) and the side window glass (WND_L1 / R1) of
     // the exterior model: hidden in the inside views. The exterior Glass
     // material carries the DIRT_SCRATCH detail art (the scratch streaks) and
@@ -509,9 +587,10 @@ private:
     // bank's Glass_I (TD_CarGlassDirt, california_spec.md 4: FUN_00c53d10 on
     // the camera flag 0x40000) - the outside glass is a near-opaque dirt wall
     // from the driver seat otherwise (docs/STATE.md session 45).
-    std::vector<std::pair<EdenModel *, int32_t>> glassSwap; // the car's "Glass" materials
-    std::vector<EdenMaterial> glassOriginals;               // their outside state
-    EdenMaterial glassDirt;                                 // the interior's Glass_I
+    std::vector<std::pair<EdenModel *, int32_t>>
+        glassSwap;                            // the car's "Glass" materials
+    std::vector<EdenMaterial> glassOriginals; // their outside state
+    EdenMaterial glassDirt;                   // the interior's Glass_I
     bool bGlassSwapped = false;
     bool bGlassGathered = false;
     int32_t appliedDamageState = -1;
@@ -520,7 +599,8 @@ private:
     // slot). glassFit maps car space to the windscreen's uv (least squares).
     struct GlassDrop {
         float U = 0, V = 0, Radius = 2, Alpha = 0, TailX = 0, TailY = 0;
-        float Age = 0, RunAt = 0, Speed = 0, Phase = 0; // a big drop starts to run at RunAt s of age
+        float Age = 0, RunAt = 0, Speed = 0,
+              Phase = 0; // a big drop starts to run at RunAt s of age
     };
     std::vector<GlassDrop> glassDrops;
     float glassFit[2][4] = {};
@@ -534,11 +614,14 @@ private:
     uint32_t glassRng = 0x2545f491u;
     void collectGlassFit();
     void updateGlassDrops( float deltaTime, float rainAlpha );
-    float glassWater = 0.0f;      // droplets on the outside glass 0..1 (wipers clear it)
-    int32_t appliedGlassWet = 0;  // 0 dry, 1..3 the droplet overlay on the exterior glass
+    float glassWater =
+        0.0f; // droplets on the outside glass 0..1 (wipers clear it)
+    int32_t appliedGlassWet =
+        0; // 0 dry, 1..3 the droplet overlay on the exterior glass
     void applyGlassWet( float wet );
-    // applyPartDamage: the bumpers and the bonnet / boot lid of the model (the doors are moved here, with the
-    // interior panels); the key is the last pose written.
+    // applyPartDamage: the bumpers and the bonnet / boot lid of the model (the
+    // doors are moved here, with the interior panels); the key is the last pose
+    // written.
     CarPartRig partRig;
     struct Dent {
         Vector3f Point;
@@ -556,23 +639,26 @@ private:
     // The wiper driver (the comment at setWiperMode).
     struct WiperHalf {
         int32_t ItemIndex = -1;
-        EdenMesh Mesh;              // the item's streams, own index buffer (the half's triangles)
+        EdenMesh
+            Mesh; // the item's streams, own index buffer (the half's triangles)
         uint32_t IndexCount = 0;
-        Vector3f Pivot;             // node space, the outer end of the half
-        Vector3f Blade;             // node space, pivot -> tip at rest
+        Vector3f Pivot; // node space, the outer end of the half
+        Vector3f Blade; // node space, pivot -> tip at rest
         GPUBuffer *pIndices = nullptr;
     };
     std::vector<WiperHalf> wipers;
-    int32_t wiperNode = -1;         // the node the wiper prim hangs from
+    int32_t wiperNode = -1; // the node the wiper prim hangs from
     eWiperMode wiperMode = eWiperMode::Auto;
-    float wiperAngle = 0.0f;        // rad, 0 = the parked pose of the art
-    float wiperTimer = 0.0f;        // intermittent countdown / sweep progress (<0: sweeping u)
+    float wiperAngle = 0.0f; // rad, 0 = the parked pose of the art
+    float wiperTimer =
+        0.0f; // intermittent countdown / sweep progress (<0: sweeping u)
     void collectWipers();
     struct DoorNodes {
         int32_t Door = -1;
         Matrix4x4f DoorRest;
-        std::vector<std::pair<int32_t, Matrix4x4f>> CarRest;      // DOOR_x subtree
-        std::vector<std::pair<int32_t, Matrix4x4f>> InteriorRest; // INT_HR_x subtree
+        std::vector<std::pair<int32_t, Matrix4x4f>> CarRest; // DOOR_x subtree
+        std::vector<std::pair<int32_t, Matrix4x4f>>
+            InteriorRest; // INT_HR_x subtree
     };
     DoorNodes doors[2];
     float doorAngle[2] = { 0.0f, 0.0f };
@@ -601,7 +687,8 @@ private:
     };
     std::vector<PaintSnapshot> paintOriginal;
     bool bPaintOriginal = false;
-    float stainVisual = 0.0f; // the last applySurfaceState inputs (draw's gloss)
+    float stainVisual =
+        0.0f; // the last applySurfaceState inputs (draw's gloss)
     float wetVisual = 0.0f;
     std::vector<int32_t> wheelNodes;
     std::vector<int32_t> wheelShadowNodes;
@@ -609,7 +696,8 @@ private:
     int32_t tireNodeRear = -1;
     int32_t rimDiameterFront = 19;
     int32_t rimDiameterRear = 19;
-    int32_t loggedRimFront = -1; // the last multiplier-logged diameter (this car)
+    int32_t loggedRimFront =
+        -1; // the last multiplier-logged diameter (this car)
     int32_t loggedRimRear = -1;
     float tireRadius = 0.339f;
     float bodyLift = 0.0f;
@@ -618,7 +706,7 @@ private:
     struct TunerAttachment {
         EdenMesh Mesh;
         EdenMaterial Material;
-        int32_t Node = -1;   // the node it hangs from (-1 = the car origin)
+        int32_t Node = -1; // the node it hangs from (-1 = the car origin)
         Matrix4x4f Offset;
     };
     std::map<std::string, TunerAttachment> tunerAttachments; // by slot
@@ -626,14 +714,12 @@ private:
     // the stock exhaust tips are triangles inside the big body items): per
     // item, one index buffer ordered [exhaust tris][the rest][spoiler tris],
     // so any of the four show / hide combinations is one contiguous range.
-    struct TunerMask {
-        size_t Item = 0;
-        EdenMesh Mesh;               // the item's streams + the reordered buffer
-        uint32_t Counts[3] = { 0, 0, 0 }; // exhaust, rest, spoiler (triangles x 3)
-        GPUBuffer *pIndices = nullptr;
-    };
+    // The struct is public (getTunerMasks) - the viewer draws it.
     std::vector<TunerMask> tunerMasks;
-    bool bStockExhaustHidden = false; // the EXHAUST node was hidden by a fitted tuner part
+    bool bKeepPrimitiveData =
+        false; // Desc::bKeepPrimitiveData (the viewer's car: live mask re-runs)
+    bool bStockExhaustHidden =
+        false; // the EXHAUST node was hidden by a fitted tuner part
     void collectTunerMasks();
     void applyTunerMasks();
 };

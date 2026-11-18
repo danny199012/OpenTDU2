@@ -29,6 +29,34 @@ The owner: "make custom menus using the real UI ... more stickers in the packs .
 - Not driven through the SHOPSCAR sticker shop UI (grid / buy) - run `-atspot` sticker shop with a pack in `<userdata>/mods/stickers` and check the grid shows it. Only 15 entries per pack show (`kGridSquares`).
 - Vinyl UV templates (`car_obj_export` is the starting point), a packaged/hashed pack archive (marketplace), then the tuner UI and auctions.
 
+## Session 2026-11-18 (`main`, 48): car viewer + OBJ exporter + the tuner authoring loop
+
+Owner: "I had a tool made for openTDU2 ... I was hoping we can improve it somehow and add a car viewer and exporter I want to make cars more modular ... some cars have spoilers already GTR as example but need a method to remove it without destroying the car and so we can swap the spoilers also need something for exhaustes this is for our customization mod".
+
+### What changed
+- `source/render/eden/eden_model.*` — `setKeepParsedGeometry`: the parsed .3dg (every primitive's MeshVertex streams + indices) survives load; items record their source primitive (`SourceGeometryHash` / `SourcePrimitive`). Tools-only (one extra geometry copy per model).
+- `source/game/cinematic/cinematic_car.*` — `Desc::bKeepPrimitiveData` (no `clearPrimitiveData` after the wipers: the viewer's live hide-box edits re-run `collectTunerMasks` via the new public `refreshTunerMasks`), `Desc::bKeepParsedGeometry`, the `TunerMask` struct + `getTunerMasks()` made public, accessors (`getFileName`, `getInteriorModel` / `getRimModel` / `getRimRearModel` / `getTireModel`).
+- `source/game/freeride/tuner_parts.*` — the viewer's live edits: `setRuntimeHideBoxes` / `setRuntimeSlotOffset` (runtime overrides `getHideBoxes` / `offsetFor` return first), and `hide_tris_<slot> = <item>: <tri>,...` parsed into `TunerCar::HideTris`.
+- `source/game/cinematic/cinematic_car.cpp` `collectTunerMasks` — groups by box OR exact tri list (runtime + file).
+- `source/game/assetviewer/car_obj_export.{h,cpp}` — NEW: the whole assembly (ext / interior / rims / tire) as OBJ + MTL + `anchors.txt` under `<userdata>/export/<car>/`, the round-trip law below.
+- `source/game/assetviewer/gm_asset_viewer.*` — the Cars panel: car list (279 rows, display names + tuner badges), `-car` / `-cartab` / `-exportcar <name|*>` / `-objroundtrip` flags, the loaded car drawn in the 3D view (BODY_HR camera fit, static CUBECAR env - the IntroCinematic pattern - without it the paint draws black), node picking, the tuner authoring loop (fit live, hide-box overlay + masked-triangle highlight, drag-edit boxes / offsets through the runtime overrides with live `refreshTunerMasks`, copy `tuner.txt` lines to the clipboard + log).
+
+### Verified (headless, build 276)
+- Export GTR: 129 ext items / 29,978 tris + interior 39,479 + rims 1,216 x2 + tire 19,427, `anchors.txt` (bounds, node translations, the tuner data).
+- **Round-trip**: `-objroundtrip .../GTR_ext.obj` re-imports through the game's own OBJ loader -> bounds delta 0.0000 PASS. The law: engine x negated + faces reversed on write (the involution of obj_mesh.cpp's import mirror), positions car space, hide boxes stay ITEM space (anchors.txt states the conversion).
+- Viewer: `-gm assetviewer -car GTR -tunermod -imguiscale 1.0` - the GT-R renders (env-cube paint), the `hide_spoiler` box wireframed exactly over the stock boot lip (`docs/images/car_viewer_gtr_maskbox.webp`).
+- `hide_tris_`: GTR box = 656 maskable; adding `hide_tris_spoiler = 7: 0,1,2` -> 659. (Test line removed after.)
+- Garage regression: `-tunerfit "spoiler=wing_gt;exhaust=exhaust_quad"` - same maskable counts as session 47, the A/B pair `docs/images/tuner_ab_stock_s48.webp` / `tuner_ab_fitted_s48.webp` (stock lip + round tips vs GT wing + quad tips, no doubles). The stock part still comes back on unfit (index-range mask, untouched mesh data).
+
+### Ruled out / notes
+- The stale copy of `tuner.txt` in the test userdata (`<userdata>/mods/packages/tuner-garage/`) shadowed the repo package for the first runs - anchors.txt faithfully showed the stale data. Re-copied the package; the launcher's install does this for the owner.
+- The viewer panels use `DpiScaled` positions: at this machine's DPI scale the right-side windows land off a 1280x720 backbuffer (pre-existing; `-imguiscale 1.0` for the test shots). Car mode now draws only the Cars panel + the 3D view so both fit.
+
+### Not done / next
+- Triangle-click mask painting (the runtime-override plumbing is ready; needs a triangle-exact raycast on the kept primitive vertices) - `docs/re/car_viewer_spec.md` 7.
+- Texture export (the MTL carries flat Kd; the art stays in the banks).
+- `-exportcar *` re-exports cars that share a file name (harmless, slow).
+
 ## Session 2026-11-18 (`main`, 47): tuner mod - six spoilers, four exhaust-tip sets, exhaust pops
 
 Owner: "the tuner mod, can you add more content to it, more spoilers, exhaust tips, and work on the enhanced audio if we can for exhaust pops etc."

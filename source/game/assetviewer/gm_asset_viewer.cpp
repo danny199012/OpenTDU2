@@ -2,13 +2,18 @@
 #include "gm_asset_viewer.h"
 
 #include "audio/gs_audio.h"
+#include "database/gs_database.h"
 #include "debug/gs_imgui.h"
 #include "filesystem/gs_file.h"
 #include "flash/flash_movie.h"
 #include "flash/flash_player.h"
 #include "game/asset_labels.h"
+#include "game/assetviewer/car_obj_export.h"
+#include "game/cinematic/cinematic_car.h"
 #include "game/cinematic/cinematic_scene.h"
 #include "game/freeride/chase_camera.h"
+#include "game/freeride/tuner.h"
+#include "game/freeride/tuner_parts.h"
 #include "input/gs_input.h"
 #include "render/eden/eden_scene_view.h"
 #include "render/eden/eden_sky.h"
@@ -319,6 +324,104 @@ bool GMAssetViewer::enter( TestDriveGameInstance *pInstance ) {
     if ( CmdLine::HasArg( "-collision" ) && bCollisionLoaded ) {
         bShowCollision = true;
     }
+
+    // ---- Cars (the car viewer / exporter) ----
+    // -exportcar <name|*>: load + export, then exit (headless: the OBJ tree
+    // lands under <userdata>/export/<car>/). -car <name>: open the Cars panel
+    // on that car. -cartab: just open the panel.
+    if ( CmdLine::HasArg( "-exportcar" ) || CmdLine::HasArg( "-car" ) ||
+         CmdLine::HasArg( "-cartab" ) ) {
+        bShowCars = true;
+        scanCars();
+    }
+    if ( const char *pExport = CmdLine::GetArgValue( "-exportcar" ) ) {
+        const std::string which = pExport;
+        uint32_t exported = 0;
+        for ( size_t i = 0; i < carRows.size(); i++ ) {
+            const bool bAll = which == "*";
+            if ( !bAll && StringCmpI( carRows[i].FileName.c_str(),
+                                      which.c_str() ) != 0 ) {
+                continue;
+            }
+            selectCar( static_cast<int32_t>( i ) );
+            if ( pViewerCar == nullptr || !pViewerCar->isLoaded() ) {
+                OTDU_LOG_WARN( "CarExport: '%s' did not load\n",
+                               carRows[i].FileName.c_str() );
+                continue;
+            }
+            std::string folder, error;
+            if ( ExportCarObj( *pViewerCar, folder, error ) ) {
+                exported++;
+            } else {
+                OTDU_LOG_WARN( "CarExport: '%s' failed: %s\n",
+                               carRows[i].FileName.c_str(), error.c_str() );
+            }
+            if ( !bAll ) {
+                break;
+            }
+        }
+        OTDU_LOG_INFO( "CarExport: %u car(s) exported\n", exported );
+        // -objroundtrip <path.obj>: the exported file back through the game's
+        // own OBJ loader (the route tuner parts take): its bounds must land on
+        // the car model's - the mirror law's headless proof.
+        if ( const char *pObj = CmdLine::GetArgValue( "-objroundtrip" ) ) {
+            EdenRenderer *pRoundRenderer = gpRender->getEdenRenderer();
+            const std::string objPath = pObj;
+            const size_t slash = objPath.find_last_of( "/\\" );
+            const size_t dot = objPath.find_last_of( '.' );
+            const std::string objFolder =
+                slash == std::string::npos ? "."
+                                           : objPath.substr( 0, slash ) + "/";
+            const std::string objName =
+                dot == std::string::npos
+                    ? objPath.substr( slash + 1 )
+                    : objPath.substr( slash + 1, dot - slash - 1 );
+            if ( pRoundRenderer != nullptr && pViewerCar != nullptr &&
+                 pViewerCar->isLoaded() ) {
+                std::vector<ObjMeshDraw> draws;
+                Vector3f objMin, objMax;
+                if ( LoadObjDraws( *pRoundRenderer, objFolder.c_str(),
+                                   objName.c_str(), "TD_Gouraud", draws,
+                                   &objMin, &objMax, nullptr,
+                                   "ObjRoundtrip" ) ) {
+                    const EdenModel &carModel = pViewerCar->getModel();
+                    const Vector3f &carMin = carModel.getBoundsMin();
+                    const Vector3f &carMax = carModel.getBoundsMax();
+                    const float delta = Max( ( objMin - carMin ).length(),
+                                             ( objMax - carMax ).length() );
+                    OTDU_LOG_INFO( "ObjRoundtrip: obj (%.4f %.4f %.4f)-(%.4f "
+                                   "%.4f %.4f) vs car (%.4f %.4f %.4f)-(%.4f "
+                                   "%.4f %.4f) delta %.4f -> %s\n",
+                                   objMin.x, objMin.y, objMin.z, objMax.x,
+                                   objMax.y, objMax.z, carMin.x, carMin.y,
+                                   carMin.z, carMax.x, carMax.y, carMax.z,
+                                   delta, delta < 0.01f ? "PASS" : "FAIL" );
+                    UnloadObjDraws( draws );
+                } else {
+                    OTDU_LOG_WARN( "ObjRoundtrip: cannot load '%s'\n",
+                                   objPath.c_str() );
+                }
+            } else {
+                OTDU_LOG_WARN( "ObjRoundtrip: needs a loaded car (run -car "
+                               "<name> with it)\n" );
+            }
+        }
+        pInstance->requestExit();
+        return true;
+    }
+    if ( const char *pCar = CmdLine::GetArgValue( "-car" ) ) {
+        for ( size_t i = 0; i < carRows.size(); i++ ) {
+            if ( StringCmpI( carRows[i].FileName.c_str(), pCar ) == 0 ) {
+                selectCar( static_cast<int32_t>( i ) );
+                break;
+            }
+        }
+        if ( pViewerCar == nullptr ) {
+            OTDU_LOG_WARN(
+                "AssetViewer: -car '%s' is not a DBCarPhysicsData file name\n",
+                pCar );
+        }
+    }
     return true;
 }
 
@@ -326,6 +429,7 @@ void GMAssetViewer::exit() {
     unloadMoviePreview();
     stopAudioPreview();
     audioClip.reset();
+    unloadViewerCar();
     unloadSceneModels();
     if ( pSceneTarget != nullptr && gpRender != nullptr ) {
         gpRender->getDevice().waitIdle();
@@ -403,6 +507,7 @@ bool GMAssetViewer::openBank( const std::string &path ) {
     stopAudioPreview();
     audioClip.reset();
     audioInfo.clear();
+    unloadViewerCar();
     unloadSceneModels();
     bank.unload();
     if ( !bank.load( path.c_str() ) ) {
@@ -775,8 +880,11 @@ void GMAssetViewer::drawOffscreen() {
     // The 3D view: the models of the open bank into a panel sized render
     // target. drawOffscreen runs before the main pass, and drawUI samples the
     // target as an ImGui image, so the models are ready when the panel draws.
+    // A loaded car replaces the row (the Cars panel).
     EdenRenderer *pRenderer = gpRender->getEdenRenderer();
-    if ( !bScene || models.empty() || pRenderer == nullptr ) {
+    if ( !bScene || pRenderer == nullptr ||
+         ( models.empty() &&
+           ( pViewerCar == nullptr || !pViewerCar->isLoaded() ) ) ) {
         return;
     }
     RenderDevice &device = gpRender->getDevice();
@@ -795,8 +903,14 @@ void GMAssetViewer::drawOffscreen() {
     device.beginRenderTarget( pSceneTarget, true,
                               ColorRGBA( 0.10f, 0.11f, 0.13f, 1.0f ) );
     pRenderer->beginScene( params );
-    for ( const SceneModel &model : models ) {
-        model.Model->draw( *pRenderer, model.Transform );
+    if ( pViewerCar != nullptr && pViewerCar->isLoaded() ) {
+        // The whole assembly (body, cockpit, rims, tires, tuner parts) at the
+        // origin - the space the car exporter's OBJ files and anchors.txt use.
+        pViewerCar->draw( *pRenderer, Matrix4x4f::Identity(), pWeather, false );
+    } else {
+        for ( const SceneModel &model : models ) {
+            model.Model->draw( *pRenderer, model.Transform );
+        }
     }
     pRenderer->endScene();
     // -logscenedraws: how many of the models' meshes the renderer actually
@@ -833,11 +947,14 @@ void GMAssetViewer::drawUI() {
     // The free camera's WASD (ImGui keys: drawUI is inside the frame).
     updateFreeCamera( ImGui::GetIO().DeltaTime );
 
-    // ---- Banks (left, top) ----
-    ImGui::SetNextWindowPos( DpiScaled( 10.0f, 10.0f ), ImGuiCond_FirstUseEver );
+    // ---- Banks (left, top). A loaded car hides the bank panels: the Cars
+    // panel + the 3D view are the car workflow (unload the car to browse). ----
+    const bool bCarModeUI = pViewerCar != nullptr && pViewerCar->isLoaded();
+    ImGui::SetNextWindowPos( DpiScaled( 10.0f, 10.0f ),
+                             ImGuiCond_FirstUseEver );
     ImGui::SetNextWindowSize( DpiScaled( 430.0f, 310.0f ),
                               ImGuiCond_FirstUseEver );
-    if ( ImGui::Begin( "Asset Viewer - banks" ) ) {
+    if ( !bCarModeUI && ImGui::Begin( "Asset Viewer - banks" ) ) {
         ImGui::TextWrapped( "labels: %s", GetAssetLabelPath().c_str() );
         ImGui::Text( "%zu bank(s), %zu label(s)", banks.size(),
                      GetAssetLabels().size() );
@@ -875,205 +992,229 @@ void GMAssetViewer::drawUI() {
         ImGui::EndChild();
         ImGui::TextDisabled( "%zu shown", numShown );
     }
-    ImGui::End();
+    if ( !bCarModeUI )
+        ImGui::End();
+
+    // ---- Cars (the car viewer / exporter / tuner authoring) ----
+    if ( bShowCars ) {
+        drawCarPanel();
+    }
 
     // ---- Middle: the assets of the open bank, its entities, and the search
     // ----
-    ImGui::SetNextWindowPos( DpiScaled( 10.0f, 330.0f ), ImGuiCond_FirstUseEver );
     ImGui::SetNextWindowSize( DpiScaled( 430.0f, 380.0f ),
                               ImGuiCond_FirstUseEver );
-    if ( ImGui::Begin( "Asset Viewer - assets / entities / search" ) ) {
-        if ( ImGui::BeginTabBar( "##middle" ) ) {
-            const ImGuiTabItemFlags kForceAssets =
-                requestedTab == 0 ? ImGuiTabItemFlags_SetSelected
-                                  : ImGuiTabItemFlags_None;
-            const ImGuiTabItemFlags kForceEntities =
-                requestedTab == 1 ? ImGuiTabItemFlags_SetSelected
-                                  : ImGuiTabItemFlags_None;
-            const ImGuiTabItemFlags kForceSearch =
-                requestedTab == 2 ? ImGuiTabItemFlags_SetSelected
-                                  : ImGuiTabItemFlags_None;
-            if ( ImGui::BeginTabItem( "assets", nullptr, kForceAssets ) ) {
-                middleTab = 0;
-                ImGui::Text( "%s - %zu of %u",
-                             bankKey.empty() ? "(no bank)" : bankKey.c_str(),
-                             rows.size(), bank.getNumEntries() );
-                // The type filter: the extension families of the game data (a
-                // 158 entry bank is mostly .2db).
-                for ( int32_t i = 0;
-                      i < static_cast<int32_t>( eTypeFilter::Count ); i++ ) {
-                    if ( i == 4 ) {
-                        ImGui::NewLine();
-                    } else if ( i > 0 ) {
-                        ImGui::SameLine();
+    // A loaded car takes this slot (the Cars panel): the bank asset list is not
+    // needed until the car is unloaded.
+    if ( pViewerCar == nullptr || !pViewerCar->isLoaded() ) {
+        if ( ImGui::Begin( "Asset Viewer - assets / entities / search" ) ) {
+            if ( ImGui::BeginTabBar( "##middle" ) ) {
+                const ImGuiTabItemFlags kForceAssets =
+                    requestedTab == 0 ? ImGuiTabItemFlags_SetSelected
+                                      : ImGuiTabItemFlags_None;
+                const ImGuiTabItemFlags kForceEntities =
+                    requestedTab == 1 ? ImGuiTabItemFlags_SetSelected
+                                      : ImGuiTabItemFlags_None;
+                const ImGuiTabItemFlags kForceSearch =
+                    requestedTab == 2 ? ImGuiTabItemFlags_SetSelected
+                                      : ImGuiTabItemFlags_None;
+                if ( ImGui::BeginTabItem( "assets", nullptr, kForceAssets ) ) {
+                    middleTab = 0;
+                    ImGui::Text( "%s - %zu of %u",
+                                 bankKey.empty() ? "(no bank)"
+                                                 : bankKey.c_str(),
+                                 rows.size(), bank.getNumEntries() );
+                    // The type filter: the extension families of the game data
+                    // (a 158 entry bank is mostly .2db).
+                    for ( int32_t i = 0;
+                          i < static_cast<int32_t>( eTypeFilter::Count );
+                          i++ ) {
+                        if ( i == 4 ) {
+                            ImGui::NewLine();
+                        } else if ( i > 0 ) {
+                            ImGui::SameLine();
+                        }
+                        if ( ImGui::RadioButton(
+                                 kTypeFilterNames[i],
+                                 static_cast<int32_t>( typeFilter ) == i ) ) {
+                            typeFilter = static_cast<eTypeFilter>( i );
+                            rebuildRows();
+                        }
                     }
-                    if ( ImGui::RadioButton(
-                             kTypeFilterNames[i],
-                             static_cast<int32_t>( typeFilter ) == i ) ) {
-                        typeFilter = static_cast<eTypeFilter>( i );
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::InputTextWithHint(
+                             "##assetfilter",
+                             "filter by name or authoring path",
+                             assetFilterText, sizeof( assetFilterText ) ) ) {
                         rebuildRows();
                     }
-                }
-                ImGui::SetNextItemWidth( -1.0f );
-                if ( ImGui::InputTextWithHint(
-                         "##assetfilter", "filter by name or authoring path",
-                         assetFilterText, sizeof( assetFilterText ) ) ) {
-                    rebuildRows();
-                }
-                ImGui::BeginChild( "##assetlist" );
-                for ( int32_t i = 0; i < static_cast<int32_t>( rows.size() );
-                      i++ ) {
-                    const BankEntry &entry = *rows[i];
-                    const bool bLabelled =
-                        std::find( labelledAssets.begin(), labelledAssets.end(),
-                                   entry.Filename ) != labelledAssets.end();
-                    char text[600] = {};
-                    snprintf( text, sizeof( text ), "%s%s  %s  grp %d",
-                              bLabelled ? "* " : "  ", entry.Filename.c_str(),
-                              SizeText( entry.Size ).c_str(), entry.Group );
-                    if ( ImGui::Selectable( text, i == selectedAsset ) ) {
-                        selectAsset( i );
-                    }
-                }
-                ImGui::EndChild();
-                ImGui::EndTabItem();
-            }
-            if ( ImGui::BeginTabItem( "entities", nullptr, kForceEntities ) ) {
-                middleTab = 1;
-                ImGui::Text( "%s - %s",
-                             bankKey.empty() ? "(no bank)" : bankKey.c_str(),
-                             entitiesInfo.empty() ? "no entities.xmb"
-                                                  : entitiesInfo.c_str() );
-                // The class filter (the Entity__ classes present in this bank).
-                ImGui::SetNextItemWidth( 200.0f );
-                const char *pClassLabel =
-                    entityClassFilter > 0 &&
-                            entityClassFilter <=
-                                static_cast<int32_t>( entityClasses.size() )
-                        ? entityClasses[entityClassFilter - 1].c_str()
-                        : "(all classes)";
-                if ( ImGui::BeginCombo( "##entityclass", pClassLabel ) ) {
-                    if ( ImGui::Selectable( "(all classes)",
-                                            entityClassFilter == 0 ) ) {
-                        entityClassFilter = 0;
-                        buildEntityRows();
-                    }
+                    ImGui::BeginChild( "##assetlist" );
                     for ( int32_t i = 0;
-                          i < static_cast<int32_t>( entityClasses.size() );
-                          i++ ) {
-                        if ( ImGui::Selectable( entityClasses[i].c_str(),
-                                                entityClassFilter == i + 1 ) ) {
-                            entityClassFilter = i + 1;
+                          i < static_cast<int32_t>( rows.size() ); i++ ) {
+                        const BankEntry &entry = *rows[i];
+                        const bool bLabelled =
+                            std::find( labelledAssets.begin(),
+                                       labelledAssets.end(),
+                                       entry.Filename ) != labelledAssets.end();
+                        char text[600] = {};
+                        snprintf( text, sizeof( text ), "%s%s  %s  grp %d",
+                                  bLabelled ? "* " : "  ",
+                                  entry.Filename.c_str(),
+                                  SizeText( entry.Size ).c_str(), entry.Group );
+                        if ( ImGui::Selectable( text, i == selectedAsset ) ) {
+                            selectAsset( i );
+                        }
+                    }
+                    ImGui::EndChild();
+                    ImGui::EndTabItem();
+                }
+                if ( ImGui::BeginTabItem( "entities", nullptr,
+                                          kForceEntities ) ) {
+                    middleTab = 1;
+                    ImGui::Text( "%s - %s",
+                                 bankKey.empty() ? "(no bank)"
+                                                 : bankKey.c_str(),
+                                 entitiesInfo.empty() ? "no entities.xmb"
+                                                      : entitiesInfo.c_str() );
+                    // The class filter (the Entity__ classes present in this
+                    // bank).
+                    ImGui::SetNextItemWidth( 200.0f );
+                    const char *pClassLabel =
+                        entityClassFilter > 0 &&
+                                entityClassFilter <=
+                                    static_cast<int32_t>( entityClasses.size() )
+                            ? entityClasses[entityClassFilter - 1].c_str()
+                            : "(all classes)";
+                    if ( ImGui::BeginCombo( "##entityclass", pClassLabel ) ) {
+                        if ( ImGui::Selectable( "(all classes)",
+                                                entityClassFilter == 0 ) ) {
+                            entityClassFilter = 0;
                             buildEntityRows();
                         }
+                        for ( int32_t i = 0;
+                              i < static_cast<int32_t>( entityClasses.size() );
+                              i++ ) {
+                            if ( ImGui::Selectable( entityClasses[i].c_str(),
+                                                    entityClassFilter ==
+                                                        i + 1 ) ) {
+                                entityClassFilter = i + 1;
+                                buildEntityRows();
+                            }
+                        }
+                        ImGui::EndCombo();
                     }
-                    ImGui::EndCombo();
-                }
-                ImGui::SameLine();
-                ImGui::Checkbox( "mark in 3D", &bMarkEntities );
-                ImGui::SetNextItemWidth( -1.0f );
-                if ( ImGui::InputTextWithHint(
-                         "##entityfilter", "filter entities", entityFilterText,
-                         sizeof( entityFilterText ) ) ) {
-                    buildEntityRows();
-                }
-                ImGui::BeginChild( "##entitylist" );
-                for ( int32_t index : entityRows ) {
-                    const EntityEntry &entity = entities[index];
-                    char text[400] = {};
-                    snprintf( text, sizeof( text ),
-                              "%s  %s  (%.1f, %.1f, %.1f)",
-                              entity.Class.c_str(), entity.Name.c_str(),
-                              entity.Position.x, entity.Position.y,
-                              entity.Position.z );
-                    if ( ImGui::Selectable( text, index == selectedEntity ) ) {
-                        selectedEntity = index;
-                        OTDU_LOG_INFO( "AssetViewer: entity '%s' (%s) at "
-                                       "(%.2f, %.2f, %.2f)\n",
-                                       entity.Name.c_str(),
-                                       entity.Class.c_str(), entity.Position.x,
-                                       entity.Position.y, entity.Position.z );
+                    ImGui::SameLine();
+                    ImGui::Checkbox( "mark in 3D", &bMarkEntities );
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::InputTextWithHint(
+                             "##entityfilter", "filter entities",
+                             entityFilterText, sizeof( entityFilterText ) ) ) {
+                        buildEntityRows();
                     }
-                    if ( index == selectedEntity ) {
-                        // Every field of the object (what no other tool shows).
-                        for ( const std::pair<std::string, std::string> &field :
-                              entity.Fields ) {
-                            ImGui::TextDisabled( "   %s = %s",
-                                                 field.first.c_str(),
-                                                 field.second.c_str() );
+                    ImGui::BeginChild( "##entitylist" );
+                    for ( int32_t index : entityRows ) {
+                        const EntityEntry &entity = entities[index];
+                        char text[400] = {};
+                        snprintf( text, sizeof( text ),
+                                  "%s  %s  (%.1f, %.1f, %.1f)",
+                                  entity.Class.c_str(), entity.Name.c_str(),
+                                  entity.Position.x, entity.Position.y,
+                                  entity.Position.z );
+                        if ( ImGui::Selectable( text,
+                                                index == selectedEntity ) ) {
+                            selectedEntity = index;
+                            OTDU_LOG_INFO( "AssetViewer: entity '%s' (%s) at "
+                                           "(%.2f, %.2f, %.2f)\n",
+                                           entity.Name.c_str(),
+                                           entity.Class.c_str(),
+                                           entity.Position.x, entity.Position.y,
+                                           entity.Position.z );
+                        }
+                        if ( index == selectedEntity ) {
+                            // Every field of the object (what no other tool
+                            // shows).
+                            for ( const std::pair<std::string, std::string>
+                                      &field : entity.Fields ) {
+                                ImGui::TextDisabled( "   %s = %s",
+                                                     field.first.c_str(),
+                                                     field.second.c_str() );
+                            }
                         }
                     }
+                    ImGui::EndChild();
+                    ImGui::EndTabItem();
                 }
-                ImGui::EndChild();
-                ImGui::EndTabItem();
-            }
-            if ( ImGui::BeginTabItem( "search", nullptr, kForceSearch ) ) {
-                middleTab = 2;
-                loadAssetIndex();
-                if ( bIndexMissing ) {
-                    ImGui::TextWrapped( "No index yet at %s",
-                                        indexPath.c_str() );
-                    ImGui::TextDisabled( "It indexes every bank's assets and "
-                                         "entities once (reads "
-                                         "the game data: about 30 s), then the "
-                                         "search is instant." );
-                } else {
-                    ImGui::Text( "%zu asset(s), %zu entity(ies) - %s",
-                                 indexAssetCount, indexEntityCount,
-                                 indexPath.c_str() );
-                }
-                if ( ImGui::Button( bIndexMissing ? "build the index"
-                                                  : "rebuild index" ) ) {
-                    buildAssetIndex();
-                    indexLines.clear();
-                    indexAssetCount = indexEntityCount = 0;
-                    bIndexLoaded = false;
-                    bIndexMissing = false;
+                if ( ImGui::BeginTabItem( "search", nullptr, kForceSearch ) ) {
+                    middleTab = 2;
                     loadAssetIndex();
-                    runSearch();
-                }
-                ImGui::SetNextItemWidth( -1.0f );
-                if ( ImGui::InputTextWithHint(
-                         "##search",
-                         "search every bank: ferrari, slot, cam_entree...",
-                         searchText, sizeof( searchText ) ) ) {
-                    runSearch();
-                }
-                if ( !lastSearch.empty() ) {
-                    ImGui::Text( "%zu hit(s)%s", searchHitCount,
-                                 bSearchTruncated ? " (showing the first 400)"
-                                                  : "" );
-                }
-                ImGui::BeginChild( "##hits" );
-                for ( int32_t i = 0;
-                      i < static_cast<int32_t>( searchHits.size() ); i++ ) {
-                    const IndexHit &hit = searchHits[i];
-                    char text[600] = {};
-                    snprintf( text, sizeof( text ), "%s %s  -  %s",
-                              hit.Kind == 'e' ? "[e]" : "   ", hit.Name.c_str(),
-                              hit.Bank.c_str() );
-                    if ( ImGui::Selectable( text, false ) ) {
-                        openHit( i );
+                    if ( bIndexMissing ) {
+                        ImGui::TextWrapped( "No index yet at %s",
+                                            indexPath.c_str() );
+                        ImGui::TextDisabled(
+                            "It indexes every bank's assets and "
+                            "entities once (reads "
+                            "the game data: about 30 s), then the "
+                            "search is instant." );
+                    } else {
+                        ImGui::Text( "%zu asset(s), %zu entity(ies) - %s",
+                                     indexAssetCount, indexEntityCount,
+                                     indexPath.c_str() );
                     }
-                    if ( ImGui::IsItemHovered() ) {
-                        ImGui::SetTooltip( "%s", hit.Path.c_str() );
+                    if ( ImGui::Button( bIndexMissing ? "build the index"
+                                                      : "rebuild index" ) ) {
+                        buildAssetIndex();
+                        indexLines.clear();
+                        indexAssetCount = indexEntityCount = 0;
+                        bIndexLoaded = false;
+                        bIndexMissing = false;
+                        loadAssetIndex();
+                        runSearch();
                     }
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::InputTextWithHint(
+                             "##search",
+                             "search every bank: ferrari, slot, cam_entree...",
+                             searchText, sizeof( searchText ) ) ) {
+                        runSearch();
+                    }
+                    if ( !lastSearch.empty() ) {
+                        ImGui::Text( "%zu hit(s)%s", searchHitCount,
+                                     bSearchTruncated
+                                         ? " (showing the first 400)"
+                                         : "" );
+                    }
+                    ImGui::BeginChild( "##hits" );
+                    for ( int32_t i = 0;
+                          i < static_cast<int32_t>( searchHits.size() ); i++ ) {
+                        const IndexHit &hit = searchHits[i];
+                        char text[600] = {};
+                        snprintf( text, sizeof( text ), "%s %s  -  %s",
+                                  hit.Kind == 'e' ? "[e]" : "   ",
+                                  hit.Name.c_str(), hit.Bank.c_str() );
+                        if ( ImGui::Selectable( text, false ) ) {
+                            openHit( i );
+                        }
+                        if ( ImGui::IsItemHovered() ) {
+                            ImGui::SetTooltip( "%s", hit.Path.c_str() );
+                        }
+                    }
+                    ImGui::EndChild();
+                    ImGui::EndTabItem();
                 }
-                ImGui::EndChild();
-                ImGui::EndTabItem();
+                ImGui::EndTabBar();
+                requestedTab = -1;
             }
-            ImGui::EndTabBar();
-            requestedTab = -1;
         }
+        ImGui::End();
     }
-    ImGui::End();
 
     // ---- Preview + label (the identity and the editor, the preview beside)
     // ----
-    ImGui::SetNextWindowPos( DpiScaled( 450.0f, 10.0f ), ImGuiCond_FirstUseEver );
+    ImGui::SetNextWindowPos( DpiScaled( 450.0f, 10.0f ),
+                             ImGuiCond_FirstUseEver );
     ImGui::SetNextWindowSize( DpiScaled( 820.0f, 245.0f ),
                               ImGuiCond_FirstUseEver );
-    if ( ImGui::Begin( "Asset Viewer - preview + label" ) ) {
+    if ( !bCarModeUI && ImGui::Begin( "Asset Viewer - preview + label" ) ) {
         if ( selectedAsset < 0 ||
              selectedAsset >= static_cast<int32_t>( rows.size() ) ) {
             ImGui::TextUnformatted( "Select an asset on the left." );
@@ -1166,25 +1307,53 @@ void GMAssetViewer::drawUI() {
             "one label per asset; -labellint checks every key against the game "
             "data" );
     }
-    ImGui::End();
+    if ( !bCarModeUI )
+        ImGui::End();
 
     // ---- 3D view: the models of the bank, the picking, the overlays ----
-    ImGui::SetNextWindowPos( DpiScaled( 450.0f, 265.0f ), ImGuiCond_FirstUseEver );
+    ImGui::SetNextWindowPos( DpiScaled( 450.0f, 265.0f ),
+                             ImGuiCond_FirstUseEver );
     ImGui::SetNextWindowSize( DpiScaled( 820.0f, 445.0f ),
                               ImGuiCond_FirstUseEver );
+    if ( bCarModeUI ) {
+        ImGui::SetNextWindowPos( DpiScaled( 450.0f, 10.0f ),
+                                 ImGuiCond_FirstUseEver );
+        ImGui::SetNextWindowSize( DpiScaled( 820.0f, 700.0f ),
+                                  ImGuiCond_FirstUseEver );
+    }
     if ( ImGui::Begin( "Asset Viewer - 3D view" ) ) {
-        ImGui::Text( "%s", bankKey.empty() ? "(no bank)" : bankKey.c_str() );
-        ImGui::Text( "%s", sceneInfo.empty() ? "loading models..."
-                                             : sceneInfo.c_str() );
+        if ( pViewerCar != nullptr && pViewerCar->isLoaded() ) {
+            ImGui::Text( "car: %s", viewerCarInfo.c_str() );
+        } else {
+            ImGui::Text( "%s",
+                         bankKey.empty() ? "(no bank)" : bankKey.c_str() );
+            ImGui::Text( "%s", sceneInfo.empty() ? "loading models..."
+                                                 : sceneInfo.c_str() );
+        }
         ImGui::Checkbox( "turntable", &bTurntable );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 130.0f );
         ImGui::SliderFloat( "fov", &sceneFov, 20.0f, 90.0f, "%.0f deg" );
         ImGui::SameLine();
-        if ( ImGui::Button( "fit bank" ) ) {
+        if ( ImGui::Button( "fit" ) ) {
             bCameraOverride = false;
             bFreeCamera = false;
-            layoutSceneModels();
+            if ( pViewerCar != nullptr && pViewerCar->isLoaded() ) {
+                const EdenModel &carModel = pViewerCar->getModel();
+                Vector3f carMin = carModel.getBoundsMin(),
+                         carMax = carModel.getBoundsMax();
+                if ( !pViewerCar->getBodyBounds( carMin, carMax ) ) {
+                    carMin = carModel.getBoundsMin();
+                    carMax = carModel.getBoundsMax();
+                }
+                sceneCenter = ( carMin + carMax ) * 0.5f;
+                const float carRadius =
+                    Max( ( carMax - carMin ).length() * 0.5f, 0.5f );
+                const float tanYFit = std::tan( sceneFov * kPi / 360.0f );
+                sceneDistance = Max( carRadius / tanYFit * 1.15f, 1.0f );
+            } else {
+                layoutSceneModels();
+            }
         }
         // The free camera (WASD / QE, Shift x4): walk through a room bank.
         ImGui::SameLine();
@@ -1264,33 +1433,16 @@ void GMAssetViewer::drawUI() {
         sceneImageMax[0] = imageMax.x;
         sceneImageMax[1] = imageMax.y;
         bSceneHovered = ImGui::IsItemHovered();
-        // The overlays: the entity markers and the collision wireframe, drawn
-        // with the same projection the GPU used (they cannot drift from the
-        // image).
+        // The overlays: the entity markers, the collision wireframe and the
+        // car tuner masks, drawn with the same projection the GPU used (they
+        // cannot drift from the image).
         auto project = [this]( const Vector3f &p, ImVec2 &out ) -> bool {
-            const Vector3f clip = sceneViewProjection.transformPoint( p );
-            const float w = sceneViewProjection.m[0][3] * p.x +
-                            sceneViewProjection.m[1][3] * p.y +
-                            sceneViewProjection.m[2][3] * p.z +
-                            sceneViewProjection.m[3][3];
-            if ( w < 1e-4f ) {
-                return false; // behind the camera
-            }
-            const float inverse = 1.0f / w;
-            const float ndcX = clip.x * inverse;
-            const float ndcY = clip.y * inverse;
-            if ( ndcX < -1.2f || ndcX > 1.2f || ndcY < -1.2f || ndcY > 1.2f ) {
-                return false;
-            }
-            out.x =
-                sceneImageMin[0] + ( ndcX + 1.0f ) * 0.5f *
-                                       ( sceneImageMax[0] - sceneImageMin[0] );
-            out.y =
-                sceneImageMin[1] + ( 1.0f - ndcY ) * 0.5f *
-                                       ( sceneImageMax[1] - sceneImageMin[1] );
-            return true;
+            return projectScene( p, out );
         };
         ImDrawList *pDrawList = ImGui::GetWindowDrawList();
+        if ( pViewerCar != nullptr && pViewerCar->isLoaded() ) {
+            drawCarOverlays();
+        }
         if ( bMarkEntities && selectedEntity >= 0 &&
              selectedEntity < static_cast<int32_t>( entities.size() ) ) {
             const EntityEntry &entity = entities[selectedEntity];
@@ -1464,13 +1616,27 @@ void GMAssetViewer::drawUI() {
                            sceneImageMax[1], sceneInfo.c_str() );
         }
         // A click selects the asset that carries the mesh under the mouse (the
-        // same identity as the lists, so the label keys on it).
+        // same identity as the lists, so the label keys on it). With a car
+        // loaded it names the hit node (the Cars panel highlights it).
         if ( ImGui::IsItemClicked( ImGuiMouseButton_Left ) ) {
             const ImVec2 mouse = ImGui::GetIO().MousePos;
             float distance = 0.0f;
             int32_t row = -1, node = -1;
             if ( pickScene( mouse.x, mouse.y, row, node, distance ) ) {
-                applyPick( row, node, distance, "click" );
+                if ( row >= 0 ) {
+                    applyPick( row, node, distance, "click" );
+                } else if ( pViewerCar != nullptr ) {
+                    pickedCarNode = node;
+                    const std::vector<SceneNode> &carNodes =
+                        pViewerCar->getModel().getScene().getNodes();
+                    const char *pName =
+                        node >= 0 &&
+                                node < static_cast<int32_t>( carNodes.size() )
+                            ? carNodes[node].Name.c_str()
+                            : "?";
+                    setStatus( std::string( "click: car node " ) +
+                               std::to_string( node ) + " '" + pName + "'" );
+                }
             } else {
                 setStatus( "click: no mesh there" );
             }
@@ -1759,9 +1925,11 @@ EdenSceneParams GMAssetViewer::buildSceneParams( uint32_t width,
     // preview lights its street maps and windows like the game.
     static const bool bNoStreetLights = CmdLine::HasArg( "-nostreetlights" );
     if ( pWeather != nullptr && !bNoStreetLights ) {
-        params.UserVectors[1] = Vector4f( 1.0f, pWeather->getFloat( "outside_street_lightmap", 0.0f ), 1.0f,
-                                          pWeather->getFloat( "building_nightwindow_frequency", 0.0f ) );
-        const Vector4f shop = pWeather->getVector4( "building_shop_front_back_lighting", Vector4f() );
+        params.UserVectors[1] = Vector4f(
+            1.0f, pWeather->getFloat( "outside_street_lightmap", 0.0f ), 1.0f,
+            pWeather->getFloat( "building_nightwindow_frequency", 0.0f ) );
+        const Vector4f shop = pWeather->getVector4(
+            "building_shop_front_back_lighting", Vector4f() );
         params.UserVectors[2] = Vector4f( shop.x, shop.y, 0.0f, 0.0f );
     } else {
         params.UserVectors[1] = Vector4f( 1.0f, 0.0f, 0.0f, 0.0f );
@@ -1793,7 +1961,8 @@ bool GMAssetViewer::pickScene( float pixelX,
                                float &outDistance ) {
     const float width = sceneImageMax[0] - sceneImageMin[0];
     const float height = sceneImageMax[1] - sceneImageMin[1];
-    if ( models.empty() || width < 4.0f || height < 4.0f ) {
+    const bool bCarPick = pViewerCar != nullptr && pViewerCar->isLoaded();
+    if ( ( models.empty() && !bCarPick ) || width < 4.0f || height < 4.0f ) {
         return false;
     }
     // The pixel -> the ray of the camera buildSceneParams set up. The ray comes
@@ -1820,6 +1989,20 @@ bool GMAssetViewer::pickScene( float pixelX,
     const Vector3f farPoint = unproject( ndcX, ndcY, 1.0f );
     const Vector3f origin = nearPoint;
     const Vector3f direction = ( farPoint - nearPoint ).normalized();
+
+    // The Cars panel's car draws at the origin: the ray is already car space.
+    if ( pViewerCar != nullptr && pViewerCar->isLoaded() ) {
+        float distance = 0.0f;
+        int32_t node = -1;
+        if ( pViewerCar->getModel().raycast( origin, direction, distance,
+                                             node ) ) {
+            outRow = -1;
+            outNode = node;
+            outDistance = distance;
+            return true;
+        }
+        return false;
+    }
 
     float best = 1e30f;
     int32_t bestRow = -1, bestNode = -1;
@@ -2579,4 +2762,616 @@ void GMAssetViewer::loadCollisionPreview() {
         OTDU_LOG_INFO( "AssetViewer: collision '%s'\n", collisionInfo.c_str() );
         return;
     }
+}
+
+// ---- Cars (the car viewer / exporter / tuner authoring) ----
+
+// The database's car rows once (the panel's list). A row per
+// DBCarPhysicsData entry - the duplicate catalog rows of one car (the GTR
+// ships as two) each appear; the file name is the identity the tuner catalog
+// keys on.
+void GMAssetViewer::scanCars() {
+    if ( bCarsScanned || gpDatabase == nullptr ) {
+        return;
+    }
+    GetTunerParts().load();
+    const XmbValue root = gpDatabase->getDocument().getRoot();
+    for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" ); i++ ) {
+        XmbValue car = root.getArrayElement( "DBCarPhysicsData", i );
+        CarRow row;
+        row.Id = static_cast<int32_t>( car["_id_car"].asInt( -1 ) );
+        row.FileName = car["_car_file_name"].asString();
+        if ( row.FileName.empty() || row.Id < 0 ) {
+            continue;
+        }
+        // The shop rows' clean-up: the names carry "##" markers (car_shop.cpp).
+        auto clean = []( std::string text ) {
+            for ( size_t at = text.find( "##" ); at != std::string::npos;
+                  at = text.find( "##" ) ) {
+                text.erase( at, 2 );
+            }
+            while ( !text.empty() && text.back() == ' ' ) {
+                text.pop_back();
+            }
+            return text;
+        };
+        const std::string version = clean( car["_version_name"].asString() );
+        row.DisplayName = clean( car["_manufacturer_name"].asString() ) + " " +
+                          clean( car["_model_name"].asString() ) +
+                          ( version.empty() ? std::string() : " " + version );
+        row.bValidPc = car["_isvalidpc"].asInt() != 0;
+        row.bTuner = GetTunerParts().findCar( row.Id ) != nullptr;
+        carRows.push_back( row );
+        if ( ( carRows.size() & 0x3f ) == 1 ) {
+            Watchdog::Beat( "assetviewer car scan", carRows.size() );
+        }
+    }
+    bCarsScanned = true;
+    OTDU_LOG_INFO( "AssetViewer: %zu car row(s)\n", carRows.size() );
+}
+
+void GMAssetViewer::unloadViewerCar() {
+    if ( pViewerCar == nullptr ) {
+        return;
+    }
+    if ( gpRender != nullptr ) {
+        gpRender->getDevice().waitIdle();
+    }
+    pViewerCar->unload();
+    pViewerCar.reset();
+    pickedCarNode = -1;
+    if ( bEnvCubeLoaded && gpRender != nullptr ) {
+        gpRender->getTextureCache().releaseOwner(
+            envCubeBank.getPath().c_str() );
+        envCubeBank.unload();
+        bEnvCubeLoaded = false;
+    }
+    editSlot.clear();
+    editBoxes.clear();
+    viewerCarInfo.clear();
+    GetTunerParts().clearRuntimeHideBoxes();
+    GetTunerParts().clearRuntimeSlotOffset();
+    tunerStatus.clear();
+}
+
+void GMAssetViewer::selectCar( int32_t index ) {
+    if ( index < 0 || index >= static_cast<int32_t>( carRows.size() ) ) {
+        return;
+    }
+    const CarRow &row = carRows[index];
+    CinematicCar::Desc desc;
+    if ( !CinematicCar::DescFromDatabase( row.Id, desc ) ) {
+        setStatus( "'" + row.FileName + "' is not in the database" );
+        return;
+    }
+    desc.bKeepPrimitiveData = true;  // live hide-box edits re-run the masks
+    desc.bKeepParsedGeometry = true; // the exporter reads the real vertices
+    // The 3D view makes room: the car replaces the bank's model row.
+    unloadSceneModels();
+    unloadViewerCar();
+    auto car = std::make_unique<CinematicCar>();
+    if ( !car->load( desc ) ) {
+        setStatus( "cannot load '" + row.FileName + "'" );
+        OTDU_LOG_WARN( "AssetViewer: cannot load car '%s'\n",
+                       row.FileName.c_str() );
+        return;
+    }
+    pViewerCar = std::move( car );
+    selectedCar = index;
+    pickedCarNode = -1;
+    // The car paint samples an environment cube (a static one here, the
+    // garage's CUBECAR - the intro cinematic's pattern): without it the paint
+    // draws near black in the tool's scene.
+    if ( !bEnvCubeLoaded && gpFile != nullptr ) {
+        if ( envCubeBank.load( ( gpFile->getBankFolder() +
+                                 "scenarics/cinematics/intro/garage.bnk" )
+                                   .c_str() ) ) {
+            gpRender->getTextureCache().loadBankTextures(
+                envCubeBank, envCubeBank.getPath().c_str() );
+            bEnvCubeLoaded = true;
+        }
+    }
+    if ( bEnvCubeLoaded ) {
+        if ( GPUTexture *pCube = gpRender->getTextureCache().find(
+                 envCubeBank.getPath().c_str(), "CUBECAR" ) ) {
+            pViewerCar->assignEnvironment( *gpRender->getEdenRenderer(), pCube,
+                                           false );
+        }
+    }
+    // The camera fits the car body (BODY_HR: the model's raw bounds carry
+    // junk far off the body - flame / shadow planes - that would frame empty
+    // space), the turntable orbits its middle.
+    const EdenModel &model = pViewerCar->getModel();
+    Vector3f bMin = model.getBoundsMin(), bMax = model.getBoundsMax();
+    if ( !pViewerCar->getBodyBounds( bMin, bMax ) ) {
+        bMin = model.getBoundsMin();
+        bMax = model.getBoundsMax();
+    }
+    sceneCenter = ( bMin + bMax ) * 0.5f;
+    const float radius = Max( ( bMax - bMin ).length() * 0.5f, 0.5f );
+    const float tanY = std::tan( sceneFov * kPi / 360.0f );
+    sceneDistance = Max( radius / tanY * 1.15f, 1.0f );
+    bTurntable = !CmdLine::HasArg( "-noturntable" );
+    // The tuner edit state starts on the car's first slot.
+    editSlot.clear();
+    editBoxes.clear();
+    size_t slotCount = 0;
+    const char *const *pSlots = TunerParts::slotNames( slotCount );
+    if ( row.bTuner && slotCount > 0 ) {
+        editSlot = pSlots[0];
+        if ( const auto *pBoxes = GetTunerParts().getHideBoxes(
+                 row.FileName, editSlot.c_str() ) ) {
+            editBoxes = *pBoxes;
+        }
+    }
+    char info[256];
+    snprintf( info, sizeof( info ), "%s (%s, id %d)%s - %u items, %u nodes",
+              row.DisplayName.c_str(), row.FileName.c_str(), row.Id,
+              row.bTuner ? " [tuner]" : "",
+              static_cast<uint32_t>( pViewerCar->getModel().getItems().size() ),
+              static_cast<uint32_t>(
+                  pViewerCar->getModel().getScene().getNodes().size() ) );
+    viewerCarInfo = info;
+    setStatus( std::string( "car: " ) + info );
+    OTDU_LOG_INFO( "AssetViewer: car '%s' loaded (%s)\n", row.FileName.c_str(),
+                   viewerCarInfo.c_str() );
+}
+
+bool GMAssetViewer::projectScene( const Vector3f &p, ImVec2 &out ) const {
+    const Vector3f clip = sceneViewProjection.transformPoint( p );
+    const float w =
+        sceneViewProjection.m[0][3] * p.x + sceneViewProjection.m[1][3] * p.y +
+        sceneViewProjection.m[2][3] * p.z + sceneViewProjection.m[3][3];
+    if ( w < 1e-4f ) {
+        return false; // behind the camera
+    }
+    const float inverse = 1.0f / w;
+    const float ndcX = clip.x * inverse;
+    const float ndcY = clip.y * inverse;
+    if ( ndcX < -1.2f || ndcX > 1.2f || ndcY < -1.2f || ndcY > 1.2f ) {
+        return false;
+    }
+    out.x = sceneImageMin[0] +
+            ( ndcX + 1.0f ) * 0.5f * ( sceneImageMax[0] - sceneImageMin[0] );
+    out.y = sceneImageMin[1] +
+            ( 1.0f - ndcY ) * 0.5f * ( sceneImageMax[1] - sceneImageMin[1] );
+    return true;
+}
+
+// The tuner masks over the 3D view: the hide boxes (item space, drawn through
+// the BODY_HR node transform) and, asked for, the masked triangles (the same
+// test the mask collection runs - the runtime override applies, so the
+// highlight follows a live edit).
+void GMAssetViewer::drawCarOverlays() {
+    if ( !bShowMaskOverlay || !pViewerCar->isLoaded() ) {
+        return;
+    }
+    const std::string fileName = pViewerCar->getFileName();
+    ImDrawList *pDrawList = ImGui::GetWindowDrawList();
+    static const int32_t kEdges[12][2] = {
+        {0, 1},
+        {2, 3},
+        {4, 5},
+        {6, 7},
+        {0, 2},
+        {1, 3},
+        {4, 6},
+        {5, 7},
+        {0, 4},
+        {1, 5},
+        {2, 6},
+        {3, 7}
+    };
+    // The BODY_HR items (the mask collection's test set).
+    EdenModel &model = pViewerCar->getModel();
+    const int32_t bodyNode = model.getScene().findNode( "BODY_HR" );
+    if ( bodyNode < 0 ) {
+        return;
+    }
+    const Matrix4x4f bodyWorld = model.getNodeTransform( bodyNode );
+    const ImU32 boxColors[2] = { IM_COL32( 80, 220, 255, 220 ),
+                                 IM_COL32( 255, 170, 60, 220 ) };
+    for ( int32_t s = 0; s < 2; s++ ) {
+        const char *pSlot = s == 0 ? "exhaust" : "spoiler";
+        const auto *pBoxes = GetTunerParts().getHideBoxes( fileName, pSlot );
+        if ( pBoxes == nullptr ) {
+            continue;
+        }
+        for ( const auto &box : *pBoxes ) {
+            Vector3f corner[8];
+            for ( int32_t i = 0; i < 8; i++ ) {
+                const Vector3f local( ( i & 1 ) ? box.second.x : box.first.x,
+                                      ( i & 2 ) ? box.second.y : box.first.y,
+                                      ( i & 4 ) ? box.second.z : box.first.z );
+                corner[i] = bodyWorld.transformPoint( local );
+            }
+            for ( const int32_t *pEdge : kEdges ) {
+                ImVec2 a, b;
+                if ( projectScene( corner[pEdge[0]], a ) &&
+                     projectScene( corner[pEdge[1]], b ) ) {
+                    pDrawList->AddLine( a, b, boxColors[s] );
+                }
+            }
+        }
+    }
+    if ( !bShowMaskTris ) {
+        return;
+    }
+    // The masked triangles: the same test collectTunerMasks runs (centroid in
+    // box, or in the exact tri list), drawn on the item's kept vertices.
+    size_t drawn = 0;
+    constexpr size_t kMaxMaskTris =
+        4000; // the overlay is a check, not a render
+    const std::vector<EdenModel::Item> &items = model.getItems();
+    for ( size_t i = 0; i < items.size() && drawn < kMaxMaskTris; i++ ) {
+        const EdenModel::Item &item = items[i];
+        if ( item.NodeIndex != bodyNode || item.Lod != 0 ||
+             item.PrimitiveIndices.empty() || item.PrimitiveVertices.empty() ) {
+            continue;
+        }
+        for ( size_t t = 0;
+              t + 2 < item.PrimitiveIndices.size() && drawn < kMaxMaskTris;
+              t += 3 ) {
+            const Vector3f &a =
+                item.PrimitiveVertices[item.PrimitiveIndices[t]];
+            const Vector3f &b =
+                item.PrimitiveVertices[item.PrimitiveIndices[t + 1]];
+            const Vector3f &c =
+                item.PrimitiveVertices[item.PrimitiveIndices[t + 2]];
+            const Vector3f centre = ( a + b + c ) * ( 1.0f / 3.0f );
+            int32_t group = -1;
+            const uint32_t triangle = static_cast<uint32_t>( t / 3 );
+            for ( int32_t s = 0; s < 2 && group < 0; s++ ) {
+                const char *pSlot = s == 0 ? "exhaust" : "spoiler";
+                const auto *pTris =
+                    GetTunerParts().getHideTris( fileName, pSlot );
+                if ( pTris != nullptr ) {
+                    const auto found = pTris->find( i );
+                    if ( found != pTris->end() &&
+                         std::find( found->second.begin(), found->second.end(),
+                                    triangle ) != found->second.end() ) {
+                        group = s;
+                        break;
+                    }
+                }
+                const auto *pBoxes =
+                    GetTunerParts().getHideBoxes( fileName, pSlot );
+                if ( pBoxes == nullptr ) {
+                    continue;
+                }
+                for ( const auto &box : *pBoxes ) {
+                    if ( centre.x >= box.first.x && centre.x <= box.second.x &&
+                         centre.y >= box.first.y && centre.y <= box.second.y &&
+                         centre.z >= box.first.z && centre.z <= box.second.z ) {
+                        group = s;
+                        break;
+                    }
+                }
+            }
+            if ( group < 0 ) {
+                continue;
+            }
+            const Matrix4x4f &world = model.getNodeTransform( item.NodeIndex );
+            const Vector3f wa = world.transformPoint( a ),
+                           wb = world.transformPoint( b ),
+                           wc = world.transformPoint( c );
+            ImVec2 sa, sb, sc;
+            const bool bA = projectScene( wa, sa ), bB = projectScene( wb, sb ),
+                       bC = projectScene( wc, sc );
+            const ImU32 color = group == 0 ? IM_COL32( 80, 220, 255, 255 )
+                                           : IM_COL32( 255, 170, 60, 255 );
+            if ( bA && bB ) {
+                pDrawList->AddLine( sa, sb, color );
+            }
+            if ( bB && bC ) {
+                pDrawList->AddLine( sb, sc, color );
+            }
+            if ( bC && bA ) {
+                pDrawList->AddLine( sc, sa, color );
+            }
+            drawn++;
+        }
+    }
+}
+
+// The Cars panel: the car list, the loaded car's nodes, the export button and
+// the tuner authoring (fit / hide boxes / offsets) for tuner cars.
+void GMAssetViewer::drawCarPanel() {
+    // The banks window's slot (car mode hides it; the 3D view on the right
+    // stays clear).
+    ImGui::SetNextWindowPos( DpiScaled( 10.0f, 10.0f ),
+                             ImGuiCond_FirstUseEver );
+    ImGui::SetNextWindowSize( DpiScaled( 430.0f, 700.0f ),
+                              ImGuiCond_FirstUseEver );
+    if ( !ImGui::Begin( "Asset Viewer - cars" ) ) {
+        ImGui::End();
+        return;
+    }
+    scanCars();
+    ImGui::Text( "%zu car row(s)", carRows.size() );
+    ImGui::SameLine();
+    if ( ImGui::Button( "close" ) ) {
+        bShowCars = false;
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox( "mask overlay", &bShowMaskOverlay );
+    ImGui::SameLine();
+    ImGui::Checkbox( "triangles", &bShowMaskTris );
+    ImGui::SetNextItemWidth( -1.0f );
+    ImGui::InputTextWithHint( "##carfilter", "filter cars", carFilterText,
+                              sizeof( carFilterText ) );
+
+    if ( ImGui::BeginChild( "##carlist", ImVec2( 0.0f, 160.0f ) ) ) {
+        const std::string filter = ToLower( carFilterText );
+        for ( int32_t i = 0; i < static_cast<int32_t>( carRows.size() ); i++ ) {
+            const CarRow &row = carRows[i];
+            if ( !filter.empty() &&
+                 ToLower( row.DisplayName ).find( filter ) ==
+                     std::string::npos &&
+                 ToLower( row.FileName ).find( filter ) == std::string::npos ) {
+                continue;
+            }
+            char text[320];
+            snprintf( text, sizeof( text ), "%s%s%s", row.DisplayName.c_str(),
+                      row.bTuner ? "  [tuner]" : "",
+                      row.bValidPc ? "" : "  (not PC)" );
+            if ( ImGui::Selectable( text, selectedCar == i ) ) {
+                selectCar( i );
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    if ( pViewerCar == nullptr || !pViewerCar->isLoaded() ) {
+        ImGui::TextDisabled( "click a car: it loads into the 3D view" );
+        ImGui::End();
+        return;
+    }
+    const CarRow &row = carRows[selectedCar];
+    ImGui::TextDisabled( "%s", viewerCarInfo.c_str() );
+    if ( ImGui::Button( "Export OBJ" ) ) {
+        std::string folder, error;
+        if ( ExportCarObj( *pViewerCar, folder, error ) ) {
+            setStatus( "exported to " + folder );
+            tunerStatus = "exported to " + folder;
+        } else {
+            setStatus( "export failed: " + error );
+            tunerStatus = "export failed: " + error;
+        }
+    }
+    ImGui::SameLine();
+    if ( ImGui::Button( "unload" ) ) {
+        unloadViewerCar();
+        ImGui::End();
+        return;
+    }
+
+    // ---- The nodes: the click pick highlights, the subtrees hide ----
+    if ( ImGui::CollapsingHeader( "nodes" ) ) {
+        EdenModel &model = pViewerCar->getModel();
+        const std::vector<SceneNode> &nodes = model.getScene().getNodes();
+        ImGui::BeginChild( "##carnodes", ImVec2( 0.0f, 180.0f ) );
+        for ( int32_t i = 0; i < static_cast<int32_t>( nodes.size() ); i++ ) {
+            char text[300];
+            snprintf( text, sizeof( text ), "%d '%s'%s", i,
+                      nodes[i].Name.c_str(),
+                      pickedCarNode == i ? "  < picked" : "" );
+            if ( ImGui::Selectable( text, pickedCarNode == i ) ) {
+                pickedCarNode = i;
+            }
+        }
+        ImGui::EndChild();
+    }
+
+    // ---- The tuner authoring (tuner cars only) ----
+    if ( !row.bTuner ) {
+        ImGui::TextDisabled( "not a tuner car (no [car:%s] in tuner.txt)",
+                             row.FileName.c_str() );
+        ImGui::End();
+        return;
+    }
+    if ( !TunerModEnabled() ) {
+        ImGui::TextDisabled( "the tuner mod is off (-tunermod forces it on)" );
+        ImGui::End();
+        return;
+    }
+    if ( !ImGui::CollapsingHeader( "tuner parts",
+                                   ImGuiTreeNodeFlags_DefaultOpen ) ) {
+        ImGui::End();
+        return;
+    }
+    const int32_t carId = pViewerCar->getIdCar();
+    size_t slotCount = 0;
+    const char *const *pSlots = TunerParts::slotNames( slotCount );
+    for ( size_t s = 0; s < slotCount; s++ ) {
+        const char *pSlot = pSlots[s];
+        char header[96];
+        snprintf( header, sizeof( header ), "%s##slot%zu",
+                  TunerParts::slotLabel( pSlot ), s );
+        if ( !ImGui::TreeNode( header ) ) {
+            continue;
+        }
+        // The parts of this slot: the catalog, fitted live (one part per slot
+        // in the v1 catalog).
+        const std::vector<const TunerPart *> parts =
+            GetTunerParts().partsForSlot( carId, pSlot );
+        for ( size_t pi = 0; pi < parts.size(); pi++ ) {
+            const TunerPart *pPart = parts[pi];
+            char label[192];
+            snprintf( label, sizeof( label ), "fit '%s' ($%d)##fit%zu%zu",
+                      pPart->Name.c_str(), pPart->Price, s, pi );
+            if ( ImGui::SmallButton( label ) ) {
+                GetTunerParts().applyPart( *pViewerCar, carId, pSlot, pPart );
+                GetTunerParts().clearRuntimeSlotOffset( row.FileName, pSlot );
+                tunerStatus =
+                    std::string( "fitted '" ) + pPart->Id + "' on " + pSlot;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled( "offset (%.2f %.2f %.2f)", pPart->Offset.x,
+                                 pPart->Offset.y, pPart->Offset.z );
+        }
+        if ( ImGui::SmallButton( "##stock" ) ) {
+            GetTunerParts().applyPart( *pViewerCar, carId, pSlot, nullptr );
+            tunerStatus = std::string( "stock " ) + pSlot;
+        }
+        ImGui::SameLine();
+        ImGui::Text( "Stock" );
+
+        // The hide boxes of this slot (the stock triangles a fitted part
+        // replaces): edited live through the runtime override.
+        char boxHeader[96];
+        snprintf( boxHeader, sizeof( boxHeader ), "hide boxes##box%zu", s );
+        if ( ImGui::TreeNode( boxHeader ) ) {
+            if ( editSlot != pSlot ) {
+                editSlot = pSlot;
+                editBoxes.clear();
+                if ( const auto *pBoxes =
+                         GetTunerParts().getHideBoxes( row.FileName, pSlot ) ) {
+                    editBoxes = *pBoxes;
+                }
+            }
+            bool bChanged = false;
+            int32_t removeAt = -1;
+            for ( size_t b = 0; b < editBoxes.size(); b++ ) {
+                Vector3f &mn = editBoxes[b].first;
+                Vector3f &mx = editBoxes[b].second;
+                char minLabel[48], maxLabel[48];
+                snprintf( minLabel, sizeof( minLabel ), "min##min%zu%zu", s,
+                          b );
+                snprintf( maxLabel, sizeof( maxLabel ), "max##max%zu%zu", s,
+                          b );
+                bChanged |= ImGui::DragFloat3( minLabel, &mn.x, 0.01f, -10.0f,
+                                               10.0f, "%.3f" );
+                bChanged |= ImGui::DragFloat3( maxLabel, &mx.x, 0.01f, -10.0f,
+                                               10.0f, "%.3f" );
+                char removeLabel[48];
+                snprintf( removeLabel, sizeof( removeLabel ),
+                          "remove##rm%zu%zu", s, b );
+                if ( ImGui::SmallButton( removeLabel ) ) {
+                    removeAt = static_cast<int32_t>( b );
+                }
+            }
+            if ( removeAt >= 0 ) {
+                editBoxes.erase( editBoxes.begin() + removeAt );
+                bChanged = true;
+            }
+            if ( ImGui::SmallButton( "add box" ) ) {
+                editBoxes.push_back( { Vector3f( -1.0f, 0.9f, -1.5f ),
+                                       Vector3f( 1.0f, 1.3f, -0.8f ) } );
+                bChanged = true;
+            }
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( "revert to file" ) ) {
+                editBoxes.clear();
+                GetTunerParts().clearRuntimeHideBoxes( row.FileName, pSlot );
+                if ( const auto *pBoxes =
+                         GetTunerParts().getHideBoxes( row.FileName, pSlot ) ) {
+                    editBoxes = *pBoxes;
+                }
+                pViewerCar->refreshTunerMasks();
+                bChanged = false;
+                tunerStatus =
+                    std::string( "reverted " ) + pSlot + " boxes to tuner.txt";
+            }
+            if ( bChanged ) {
+                GetTunerParts().setRuntimeHideBoxes( row.FileName, pSlot,
+                                                     editBoxes );
+                pViewerCar->refreshTunerMasks();
+            }
+            char copyLabel[96];
+            snprintf( copyLabel, sizeof( copyLabel ),
+                      "copy tuner.txt hide line##cp%zu", s );
+            if ( ImGui::SmallButton( copyLabel ) ) {
+                std::string line = std::string( "hide_" ) + pSlot + " =";
+                for ( const auto &box : editBoxes ) {
+                    char boxText[128];
+                    snprintf( boxText, sizeof( boxText ),
+                              " %.3f %.3f %.3f %.3f %.3f %.3f", box.first.x,
+                              box.first.y, box.first.z, box.second.x,
+                              box.second.y, box.second.z );
+                    line += boxText;
+                }
+                ImGui::SetClipboardText( line.c_str() );
+                tunerStatus = "copied: " + line;
+                OTDU_LOG_INFO( "TunerViewer: %s\n", line.c_str() );
+            }
+            ImGui::TreePop();
+        }
+
+        // The fitted part's offset (node space; align = rear parts are relative
+        // to the car's rear corner - anchors.txt says which): nudged live.
+        char offsetHeader[96];
+        snprintf( offsetHeader, sizeof( offsetHeader ), "offset nudge##off%zu",
+                  s );
+        if ( ImGui::TreeNode( offsetHeader ) ) {
+            // The offset the fitted part takes right now (runtime first).
+            Vector3f offset( 0.0f, 0.0f, 0.0f );
+            bool bHavePart = false;
+            for ( const TunerPart *pPart : parts ) {
+                offset = GetTunerParts().offsetFor( carId, *pPart );
+                bHavePart = true;
+                break; // the catalog's first part; the nudge keys on the slot
+            }
+            if ( bHavePart ) {
+                float values[3] = { offset.x, offset.y, offset.z };
+                if ( ImGui::DragFloat3( "offset", values, 0.005f, -3.0f, 3.0f,
+                                        "%.3f" ) ) {
+                    GetTunerParts().setRuntimeSlotOffset(
+                        row.FileName, pSlot,
+                        Vector3f( values[0], values[1], values[2] ) );
+                    // Re-fit the slot: the attachment reads the offset at apply
+                    // time. The catalog's first part is the stand-in (one part
+                    // per slot in the v1 catalog).
+                    if ( !parts.empty() ) {
+                        GetTunerParts().applyPart( *pViewerCar, carId, pSlot,
+                                                   parts.front() );
+                    }
+                }
+                char copyLabel2[96];
+                snprintf( copyLabel2, sizeof( copyLabel2 ),
+                          "copy tuner.txt offset line##cpo%zu", s );
+                if ( ImGui::SmallButton( copyLabel2 ) ) {
+                    char line[160];
+                    snprintf( line, sizeof( line ),
+                              "%s_offset = %.3f %.3f %.3f", pSlot, values[0],
+                              values[1], values[2] );
+                    ImGui::SetClipboardText( line );
+                    tunerStatus = std::string( "copied: " ) + line;
+                    OTDU_LOG_INFO( "TunerViewer: %s\n", line );
+                }
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( "reset" ) ) {
+                    GetTunerParts().clearRuntimeSlotOffset( row.FileName,
+                                                            pSlot );
+                    if ( !parts.empty() ) {
+                        GetTunerParts().applyPart( *pViewerCar, carId, pSlot,
+                                                   parts.front() );
+                    }
+                }
+            } else {
+                ImGui::TextDisabled( "fit a part first" );
+            }
+            ImGui::TreePop();
+        }
+        ImGui::TreePop();
+    }
+    if ( ImGui::SmallButton( "clear every live edit" ) ) {
+        GetTunerParts().clearRuntimeHideBoxes();
+        GetTunerParts().clearRuntimeSlotOffset();
+        if ( !editSlot.empty() ) {
+            editBoxes.clear();
+            if ( const auto *pBoxes = GetTunerParts().getHideBoxes(
+                     row.FileName, editSlot.c_str() ) ) {
+                editBoxes = *pBoxes;
+            }
+        }
+        pViewerCar->refreshTunerMasks();
+        tunerStatus = "live edits cleared";
+    }
+    if ( !tunerStatus.empty() ) {
+        ImGui::TextWrapped( "%s", tunerStatus.c_str() );
+    }
+    ImGui::TextDisabled( "boxes / offsets are live only - copy the lines into "
+                         "the mod's tuner.txt" );
+    ImGui::End();
 }

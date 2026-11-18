@@ -182,6 +182,7 @@ repository, a `TestDrive2` folder next to them, `~/TestDrive2`) and passes any o
 | `-entity <name>` / `-entitytab` / `-camera <name>` / `-collision` | ASSET_VIEWER: open the Entities tab on one entity / the bank's entity cameras / the collision wireframe |
 | `-noscene` / `-noturntable` / `-island <name>` | ASSET_VIEWER: no 3D view (and no model loads) / a still camera / the island the shared material library comes from |
 | `-pickcheck` / `-pickscan` / `-logscenedraws` | ASSET_VIEWER: pick the projected centre of every model / log a grid of pick rays / log how many meshes the 3D view drew |
+| `-car <name>` / `-cartab` / `-exportcar <name|*>` / `-objroundtrip <path.obj>` | ASSET_VIEWER: the **Cars panel** - the DB car list, a loaded car in the 3D view (orbit, click names the node), the tuner authoring loop (fit parts live, edit the hide boxes with a wireframe overlay, nudge offsets, copy the `tuner.txt` lines), and the **OBJ exporter** (the whole assembly + `anchors.txt`, the round-trip law in `docs/re/car_viewer_spec.md`; `-exportcar` headless, `-objroundtrip` proves it: delta 0.0000) |
 | `-skipintro` | AVATAR_CHOICE: skip C_INTRO, straight to "Select your character" |
 | `-walkmode n` | AVATAR_CHOICE: avatar n (1..6) chosen, straight to the house walk mode |
 | `-avatar <config>` | FIRST_WM / FREERIDE started directly: DBPNJ avatar config (default `AVT_Male_Intro`) |

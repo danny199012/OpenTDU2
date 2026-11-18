@@ -18,12 +18,12 @@ class EdenRenderer;
 // pricing table exists for parts; the tuning shop sells its levels in $12k
 // steps].
 struct TunerPart {
-    std::string Id;             // the save's part id (the [part:<id>] block)
-    std::string Name;           // the menu label
+    std::string Id;               // the save's part id (the [part:<id>] block)
+    std::string Name;             // the menu label
     std::string Slot = "spoiler"; // the attach slot (v1: spoilers)
     int32_t Price = 0;
-    std::string Mesh;           // the OBJ in tuner/parts/ (our art)
-    Vector3f Offset;            // the default body-node-space position
+    std::string Mesh;             // the OBJ in tuner/parts/ (our art)
+    Vector3f Offset;              // the default body-node-space position
     std::string Node = "BODY_HR"; // the car node it hangs from
     // "rear": the offset is relative to the body's rear-bottom corner (x stays
     // as written, y is above the body bottom, z is past the rear face), so one
@@ -38,8 +38,15 @@ struct TunerCar {
     std::string FileName;
     std::vector<std::string> Slots;
     std::map<std::string, Vector3f> SlotOffsets; // per-slot position overrides
-    std::map<std::string, std::vector<std::pair<Vector3f, Vector3f>>> HideBoxes; // slot -> stock-part boxes (item space; repeat the key for more)
-    float Pops = 1.0f; // exhaust pop strength of this car (0 = none), `pops = ` in tuner.txt
+    std::map<std::string, std::vector<std::pair<Vector3f, Vector3f>>>
+        HideBoxes; // slot -> stock-part boxes (item space; repeat the key for
+                   // more)
+    // Exact triangle masks (hide_tris_<slot> = <item index>: <tri>,<tri>,...):
+    // the triangle indices of one body item, where a box would catch
+    // neighbour triangles. Repeated keys append.
+    std::map<std::string, std::map<size_t, std::vector<uint32_t>>> HideTris;
+    float Pops = 1.0f; // exhaust pop strength of this car (0 = none), `pops = `
+                       // in tuner.txt
 };
 
 class TunerParts {
@@ -61,7 +68,8 @@ public:
     const TunerCar *findCar( int32_t carId ) const;
     // The part a car's garage offers for a slot (its catalog order), nullptr
     // when the car does not take the slot.
-    std::vector<const TunerPart *> partsForSlot( int32_t carId, const char *pSlot ) const;
+    std::vector<const TunerPart *> partsForSlot( int32_t carId,
+                                                 const char *pSlot ) const;
     // The part by save id (nullptr when unknown - a save carrying a part the
     // catalog lost skips it at load; it never crashes and the data stays).
     const TunerPart *findPart( const std::string &id ) const;
@@ -75,19 +83,48 @@ public:
     // time a part's mesh is loaded; without one (or without the OBJ) it
     // applies nothing and says so in the log.
     // pSlot names the slot being set/cleared ("spoiler", "exhaust").
-    void applyPart( CinematicCar &car, int32_t carId, const char *pSlot, const TunerPart *pPart );
+    void applyPart( CinematicCar &car,
+                    int32_t carId,
+                    const char *pSlot,
+                    const TunerPart *pPart );
     // The box (item space) of the car's stock part for a slot (the retail
     // spoiler lip / exhaust tips a fitted part replaces); false = none known.
-    const std::vector<std::pair<Vector3f, Vector3f>> *getHideBoxes( const std::string &carFileName,
-                                                                    const char *pSlot ) const;
+    // The runtime override (setRuntimeHideBoxes) wins: the car viewer's live
+    // edits land there before they are written into tuner.txt.
+    const std::vector<std::pair<Vector3f, Vector3f>> *
+    getHideBoxes( const std::string &carFileName, const char *pSlot ) const;
+    // The exact triangle lists (item index -> triangle indices) of a slot;
+    // nullptr when the car has none.
+    const std::map<size_t, std::vector<uint32_t>> *
+    getHideTris( const std::string &carFileName, const char *pSlot ) const;
+    // The car viewer's live hide-box edits (not yet in tuner.txt): they
+    // override the file's boxes for this car + slot until cleared.
+    void setRuntimeHideBoxes(
+        const std::string &carFileName,
+        const char *pSlot,
+        const std::vector<std::pair<Vector3f, Vector3f>> &boxes );
+    void clearRuntimeHideBoxes( const std::string &carFileName = std::string(),
+                                const char *pSlot = nullptr );
+    // The same for the per-slot offsets (offsetFor): the viewer's live nudge
+    // of a fitted part writes the whole adjusted value here, and the copy
+    // button prints it as the <slot>_offset line for tuner.txt.
+    void setRuntimeSlotOffset( const std::string &carFileName,
+                               const char *pSlot,
+                               const Vector3f &offset );
+    void clearRuntimeSlotOffset( const std::string &carFileName = std::string(),
+                                 const char *pSlot = nullptr );
     // The exhaust pop strength for a car wearing `saved` (0 = not a tuner car):
     // the car's `pops` value, full with an exhaust part fitted, 60 % without.
-    float popStrength( int32_t carId, const std::map<std::string, std::string> &saved ) const;
+    float popStrength( int32_t carId,
+                       const std::map<std::string, std::string> &saved ) const;
     // Applies a car's whole saved loadout (slot -> part id, the profile's
     // TunerCarParts::Parts): every slot the car takes is set to its saved part
     // or cleared; an id the catalog lost is skipped (the data stays saved).
-    void applySaved( CinematicCar &car, int32_t carId, const std::map<std::string, std::string> &saved );
-    // Slots the whole catalog uses, in menu order (a car offers its own subset).
+    void applySaved( CinematicCar &car,
+                     int32_t carId,
+                     const std::map<std::string, std::string> &saved );
+    // Slots the whole catalog uses, in menu order (a car offers its own
+    // subset).
     static const char *const *slotNames( size_t &count );
     // The menu label of a slot ("Spoiler", "Exhaust tips").
     static const char *slotLabel( const char *pSlot );
@@ -103,6 +140,13 @@ private:
     std::vector<TunerCar> cars;
     bool bLoaded = false;
     std::map<std::string, std::vector<ObjMeshDraw>> meshes; // by OBJ file name
+    // The viewer's live hide-box edits: (car file name, slot) -> boxes.
+    std::map<std::pair<std::string, std::string>,
+             std::vector<std::pair<Vector3f, Vector3f>>>
+        runtimeHideBoxes;
+    // The viewer's live offset nudges: (car file name, slot) -> the whole
+    // offset.
+    std::map<std::pair<std::string, std::string>, Vector3f> runtimeSlotOffsets;
 };
 
 // The catalog (loads on first use).

@@ -11,42 +11,44 @@
 
 namespace {
 
-// The data file and the part folder, inside the mods overlay (the enabled
-// tuner-garage package layer, or a loose <mods>/tuner/ - the overlay rules).
-constexpr const char *kTunerFile = "tuner/tuner.txt";
-constexpr const char *kPartsFolder = "tuner/parts/";
+    // The data file and the part folder, inside the mods overlay (the enabled
+    // tuner-garage package layer, or a loose <mods>/tuner/ - the overlay
+    // rules).
+    constexpr const char *kTunerFile = "tuner/tuner.txt";
+    constexpr const char *kPartsFolder = "tuner/parts/";
 
-std::string Trim( const std::string &text ) {
-    size_t a = text.find_first_not_of( " \t" );
-    if ( a == std::string::npos ) {
-        return std::string();
-    }
-    size_t b = text.find_last_not_of( " \t" );
-    return text.substr( a, b - a + 1 );
-}
-
-bool ParseVector3( const std::string &text, Vector3f &out ) {
-    float x = 0.0f, y = 0.0f, z = 0.0f;
-    if ( sscanf( text.c_str(), "%f %f %f", &x, &y, &z ) != 3 ) {
-        return false;
-    }
-    out = Vector3f( x, y, z );
-    return true;
-}
-
-// The DBCarPhysicsData row of a car id (the database has no by-id lookup, so
-// this walks the 279 file names once per call - nothing per frame).
-bool FindCarById( int32_t carId, CarPhysicsData &outCar ) {
-    if ( gpDatabase == nullptr || carId < 0 ) {
-        return false;
-    }
-    for ( const std::string &fileName : gpDatabase->getCarFileNames() ) {
-        if ( gpDatabase->findCarPhysics( fileName.c_str(), outCar ) && outCar.CarId == carId ) {
-            return true;
+    std::string Trim( const std::string &text ) {
+        size_t a = text.find_first_not_of( " \t" );
+        if ( a == std::string::npos ) {
+            return std::string();
         }
+        size_t b = text.find_last_not_of( " \t" );
+        return text.substr( a, b - a + 1 );
     }
-    return false;
-}
+
+    bool ParseVector3( const std::string &text, Vector3f &out ) {
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+        if ( sscanf( text.c_str(), "%f %f %f", &x, &y, &z ) != 3 ) {
+            return false;
+        }
+        out = Vector3f( x, y, z );
+        return true;
+    }
+
+    // The DBCarPhysicsData row of a car id (the database has no by-id lookup,
+    // so this walks the 279 file names once per call - nothing per frame).
+    bool FindCarById( int32_t carId, CarPhysicsData &outCar ) {
+        if ( gpDatabase == nullptr || carId < 0 ) {
+            return false;
+        }
+        for ( const std::string &fileName : gpDatabase->getCarFileNames() ) {
+            if ( gpDatabase->findCarPhysics( fileName.c_str(), outCar ) &&
+                 outCar.CarId == carId ) {
+                return true;
+            }
+        }
+        return false;
+    }
 
 } // namespace
 
@@ -55,9 +57,7 @@ TunerParts &TunerParts::get() {
     return instance;
 }
 
-TunerParts &GetTunerParts() {
-    return TunerParts::get();
-}
+TunerParts &GetTunerParts() { return TunerParts::get(); }
 
 bool TunerParts::load() {
     if ( bLoaded ) {
@@ -150,9 +150,9 @@ bool TunerParts::load() {
                 size_t cursor = 0;
                 while ( cursor < value.size() ) {
                     const size_t comma = value.find( ',', cursor );
-                    const std::string slot = Trim( value.substr( cursor, comma == std::string::npos
-                                                                              ? std::string::npos
-                                                                              : comma - cursor ) );
+                    const std::string slot = Trim( value.substr(
+                        cursor, comma == std::string::npos ? std::string::npos
+                                                           : comma - cursor ) );
                     if ( !slot.empty() ) {
                         car.Slots.push_back( ToLower( slot ) );
                     }
@@ -161,14 +161,46 @@ bool TunerParts::load() {
                     }
                     cursor = comma + 1;
                 }
+            } else if ( key.compare( 0, 10, "hide_tris_" ) == 0 ) {
+                // hide_tris_<slot> = <item index>: <tri>,<tri>,... - the exact
+                // triangle list of one body item (indices are triangle numbers
+                // of that item, as -logcaritems orders them). Before the
+                // hide_ prefix check: these keys start with hide_ too.
+                const std::string slot = ToLower( key.substr( 10 ) );
+                const size_t colon = value.find( ':' );
+                if ( colon != std::string::npos ) {
+                    const size_t item = static_cast<size_t>(
+                        strtoull( value.c_str(), nullptr, 10 ) );
+                    size_t cursor = colon + 1;
+                    while ( cursor < value.size() ) {
+                        const size_t comma = value.find( ',', cursor );
+                        const std::string token = Trim(
+                            value.substr( cursor, comma == std::string::npos
+                                                      ? std::string::npos
+                                                      : comma - cursor ) );
+                        if ( !token.empty() ) {
+                            car.HideTris[slot][item].push_back(
+                                static_cast<uint32_t>(
+                                    atoi( token.c_str() ) ) );
+                        }
+                        if ( comma == std::string::npos ) {
+                            break;
+                        }
+                        cursor = comma + 1;
+                    }
+                }
             } else if ( key.compare( 0, 5, "hide_" ) == 0 ) {
                 float v[6];
-                if ( sscanf( value.c_str(), "%f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5] ) == 6 ) {
-                    car.HideBoxes[key.substr( 5 )].push_back( { Vector3f( v[0], v[1], v[2] ), Vector3f( v[3], v[4], v[5] ) } );
+                if ( sscanf( value.c_str(), "%f %f %f %f %f %f", &v[0], &v[1],
+                             &v[2], &v[3], &v[4], &v[5] ) == 6 ) {
+                    car.HideBoxes[key.substr( 5 )].push_back(
+                        { Vector3f( v[0], v[1], v[2] ),
+                          Vector3f( v[3], v[4], v[5] ) } );
                 }
             } else if ( key == "pops" ) {
                 car.Pops = static_cast<float>( atof( value.c_str() ) );
-            } else if ( key.size() > 7 && key.compare( key.size() - 7, 7, "_offset" ) == 0 ) {
+            } else if ( key.size() > 7 &&
+                        key.compare( key.size() - 7, 7, "_offset" ) == 0 ) {
                 Vector3f offset;
                 if ( ParseVector3( value, offset ) ) {
                     car.SlotOffsets[key.substr( 0, key.size() - 7 )] = offset;
@@ -178,7 +210,8 @@ bool TunerParts::load() {
     }
     flush();
     bLoaded = true;
-    OTDU_LOG_INFO( "Tuner: %zu parts, %zu tuner cars ('%s'%s)\n", parts.size(), cars.size(), kTunerFile,
+    OTDU_LOG_INFO( "Tuner: %zu parts, %zu tuner cars ('%s'%s)\n", parts.size(),
+                   cars.size(), kTunerFile,
                    CmdLine::HasArg( "-logtuner" ) ? ", -logtuner" : "" );
     for ( const TunerCar &entry : cars ) {
         OTDU_LOG_INFO( "Tuner: car '%s' (slots: %s)\n", entry.FileName.c_str(),
@@ -205,7 +238,8 @@ bool TunerParts::isTunerCar( int32_t carId ) const {
     return findCar( carId ) != nullptr;
 }
 
-std::vector<const TunerPart *> TunerParts::partsForSlot( int32_t carId, const char *pSlot ) const {
+std::vector<const TunerPart *>
+TunerParts::partsForSlot( int32_t carId, const char *pSlot ) const {
     std::vector<const TunerPart *> out;
     const TunerCar *pCar = findCar( carId );
     if ( pCar == nullptr || pSlot == nullptr ) {
@@ -242,12 +276,47 @@ const TunerPart *TunerParts::findPart( const std::string &id ) const {
 Vector3f TunerParts::offsetFor( int32_t carId, const TunerPart &part ) const {
     const TunerCar *pCar = findCar( carId );
     if ( pCar != nullptr ) {
+        // The viewer's live nudge first (it is not in tuner.txt yet).
+        const auto runtime = runtimeSlotOffsets.find(
+            { ToLower( pCar->FileName ), ToLower( part.Slot ) } );
+        if ( runtime != runtimeSlotOffsets.end() ) {
+            return runtime->second;
+        }
         const auto found = pCar->SlotOffsets.find( ToLower( part.Slot ) );
         if ( found != pCar->SlotOffsets.end() ) {
             return found->second;
         }
     }
     return part.Offset;
+}
+
+void TunerParts::setRuntimeSlotOffset( const std::string &carFileName,
+                                       const char *pSlot,
+                                       const Vector3f &offset ) {
+    if ( pSlot == nullptr ) {
+        return;
+    }
+    runtimeSlotOffsets[{ ToLower( carFileName ), ToLower( pSlot ) }] = offset;
+}
+
+void TunerParts::clearRuntimeSlotOffset( const std::string &carFileName,
+                                         const char *pSlot ) {
+    if ( carFileName.empty() ) {
+        runtimeSlotOffsets.clear();
+        return;
+    }
+    if ( pSlot == nullptr ) {
+        for ( auto it = runtimeSlotOffsets.begin();
+              it != runtimeSlotOffsets.end(); ) {
+            if ( it->first.first == ToLower( carFileName ) ) {
+                it = runtimeSlotOffsets.erase( it );
+            } else {
+                ++it;
+            }
+        }
+        return;
+    }
+    runtimeSlotOffsets.erase( { ToLower( carFileName ), ToLower( pSlot ) } );
 }
 
 const TunerPart *TunerParts::partForMesh( const std::string &meshFile ) const {
@@ -259,8 +328,15 @@ const TunerPart *TunerParts::partForMesh( const std::string &meshFile ) const {
     return nullptr;
 }
 
-const std::vector<std::pair<Vector3f, Vector3f>> *TunerParts::getHideBoxes( const std::string &carFileName,
-                                                                           const char *pSlot ) const {
+const std::vector<std::pair<Vector3f, Vector3f>> *
+TunerParts::getHideBoxes( const std::string &carFileName,
+                          const char *pSlot ) const {
+    // The viewer's live edits first (they are not in tuner.txt yet).
+    const auto runtime =
+        runtimeHideBoxes.find( { ToLower( carFileName ), ToLower( pSlot ) } );
+    if ( runtime != runtimeHideBoxes.end() ) {
+        return &runtime->second;
+    }
     for ( const TunerCar &car : cars ) {
         if ( StringCmpI( car.FileName.c_str(), carFileName.c_str() ) != 0 ) {
             continue;
@@ -271,13 +347,61 @@ const std::vector<std::pair<Vector3f, Vector3f>> *TunerParts::getHideBoxes( cons
     return nullptr;
 }
 
-float TunerParts::popStrength( int32_t carId, const std::map<std::string, std::string> &saved ) const {
+const std::map<size_t, std::vector<uint32_t>> *
+TunerParts::getHideTris( const std::string &carFileName,
+                         const char *pSlot ) const {
+    const_cast<TunerParts *>( this )->load();
+    for ( const TunerCar &car : cars ) {
+        if ( StringCmpI( car.FileName.c_str(), carFileName.c_str() ) != 0 ) {
+            continue;
+        }
+        const auto found = car.HideTris.find( ToLower( pSlot ) );
+        return found != car.HideTris.end() && !found->second.empty()
+                   ? &found->second
+                   : nullptr;
+    }
+    return nullptr;
+}
+
+void TunerParts::setRuntimeHideBoxes(
+    const std::string &carFileName,
+    const char *pSlot,
+    const std::vector<std::pair<Vector3f, Vector3f>> &boxes ) {
+    if ( pSlot == nullptr ) {
+        return;
+    }
+    runtimeHideBoxes[{ ToLower( carFileName ), ToLower( pSlot ) }] = boxes;
+}
+
+void TunerParts::clearRuntimeHideBoxes( const std::string &carFileName,
+                                        const char *pSlot ) {
+    if ( carFileName.empty() ) {
+        runtimeHideBoxes.clear();
+        return;
+    }
+    if ( pSlot == nullptr ) {
+        for ( auto it = runtimeHideBoxes.begin();
+              it != runtimeHideBoxes.end(); ) {
+            if ( it->first.first == ToLower( carFileName ) ) {
+                it = runtimeHideBoxes.erase( it );
+            } else {
+                ++it;
+            }
+        }
+        return;
+    }
+    runtimeHideBoxes.erase( { ToLower( carFileName ), ToLower( pSlot ) } );
+}
+
+float TunerParts::popStrength(
+    int32_t carId, const std::map<std::string, std::string> &saved ) const {
     const TunerCar *pCar = findCar( carId );
     if ( pCar == nullptr ) {
         return 0.0f;
     }
     const auto exhaust = saved.find( "exhaust" );
-    const bool bExhaust = exhaust != saved.end() && !exhaust->second.empty() && findPart( exhaust->second ) != nullptr;
+    const bool bExhaust = exhaust != saved.end() && !exhaust->second.empty() &&
+                          findPart( exhaust->second ) != nullptr;
     return pCar->Pops * ( bExhaust ? 1.0f : 0.6f );
 }
 
@@ -294,7 +418,9 @@ const char *TunerParts::slotLabel( const char *pSlot ) {
     return "Spoiler";
 }
 
-void TunerParts::applySaved( CinematicCar &car, int32_t carId, const std::map<std::string, std::string> &saved ) {
+void TunerParts::applySaved( CinematicCar &car,
+                             int32_t carId,
+                             const std::map<std::string, std::string> &saved ) {
     car.clearTunerAttachment();
     size_t slotCount = 0;
     const char *const *pSlots = slotNames( slotCount );
@@ -307,13 +433,17 @@ void TunerParts::applySaved( CinematicCar &car, int32_t carId, const std::map<st
         if ( const TunerPart *pPart = findPart( found->second ) ) {
             applyPart( car, carId, pSlots[i], pPart );
         } else {
-            OTDU_LOG_INFO( "Tuner: part '%s' (%s) is not in the catalog (kept as data, not drawn)\n",
+            OTDU_LOG_INFO( "Tuner: part '%s' (%s) is not in the catalog (kept "
+                           "as data, not drawn)\n",
                            found->second.c_str(), pSlots[i] );
         }
     }
 }
 
-void TunerParts::applyPart( CinematicCar &car, int32_t carId, const char *pSlot, const TunerPart *pPart ) {
+void TunerParts::applyPart( CinematicCar &car,
+                            int32_t carId,
+                            const char *pSlot,
+                            const TunerPart *pPart ) {
     car.clearTunerAttachment( pSlot );
     if ( pPart == nullptr || pPart->Mesh.empty() ) {
         return;
@@ -321,29 +451,38 @@ void TunerParts::applyPart( CinematicCar &car, int32_t carId, const char *pSlot,
     // The catalog names the OBJ file ("wing_gt.obj"); the loader takes the
     // stem (it appends ".obj" itself, like the props loader).
     std::string meshName = pPart->Mesh;
-    if ( meshName.size() > 4 && StringCmpI( meshName.c_str() + meshName.size() - 4, ".obj" ) == 0 ) {
+    if ( meshName.size() > 4 &&
+         StringCmpI( meshName.c_str() + meshName.size() - 4, ".obj" ) == 0 ) {
         meshName.resize( meshName.size() - 4 );
     }
-    EdenRenderer *pRenderer = gpRender != nullptr ? gpRender->getEdenRenderer() : nullptr;
+    EdenRenderer *pRenderer =
+        gpRender != nullptr ? gpRender->getEdenRenderer() : nullptr;
     if ( pRenderer == nullptr ) {
-        return; // no renderer yet: the caller retries (GMFreeRide's drawOffscreen)
+        return; // no renderer yet: the caller retries (GMFreeRide's
+                // drawOffscreen)
     }
     auto found = meshes.find( meshName );
     if ( found == meshes.end() ) {
         std::vector<ObjMeshDraw> draws;
-        if ( !LoadObjDraws( *pRenderer, kPartsFolder, meshName.c_str(), "TD_Gouraud", draws, nullptr, nullptr,
-                            nullptr, "TunerParts" ) ) {
-            OTDU_LOG_WARN( "Tuner: part '%s' has no '%s%s.obj' in the overlay\n", pPart->Id.c_str(), kPartsFolder,
-                           meshName.c_str() );
+        if ( !LoadObjDraws( *pRenderer, kPartsFolder, meshName.c_str(),
+                            "TD_Gouraud", draws, nullptr, nullptr, nullptr,
+                            "TunerParts" ) ) {
+            OTDU_LOG_WARN(
+                "Tuner: part '%s' has no '%s%s.obj' in the overlay\n",
+                pPart->Id.c_str(), kPartsFolder, meshName.c_str() );
             return;
         }
         if ( draws.size() > 1 ) {
-            OTDU_LOG_WARN( "Tuner: part '%s' has %zu materials, only the first draws\n", pPart->Id.c_str(),
-                           draws.size() );
+            OTDU_LOG_WARN(
+                "Tuner: part '%s' has %zu materials, only the first draws\n",
+                pPart->Id.c_str(), draws.size() );
         }
         found = meshes.emplace( meshName, std::move( draws ) ).first;
-        OTDU_LOG_INFO( "Tuner: part '%s' mesh '%s' loaded (%u triangles)\n", pPart->Id.c_str(), pPart->Mesh.c_str(),
-                       found->second.empty() ? 0u : found->second.front().Mesh.IndexCount / 3 );
+        OTDU_LOG_INFO( "Tuner: part '%s' mesh '%s' loaded (%u triangles)\n",
+                       pPart->Id.c_str(), pPart->Mesh.c_str(),
+                       found->second.empty()
+                           ? 0u
+                           : found->second.front().Mesh.IndexCount / 3 );
     }
     if ( found->second.empty() ) {
         return;
@@ -358,7 +497,8 @@ void TunerParts::applyPart( CinematicCar &car, int32_t carId, const char *pSlot,
             offset = Vector3f( offset.x, bMin.y + offset.y, bMin.z + offset.z );
         }
     }
-    car.setTunerAttachment( pSlot, found->second.front().Mesh, found->second.front().Material, pPart->Node.c_str(),
+    car.setTunerAttachment( pSlot, found->second.front().Mesh,
+                            found->second.front().Material, pPart->Node.c_str(),
                             Matrix4x4f::Translation( offset ) );
 }
 

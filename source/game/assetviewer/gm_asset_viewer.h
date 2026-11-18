@@ -1,5 +1,7 @@
 #pragma once
 
+#include "imgui.h"
+
 #include "core/xmb.h"
 #include "filesystem/bank.h"
 #include "game/gm_base.h"
@@ -18,6 +20,7 @@ struct RenderTarget;
 struct AudioClip;
 class FlashMovie;
 class FlashPlayer;
+class CinematicCar;
 
 // ASSET_VIEWER: OpenTDU2's own tool (like WORLD_VIEWER), not a TDU2 mode.
 //
@@ -190,6 +193,26 @@ private:
     // keyboard, the mouse drag still looks.
     void updateFreeCamera( float deltaTime );
 
+    // ---- Cars (the car viewer / exporter / tuner authoring) ----
+    // A DBCarPhysicsData row of the Cars panel list.
+    struct CarRow {
+        int32_t Id = -1;         // _id_car
+        std::string FileName;    // _car_file_name
+        std::string DisplayName; // _manufacturer_name + _model_name (+ version)
+        bool bTuner = false;     // a [car:...] block in tuner.txt
+        bool bValidPc = false;   // _isvalidpc
+    };
+    void scanCars(); // the database once (on first open / -car / -exportcar)
+    void selectCar(
+        int32_t index ); // loads it into the 3D view (Desc flags for the tools)
+    void unloadViewerCar();
+    void drawCarPanel(); // the ImGui window (drawUI calls it)
+    // The tuner hide boxes + masked triangles over the 3D view (the same
+    // projection the GPU used).
+    void drawCarOverlays();
+    // A car-space point -> the 3D view panel's pixels (the shared projection).
+    bool projectScene( const Vector3f &p, ImVec2 &out ) const;
+
     // ---- Movie (`vmf`) and audio (`wav`) previews ----
     void loadMoviePreview();
     void unloadMoviePreview();
@@ -348,4 +371,28 @@ private:
     uint32_t audioVoice = 0;
     bool bAudioPlaying = false;
     std::string audioInfo;
+
+    // Cars (the car viewer / exporter / tuner authoring). The loaded car
+    // replaces the bank's model row in the 3D view until it is unloaded
+    // (a bank click, the panel's unload button, exit).
+    // The car paint samples an environment cube: the intro garage's static
+    // CUBECAR (intro_cinematic's pattern) - without it the paint draws black.
+    Bank envCubeBank;
+    bool bEnvCubeLoaded = false;
+    std::vector<CarRow> carRows;
+    bool bCarsScanned = false;
+    char carFilterText[128] = {};
+    int32_t selectedCar = -1;
+    std::unique_ptr<CinematicCar> pViewerCar;
+    std::string viewerCarInfo;
+    int32_t pickedCarNode = -1;
+    bool bShowCars =
+        false; // the Cars window (-car / -cartab / -exportcar opens it)
+    bool bShowMaskOverlay = true; // the tuner hide boxes over the 3D view
+    bool bShowMaskTris = false;   // ... and the masked triangles highlighted
+    // The hide-box editor's working copy (the selected slot's boxes, applied
+    // live through TunerParts::setRuntimeHideBoxes).
+    std::string editSlot;
+    std::vector<std::pair<Vector3f, Vector3f>> editBoxes;
+    std::string tunerStatus;
 };

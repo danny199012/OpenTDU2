@@ -12,332 +12,390 @@
 #include "game/freeride/tuner_parts.h"
 
 namespace {
-// Scalar lerp of the paint / dirt blends (the chase camera's local helper has
-// internal linkage too; this TU does not include it).
-inline float Lerp1( float a, float b, float t ) {
-    return a + ( b - a ) * t;
-}
-
-// Window animation: the WND_x1 glass slides onto the WND_x2 rest over this
-// long [INF: the retail factor function FUN_00c66150(f) has no readable
-// duration; the hardtop's own clip is 17 s for a much larger move].
-constexpr float kWndAnimDuration = 1.2f;
-// Blinker cadence (FUN_00c57ef0): t = fmod(t + dt, 1.0), lamps lit while
-// t < 0.6 (QWORD 0x00f44c70 = 1.0 s period, threshold 0x00ef2754).
-constexpr float kBlinkerPeriod = 1.0f;
-constexpr float kBlinkerOnTime = 0.6f;
-// The dashboard sat-nav screen shader (TD_GPS; docs/re/opentdu1_reuse.md 1).
-constexpr uint64_t kGpsShaderGuid = 0x7dad16b47eb57b95ull;
-
-// The light material names (table 0x00f7e700, docs/re/car_lights_spec.md 2.1)
-// with their side / end. The driver writes GLOSSFCT on each of them.
-struct LightMaterialName {
-    const char *pName;
-    bool bLeft;
-    bool bFront;
-};
-constexpr LightMaterialName kLightMaterials[] = {
-    { "LGT_FL", true, true },   { "LGT_FR", false, true },  { "LGT_RL", true, false },
-    { "LGT_RR", false, false }, { "LGT_RL_SK", true, false }, { "LGT_RR_SK", false, false },
-    { "LGT_L", true, false },   { "LGT_R", false, false },  { "LGT_R_S", false, false },
-};
-
-// Dashboard backlight colour when the headlights are on, and the
-// HeadlightsIntensity the TD_DashBoard shader multiplies the authored
-// ILUMCOLOR by (the color is the material's own - the driver writes the
-// intensity only, [CODE-dev] the collector 0x71a680).
-constexpr float kDashLitIntensity = 1.0f;
-
-// 8 byte scene node name (character i added into byte i & 7, little endian):
-// the 3DD instance hashcode of names longer than 8 characters.
-uint64_t NodeNameHash( const char *pName ) {
-    uint8_t bytes[8] = {};
-    for ( size_t i = 0; pName[i] != '\0'; i++ ) {
-        bytes[i & 7] = static_cast<uint8_t>( bytes[i & 7] + static_cast<uint8_t>( pName[i] ) );
+    // Scalar lerp of the paint / dirt blends (the chase camera's local helper
+    // has internal linkage too; this TU does not include it).
+    inline float Lerp1( float a, float b, float t ) {
+        return a + ( b - a ) * t;
     }
-    uint64_t hash = 0;
-    for ( int i = 7; i >= 0; i-- ) {
-        hash = ( hash << 8 ) | bytes[i];
+
+    // Window animation: the WND_x1 glass slides onto the WND_x2 rest over this
+    // long [INF: the retail factor function FUN_00c66150(f) has no readable
+    // duration; the hardtop's own clip is 17 s for a much larger move].
+    constexpr float kWndAnimDuration = 1.2f;
+    // Blinker cadence (FUN_00c57ef0): t = fmod(t + dt, 1.0), lamps lit while
+    // t < 0.6 (QWORD 0x00f44c70 = 1.0 s period, threshold 0x00ef2754).
+    constexpr float kBlinkerPeriod = 1.0f;
+    constexpr float kBlinkerOnTime = 0.6f;
+    // The dashboard sat-nav screen shader (TD_GPS; docs/re/opentdu1_reuse.md
+    // 1).
+    constexpr uint64_t kGpsShaderGuid = 0x7dad16b47eb57b95ull;
+
+    // The light material names (table 0x00f7e700,
+    // docs/re/car_lights_spec.md 2.1) with their side / end. The driver writes
+    // GLOSSFCT on each of them.
+    struct LightMaterialName {
+        const char *pName;
+        bool bLeft;
+        bool bFront;
+    };
+    constexpr LightMaterialName kLightMaterials[] = {
+        {"LGT_FL",    true,  true },
+        {"LGT_FR",    false, true },
+        {"LGT_RL",    true,  false},
+        {"LGT_RR",    false, false},
+        {"LGT_RL_SK", true,  false},
+        {"LGT_RR_SK", false, false},
+        {"LGT_L",     true,  false},
+        {"LGT_R",     false, false},
+        {"LGT_R_S",   false, false},
+    };
+
+    // Dashboard backlight colour when the headlights are on, and the
+    // HeadlightsIntensity the TD_DashBoard shader multiplies the authored
+    // ILUMCOLOR by (the color is the material's own - the driver writes the
+    // intensity only, [CODE-dev] the collector 0x71a680).
+    constexpr float kDashLitIntensity = 1.0f;
+
+    // 8 byte scene node name (character i added into byte i & 7, little
+    // endian): the 3DD instance hashcode of names longer than 8 characters.
+    uint64_t NodeNameHash( const char *pName ) {
+        uint8_t bytes[8] = {};
+        for ( size_t i = 0; pName[i] != '\0'; i++ ) {
+            bytes[i & 7] = static_cast<uint8_t>(
+                bytes[i & 7] + static_cast<uint8_t>( pName[i] ) );
+        }
+        uint64_t hash = 0;
+        for ( int i = 7; i >= 0; i-- ) {
+            hash = ( hash << 8 ) | bytes[i];
+        }
+        return hash;
     }
-    return hash;
-}
 
-// --- Plus-size rims (the tuning shop's rim size) --------------------------
-// The rim mesh is normalized (outer radius 0.212 m) and drawn scaled to
-// (diameter / 2 + the 2.17 cm lip) / 0.212 (the California bakes 1.24 for its
-// 19" rims). The tire meshes of common_car.bnk are one per rim diameter
-// (T_13P .. T_24P: bead on the rim lip, tread at a canonical radius for that
-// diameter). A tuning shop rim size keeps the car's rolling radius: every
-// base tire mesh is remapped so its bead sits on the chosen rim's lip and its
-// tread on the car's stock tire radius, i.e. the sidewall gets thinner as the
-// rim grows. Radial map r -> a r + b (the X axle is unchanged), normals by
-// the inverse transpose (n_yz / a).
-constexpr float kRimMeshRadius = 0.212f; // normalized rim mesh radius [DATA]
-constexpr float kRimLip = 0.0217f;       // flange above the nominal radius [INF]
-constexpr int32_t kMinTireDiameterInch = 13;
-constexpr int32_t kMaxTireDiameterInch = 24;
+    // --- Plus-size rims (the tuning shop's rim size)
+    // -------------------------- The rim mesh is normalized (outer radius 0.212
+    // m) and drawn scaled to (diameter / 2 + the 2.17 cm lip) / 0.212 (the
+    // California bakes 1.24 for its 19" rims). The tire meshes of
+    // common_car.bnk are one per rim diameter (T_13P .. T_24P: bead on the rim
+    // lip, tread at a canonical radius for that diameter). A tuning shop rim
+    // size keeps the car's rolling radius: every base tire mesh is remapped so
+    // its bead sits on the chosen rim's lip and its tread on the car's stock
+    // tire radius, i.e. the sidewall gets thinner as the rim grows. Radial map
+    // r -> a r + b (the X axle is unchanged), normals by the inverse transpose
+    // (n_yz / a).
+    constexpr float kRimMeshRadius =
+        0.212f;                        // normalized rim mesh radius [DATA]
+    constexpr float kRimLip = 0.0217f; // flange above the nominal radius [INF]
+    constexpr int32_t kMinTireDiameterInch = 13;
+    constexpr int32_t kMaxTireDiameterInch = 24;
 
-float HalfToFloat( uint16_t h ) {
-    const uint32_t sign = ( h >> 15 ) & 1;
-    int32_t exponent = ( h >> 10 ) & 0x1f;
-    uint32_t mantissa = h & 0x3ff;
-    uint32_t bits;
-    if ( exponent == 0 ) {
-        if ( mantissa == 0 ) {
-            bits = sign << 31;
+    float HalfToFloat( uint16_t h ) {
+        const uint32_t sign = ( h >> 15 ) & 1;
+        int32_t exponent = ( h >> 10 ) & 0x1f;
+        uint32_t mantissa = h & 0x3ff;
+        uint32_t bits;
+        if ( exponent == 0 ) {
+            if ( mantissa == 0 ) {
+                bits = sign << 31;
+            } else {
+                exponent = 1;
+                while ( !( mantissa & 0x400 ) ) {
+                    mantissa <<= 1;
+                    exponent--;
+                }
+                mantissa &= 0x3ff;
+                bits = ( sign << 31 ) |
+                       ( static_cast<uint32_t>( exponent + 112 ) << 23 ) |
+                       ( mantissa << 13 );
+            }
+        } else if ( exponent == 31 ) {
+            bits = ( sign << 31 ) | 0x7f800000 | ( mantissa << 13 );
         } else {
-            exponent = 1;
-            while ( !( mantissa & 0x400 ) ) {
-                mantissa <<= 1;
-                exponent--;
+            bits = ( sign << 31 ) |
+                   ( static_cast<uint32_t>( exponent + 112 ) << 23 ) |
+                   ( mantissa << 13 );
+        }
+        float result;
+        memcpy( &result, &bits, sizeof( float ) );
+        return result;
+    }
+
+    uint16_t FloatToHalf( float value ) {
+        uint32_t bits;
+        memcpy( &bits, &value, sizeof( bits ) );
+        const uint32_t sign = ( bits >> 16 ) & 0x8000;
+        int32_t exponent =
+            static_cast<int32_t>( ( bits >> 23 ) & 0xff ) - 127 + 15;
+        const uint32_t mantissa = bits & 0x7fffff;
+        if ( exponent <= 0 ) {
+            if ( exponent < -10 ) {
+                return static_cast<uint16_t>( sign );
             }
-            mantissa &= 0x3ff;
-            bits = ( sign << 31 ) | ( static_cast<uint32_t>( exponent + 112 ) << 23 ) | ( mantissa << 13 );
+            return static_cast<uint16_t>(
+                sign |
+                ( ( ( mantissa | 0x800000 ) >> ( 1 - exponent ) ) >> 13 ) );
         }
-    } else if ( exponent == 31 ) {
-        bits = ( sign << 31 ) | 0x7f800000 | ( mantissa << 13 );
-    } else {
-        bits = ( sign << 31 ) | ( static_cast<uint32_t>( exponent + 112 ) << 23 ) | ( mantissa << 13 );
+        if ( exponent >= 31 ) {
+            return static_cast<uint16_t>( sign | 0x7c00 );
+        }
+        return static_cast<uint16_t>(
+            sign | ( static_cast<uint32_t>( exponent ) << 10 ) |
+            ( mantissa >> 13 ) );
     }
-    float result;
-    memcpy( &result, &bits, sizeof( float ) );
-    return result;
-}
 
-uint16_t FloatToHalf( float value ) {
-    uint32_t bits;
-    memcpy( &bits, &value, sizeof( bits ) );
-    const uint32_t sign = ( bits >> 16 ) & 0x8000;
-    int32_t exponent = static_cast<int32_t>( ( bits >> 23 ) & 0xff ) - 127 + 15;
-    const uint32_t mantissa = bits & 0x7fffff;
-    if ( exponent <= 0 ) {
-        if ( exponent < -10 ) {
-            return static_cast<uint16_t>( sign );
+    // Remaps the radial coordinates of one tire mesh (the X axle is unchanged).
+    void RemapTireGeometry( Geometry &geometry,
+                            float beadRadius,
+                            float treadRadius ) {
+        if ( treadRadius <= beadRadius ) {
+            return;
         }
-        return static_cast<uint16_t>( sign | ( ( ( mantissa | 0x800000 ) >> ( 1 - exponent ) ) >> 13 ) );
-    }
-    if ( exponent >= 31 ) {
-        return static_cast<uint16_t>( sign | 0x7c00 );
-    }
-    return static_cast<uint16_t>( sign | ( static_cast<uint32_t>( exponent ) << 10 ) | ( mantissa >> 13 ) );
-}
-
-// Remaps the radial coordinates of one tire mesh (the X axle is unchanged).
-void RemapTireGeometry( Geometry &geometry, float beadRadius, float treadRadius ) {
-    if ( treadRadius <= beadRadius ) {
-        return;
-    }
-    float nativeBead = 1e30f, nativeTread = -1e30f;
-    for ( const GeometryPrimitive &primitive : geometry.Primitives ) {
-        for ( const MeshVertex &vertex : primitive.Vertices ) {
-            const float radial =
-                std::sqrt( vertex.Position[1] * vertex.Position[1] + vertex.Position[2] * vertex.Position[2] );
-            nativeBead = Min( nativeBead, radial );
-            nativeTread = Max( nativeTread, radial );
-        }
-    }
-    if ( nativeTread - nativeBead < 0.005f ) {
-        return;
-    }
-    const float a = ( treadRadius - beadRadius ) / ( nativeTread - nativeBead );
-    const float b = beadRadius - a * nativeBead;
-    OTDU_LOG_DEBUG( "CinematicCar: tire mesh remapped: bead %.3f -> %.3f, tread %.3f -> %.3f (a %.3f b %.3f)\n",
-                    nativeBead, beadRadius, nativeTread, treadRadius, a, b );
-    for ( GeometryPrimitive &primitive : geometry.Primitives ) {
-        const RawVertexAttribute *pPosition = nullptr;
-        const RawVertexAttribute *pNormal = nullptr;
-        for ( const RawVertexAttribute &attribute : primitive.RawAttributes ) {
-            if ( attribute.Usage == 0 && attribute.UsageIndex == 0 ) {
-                pPosition = &attribute;
-            } else if ( attribute.Usage == 3 && attribute.UsageIndex == 0 ) {
-                pNormal = &attribute;
+        float nativeBead = 1e30f, nativeTread = -1e30f;
+        for ( const GeometryPrimitive &primitive : geometry.Primitives ) {
+            for ( const MeshVertex &vertex : primitive.Vertices ) {
+                const float radial =
+                    std::sqrt( vertex.Position[1] * vertex.Position[1] +
+                               vertex.Position[2] * vertex.Position[2] );
+                nativeBead = Min( nativeBead, radial );
+                nativeTread = Max( nativeTread, radial );
             }
         }
-        if ( pPosition == nullptr || pPosition->Format != VAF_POSITION_R32G32B32_SFLOAT || pPosition->Stream >= 2 ||
-             primitive.RawStrides[pPosition->Stream] == 0 ) {
-            continue;
+        if ( nativeTread - nativeBead < 0.005f ) {
+            return;
         }
-        uint8_t *pPositions = primitive.RawStreams[pPosition->Stream].data();
-        const uint32_t stride = primitive.RawStrides[pPosition->Stream];
-        const uint32_t count =
-            Min<uint32_t>( primitive.NumRawVertex, static_cast<uint32_t>( primitive.Vertices.size() ) );
-        for ( uint32_t v = 0; v < count; v++ ) {
-            float *p = reinterpret_cast<float *>( pPositions + v * stride + pPosition->Offset );
-            const float radial = std::sqrt( p[1] * p[1] + p[2] * p[2] );
-            const float scale = radial > 1e-6f ? a + b / radial : a;
-            p[1] *= scale;
-            p[2] *= scale;
-            primitive.Vertices[v].Position[1] *= scale;
-            primitive.Vertices[v].Position[2] *= scale;
-        }
-        if ( pNormal == nullptr || pNormal->Stream >= 2 || primitive.RawStrides[pNormal->Stream] == 0 ||
-             ( pNormal->Format != VAF_NORMAL_R32G32B32_SFLOAT &&
-               pNormal->Format != VAF_NORMAL_R16G16B16A16_SFLOAT ) ) {
-            continue;
-        }
-        uint8_t *pNormals = primitive.RawStreams[pNormal->Stream].data();
-        const uint32_t normalStride = primitive.RawStrides[pNormal->Stream];
-        for ( uint32_t v = 0; v < count; v++ ) {
-            uint8_t *p = pNormals + v * normalStride + pNormal->Offset;
-            float normal[3];
-            if ( pNormal->Format == VAF_NORMAL_R32G32B32_SFLOAT ) {
-                memcpy( normal, p, sizeof( normal ) );
-            } else {
-                const uint16_t *pHalf = reinterpret_cast<const uint16_t *>( p );
-                normal[0] = HalfToFloat( pHalf[0] );
-                normal[1] = HalfToFloat( pHalf[1] );
-                normal[2] = HalfToFloat( pHalf[2] );
+        const float a =
+            ( treadRadius - beadRadius ) / ( nativeTread - nativeBead );
+        const float b = beadRadius - a * nativeBead;
+        OTDU_LOG_DEBUG( "CinematicCar: tire mesh remapped: bead %.3f -> %.3f, "
+                        "tread %.3f -> %.3f (a %.3f b %.3f)\n",
+                        nativeBead, beadRadius, nativeTread, treadRadius, a,
+                        b );
+        for ( GeometryPrimitive &primitive : geometry.Primitives ) {
+            const RawVertexAttribute *pPosition = nullptr;
+            const RawVertexAttribute *pNormal = nullptr;
+            for ( const RawVertexAttribute &attribute :
+                  primitive.RawAttributes ) {
+                if ( attribute.Usage == 0 && attribute.UsageIndex == 0 ) {
+                    pPosition = &attribute;
+                } else if ( attribute.Usage == 3 &&
+                            attribute.UsageIndex == 0 ) {
+                    pNormal = &attribute;
+                }
             }
-            normal[1] /= a;
-            normal[2] /= a;
-            const float length = std::sqrt( normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2] );
-            if ( length > 1e-6f ) {
-                normal[0] /= length;
-                normal[1] /= length;
-                normal[2] /= length;
+            if ( pPosition == nullptr ||
+                 pPosition->Format != VAF_POSITION_R32G32B32_SFLOAT ||
+                 pPosition->Stream >= 2 ||
+                 primitive.RawStrides[pPosition->Stream] == 0 ) {
+                continue;
             }
-            if ( pNormal->Format == VAF_NORMAL_R32G32B32_SFLOAT ) {
-                memcpy( p, normal, sizeof( normal ) );
-            } else {
-                uint16_t *pHalf = reinterpret_cast<uint16_t *>( p );
-                pHalf[0] = FloatToHalf( normal[0] );
-                pHalf[1] = FloatToHalf( normal[1] );
-                pHalf[2] = FloatToHalf( normal[2] );
+            uint8_t *pPositions =
+                primitive.RawStreams[pPosition->Stream].data();
+            const uint32_t stride = primitive.RawStrides[pPosition->Stream];
+            const uint32_t count = Min<uint32_t>(
+                primitive.NumRawVertex,
+                static_cast<uint32_t>( primitive.Vertices.size() ) );
+            for ( uint32_t v = 0; v < count; v++ ) {
+                float *p = reinterpret_cast<float *>( pPositions + v * stride +
+                                                      pPosition->Offset );
+                const float radial = std::sqrt( p[1] * p[1] + p[2] * p[2] );
+                const float scale = radial > 1e-6f ? a + b / radial : a;
+                p[1] *= scale;
+                p[2] *= scale;
+                primitive.Vertices[v].Position[1] *= scale;
+                primitive.Vertices[v].Position[2] *= scale;
             }
-            primitive.Vertices[v].Normal[0] = normal[0];
-            primitive.Vertices[v].Normal[1] = normal[1];
-            primitive.Vertices[v].Normal[2] = normal[2];
+            if ( pNormal == nullptr || pNormal->Stream >= 2 ||
+                 primitive.RawStrides[pNormal->Stream] == 0 ||
+                 ( pNormal->Format != VAF_NORMAL_R32G32B32_SFLOAT &&
+                   pNormal->Format != VAF_NORMAL_R16G16B16A16_SFLOAT ) ) {
+                continue;
+            }
+            uint8_t *pNormals = primitive.RawStreams[pNormal->Stream].data();
+            const uint32_t normalStride = primitive.RawStrides[pNormal->Stream];
+            for ( uint32_t v = 0; v < count; v++ ) {
+                uint8_t *p = pNormals + v * normalStride + pNormal->Offset;
+                float normal[3];
+                if ( pNormal->Format == VAF_NORMAL_R32G32B32_SFLOAT ) {
+                    memcpy( normal, p, sizeof( normal ) );
+                } else {
+                    const uint16_t *pHalf =
+                        reinterpret_cast<const uint16_t *>( p );
+                    normal[0] = HalfToFloat( pHalf[0] );
+                    normal[1] = HalfToFloat( pHalf[1] );
+                    normal[2] = HalfToFloat( pHalf[2] );
+                }
+                normal[1] /= a;
+                normal[2] /= a;
+                const float length =
+                    std::sqrt( normal[0] * normal[0] + normal[1] * normal[1] +
+                               normal[2] * normal[2] );
+                if ( length > 1e-6f ) {
+                    normal[0] /= length;
+                    normal[1] /= length;
+                    normal[2] /= length;
+                }
+                if ( pNormal->Format == VAF_NORMAL_R32G32B32_SFLOAT ) {
+                    memcpy( p, normal, sizeof( normal ) );
+                } else {
+                    uint16_t *pHalf = reinterpret_cast<uint16_t *>( p );
+                    pHalf[0] = FloatToHalf( normal[0] );
+                    pHalf[1] = FloatToHalf( normal[1] );
+                    pHalf[2] = FloatToHalf( normal[2] );
+                }
+                primitive.Vertices[v].Normal[0] = normal[0];
+                primitive.Vertices[v].Normal[1] = normal[1];
+                primitive.Vertices[v].Normal[2] = normal[2];
+            }
         }
     }
-}
 
-// The GeometrySetup hook of the tire model: remap every base T_<d>P mesh to
-// the plus-size profile of its diameter.
-void RemapTireProfiles( Render3DG &geometry, float tireRadius ) {
-    if ( tireRadius <= 0.0f ) {
-        return;
-    }
-    for ( int32_t diameter = kMinTireDiameterInch; diameter <= kMaxTireDiameterInch; diameter++ ) {
-        const uint64_t hash = NodeNameHash( ( "T_" + std::to_string( diameter ) + "P" ).c_str() );
-        auto it = geometry.getGeometries().find( hash );
-        if ( it == geometry.getGeometries().end() ) {
-            continue;
+    // The GeometrySetup hook of the tire model: remap every base T_<d>P mesh to
+    // the plus-size profile of its diameter.
+    void RemapTireProfiles( Render3DG &geometry, float tireRadius ) {
+        if ( tireRadius <= 0.0f ) {
+            return;
         }
-        RemapTireGeometry( it->second, diameter * 0.0254f * 0.5f + kRimLip, tireRadius );
-    }
-}
-
-int32_t FindNodeByHash( const Render3DD &scene, const char *pName ) {
-    const uint64_t hash = NodeNameHash( pName );
-    const std::vector<SceneNode> &nodes = scene.getNodes();
-    for ( size_t i = 0; i < nodes.size(); i++ ) {
-        if ( nodes[i].Hashcode == hash ) {
-            return static_cast<int32_t>( i );
+        for ( int32_t diameter = kMinTireDiameterInch;
+              diameter <= kMaxTireDiameterInch; diameter++ ) {
+            const uint64_t hash = NodeNameHash(
+                ( "T_" + std::to_string( diameter ) + "P" ).c_str() );
+            auto it = geometry.getGeometries().find( hash );
+            if ( it == geometry.getGeometries().end() ) {
+                continue;
+            }
+            RemapTireGeometry( it->second, diameter * 0.0254f * 0.5f + kRimLip,
+                               tireRadius );
         }
     }
-    return -1;
-}
 
-// DBCarPhysicsData._car_body of the car bank (the runtime car record +0x8c:
-// 0x470 byte records, _id_car at +0x21c).
-int32_t FindCarBody( const std::string &fileName ) {
-    if ( gpDatabase == nullptr ) {
+    int32_t FindNodeByHash( const Render3DD &scene, const char *pName ) {
+        const uint64_t hash = NodeNameHash( pName );
+        const std::vector<SceneNode> &nodes = scene.getNodes();
+        for ( size_t i = 0; i < nodes.size(); i++ ) {
+            if ( nodes[i].Hashcode == hash ) {
+                return static_cast<int32_t>( i );
+            }
+        }
         return -1;
     }
-    XmbValue root = gpDatabase->getDocument().getRoot();
-    for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" ); i++ ) {
-        XmbValue car = root.getArrayElement( "DBCarPhysicsData", i );
-        if ( StringCmpI( car["_car_file_name"].asString().c_str(), fileName.c_str() ) == 0 ) {
-            return static_cast<int32_t>( car["_car_body"].asInt( -1 ) );
+
+    // DBCarPhysicsData._car_body of the car bank (the runtime car record +0x8c:
+    // 0x470 byte records, _id_car at +0x21c).
+    int32_t FindCarBody( const std::string &fileName ) {
+        if ( gpDatabase == nullptr ) {
+            return -1;
         }
+        XmbValue root = gpDatabase->getDocument().getRoot();
+        for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" );
+              i++ ) {
+            XmbValue car = root.getArrayElement( "DBCarPhysicsData", i );
+            if ( StringCmpI( car["_car_file_name"].asString().c_str(),
+                             fileName.c_str() ) == 0 ) {
+                return static_cast<int32_t>( car["_car_body"].asInt( -1 ) );
+            }
+        }
+        return -1;
     }
-    return -1;
-}
 
-// Rotation part of a rigid matrix -> quaternion (the math header has no
-// matrix -> quaternion; gm_freeride.cpp / fade_freeride.cpp carry the same
-// local helper).
-Quaternionf QuaternionFromMatrix( const Matrix4x4f &m ) {
-    const float m00 = m.m[0][0], m11 = m.m[1][1], m22 = m.m[2][2];
-    const float trace = m00 + m11 + m22;
-    if ( trace > 0.0f ) {
-        const float s = std::sqrt( trace + 1.0f ) * 2.0f;
-        return Quaternionf( ( m.m[1][2] - m.m[2][1] ) / s, ( m.m[2][0] - m.m[0][2] ) / s,
-                            ( m.m[0][1] - m.m[1][0] ) / s, 0.25f * s );
+    // Rotation part of a rigid matrix -> quaternion (the math header has no
+    // matrix -> quaternion; gm_freeride.cpp / fade_freeride.cpp carry the same
+    // local helper).
+    Quaternionf QuaternionFromMatrix( const Matrix4x4f &m ) {
+        const float m00 = m.m[0][0], m11 = m.m[1][1], m22 = m.m[2][2];
+        const float trace = m00 + m11 + m22;
+        if ( trace > 0.0f ) {
+            const float s = std::sqrt( trace + 1.0f ) * 2.0f;
+            return Quaternionf( ( m.m[1][2] - m.m[2][1] ) / s,
+                                ( m.m[2][0] - m.m[0][2] ) / s,
+                                ( m.m[0][1] - m.m[1][0] ) / s, 0.25f * s );
+        }
+        if ( m00 > m11 && m00 > m22 ) {
+            const float s = std::sqrt( 1.0f + m00 - m11 - m22 ) * 2.0f;
+            return Quaternionf( 0.25f * s, ( m.m[1][0] + m.m[0][1] ) / s,
+                                ( m.m[2][0] + m.m[0][2] ) / s,
+                                ( m.m[1][2] - m.m[2][1] ) / s );
+        }
+        if ( m11 > m22 ) {
+            const float s = std::sqrt( 1.0f + m11 - m00 - m22 ) * 2.0f;
+            return Quaternionf( ( m.m[1][0] + m.m[0][1] ) / s, 0.25f * s,
+                                ( m.m[2][1] + m.m[1][2] ) / s,
+                                ( m.m[2][0] - m.m[0][2] ) / s );
+        }
+        const float s = std::sqrt( 1.0f + m22 - m00 - m11 ) * 2.0f;
+        return Quaternionf( ( m.m[2][0] + m.m[0][2] ) / s,
+                            ( m.m[2][1] + m.m[1][2] ) / s, 0.25f * s,
+                            ( m.m[0][1] - m.m[1][0] ) / s );
     }
-    if ( m00 > m11 && m00 > m22 ) {
-        const float s = std::sqrt( 1.0f + m00 - m11 - m22 ) * 2.0f;
-        return Quaternionf( 0.25f * s, ( m.m[1][0] + m.m[0][1] ) / s, ( m.m[2][0] + m.m[0][2] ) / s,
-                            ( m.m[1][2] - m.m[2][1] ) / s );
-    }
-    if ( m11 > m22 ) {
-        const float s = std::sqrt( 1.0f + m11 - m00 - m22 ) * 2.0f;
-        return Quaternionf( ( m.m[1][0] + m.m[0][1] ) / s, 0.25f * s, ( m.m[2][1] + m.m[1][2] ) / s,
-                            ( m.m[2][0] - m.m[0][2] ) / s );
-    }
-    const float s = std::sqrt( 1.0f + m22 - m00 - m11 ) * 2.0f;
-    return Quaternionf( ( m.m[2][0] + m.m[0][2] ) / s, ( m.m[2][1] + m.m[1][2] ) / s, 0.25f * s,
-                        ( m.m[0][1] - m.m[1][0] ) / s );
-}
 
-Quaternionf Slerp( const Quaternionf &a, const Quaternionf &b, float t ) {
-    float dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-    Quaternionf bb = b;
-    if ( dot < 0.0f ) {
-        dot = -dot;
-        bb = Quaternionf( -b.x, -b.y, -b.z, -b.w );
+    Quaternionf Slerp( const Quaternionf &a, const Quaternionf &b, float t ) {
+        float dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+        Quaternionf bb = b;
+        if ( dot < 0.0f ) {
+            dot = -dot;
+            bb = Quaternionf( -b.x, -b.y, -b.z, -b.w );
+        }
+        if ( dot > 0.9995f ) {
+            Quaternionf r( a.x + ( bb.x - a.x ) * t, a.y + ( bb.y - a.y ) * t,
+                           a.z + ( bb.z - a.z ) * t, a.w + ( bb.w - a.w ) * t );
+            const float length =
+                std::sqrt( r.x * r.x + r.y * r.y + r.z * r.z + r.w * r.w );
+            return length > 0.0f ? Quaternionf( r.x / length, r.y / length,
+                                                r.z / length, r.w / length )
+                                 : a;
+        }
+        const float theta0 = std::acos( Clamp( dot, -1.0f, 1.0f ) );
+        const float theta = theta0 * t;
+        const float sinTheta = std::sin( theta );
+        const float sinTheta0 = std::sin( theta0 );
+        const float s0 = std::cos( theta ) - dot * sinTheta / sinTheta0;
+        const float s1 = sinTheta / sinTheta0;
+        return Quaternionf( s0 * a.x + s1 * bb.x, s0 * a.y + s1 * bb.y,
+                            s0 * a.z + s1 * bb.z, s0 * a.w + s1 * bb.w );
     }
-    if ( dot > 0.9995f ) {
-        Quaternionf r( a.x + ( bb.x - a.x ) * t, a.y + ( bb.y - a.y ) * t, a.z + ( bb.z - a.z ) * t,
-                       a.w + ( bb.w - a.w ) * t );
-        const float length = std::sqrt( r.x * r.x + r.y * r.y + r.z * r.z + r.w * r.w );
-        return length > 0.0f ? Quaternionf( r.x / length, r.y / length, r.z / length, r.w / length ) : a;
-    }
-    const float theta0 = std::acos( Clamp( dot, -1.0f, 1.0f ) );
-    const float theta = theta0 * t;
-    const float sinTheta = std::sin( theta );
-    const float sinTheta0 = std::sin( theta0 );
-    const float s0 = std::cos( theta ) - dot * sinTheta / sinTheta0;
-    const float s1 = sinTheta / sinTheta0;
-    return Quaternionf( s0 * a.x + s1 * bb.x, s0 * a.y + s1 * bb.y, s0 * a.z + s1 * bb.z, s0 * a.w + s1 * bb.w );
-}
 
-// Rigid transform blend: the raised and lowered window poses differ by a
-// translation and a small rotation, so decompose into (rotation, translation,
-// scale), slerp / lerp and rebuild.
-Matrix4x4f BlendRigid( const Matrix4x4f &a, const Matrix4x4f &b, float t ) {
-    Vector3f ca[3], cb[3], sa, sb;
-    auto decompose = []( const Matrix4x4f &m, Vector3f out[3], Vector3f &scale ) {
+    // Rigid transform blend: the raised and lowered window poses differ by a
+    // translation and a small rotation, so decompose into (rotation,
+    // translation, scale), slerp / lerp and rebuild.
+    Matrix4x4f BlendRigid( const Matrix4x4f &a, const Matrix4x4f &b, float t ) {
+        Vector3f ca[3], cb[3], sa, sb;
+        auto decompose = []( const Matrix4x4f &m, Vector3f out[3],
+                             Vector3f &scale ) {
+            for ( int c = 0; c < 3; c++ ) {
+                out[c] = Vector3f( m.m[c][0], m.m[c][1], m.m[c][2] );
+            }
+            scale =
+                Vector3f( out[0].length(), out[1].length(), out[2].length() );
+            const float lengths[3] = { scale.x, scale.y, scale.z };
+            for ( int c = 0; c < 3; c++ ) {
+                out[c] = lengths[c] > 1e-6f ? out[c] * ( 1.0f / lengths[c] )
+                                            : Vector3f( 0.0f, 0.0f, 0.0f );
+            }
+        };
+        decompose( a, ca, sa );
+        decompose( b, cb, sb );
+        Matrix4x4f ra, rb;
         for ( int c = 0; c < 3; c++ ) {
-            out[c] = Vector3f( m.m[c][0], m.m[c][1], m.m[c][2] );
+            ra.m[c][0] = ca[c].x;
+            ra.m[c][1] = ca[c].y;
+            ra.m[c][2] = ca[c].z;
+            rb.m[c][0] = cb[c].x;
+            rb.m[c][1] = cb[c].y;
+            rb.m[c][2] = cb[c].z;
         }
-        scale = Vector3f( out[0].length(), out[1].length(), out[2].length() );
-        const float lengths[3] = { scale.x, scale.y, scale.z };
+        Matrix4x4f result = Matrix4x4f::FromQuaternion( Slerp(
+            QuaternionFromMatrix( ra ), QuaternionFromMatrix( rb ), t ) );
+        const Vector3f scale = Lerp( sa, sb, t );
+        const float scales[3] = { scale.x, scale.y, scale.z };
         for ( int c = 0; c < 3; c++ ) {
-            out[c] = lengths[c] > 1e-6f ? out[c] * ( 1.0f / lengths[c] ) : Vector3f( 0.0f, 0.0f, 0.0f );
+            result.m[c][0] *= scales[c];
+            result.m[c][1] *= scales[c];
+            result.m[c][2] *= scales[c];
         }
-    };
-    decompose( a, ca, sa );
-    decompose( b, cb, sb );
-    Matrix4x4f ra, rb;
-    for ( int c = 0; c < 3; c++ ) {
-        ra.m[c][0] = ca[c].x; ra.m[c][1] = ca[c].y; ra.m[c][2] = ca[c].z;
-        rb.m[c][0] = cb[c].x; rb.m[c][1] = cb[c].y; rb.m[c][2] = cb[c].z;
+        const Vector3f ta = a.getTranslation(), tb = b.getTranslation();
+        result.m[3][0] = ta.x + ( tb.x - ta.x ) * t;
+        result.m[3][1] = ta.y + ( tb.y - ta.y ) * t;
+        result.m[3][2] = ta.z + ( tb.z - ta.z ) * t;
+        return result;
     }
-    Matrix4x4f result = Matrix4x4f::FromQuaternion( Slerp( QuaternionFromMatrix( ra ), QuaternionFromMatrix( rb ), t ) );
-    const Vector3f scale = Lerp( sa, sb, t );
-    const float scales[3] = { scale.x, scale.y, scale.z };
-    for ( int c = 0; c < 3; c++ ) {
-        result.m[c][0] *= scales[c];
-        result.m[c][1] *= scales[c];
-        result.m[c][2] *= scales[c];
-    }
-    const Vector3f ta = a.getTranslation(), tb = b.getTranslation();
-    result.m[3][0] = ta.x + ( tb.x - ta.x ) * t;
-    result.m[3][1] = ta.y + ( tb.y - ta.y ) * t;
-    result.m[3][2] = ta.z + ( tb.z - ta.z ) * t;
-    return result;
-}
 } // namespace
 
 CinematicCar::CinematicCar() {}
@@ -357,9 +415,11 @@ void CinematicCar::unload() {
     rim.destroy();
     rimRear.destroy();
     tire.destroy();
-    for ( Bank *pBank : { &carBank, &carCommonBank, &rimBank, &rimRearBank, &interiorBank } ) {
+    for ( Bank *pBank : { &carBank, &carCommonBank, &rimBank, &rimRearBank,
+                          &interiorBank } ) {
         if ( !pBank->getEntries().empty() ) {
-            gpRender->getTextureCache().releaseOwner( textureOwnerName( *pBank ).c_str() );
+            gpRender->getTextureCache().releaseOwner(
+                textureOwnerName( *pBank ).c_str() );
         }
         pBank->unload();
     }
@@ -368,7 +428,8 @@ void CinematicCar::unload() {
     wheelSpinRests[0].clear();
     wheelSpinRests[1].clear();
     bWheelSpinRests = false;
-    tunerAttachments.clear(); // the part's node index died with the model (re-applied by the caller)
+    tunerAttachments.clear(); // the part's node index died with the model
+                              // (re-applied by the caller)
     bHardtop = false;
     hardtopTime = 0.0f;
     hardtopSkin.clear();
@@ -418,7 +479,9 @@ void CinematicCar::unload() {
     wiperTimer = 0.0f;
 }
 
-void CinematicCar::assignEnvironment( EdenRenderer &, GPUTexture *pCube, bool bDynamic ) {
+void CinematicCar::assignEnvironment( EdenRenderer &,
+                                      GPUTexture *pCube,
+                                      bool bDynamic ) {
     // Car environment cube binding (docs/re/car_glass_spec.md):
     // FUN_00d58df0 (dynamic cube, DAT_011c9f00/04 + 0x48) and FUN_00d58d20
     // (static cube, e.g. the garage CUBECAR) both end in FUN_00d58a90: for
@@ -446,17 +509,22 @@ void CinematicCar::assignEnvironment( EdenRenderer &, GPUTexture *pCube, bool bD
             // default outdoor CUBEMAP inside closed interiors (the garage
             // mirror showed palms, session 45) [INF: the flag gates nothing
             // visible in the reachable states].
-            const bool bCarFamily = family == 0x183157b81c6c7357ull || family == 0xca00000000000010ull ||
-                                    family == 0x183157b81c6c5377ull || family == 0xdddddddd1c6c7357ull ||
-                                    family == 0xb39c35015789e65cull || family == 0xca00000000000020ull ||
-                                    family == 0x6638348331d66466ull || family == 0x1b38348331cacacaull ||
+            const bool bCarFamily = family == 0x183157b81c6c7357ull ||
+                                    family == 0xca00000000000010ull ||
+                                    family == 0x183157b81c6c5377ull ||
+                                    family == 0xdddddddd1c6c7357ull ||
+                                    family == 0xb39c35015789e65cull ||
+                                    family == 0xca00000000000020ull ||
+                                    family == 0x6638348331d66466ull ||
+                                    family == 0x1b38348331cacacaull ||
                                     family == 0x08041973fadeffffull;
             if ( !bCarFamily ) {
                 continue;
             }
             bool bChanged = false;
             for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
-                if ( material.TextureHashes[i] == kDefaultCube && material.pTextures[i] != pCube ) {
+                if ( material.TextureHashes[i] == kDefaultCube &&
+                     material.pTextures[i] != pCube ) {
                     material.pTextures[i] = pCube;
                     bChanged = true;
                 }
@@ -465,12 +533,16 @@ void CinematicCar::assignEnvironment( EdenRenderer &, GPUTexture *pCube, bool bD
                 continue;
             }
             uint64_t parameter = 0;
-            if ( family == 0x183157b81c6c7357ull || family == 0xca00000000000010ull || family == 0x1b38348331cacacaull ) {
+            if ( family == 0x183157b81c6c7357ull ||
+                 family == 0xca00000000000010ull ||
+                 family == 0x1b38348331cacacaull ) {
                 parameter = kSpecParm;
-            } else if ( family == 0x183157b81c6c5377ull || family == 0x183157b81c6ccacaull ) {
+            } else if ( family == 0x183157b81c6c5377ull ||
+                        family == 0x183157b81c6ccacaull ) {
                 parameter = kRampPow;
             }
-            auto it = parameter != 0 ? material.Parameters.find( parameter ) : material.Parameters.end();
+            auto it = parameter != 0 ? material.Parameters.find( parameter )
+                                     : material.Parameters.end();
             if ( it != material.Parameters.end() ) {
                 it->second.z = bDynamic ? 0.0f : 1.0f;
             }
@@ -487,10 +559,16 @@ bool CinematicCar::load( const Desc &requested ) {
     EdenRenderer *pRenderer = gpRender->getEdenRenderer();
     const std::string folder = gpFile->getBankFolder() + "vehicules/";
     Desc desc = requested;
-    if ( !gpFile->fileExists( ( folder + "high/" + ToLower( desc.FileName ) + ".bnk" ).c_str() ) &&
+    if ( !gpFile->fileExists(
+             ( folder + "high/" + ToLower( desc.FileName ) + ".bnk" )
+                 .c_str() ) &&
          ( desc.ModelBank.empty() ||
-           !gpFile->fileExists( ( folder + "high/" + ToLower( desc.ModelBank ) + ".bnk" ).c_str() ) ) ) {
-        OTDU_LOG_WARN( "CinematicCar: '%s' not available, using the California\n", desc.FileName.c_str() );
+           !gpFile->fileExists(
+               ( folder + "high/" + ToLower( desc.ModelBank ) + ".bnk" )
+                   .c_str() ) ) ) {
+        OTDU_LOG_WARN(
+            "CinematicCar: '%s' not available, using the California\n",
+            desc.FileName.c_str() );
         desc = Desc();
     }
     fileName = desc.FileName;
@@ -498,7 +576,8 @@ bool CinematicCar::load( const Desc &requested ) {
     static uint32_t nextOwnerId = 0;
     ownerId = ++nextOwnerId;
     // The bank the geometry comes from (Desc::ModelBank; FileName unless set).
-    const std::string carName = ToLower( desc.ModelBank.empty() ? desc.FileName : desc.ModelBank );
+    const std::string carName =
+        ToLower( desc.ModelBank.empty() ? desc.FileName : desc.ModelBank );
     // A lower level of detail (Desc::Lod): vehicules/med/<car>_med.bnk or
     // <car>_low.bnk, the model named <car>_<lod> [DATA: the banks of the
     // shipped data, e.g. tts_med.bnk holds tts_med.3dd/3dg, med_tts_*.2db,
@@ -506,17 +585,21 @@ bool CinematicCar::load( const Desc &requested ) {
     std::string modelName = carName;
     std::string carPath = folder + "high/" + carName + ".bnk";
     if ( !desc.Lod.empty() ) {
-        const std::string lodPath = folder + "med/" + carName + "_" + desc.Lod + ".bnk";
+        const std::string lodPath =
+            folder + "med/" + carName + "_" + desc.Lod + ".bnk";
         if ( gpFile->fileExists( lodPath.c_str() ) ) {
             modelName = carName + "_" + desc.Lod;
             carPath = lodPath;
         } else {
-            OTDU_LOG_INFO( "CinematicCar: %s has no %s bank, using the high one\n", carName.c_str(), desc.Lod.c_str() );
+            OTDU_LOG_INFO(
+                "CinematicCar: %s has no %s bank, using the high one\n",
+                carName.c_str(), desc.Lod.c_str() );
         }
     }
     lodName = modelName == carName ? std::string() : desc.Lod;
     const std::string commonPath = folder + "common_car.bnk";
-    if ( !carCommonBank.load( commonPath.c_str() ) || !carBank.load( carPath.c_str() ) ) {
+    if ( !carCommonBank.load( commonPath.c_str() ) ||
+         !carBank.load( carPath.c_str() ) ) {
         return false;
     }
     // Named after the load: before it the bank paths are empty, both owners
@@ -530,13 +613,17 @@ bool CinematicCar::load( const Desc &requested ) {
     // Interior bank (vehicules/interiors/<car>_i.bnk): the cockpit maps
     // (california_int*.2db...) used by the interior materials.
     const std::string interiorPath = folder + "interiors/" + carName + "_i.bnk";
-    if ( desc.bInterior && gpFile->fileExists( interiorPath.c_str() ) && interiorBank.load( interiorPath.c_str() ) ) {
+    if ( desc.bInterior && gpFile->fileExists( interiorPath.c_str() ) &&
+         interiorBank.load( interiorPath.c_str() ) ) {
         const std::string interiorOwner = textureOwnerName( interiorBank );
         textures.loadBankTextures( interiorBank, interiorOwner.c_str() );
         // The cockpit model (<car>_i.3dd, car frame) [INF: when the game
         // draws it is not read; drawn with the car].
-        interior.setKeepItemIndices( true ); // the GPS quad's UVs (computeGpsLayout)
-        interior.load( *pRenderer, interiorBank, ( carName + "_i" ).c_str(), nullptr, interiorOwner.c_str() );
+        interior.setKeepItemIndices(
+            true ); // the GPS quad's UVs (computeGpsLayout)
+        interior.setKeepParsedGeometry( requested.bKeepParsedGeometry );
+        interior.load( *pRenderer, interiorBank, ( carName + "_i" ).c_str(),
+                       nullptr, interiorOwner.c_str() );
         // The cockpit gauge needles: the needle mesh is ND_SPD / ND_RPM when
         // the model has a separate mesh (California), otherwise the _1 pose
         // node itself carries the geometry (R8). The two ND_x_N nodes are the
@@ -550,7 +637,8 @@ bool CinematicCar::load( const Desc &requested ) {
             }
             return false;
         };
-        const auto findNeedle = [&]( const char *pPoseName, const char *pMeshName, int32_t &outNode,
+        const auto findNeedle = [&]( const char *pPoseName,
+                                     const char *pMeshName, int32_t &outNode,
                                      Matrix4x4f &outRest ) {
             const int32_t pose = interior.getScene().findNode( pPoseName );
             int32_t mesh = interior.getScene().findNode( pMeshName );
@@ -562,10 +650,12 @@ bool CinematicCar::load( const Desc &requested ) {
                 outRest = interior.getNodeTransform( mesh );
             }
         };
-        findNeedle( "ND_SPD_1", "ND_SPD", dashboardSpeedNode, dashboardSpeedRest );
+        findNeedle( "ND_SPD_1", "ND_SPD", dashboardSpeedNode,
+                    dashboardSpeedRest );
         findNeedle( "ND_RPM_1", "ND_RPM", dashboardRpmNode, dashboardRpmRest );
-        OTDU_LOG_INFO( "CinematicCar: cockpit needles speed node %d, rpm node %d\n", dashboardSpeedNode,
-                       dashboardRpmNode );
+        OTDU_LOG_INFO(
+            "CinematicCar: cockpit needles speed node %d, rpm node %d\n",
+            dashboardSpeedNode, dashboardRpmNode );
         // -needletest <node>:<x|y|z>:<deg>: rotate one cockpit node about its
         // local axis, to identify the gauge needle pivot / sweep on a new car
         // model (docs/re/needles_spec.md).
@@ -573,21 +663,28 @@ bool CinematicCar::load( const Desc &requested ) {
             char nodeName[64] = {};
             char axis = 'z';
             float degrees = 0.0f;
-            if ( sscanf( pNeedleTest, "%63[^:]:%c:%f", nodeName, &axis, &degrees ) >= 3 ) {
+            if ( sscanf( pNeedleTest, "%63[^:]:%c:%f", nodeName, &axis,
+                         &degrees ) >= 3 ) {
                 // (the mesh node is the one to move: this model keeps world
                 // transforms, so moving a pose parent does not move its child)
                 const int32_t node = interior.getScene().findNode( nodeName );
                 if ( node >= 0 ) {
-                    const Vector3f axisVector = axis == 'x' ? Vector3f( 1.0f, 0.0f, 0.0f )
-                                               : axis == 'y' ? Vector3f( 0.0f, 1.0f, 0.0f )
-                                                             : Vector3f( 0.0f, 0.0f, 1.0f );
-                    const Quaternionf rotation =
-                        Quaternionf::FromAxisAngle( axisVector, degrees * kPI / 180.0f );
-                    interior.setNodeTransform( node, interior.getNodeTransform( node ) *
-                                                         Matrix4x4f::FromQuaternion( rotation ) );
-                    OTDU_LOG_INFO( "CinematicCar: -needletest '%s' around %c by %.1f deg\n", nodeName, axis, degrees );
+                    const Vector3f axisVector =
+                        axis == 'x'   ? Vector3f( 1.0f, 0.0f, 0.0f )
+                        : axis == 'y' ? Vector3f( 0.0f, 1.0f, 0.0f )
+                                      : Vector3f( 0.0f, 0.0f, 1.0f );
+                    const Quaternionf rotation = Quaternionf::FromAxisAngle(
+                        axisVector, degrees * kPI / 180.0f );
+                    interior.setNodeTransform(
+                        node, interior.getNodeTransform( node ) *
+                                  Matrix4x4f::FromQuaternion( rotation ) );
+                    OTDU_LOG_INFO( "CinematicCar: -needletest '%s' around %c "
+                                   "by %.1f deg\n",
+                                   nodeName, axis, degrees );
                 } else {
-                    OTDU_LOG_WARN( "CinematicCar: -needletest '%s' not in the interior model\n", nodeName );
+                    OTDU_LOG_WARN( "CinematicCar: -needletest '%s' not in the "
+                                   "interior model\n",
+                                   nodeName );
                 }
             }
         }
@@ -596,12 +693,15 @@ bool CinematicCar::load( const Desc &requested ) {
         if ( const char *pNeedlePose = CmdLine::GetArgValue( "-needlepose" ) ) {
             char poseName[64] = {};
             char meshName[64] = {};
-            if ( sscanf( pNeedlePose, "%63[^:]:%63s", poseName, meshName ) == 2 ) {
+            if ( sscanf( pNeedlePose, "%63[^:]:%63s", poseName, meshName ) ==
+                 2 ) {
                 const int32_t pose = interior.getScene().findNode( poseName );
                 const int32_t mesh = interior.getScene().findNode( meshName );
                 if ( pose >= 0 && mesh >= 0 ) {
-                    interior.setNodeTransform( mesh, interior.getNodeTransform( pose ) );
-                    OTDU_LOG_INFO( "CinematicCar: -needlepose '%s' -> '%s'\n", meshName, poseName );
+                    interior.setNodeTransform(
+                        mesh, interior.getNodeTransform( pose ) );
+                    OTDU_LOG_INFO( "CinematicCar: -needlepose '%s' -> '%s'\n",
+                                   meshName, poseName );
                 }
             }
         }
@@ -609,15 +709,22 @@ bool CinematicCar::load( const Desc &requested ) {
     // The wiper split (collectWipers) needs each item's primitive data.
     car.setKeepItemIndices( true );
     bCanCrumple = requested.bAllowCrumple;
+    // The viewer keeps them past the wipers: its hide-box edits re-run
+    // collectTunerMasks, which reads the same vertices.
+    bKeepPrimitiveData = requested.bKeepPrimitiveData;
     dents.clear();
     bDentsDirty = false;
     car.setKeepVertexData( requested.bAllowCrumple );
-    if ( !car.load( *pRenderer, carBank, modelName.c_str(), nullptr, carOwner.c_str() ) ) {
+    car.setKeepParsedGeometry( requested.bKeepParsedGeometry );
+    if ( !car.load( *pRenderer, carBank, modelName.c_str(), nullptr,
+                    carOwner.c_str() ) ) {
         return false;
     }
-    if ( rimBank.load( ( folder + "rim/" + desc.RimFront + ".bnk" ).c_str() ) ) {
+    if ( rimBank.load(
+             ( folder + "rim/" + desc.RimFront + ".bnk" ).c_str() ) ) {
         const std::string rimOwner = textureOwnerName( rimBank );
         textures.loadBankTextures( rimBank, rimOwner.c_str() );
+        rim.setKeepParsedGeometry( requested.bKeepParsedGeometry );
         rim.load( *pRenderer, rimBank, nullptr, nullptr, rimOwner.c_str() );
         // The rims of several cars (One-77...) are wound the other way round
         // than their culling state: closed meshes, drawn without culling.
@@ -625,10 +732,14 @@ bool CinematicCar::load( const Desc &requested ) {
             material.CullMode = 1;
         }
     }
-    if ( desc.RimRear != desc.RimFront && rimRearBank.load( ( folder + "rim/" + desc.RimRear + ".bnk" ).c_str() ) ) {
+    if ( desc.RimRear != desc.RimFront &&
+         rimRearBank.load(
+             ( folder + "rim/" + desc.RimRear + ".bnk" ).c_str() ) ) {
         const std::string rimRearOwner = textureOwnerName( rimRearBank );
         textures.loadBankTextures( rimRearBank, rimRearOwner.c_str() );
-        rimRear.load( *pRenderer, rimRearBank, nullptr, nullptr, rimRearOwner.c_str() );
+        rimRear.setKeepParsedGeometry( requested.bKeepParsedGeometry );
+        rimRear.load( *pRenderer, rimRearBank, nullptr, nullptr,
+                      rimRearOwner.c_str() );
         for ( EdenMaterial &material : rimRear.getMaterials() ) {
             material.CullMode = 1;
         }
@@ -638,8 +749,11 @@ bool CinematicCar::load( const Desc &requested ) {
     // (plus sizing, see RemapTireProfiles), so a tuning shop rim size is a
     // node / scale change at run time.
     const float stockTireRadius = desc.TireRadius;
-    tire.load( *pRenderer, carCommonBank, "tire", nullptr, commonOwner.c_str(), nullptr, nullptr,
-               [stockTireRadius]( Render3DG &geometry ) { RemapTireProfiles( geometry, stockTireRadius ); } );
+    tire.setKeepParsedGeometry( requested.bKeepParsedGeometry );
+    tire.load( *pRenderer, carCommonBank, "tire", nullptr, commonOwner.c_str(),
+               nullptr, nullptr, [stockTireRadius]( Render3DG &geometry ) {
+                   RemapTireProfiles( geometry, stockTireRadius );
+               } );
 
     // Exterior, high resolution (FUN_00c66380, LOD 3 / 4: D_CAR shown,
     // BODY_MR / BODY_LR and the static roofs HARDTOP_MR / HARDTOP_LR hidden;
@@ -649,20 +763,25 @@ bool CinematicCar::load( const Desc &requested ) {
     const Render3DD &scene = car.getScene();
     const std::vector<SceneNode> &nodes = scene.getNodes();
     std::vector<int32_t> hiddenRoots;
-    const uint64_t hardtopMR = NodeNameHash( "HARDTOP_MR" ), hardtopLR = NodeNameHash( "HARDTOP_LR" );
+    const uint64_t hardtopMR = NodeNameHash( "HARDTOP_MR" ),
+                   hardtopLR = NodeNameHash( "HARDTOP_LR" );
     const uint64_t hanimMR = NodeNameHash( "HANIM_MR" );
     for ( size_t i = 0; i < nodes.size(); i++ ) {
         const std::string &name = nodes[i].Name;
-        if ( name == "BODY_MR" || name == "BODY_LR" || nodes[i].Hashcode == hardtopMR ||
-             nodes[i].Hashcode == hardtopLR || nodes[i].Hashcode == hanimMR ||
-             name.find( "BREAKI" ) != std::string::npos || name.find( "EADLI" ) != std::string::npos ||
-             name.find( "EVERS" ) != std::string::npos || name.rfind( "?A_", 0 ) == 0 ) {
+        if ( name == "BODY_MR" || name == "BODY_LR" ||
+             nodes[i].Hashcode == hardtopMR || nodes[i].Hashcode == hardtopLR ||
+             nodes[i].Hashcode == hanimMR ||
+             name.find( "BREAKI" ) != std::string::npos ||
+             name.find( "EADLI" ) != std::string::npos ||
+             name.find( "EVERS" ) != std::string::npos ||
+             name.rfind( "?A_", 0 ) == 0 ) {
             hiddenRoots.push_back( static_cast<int32_t>( i ) );
         }
     }
     for ( size_t i = 0; i < nodes.size(); i++ ) {
         for ( int32_t root : hiddenRoots ) {
-            if ( static_cast<int32_t>( i ) == root || scene.isDescendantOf( static_cast<int32_t>( i ), root ) ) {
+            if ( static_cast<int32_t>( i ) == root ||
+                 scene.isDescendantOf( static_cast<int32_t>( i ), root ) ) {
                 car.setNodeVisible( static_cast<int32_t>( i ), false );
             }
         }
@@ -676,34 +795,48 @@ bool CinematicCar::load( const Desc &requested ) {
     lowResItems.clear();
     {
         const std::vector<EdenModel::Item> &carItems = car.getItems();
-        std::vector<int32_t> lowCount( nodes.size(), 0 ), itemCount( nodes.size(), 0 );
+        std::vector<int32_t> lowCount( nodes.size(), 0 ),
+            itemCount( nodes.size(), 0 );
         const auto isLowRes = [&]( const EdenModel::Item &item ) {
-            const std::string &materialName = car.getMaterials()[item.MaterialIndex].Name;
+            const std::string &materialName =
+                car.getMaterials()[item.MaterialIndex].Name;
             return materialName == "Paint_LR" || materialName == "Plate_LR";
         };
         for ( const EdenModel::Item &item : carItems ) {
-            if ( item.NodeIndex >= 0 && item.NodeIndex < static_cast<int32_t>( nodes.size() ) ) {
+            if ( item.NodeIndex >= 0 &&
+                 item.NodeIndex < static_cast<int32_t>( nodes.size() ) ) {
                 itemCount[item.NodeIndex]++;
                 lowCount[item.NodeIndex] += isLowRes( item ) ? 1 : 0;
             }
         }
         for ( size_t i = 0; i < carItems.size(); i++ ) {
             const EdenModel::Item &item = carItems[i];
-            if ( item.NodeIndex < 0 || item.NodeIndex >= static_cast<int32_t>( nodes.size() ) || !isLowRes( item ) ) {
+            if ( item.NodeIndex < 0 ||
+                 item.NodeIndex >= static_cast<int32_t>( nodes.size() ) ||
+                 !isLowRes( item ) ) {
                 continue;
             }
-            static const bool bNodeHide = CmdLine::HasArg( "-lrnodehide" ); // A/B: the old rule
-            if ( lowCount[item.NodeIndex] == itemCount[item.NodeIndex] || bNodeHide ) {
+            static const bool bNodeHide =
+                CmdLine::HasArg( "-lrnodehide" ); // A/B: the old rule
+            if ( lowCount[item.NodeIndex] == itemCount[item.NodeIndex] ||
+                 bNodeHide ) {
                 car.setNodeVisible( item.NodeIndex, false );
-            } else if ( car.isNodeVisible( item.NodeIndex ) ) { // BODY_MR / _LR are hidden whole already
+            } else if ( car.isNodeVisible(
+                            item.NodeIndex ) ) { // BODY_MR / _LR are hidden
+                                                 // whole already
                 lowResItems.push_back( static_cast<int32_t>( i ) );
-                OTDU_LOG_INFO( "CinematicCar: '%s' item %zu ('%s') hidden in node '%s' (%d of %d items low res)\n",
-                               fileName.c_str(), i, car.getMaterials()[item.MaterialIndex].Name.c_str(),
-                               nodes[item.NodeIndex].Name.c_str(), lowCount[item.NodeIndex], itemCount[item.NodeIndex] );
+                OTDU_LOG_INFO(
+                    "CinematicCar: '%s' item %zu ('%s') hidden in node '%s' "
+                    "(%d of %d items low res)\n",
+                    fileName.c_str(), i,
+                    car.getMaterials()[item.MaterialIndex].Name.c_str(),
+                    nodes[item.NodeIndex].Name.c_str(),
+                    lowCount[item.NodeIndex], itemCount[item.NodeIndex] );
             }
         }
         if ( !lowResItems.empty() ) {
-            OTDU_LOG_INFO( "CinematicCar: '%s' %zu low resolution paint item(s) hidden by item (their node has high "
+            OTDU_LOG_INFO( "CinematicCar: '%s' %zu low resolution paint "
+                           "item(s) hidden by item (their node has high "
                            "resolution parts)\n",
                            fileName.c_str(), lowResItems.size() );
         }
@@ -718,7 +851,8 @@ bool CinematicCar::load( const Desc &requested ) {
     for ( const char *pName : { "COCK_LR", "INT_LR_L", "INT_LR_R" } ) {
         const int32_t root = scene.findNode( pName );
         for ( size_t i = 0; root >= 0 && i < nodes.size(); i++ ) {
-            if ( static_cast<int32_t>( i ) == root || scene.isDescendantOf( static_cast<int32_t>( i ), root ) ) {
+            if ( static_cast<int32_t>( i ) == root ||
+                 scene.isDescendantOf( static_cast<int32_t>( i ), root ) ) {
                 cockpitLowNodes.push_back( static_cast<int32_t>( i ) );
             }
         }
@@ -731,7 +865,8 @@ bool CinematicCar::load( const Desc &requested ) {
             glassNodes.push_back( node );
         }
     }
-    OTDU_LOG_INFO( "CinematicCar: glass nodes %zu (GLASS_F / WND_L1 / R1)\n", glassNodes.size() );
+    OTDU_LOG_INFO( "CinematicCar: glass nodes %zu (GLASS_F / WND_L1 / R1)\n",
+                   glassNodes.size() );
     interiorDrawnNodes.clear();
     gpsNodes.clear();
     if ( interior.isLoaded() ) {
@@ -767,7 +902,8 @@ bool CinematicCar::load( const Desc &requested ) {
             const int32_t node = static_cast<int32_t>( i );
             auto inSubtree = [&]( const std::vector<int32_t> &list ) {
                 for ( int32_t root : list ) {
-                    if ( node == root || interiorScene.isDescendantOf( node, root ) ) {
+                    if ( node == root ||
+                         interiorScene.isDescendantOf( node, root ) ) {
                         return true;
                     }
                 }
@@ -784,7 +920,8 @@ bool CinematicCar::load( const Desc &requested ) {
         for ( int32_t root : gpsRoots ) {
             for ( size_t i = 0; i < interiorNodes.size(); i++ ) {
                 const int32_t node = static_cast<int32_t>( i );
-                if ( node == root || interiorScene.isDescendantOf( node, root ) ) {
+                if ( node == root ||
+                     interiorScene.isDescendantOf( node, root ) ) {
                     gpsNodes.push_back( node );
                 }
             }
@@ -808,22 +945,28 @@ bool CinematicCar::load( const Desc &requested ) {
     for ( int32_t side = 0; side < 2; side++ ) {
         const char *pSide = side == 0 ? "L" : "R";
         windows[side] = WindowNodes();
-        windows[side].Raised = scene.findNode( ( std::string( "WND_" ) + pSide + "1" ).c_str() );
-        const int32_t lowered = scene.findNode( ( std::string( "WND_" ) + pSide + "2" ).c_str() );
+        windows[side].Raised =
+            scene.findNode( ( std::string( "WND_" ) + pSide + "1" ).c_str() );
+        const int32_t lowered =
+            scene.findNode( ( std::string( "WND_" ) + pSide + "2" ).c_str() );
         if ( windows[side].Raised >= 0 ) {
-            windows[side].RaisedRest = car.getNodeTransform( windows[side].Raised );
+            windows[side].RaisedRest =
+                car.getNodeTransform( windows[side].Raised );
         }
         if ( lowered >= 0 ) {
             windows[side].LoweredRest = car.getNodeTransform( lowered );
         }
     }
-    const BankEntry *pSkeleton = carBank.findEntry( ( carName + ".xsb" ).c_str() );
+    const BankEntry *pSkeleton =
+        carBank.findEntry( ( carName + ".xsb" ).c_str() );
     if ( pSkeleton == nullptr ) {
-        const std::vector<const BankEntry *> skeletons = carBank.findEntriesByExtension( "xsb" );
+        const std::vector<const BankEntry *> skeletons =
+            carBank.findEntriesByExtension( "xsb" );
         pSkeleton = skeletons.empty() ? nullptr : skeletons.front();
     }
     const BankEntry *pHardtop = carBank.findEntry( "Hardtop.anm" );
-    if ( pSkeleton != nullptr && pHardtop != nullptr && hardtopSkeleton.parse( pSkeleton->pData, pSkeleton->Size ) &&
+    if ( pSkeleton != nullptr && pHardtop != nullptr &&
+         hardtopSkeleton.parse( pSkeleton->pData, pSkeleton->Size ) &&
          hardtopAnimation.parse( pHardtop->pData, pHardtop->Size ) ) {
         const int32_t carBody = FindCarBody( desc.FileName );
         const bool bOpen = carBody == 2 || carBody == 4;
@@ -832,10 +975,12 @@ bool CinematicCar::load( const Desc &requested ) {
         bWindowsOpen = hardtopTime > 0.0f;
         static const int32_t forced = CmdLine::GetArgInt( "-hardtop", -1 );
         if ( forced == 0 || forced == 1 ) {
-            hardtopTime = forced == 1 ? 0.99999f * hardtopAnimation.getDuration() : 0.0f;
+            hardtopTime =
+                forced == 1 ? 0.99999f * hardtopAnimation.getDuration() : 0.0f;
         }
         std::vector<BoneTransform> locals( hardtopSkeleton.getNumBones() );
-        for ( uint32_t bone = 0; bone < hardtopSkeleton.getNumBones(); bone++ ) {
+        for ( uint32_t bone = 0; bone < hardtopSkeleton.getNumBones();
+              bone++ ) {
             locals[bone] = hardtopSkeleton.getBindLocal( bone );
         }
         hardtopAnimation.sample( hardtopSkeleton, hardtopTime, false, locals );
@@ -844,23 +989,30 @@ bool CinematicCar::load( const Desc &requested ) {
         bHardtop = true;
         if ( hardtopTime > 0.0f ) {
             for ( const char *pSide : { "L", "R" } ) {
-                const int32_t window = scene.findNode( ( std::string( "WND_" ) + pSide + "1" ).c_str() );
-                const int32_t lowered = scene.findNode( ( std::string( "WND_" ) + pSide + "2" ).c_str() );
+                const int32_t window = scene.findNode(
+                    ( std::string( "WND_" ) + pSide + "1" ).c_str() );
+                const int32_t lowered = scene.findNode(
+                    ( std::string( "WND_" ) + pSide + "2" ).c_str() );
                 if ( window >= 0 && lowered >= 0 ) {
-                    car.setNodeTransform( window, car.getNodeTransform( lowered ) );
+                    car.setNodeTransform( window,
+                                          car.getNodeTransform( lowered ) );
                 }
             }
         }
-        OTDU_LOG_INFO( "CinematicCar: '%s' _car_body %d, hardtop %s (Hardtop.anm t = %.2f / %.2f)\n",
-                       desc.FileName.c_str(), carBody, hardtopTime > 0.0f ? "open" : "closed", hardtopTime,
+        OTDU_LOG_INFO( "CinematicCar: '%s' _car_body %d, hardtop %s "
+                       "(Hardtop.anm t = %.2f / %.2f)\n",
+                       desc.FileName.c_str(), carBody,
+                       hardtopTime > 0.0f ? "open" : "closed", hardtopTime,
                        hardtopAnimation.getDuration() );
         if ( CmdLine::HasArg( "-logskin" ) ) {
             // A/B diagnostic (meeting_tess black shards): every skinned item of
             // the car with its palette extent against the Hardtop skeleton.
-            OTDU_LOG_INFO( "CinematicCar: hardtopSkin %zu matrices, skeleton %u bones\n", hardtopSkin.size(),
-                           hardtopSkeleton.getNumBones() );
+            OTDU_LOG_INFO(
+                "CinematicCar: hardtopSkin %zu matrices, skeleton %u bones\n",
+                hardtopSkin.size(), hardtopSkeleton.getNumBones() );
             const std::vector<SceneNode> &carNodes = car.getScene().getNodes();
-            std::vector<uint32_t> skinnedCount( carNodes.size(), 0 ), maxBone( carNodes.size(), 0 );
+            std::vector<uint32_t> skinnedCount( carNodes.size(), 0 ),
+                maxBone( carNodes.size(), 0 );
             std::vector<bool> hasItems( carNodes.size(), false );
             for ( const auto &item : car.getItems() ) {
                 if ( item.NodeIndex >= carNodes.size() ) {
@@ -872,13 +1024,16 @@ bool CinematicCar::load( const Desc &requested ) {
                 }
                 skinnedCount[item.NodeIndex]++;
                 for ( uint32_t bone : item.BonePalette ) {
-                    maxBone[item.NodeIndex] = Max( maxBone[item.NodeIndex], bone );
+                    maxBone[item.NodeIndex] =
+                        Max( maxBone[item.NodeIndex], bone );
                 }
             }
             for ( size_t i = 0; i < carNodes.size(); i++ ) {
                 if ( skinnedCount[i] != 0 ) {
-                    OTDU_LOG_INFO( "CinematicCar: skinned node %zu '%s': %u items, max bone %u\n", i,
-                                   carNodes[i].Name.c_str(), skinnedCount[i], maxBone[i] );
+                    OTDU_LOG_INFO( "CinematicCar: skinned node %zu '%s': %u "
+                                   "items, max bone %u\n",
+                                   i, carNodes[i].Name.c_str(), skinnedCount[i],
+                                   maxBone[i] );
                 }
             }
             // Nodes carrying the dashboard GPS screen material (TDU1
@@ -889,35 +1044,46 @@ bool CinematicCar::load( const Desc &requested ) {
                 if ( !pModel->isLoaded() ) {
                     continue;
                 }
-                const std::vector<SceneNode> &modelNodes = pModel->getScene().getNodes();
+                const std::vector<SceneNode> &modelNodes =
+                    pModel->getScene().getNodes();
                 for ( const auto &item : pModel->getItems() ) {
                     if ( item.NodeIndex >= modelNodes.size() ) {
                         continue;
                     }
-                    const EdenMaterial &material = pModel->getMaterials()[item.MaterialIndex];
+                    const EdenMaterial &material =
+                        pModel->getMaterials()[item.MaterialIndex];
                     if ( material.Name == "Leather" ) {
-                        OTDU_LOG_INFO( "CinematicCar: Leather on %s node %u '%s' palette %zu\n",
-                                       pModel == &interior ? "interior" : "car", item.NodeIndex,
-                                       modelNodes[item.NodeIndex].Name.c_str(), item.BonePalette.size() );
+                        OTDU_LOG_INFO( "CinematicCar: Leather on %s node %u "
+                                       "'%s' palette %zu\n",
+                                       pModel == &interior ? "interior" : "car",
+                                       item.NodeIndex,
+                                       modelNodes[item.NodeIndex].Name.c_str(),
+                                       item.BonePalette.size() );
                     }
                     if ( material.ShaderSetGUID == kGpsShaderGuid ) {
-                        OTDU_LOG_INFO( "CinematicCar: GPS screen mesh on %s node %u '%s' (material '%s')\n",
-                                       pModel == &interior ? "interior" : "car", item.NodeIndex,
-                                       modelNodes[item.NodeIndex].Name.c_str(), material.Name.c_str() );
+                        OTDU_LOG_INFO( "CinematicCar: GPS screen mesh on %s "
+                                       "node %u '%s' (material '%s')\n",
+                                       pModel == &interior ? "interior" : "car",
+                                       item.NodeIndex,
+                                       modelNodes[item.NodeIndex].Name.c_str(),
+                                       material.Name.c_str() );
                     }
                 }
             }
             for ( size_t i = 0; i < carNodes.size(); i++ ) {
-                OTDU_LOG_INFO( "CinematicCar: node %zu '%s' parent %d%s\n", i, carNodes[i].Name.c_str(),
-                               carNodes[i].Parent, hasItems[i] ? " [items]" : "" );
+                OTDU_LOG_INFO( "CinematicCar: node %zu '%s' parent %d%s\n", i,
+                               carNodes[i].Name.c_str(), carNodes[i].Parent,
+                               hasItems[i] ? " [items]" : "" );
             }
             if ( interior.isLoaded() ) {
                 const Render3DD &interiorScene = interior.getScene();
                 const std::vector<SceneNode> &iNodes = interiorScene.getNodes();
                 for ( size_t i = 0; i < iNodes.size(); i++ ) {
                     const Matrix4x4f &m = iNodes[i].World;
-                    OTDU_LOG_INFO( "CinematicCar: interior node %zu '%s' parent %d t (%.2f %.2f %.2f)\n", i,
-                                   iNodes[i].Name.c_str(), iNodes[i].Parent, m.m[3][0], m.m[3][1], m.m[3][2] );
+                    OTDU_LOG_INFO( "CinematicCar: interior node %zu '%s' "
+                                   "parent %d t (%.2f %.2f %.2f)\n",
+                                   i, iNodes[i].Name.c_str(), iNodes[i].Parent,
+                                   m.m[3][0], m.m[3][1], m.m[3][2] );
                 }
             }
         }
@@ -925,7 +1091,8 @@ bool CinematicCar::load( const Desc &requested ) {
         // No skeleton / Hardtop.anm: no pose to skin HANIM_S with, hidden.
         const int32_t hanim = scene.findNode( "HANIM_S" );
         for ( size_t i = 0; hanim >= 0 && i < nodes.size(); i++ ) {
-            if ( static_cast<int32_t>( i ) == hanim || scene.isDescendantOf( static_cast<int32_t>( i ), hanim ) ) {
+            if ( static_cast<int32_t>( i ) == hanim ||
+                 scene.isDescendantOf( static_cast<int32_t>( i ), hanim ) ) {
                 car.setNodeVisible( static_cast<int32_t>( i ), false );
             }
         }
@@ -950,17 +1117,22 @@ bool CinematicCar::load( const Desc &requested ) {
         door.DoorRest = car.getNodeTransform( door.Door );
         for ( size_t i = 0; i < nodes.size(); i++ ) {
             const int32_t node = static_cast<int32_t>( i );
-            if ( node == door.Door || scene.isDescendantOf( node, door.Door ) ) {
+            if ( node == door.Door ||
+                 scene.isDescendantOf( node, door.Door ) ) {
                 door.CarRest.emplace_back( node, car.getNodeTransform( node ) );
             }
         }
         if ( interior.isLoaded() ) {
             const Render3DD &interiorScene = interior.getScene();
-            const int32_t panel = interiorScene.findNode( side == 0 ? "INT_HR_L" : "INT_HR_R" );
-            for ( size_t i = 0; panel >= 0 && i < interiorScene.getNodes().size(); i++ ) {
+            const int32_t panel =
+                interiorScene.findNode( side == 0 ? "INT_HR_L" : "INT_HR_R" );
+            for ( size_t i = 0;
+                  panel >= 0 && i < interiorScene.getNodes().size(); i++ ) {
                 const int32_t node = static_cast<int32_t>( i );
-                if ( node == panel || interiorScene.isDescendantOf( node, panel ) ) {
-                    door.InteriorRest.emplace_back( node, interior.getNodeTransform( node ) );
+                if ( node == panel ||
+                     interiorScene.isDescendantOf( node, panel ) ) {
+                    door.InteriorRest.emplace_back(
+                        node, interior.getNodeTransform( node ) );
                 }
             }
         }
@@ -976,7 +1148,8 @@ bool CinematicCar::load( const Desc &requested ) {
         size_t start = 0;
         while ( start < list.size() ) {
             const size_t end = list.find( ';', start );
-            const std::string name = list.substr( start, end == std::string::npos ? end : end - start );
+            const std::string name = list.substr(
+                start, end == std::string::npos ? end : end - start );
             start = end == std::string::npos ? list.size() : end + 1;
             if ( name.empty() ) {
                 continue;
@@ -987,26 +1160,33 @@ bool CinematicCar::load( const Desc &requested ) {
                     continue;
                 }
                 const Render3DD &modelScene = pModel->getScene();
-                const int32_t node =
-                    name[0] == '#' ? atoi( name.c_str() + 1 ) : modelScene.findNode( name.c_str() );
+                const int32_t node = name[0] == '#'
+                                         ? atoi( name.c_str() + 1 )
+                                         : modelScene.findNode( name.c_str() );
                 if ( node < 0 ) {
                     continue;
                 }
-                const std::vector<SceneNode> &modelNodes = modelScene.getNodes();
+                const std::vector<SceneNode> &modelNodes =
+                    modelScene.getNodes();
                 for ( size_t i = 0; i < modelNodes.size(); i++ ) {
                     if ( static_cast<int32_t>( i ) == node ||
-                         modelScene.isDescendantOf( static_cast<int32_t>( i ), node ) ) {
-                        pModel->setNodeVisible( static_cast<int32_t>( i ), false );
-                        alwaysHiddenNodes[pModel == &interior].push_back( static_cast<int32_t>( i ) );
+                         modelScene.isDescendantOf( static_cast<int32_t>( i ),
+                                                    node ) ) {
+                        pModel->setNodeVisible( static_cast<int32_t>( i ),
+                                                false );
+                        alwaysHiddenNodes[pModel == &interior].push_back(
+                            static_cast<int32_t>( i ) );
                     }
                 }
                 OTDU_LOG_INFO( "CinematicCar: %s node '%s' (%d) hidden\n",
-                               pModel == &interior ? "interior" : "car", name.c_str(), node );
+                               pModel == &interior ? "interior" : "car",
+                               name.c_str(), node );
                 bFound = true;
                 break;
             }
             if ( !bFound ) {
-                OTDU_LOG_WARN( "CinematicCar: -hidenode '%s' not found\n", name.c_str() );
+                OTDU_LOG_WARN( "CinematicCar: -hidenode '%s' not found\n",
+                               name.c_str() );
             }
         }
     }
@@ -1021,43 +1201,56 @@ bool CinematicCar::load( const Desc &requested ) {
     }
     for ( int32_t node : wheelNodes ) {
         const Matrix4x4f &m = nodes[node + 1].World;
-        OTDU_LOG_DEBUG( "wheel %s: %.2f %.2f %.2f | %.2f %.2f %.2f | %.2f %.2f %.2f\n", nodes[node].Name.c_str(),
-                        m.m[0][0], m.m[0][1], m.m[0][2], m.m[1][0], m.m[1][1], m.m[1][2], m.m[2][0], m.m[2][1],
-                        m.m[2][2] );
+        OTDU_LOG_DEBUG(
+            "wheel %s: %.2f %.2f %.2f | %.2f %.2f %.2f | %.2f %.2f %.2f\n",
+            nodes[node].Name.c_str(), m.m[0][0], m.m[0][1], m.m[0][2],
+            m.m[1][0], m.m[1][1], m.m[1][2], m.m[2][0], m.m[2][1], m.m[2][2] );
     }
     // -logcar: the cockpit gauge needle nodes (D_ND_SPD / D_ND_RPM and their
     // ND_x_1 / ND_x_2 poses). The interior needles are model nodes, rotated
     // between the two poses by FUN_00c52240; this dump is the reference for
     // driving them (docs/re/freeride_spec.md 4b).
     if ( CmdLine::HasArg( "-logcar" ) ) {
-        const auto dumpNeedleNodes = []( const char *pModel, EdenModel &model ) {
+        const auto dumpNeedleNodes = []( const char *pModel,
+                                         EdenModel &model ) {
             if ( !model.isLoaded() ) {
                 return;
             }
-            const std::vector<SceneNode> &modelNodes = model.getScene().getNodes();
+            const std::vector<SceneNode> &modelNodes =
+                model.getScene().getNodes();
             for ( size_t i = 0; i < modelNodes.size(); i++ ) {
                 const std::string &name = modelNodes[i].Name;
-                if ( name.find( "ND_" ) == std::string::npos && name.find( "AIG" ) == std::string::npos &&
-                     name.find( "SPD" ) == std::string::npos && name.find( "RPM" ) == std::string::npos ) {
+                if ( name.find( "ND_" ) == std::string::npos &&
+                     name.find( "AIG" ) == std::string::npos &&
+                     name.find( "SPD" ) == std::string::npos &&
+                     name.find( "RPM" ) == std::string::npos ) {
                     continue;
                 }
-                const Matrix4x4f &m = model.getNodeTransform( static_cast<int32_t>( i ) );
+                const Matrix4x4f &m =
+                    model.getNodeTransform( static_cast<int32_t>( i ) );
                 const Vector3f t = m.getTranslation();
-                Vector3f boxMin( 1e9f, 1e9f, 1e9f ), boxMax( -1e9f, -1e9f, -1e9f );
+                Vector3f boxMin( 1e9f, 1e9f, 1e9f ),
+                    boxMax( -1e9f, -1e9f, -1e9f );
                 for ( const EdenModel::Item &item : model.getItems() ) {
                     if ( item.NodeIndex != static_cast<int32_t>( i ) ) {
                         continue;
                     }
-                    boxMin = Vector3f( Min( boxMin.x, item.BoundsMin.x ), Min( boxMin.y, item.BoundsMin.y ),
+                    boxMin = Vector3f( Min( boxMin.x, item.BoundsMin.x ),
+                                       Min( boxMin.y, item.BoundsMin.y ),
                                        Min( boxMin.z, item.BoundsMin.z ) );
-                    boxMax = Vector3f( Max( boxMax.x, item.BoundsMax.x ), Max( boxMax.y, item.BoundsMax.y ),
+                    boxMax = Vector3f( Max( boxMax.x, item.BoundsMax.x ),
+                                       Max( boxMax.y, item.BoundsMax.y ),
                                        Max( boxMax.z, item.BoundsMax.z ) );
                 }
-                OTDU_LOG_INFO( "CinematicCar %s node %zu '%s' parent %d pos (%.3f %.3f %.3f) rot (%.3f %.3f %.3f | "
-                               "%.3f %.3f %.3f | %.3f %.3f %.3f) box (%.3f %.3f %.3f)-(%.3f %.3f %.3f)\n",
-                               pModel, i, name.c_str(), modelNodes[i].Parent, t.x, t.y, t.z, m.m[0][0], m.m[0][1],
-                               m.m[0][2], m.m[1][0], m.m[1][1], m.m[1][2], m.m[2][0], m.m[2][1], m.m[2][2],
-                               boxMin.x, boxMin.y, boxMin.z, boxMax.x, boxMax.y, boxMax.z );
+                OTDU_LOG_INFO( "CinematicCar %s node %zu '%s' parent %d pos "
+                               "(%.3f %.3f %.3f) rot (%.3f %.3f %.3f | "
+                               "%.3f %.3f %.3f | %.3f %.3f %.3f) box (%.3f "
+                               "%.3f %.3f)-(%.3f %.3f %.3f)\n",
+                               pModel, i, name.c_str(), modelNodes[i].Parent,
+                               t.x, t.y, t.z, m.m[0][0], m.m[0][1], m.m[0][2],
+                               m.m[1][0], m.m[1][1], m.m[1][2], m.m[2][0],
+                               m.m[2][1], m.m[2][2], boxMin.x, boxMin.y,
+                               boxMin.z, boxMax.x, boxMax.y, boxMax.z );
             }
         };
         dumpNeedleNodes( "car", car );
@@ -1067,15 +1260,17 @@ bool CinematicCar::load( const Desc &requested ) {
     // run time under each tire).
     wheelShadowNodes.clear();
     for ( size_t i = 0; i < nodes.size(); i++ ) {
-        if ( nodes[i].Name.find( "WHEEL_" ) != std::string::npos && nodes[i].Parent >= 0 &&
-             nodes[nodes[i].Parent].Name == "D_SBOX" ) {
+        if ( nodes[i].Name.find( "WHEEL_" ) != std::string::npos &&
+             nodes[i].Parent >= 0 && nodes[nodes[i].Parent].Name == "D_SBOX" ) {
             wheelShadowNodes.push_back( static_cast<int32_t>( i ) );
         }
     }
     // The rim diameters drawn: the Desc's (a tuning shop plus size overrides
     // them). The tire nodes follow (T_<diameter>P).
-    rimDiameterFront = desc.RimDiameterFront > 0 ? desc.RimDiameterFront : desc.DiameterFront;
-    rimDiameterRear = desc.RimDiameterRear > 0 ? desc.RimDiameterRear : desc.DiameterRear;
+    rimDiameterFront =
+        desc.RimDiameterFront > 0 ? desc.RimDiameterFront : desc.DiameterFront;
+    rimDiameterRear =
+        desc.RimDiameterRear > 0 ? desc.RimDiameterRear : desc.DiameterRear;
     tireRadius = desc.TireRadius;
     // The model's wheel hubs must coincide with the physics wheel: the ray
     // suspension expects the hub at the tire radius above the contact, and a
@@ -1120,26 +1315,35 @@ bool CinematicCar::load( const Desc &requested ) {
             hubMin = Min( hubMin, hubY );
             hubMax = Max( hubMax, hubY );
         }
-        const float authoredLift = tireRadius - hubSum / static_cast<float>( wheelNodes.size() );
+        const float authoredLift =
+            tireRadius - hubSum / static_cast<float>( wheelNodes.size() );
         float rideHeight = -1.0f;
         if ( gpDatabase != nullptr ) {
             XmbValue root = gpDatabase->getDocument().getRoot();
-            for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" ); i++ ) {
+            for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" );
+                  i++ ) {
                 XmbValue row = root.getArrayElement( "DBCarPhysicsData", i );
-                if ( static_cast<int32_t>( row["_id_car"].asUInt64() ) == getIdCar() ) {
-                    rideHeight = 0.0005f * static_cast<float>( row["_ride_height_front"].asInt() +
-                                                               row["_ride_height_rear"].asInt() );
+                if ( static_cast<int32_t>( row["_id_car"].asUInt64() ) ==
+                     getIdCar() ) {
+                    rideHeight =
+                        0.0005f *
+                        static_cast<float>( row["_ride_height_front"].asInt() +
+                                            row["_ride_height_rear"].asInt() );
                     break;
                 }
             }
         }
         const float hubTarget = tireRadius - rideHeight;
-        const bool bRideHeight = rideHeight >= 0.03f && rideHeight <= 0.40f && hubTarget - hubMax >= -0.03f &&
+        const bool bRideHeight = rideHeight >= 0.03f && rideHeight <= 0.40f &&
+                                 hubTarget - hubMax >= -0.03f &&
                                  hubTarget - hubMin <= 0.12f;
         bodyLift = bRideHeight ? rideHeight : authoredLift;
-        OTDU_LOG_INFO( "CinematicCar: '%s' body lift %.3f m (%s; authored hubs %.3f, tire radius %.3f)\n",
-                       fileName.c_str(), bodyLift, bRideHeight ? "the DB ride height" : "the authored hubs",
-                       hubSum / static_cast<float>( wheelNodes.size() ), tireRadius );
+        OTDU_LOG_INFO( "CinematicCar: '%s' body lift %.3f m (%s; authored hubs "
+                       "%.3f, tire radius %.3f)\n",
+                       fileName.c_str(), bodyLift,
+                       bRideHeight ? "the DB ride height" : "the authored hubs",
+                       hubSum / static_cast<float>( wheelNodes.size() ),
+                       tireRadius );
     }
     if ( CmdLine::HasArg( "-loghubs" ) && !wheelNodes.empty() ) {
         // The body's lowest point (model space, LOD 0, no wheel / tyre / brake
@@ -1147,48 +1351,65 @@ bool CinematicCar::load( const Desc &requested ) {
         float bodyMinY = 1e9f, bodyMinFront = 1e9f, bodyMinRear = 1e9f;
         std::string minNode;
         for ( const EdenModel::Item &item : car.getItems() ) {
-            if ( item.Lod != 0 || item.NodeIndex < 0 || item.NodeIndex >= static_cast<int32_t>( nodes.size() ) ) {
+            if ( item.Lod != 0 || item.NodeIndex < 0 ||
+                 item.NodeIndex >= static_cast<int32_t>( nodes.size() ) ) {
                 continue;
             }
             const std::string &name = nodes[item.NodeIndex].Name;
-            if ( name.find( '?' ) != std::string::npos || name.find( "RIM" ) != std::string::npos ||
+            if ( name.find( '?' ) != std::string::npos ||
+                 name.find( "RIM" ) != std::string::npos ||
                  name.find( "TIRE" ) != std::string::npos ||
-                 name.rfind( "T_", 0 ) == 0 || name.find( "BRAKE" ) != std::string::npos ||
-                 name.find( "STIR" ) != std::string::npos || name.find( "DISC" ) != std::string::npos ||
-                 name.find( "FORK" ) != std::string::npos || name.find( "WHEEL" ) != std::string::npos ||
-                 name.find( "SBOX" ) != std::string::npos || name.find( "SHADOW" ) != std::string::npos ) {
+                 name.rfind( "T_", 0 ) == 0 ||
+                 name.find( "BRAKE" ) != std::string::npos ||
+                 name.find( "STIR" ) != std::string::npos ||
+                 name.find( "DISC" ) != std::string::npos ||
+                 name.find( "FORK" ) != std::string::npos ||
+                 name.find( "WHEEL" ) != std::string::npos ||
+                 name.find( "SBOX" ) != std::string::npos ||
+                 name.find( "SHADOW" ) != std::string::npos ) {
                 continue;
             }
             const Matrix4x4f &m = car.getNodeTransform( item.NodeIndex );
             for ( int32_t corner = 0; corner < 8; corner++ ) {
-                const Vector3f local( ( corner & 1 ) ? item.BoundsMax.x : item.BoundsMin.x,
-                                      ( corner & 2 ) ? item.BoundsMax.y : item.BoundsMin.y,
-                                      ( corner & 4 ) ? item.BoundsMax.z : item.BoundsMin.z );
+                const Vector3f local(
+                    ( corner & 1 ) ? item.BoundsMax.x : item.BoundsMin.x,
+                    ( corner & 2 ) ? item.BoundsMax.y : item.BoundsMin.y,
+                    ( corner & 4 ) ? item.BoundsMax.z : item.BoundsMin.z );
                 const Vector3f p = m.transformPoint( local );
                 if ( p.y < bodyMinY ) {
                     bodyMinY = p.y;
                     minNode = name;
                 }
-                ( p.z > 0.0f ? bodyMinFront : bodyMinRear ) = Min( p.z > 0.0f ? bodyMinFront : bodyMinRear, p.y );
+                ( p.z > 0.0f ? bodyMinFront : bodyMinRear ) =
+                    Min( p.z > 0.0f ? bodyMinFront : bodyMinRear, p.y );
             }
         }
         float rhFront = 0.0f, rhRear = 0.0f;
         if ( gpDatabase != nullptr ) {
             XmbValue root = gpDatabase->getDocument().getRoot();
-            for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" ); i++ ) {
+            for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" );
+                  i++ ) {
                 XmbValue row = root.getArrayElement( "DBCarPhysicsData", i );
-                if ( static_cast<int32_t>( row["_id_car"].asUInt64() ) == getIdCar() ) {
-                    rhFront = static_cast<float>( row["_ride_height_front"].asInt() ) / 1000.0f;
-                    rhRear = static_cast<float>( row["_ride_height_rear"].asInt() ) / 1000.0f;
+                if ( static_cast<int32_t>( row["_id_car"].asUInt64() ) ==
+                     getIdCar() ) {
+                    rhFront = static_cast<float>(
+                                  row["_ride_height_front"].asInt() ) /
+                              1000.0f;
+                    rhRear =
+                        static_cast<float>( row["_ride_height_rear"].asInt() ) /
+                        1000.0f;
                     break;
                 }
             }
         }
         for ( int32_t node : wheelNodes ) {
             const Vector3f hub = car.getNodeTransform( node ).getTranslation();
-            OTDU_LOG_INFO( "HUBS %s %s hub (%.3f %.3f %.3f) r %.3f | body min %.3f (front %.3f rear %.3f) | rh %.3f / %.3f | min node %s\n",
-                           fileName.c_str(), nodes[node].Name.c_str(), hub.x, hub.y, hub.z, tireRadius, bodyMinY,
-                           bodyMinFront, bodyMinRear, rhFront, rhRear, minNode.c_str() );
+            OTDU_LOG_INFO(
+                "HUBS %s %s hub (%.3f %.3f %.3f) r %.3f | body min %.3f (front "
+                "%.3f rear %.3f) | rh %.3f / %.3f | min node %s\n",
+                fileName.c_str(), nodes[node].Name.c_str(), hub.x, hub.y, hub.z,
+                tireRadius, bodyMinY, bodyMinFront, bodyMinRear, rhFront,
+                rhRear, minNode.c_str() );
         }
     }
     for ( int32_t node : wheelNodes ) {
@@ -1196,13 +1417,17 @@ bool CinematicCar::load( const Desc &requested ) {
         // To tire radius - body lift (the whole tire radius with -wheellift).
         const float lift = tireRadius - bodyLift - hubY;
         if ( std::abs( lift ) > 0.002f ) {
-            const Matrix4x4f up = Matrix4x4f::Translation( Vector3f( 0.0f, lift, 0.0f ) );
+            const Matrix4x4f up =
+                Matrix4x4f::Translation( Vector3f( 0.0f, lift, 0.0f ) );
             car.setNodeTransform( node, up * car.getNodeTransform( node ) );
             if ( node + 1 < static_cast<int32_t>( nodes.size() ) ) {
-                car.setNodeTransform( node + 1, up * car.getNodeTransform( node + 1 ) );
+                car.setNodeTransform( node + 1,
+                                      up * car.getNodeTransform( node + 1 ) );
             }
-            OTDU_LOG_INFO( "CinematicCar: wheel '%s' hub lifted %.3f m (tire radius %.3f, body lift %.3f)\n",
-                           nodes[node].Name.c_str(), lift, tireRadius, bodyLift );
+            OTDU_LOG_INFO( "CinematicCar: wheel '%s' hub lifted %.3f m (tire "
+                           "radius %.3f, body lift %.3f)\n",
+                           nodes[node].Name.c_str(), lift, tireRadius,
+                           bodyLift );
             // The corner's brake nodes: BRAKE_xx is the rotor (a sibling of the
             // rim under DISC_xx), STIR_xx the caliper (a sibling of DISC_xx
             // under the upright). Both carry the corner's own suffix
@@ -1212,18 +1437,24 @@ bool CinematicCar::load( const Desc &requested ) {
             // node must never take a wheel lift.
             const std::string &rimName = nodes[node].Name;
             const size_t cut = rimName.rfind( '_' );
-            const std::string corner = cut == std::string::npos ? std::string() : rimName.substr( cut + 1 );
+            const std::string corner = cut == std::string::npos
+                                           ? std::string()
+                                           : rimName.substr( cut + 1 );
             if ( corner.empty() ) {
                 continue;
             }
-            const std::string brakeNames[2] = { "BRAKE_" + corner, "STIR_" + corner };
+            const std::string brakeNames[2] = { "BRAKE_" + corner,
+                                                "STIR_" + corner };
             for ( size_t i = 0; i < nodes.size(); i++ ) {
-                if ( nodes[i].Name != brakeNames[0] && nodes[i].Name != brakeNames[1] ) {
+                if ( nodes[i].Name != brakeNames[0] &&
+                     nodes[i].Name != brakeNames[1] ) {
                     continue;
                 }
-                car.setNodeTransform( static_cast<int32_t>( i ),
-                                      up * car.getNodeTransform( static_cast<int32_t>( i ) ) );
-                OTDU_LOG_INFO( "CinematicCar: brake node '%s' lifted %.3f m with the wheel '%s'\n",
+                car.setNodeTransform(
+                    static_cast<int32_t>( i ),
+                    up * car.getNodeTransform( static_cast<int32_t>( i ) ) );
+                OTDU_LOG_INFO( "CinematicCar: brake node '%s' lifted %.3f m "
+                               "with the wheel '%s'\n",
                                nodes[i].Name.c_str(), lift, rimName.c_str() );
             }
         }
@@ -1238,21 +1469,27 @@ bool CinematicCar::load( const Desc &requested ) {
     // ILUMPARAM stay authored.
     {
         collectLights();
-        collectTunerMasks(); // before collectWipers (it frees the primitive data)
+        collectTunerMasks(); // before collectWipers (it frees the primitive
+                             // data)
         collectWipers();
         dashMaterials.clear();
         dashboardGlow = 0.0f;
         gpsMaterials.clear();
         if ( interior.isLoaded() ) {
-            static constexpr uint64_t kDashShaderGuids[2] = { 0xcaca000000000010ull, 0x7dad16b47eb51337ull };
-            static const uint64_t kHeadlightsIntensity = GetIdentifier64bit( "HEADLIGHTSINTENSITY" );
-            const std::vector<EdenMaterial> &interiorMaterials = interior.getMaterials();
+            static constexpr uint64_t kDashShaderGuids[2] = {
+                0xcaca000000000010ull, 0x7dad16b47eb51337ull };
+            static const uint64_t kHeadlightsIntensity =
+                GetIdentifier64bit( "HEADLIGHTSINTENSITY" );
+            const std::vector<EdenMaterial> &interiorMaterials =
+                interior.getMaterials();
             for ( size_t m = 0; m < interiorMaterials.size(); m++ ) {
                 const EdenMaterial &material = interiorMaterials[m];
-                if ( material.ShaderSetGUID != kDashShaderGuids[0] && material.ShaderSetGUID != kDashShaderGuids[1] ) {
+                if ( material.ShaderSetGUID != kDashShaderGuids[0] &&
+                     material.ShaderSetGUID != kDashShaderGuids[1] ) {
                     continue;
                 }
-                if ( material.Parameters.find( kHeadlightsIntensity ) == material.Parameters.end() ) {
+                if ( material.Parameters.find( kHeadlightsIntensity ) ==
+                     material.Parameters.end() ) {
                     continue;
                 }
                 dashMaterials.push_back( static_cast<int32_t>( m ) );
@@ -1266,8 +1503,9 @@ bool CinematicCar::load( const Desc &requested ) {
             }
             computeGpsLayout();
         }
-        OTDU_LOG_INFO( "CinematicCar: %zu light materials, %zu dashboard materials (lights)\n", lightMaterials.size(),
-                       dashMaterials.size() );
+        OTDU_LOG_INFO( "CinematicCar: %zu light materials, %zu dashboard "
+                       "materials (lights)\n",
+                       lightMaterials.size(), dashMaterials.size() );
     }
 
     // -logcarlights: the lamp / dashboard / satnav materials and the shader
@@ -1280,50 +1518,68 @@ bool CinematicCar::load( const Desc &requested ) {
                 continue;
             }
             for ( const EdenMaterial &material : pModel->getMaterials() ) {
-                const bool bLamp = material.Name.compare( 0, 4, "LGT_" ) == 0 || material.Name == "headlight" ||
-                                   material.Name == "Lamp" || material.Name == "HUD" ||
-                                   material.Name == "HUD_01" || material.Name == "GPS" ||
-                                   material.Name == "Glass_LGT" || material.Name == "Glass_SK_LGT";
+                const bool bLamp =
+                    material.Name.compare( 0, 4, "LGT_" ) == 0 ||
+                    material.Name == "headlight" || material.Name == "Lamp" ||
+                    material.Name == "HUD" || material.Name == "HUD_01" ||
+                    material.Name == "GPS" || material.Name == "Glass_LGT" ||
+                    material.Name == "Glass_SK_LGT";
                 if ( !bLamp ) {
                     continue;
                 }
                 std::string slots;
                 for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
                     slots += " [" + std::to_string( i ) + "]" +
-                             ( material.pTextures[i] != nullptr ? material.pTextures[i]->Name : "NONE" );
+                             ( material.pTextures[i] != nullptr
+                                   ? material.pTextures[i]->Name
+                                   : "NONE" );
                 }
-                OTDU_LOG_INFO( "CarLight: %s '%s' prog %s emissive (%.2f %.2f %.2f %.2f) slots%s\n",
-                               pModel == &car ? "ext" : "int", material.Name.c_str(),
-                               material.pProgram != nullptr ? material.pProgram->Name.c_str() : "-",
-                               material.Emissive.x, material.Emissive.y, material.Emissive.z, material.Emissive.w,
-                               slots.c_str() );
+                OTDU_LOG_INFO(
+                    "CarLight: %s '%s' prog %s emissive (%.2f %.2f %.2f %.2f) "
+                    "slots%s\n",
+                    pModel == &car ? "ext" : "int", material.Name.c_str(),
+                    material.pProgram != nullptr
+                        ? material.pProgram->Name.c_str()
+                        : "-",
+                    material.Emissive.x, material.Emissive.y,
+                    material.Emissive.z, material.Emissive.w, slots.c_str() );
                 if ( material.pProgram == nullptr ) {
                     continue;
                 }
-                for ( const ShaderConstantMember &m : material.pProgram->PSMembers ) {
-                    OTDU_LOG_INFO( "  PS %s (%s) reg %u set %u\n", m.Name.c_str(), m.StructName.c_str(), m.Register,
-                                   m.RegisterSet );
+                for ( const ShaderConstantMember &m :
+                      material.pProgram->PSMembers ) {
+                    OTDU_LOG_INFO( "  PS %s (%s) reg %u set %u\n",
+                                   m.Name.c_str(), m.StructName.c_str(),
+                                   m.Register, m.RegisterSet );
                 }
-                for ( const ShaderConstantMember &m : material.pProgram->VSMembers ) {
-                    OTDU_LOG_INFO( "  VS %s (%s) reg %u set %u\n", m.Name.c_str(), m.StructName.c_str(), m.Register,
-                                   m.RegisterSet );
+                for ( const ShaderConstantMember &m :
+                      material.pProgram->VSMembers ) {
+                    OTDU_LOG_INFO( "  VS %s (%s) reg %u set %u\n",
+                                   m.Name.c_str(), m.StructName.c_str(),
+                                   m.Register, m.RegisterSet );
                 }
                 for ( const auto &parameter : material.Parameters ) {
-                    OTDU_LOG_INFO( "  param %s = %.3f %.3f %.3f %.3f\n",
-                                   IdentifierToString( parameter.first ).c_str(), parameter.second.x,
-                                   parameter.second.y, parameter.second.z, parameter.second.w );
+                    OTDU_LOG_INFO(
+                        "  param %s = %.3f %.3f %.3f %.3f\n",
+                        IdentifierToString( parameter.first ).c_str(),
+                        parameter.second.x, parameter.second.y,
+                        parameter.second.z, parameter.second.w );
                 }
                 // The shader constants that name a material parameter: a
                 // missing one is written as zero (TD_DashBoard reads
                 // HeadlightsIntensity / IlumParam / IlumColor).
-                for ( const char *pCandidate : { "ILUMCOLOR", "ILUMPARAM", "HEADLIGHTSINTENSITY", "MATPARAM" } ) {
+                for ( const char *pCandidate :
+                      { "ILUMCOLOR", "ILUMPARAM", "HEADLIGHTSINTENSITY",
+                        "MATPARAM" } ) {
                     const uint64_t id = GetIdentifier64bit( pCandidate );
                     auto it = material.Parameters.find( id );
                     OTDU_LOG_INFO( "  has %s (%016llx): %s", pCandidate,
                                    static_cast<unsigned long long>( id ),
-                                   it != material.Parameters.end() ? "yes" : "no" );
+                                   it != material.Parameters.end() ? "yes"
+                                                                   : "no" );
                     if ( it != material.Parameters.end() ) {
-                        OTDU_LOG_INFO( " = %.3f %.3f %.3f %.3f", it->second.x, it->second.y, it->second.z,
+                        OTDU_LOG_INFO( " = %.3f %.3f %.3f %.3f", it->second.x,
+                                       it->second.y, it->second.z,
                                        it->second.w );
                     }
                     OTDU_LOG_INFO( "\n" );
@@ -1342,23 +1598,35 @@ bool CinematicCar::load( const Desc &requested ) {
         const std::vector<EdenModel::Item> &items = car.getItems();
         for ( size_t i = 0; i < items.size(); i++ ) {
             const EdenModel::Item &item = items[i];
-            const std::string node = item.NodeIndex >= 0 && item.NodeIndex < static_cast<int32_t>( itemNodes.size() )
-                                         ? itemNodes[item.NodeIndex].Name
-                                         : std::string( "-" );
-            if ( pFilter != nullptr && pFilter[0] != '-' && node.find( pFilter ) == std::string::npos ) {
+            const std::string node =
+                item.NodeIndex >= 0 && item.NodeIndex < static_cast<int32_t>(
+                                                            itemNodes.size() )
+                    ? itemNodes[item.NodeIndex].Name
+                    : std::string( "-" );
+            if ( pFilter != nullptr && pFilter[0] != '-' &&
+                 node.find( pFilter ) == std::string::npos ) {
                 continue;
             }
             const EdenMaterial *pMaterial =
-                item.MaterialIndex < materials.size() ? &materials[item.MaterialIndex] : nullptr;
-            OTDU_LOG_INFO( "CARITEM %s #%zu node %d '%s' lod %u verts %u bones %zu mat '%s' shader 0x%llx blend %d alpha %d "
-                           "visible %d box (%.2f %.2f %.2f)-(%.2f %.2f %.2f)\n",
-                           fileName.c_str(), i, item.NodeIndex, node.c_str(), item.Lod, item.NumVertices,
-                           item.BonePalette.size(), pMaterial != nullptr ? pMaterial->Name.c_str() : "?",
-                           static_cast<unsigned long long>( pMaterial != nullptr ? pMaterial->ShaderSetGUID : 0 ),
-                           pMaterial != nullptr && pMaterial->isBlended() ? 1 : 0,
-                           pMaterial != nullptr && pMaterial->bAlphaTest ? 1 : 0,
-                           item.NodeIndex >= 0 ? ( car.isNodeVisible( item.NodeIndex ) ? 1 : 0 ) : -1, item.BoundsMin.x,
-                           item.BoundsMin.y, item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y, item.BoundsMax.z );
+                item.MaterialIndex < materials.size()
+                    ? &materials[item.MaterialIndex]
+                    : nullptr;
+            OTDU_LOG_INFO(
+                "CARITEM %s #%zu node %d '%s' lod %u verts %u bones %zu mat "
+                "'%s' shader 0x%llx blend %d alpha %d "
+                "visible %d box (%.2f %.2f %.2f)-(%.2f %.2f %.2f)\n",
+                fileName.c_str(), i, item.NodeIndex, node.c_str(), item.Lod,
+                item.NumVertices, item.BonePalette.size(),
+                pMaterial != nullptr ? pMaterial->Name.c_str() : "?",
+                static_cast<unsigned long long>(
+                    pMaterial != nullptr ? pMaterial->ShaderSetGUID : 0 ),
+                pMaterial != nullptr && pMaterial->isBlended() ? 1 : 0,
+                pMaterial != nullptr && pMaterial->bAlphaTest ? 1 : 0,
+                item.NodeIndex >= 0
+                    ? ( car.isNodeVisible( item.NodeIndex ) ? 1 : 0 )
+                    : -1,
+                item.BoundsMin.x, item.BoundsMin.y, item.BoundsMin.z,
+                item.BoundsMax.x, item.BoundsMax.y, item.BoundsMax.z );
         }
     }
 
@@ -1367,79 +1635,110 @@ bool CinematicCar::load( const Desc &requested ) {
             if ( !pModel->isLoaded() ) {
                 continue;
             }
-            const std::vector<SceneNode> &dumpNodes = pModel->getScene().getNodes();
+            const std::vector<SceneNode> &dumpNodes =
+                pModel->getScene().getNodes();
             for ( size_t i = 0; i < dumpNodes.size(); i++ ) {
                 const Vector3f t = dumpNodes[i].World.getTranslation();
                 const Matrix4x4f &l = dumpNodes[i].Local;
-                OTDU_LOG_INFO( "DUMP %s node %zu parent %d '%s' obj %d t (%.3f %.3f %.3f) local [%.3f %.3f %.3f | %.3f "
+                OTDU_LOG_INFO( "DUMP %s node %zu parent %d '%s' obj %d t (%.3f "
+                               "%.3f %.3f) local [%.3f %.3f %.3f | %.3f "
                                "%.3f %.3f | %.3f %.3f %.3f | %.3f %.3f %.3f]\n",
-                               pModel == &car ? "ext" : "int", i, dumpNodes[i].Parent, dumpNodes[i].Name.c_str(),
-                               dumpNodes[i].ObjectHashcode != 0, t.x, t.y, t.z, l.m[0][0], l.m[0][1], l.m[0][2],
-                               l.m[1][0], l.m[1][1], l.m[1][2], l.m[2][0], l.m[2][1], l.m[2][2], l.m[3][0], l.m[3][1],
-                               l.m[3][2] );
+                               pModel == &car ? "ext" : "int", i,
+                               dumpNodes[i].Parent, dumpNodes[i].Name.c_str(),
+                               dumpNodes[i].ObjectHashcode != 0, t.x, t.y, t.z,
+                               l.m[0][0], l.m[0][1], l.m[0][2], l.m[1][0],
+                               l.m[1][1], l.m[1][2], l.m[2][0], l.m[2][1],
+                               l.m[2][2], l.m[3][0], l.m[3][1], l.m[3][2] );
             }
             for ( const EdenModel::Item &item : pModel->getItems() ) {
-                const EdenMaterial &material = pModel->getMaterials()[item.MaterialIndex];
+                const EdenMaterial &material =
+                    pModel->getMaterials()[item.MaterialIndex];
                 std::string palette;
                 for ( uint32_t bone : item.BonePalette ) {
                     palette += std::to_string( bone ) + ",";
                 }
-                OTDU_LOG_INFO( "DUMP %s item node %d '%s' mat '%s' prog %s cull %d blend %d/%d at %d bounds (%.3f %.3f "
-                               "%.3f)-(%.3f %.3f %.3f) pal [%s]\n",
-                               pModel == &car ? "ext" : "int", item.NodeIndex,
-                               pModel->getScene().getNodes()[item.NodeIndex].Name.c_str(), material.Name.c_str(),
-                               material.pProgram != nullptr ? material.pProgram->Name.c_str() : "-", material.CullMode,
-                               material.SrcBlend, material.DstBlend, material.bAlphaTest, item.BoundsMin.x,
-                               item.BoundsMin.y, item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y,
-                               item.BoundsMax.z, palette.c_str() );
+                OTDU_LOG_INFO(
+                    "DUMP %s item node %d '%s' mat '%s' prog %s cull %d blend "
+                    "%d/%d at %d bounds (%.3f %.3f "
+                    "%.3f)-(%.3f %.3f %.3f) pal [%s]\n",
+                    pModel == &car ? "ext" : "int", item.NodeIndex,
+                    pModel->getScene().getNodes()[item.NodeIndex].Name.c_str(),
+                    material.Name.c_str(),
+                    material.pProgram != nullptr
+                        ? material.pProgram->Name.c_str()
+                        : "-",
+                    material.CullMode, material.SrcBlend, material.DstBlend,
+                    material.bAlphaTest, item.BoundsMin.x, item.BoundsMin.y,
+                    item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y,
+                    item.BoundsMax.z, palette.c_str() );
             }
         }
     }
     if ( Logger::IsVerbose() ) {
         for ( const EdenModel::Item &item : car.getItems() ) {
-            if ( car.getMaterials()[item.MaterialIndex].ShaderSetGUID != 0x132435465768798aull ) {
+            if ( car.getMaterials()[item.MaterialIndex].ShaderSetGUID !=
+                 0x132435465768798aull ) {
                 continue;
             }
             const Matrix4x4f &m = car.getNodeTransform( item.NodeIndex );
-            const float det = m.m[0][0] * ( m.m[1][1] * m.m[2][2] - m.m[1][2] * m.m[2][1] ) -
-                              m.m[0][1] * ( m.m[1][0] * m.m[2][2] - m.m[1][2] * m.m[2][0] ) +
-                              m.m[0][2] * ( m.m[1][0] * m.m[2][1] - m.m[1][1] * m.m[2][0] );
+            const float det =
+                m.m[0][0] * ( m.m[1][1] * m.m[2][2] - m.m[1][2] * m.m[2][1] ) -
+                m.m[0][1] * ( m.m[1][0] * m.m[2][2] - m.m[1][2] * m.m[2][0] ) +
+                m.m[0][2] * ( m.m[1][0] * m.m[2][1] - m.m[1][1] * m.m[2][0] );
             OTDU_LOG_DEBUG( "  det %.3f\n", det );
-            const Vector3f a = m.transformPoint( item.BoundsMin ), b = m.transformPoint( item.BoundsMax );
-            OTDU_LOG_DEBUG( "shadow box node %d '%s' car space (%.3f %.3f %.3f)-(%.3f %.3f %.3f)\n", item.NodeIndex,
-                            car.getScene().getNodes()[item.NodeIndex].Name.c_str(), a.x, a.y, a.z, b.x, b.y, b.z );
+            const Vector3f a = m.transformPoint( item.BoundsMin ),
+                           b = m.transformPoint( item.BoundsMax );
+            OTDU_LOG_DEBUG(
+                "shadow box node %d '%s' car space (%.3f %.3f %.3f)-(%.3f %.3f "
+                "%.3f)\n",
+                item.NodeIndex,
+                car.getScene().getNodes()[item.NodeIndex].Name.c_str(), a.x,
+                a.y, a.z, b.x, b.y, b.z );
         }
         for ( const EdenModel::Item &item : rim.getItems() ) {
             const SceneNode &node = rim.getScene().getNodes()[item.NodeIndex];
             const Vector3f t = node.World.getTranslation();
-            OTDU_LOG_DEBUG( "rim item node %d '%s' (%.3f %.3f %.3f) scale %.2f bounds (%.3f %.3f %.3f)-(%.3f %.3f %.3f) '%s'\n",
-                            item.NodeIndex, node.Name.c_str(), t.x, t.y, t.z, node.World.m[1][1], item.BoundsMin.x,
-                            item.BoundsMin.y, item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y, item.BoundsMax.z,
-                            rim.getMaterials()[item.MaterialIndex].Name.c_str() );
+            OTDU_LOG_DEBUG(
+                "rim item node %d '%s' (%.3f %.3f %.3f) scale %.2f bounds "
+                "(%.3f %.3f %.3f)-(%.3f %.3f %.3f) '%s'\n",
+                item.NodeIndex, node.Name.c_str(), t.x, t.y, t.z,
+                node.World.m[1][1], item.BoundsMin.x, item.BoundsMin.y,
+                item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y,
+                item.BoundsMax.z,
+                rim.getMaterials()[item.MaterialIndex].Name.c_str() );
         }
         for ( EdenModel *pModel : { &car, &rim, &tire } ) {
             for ( const EdenMaterial &material : pModel->getMaterials() ) {
                 std::string states;
                 for ( uint32_t i = 0; i < 16; i++ ) {
                     char buffer[4];
-                    snprintf( buffer, sizeof( buffer ), "%02x", material.States[i] );
+                    snprintf( buffer, sizeof( buffer ), "%02x",
+                              material.States[i] );
                     states += buffer;
                 }
-                OTDU_LOG_DEBUG( "car material '%s' -> %s states %s alphatest %d cull %d blend %d/%d\n",
+                OTDU_LOG_DEBUG( "car material '%s' -> %s states %s alphatest "
+                                "%d cull %d blend %d/%d\n",
                                 material.Name.c_str(),
-                                material.pProgram != nullptr ? material.pProgram->Name.c_str() : "(none)",
-                                states.c_str(), material.bAlphaTest, material.CullMode, material.SrcBlend,
+                                material.pProgram != nullptr
+                                    ? material.pProgram->Name.c_str()
+                                    : "(none)",
+                                states.c_str(), material.bAlphaTest,
+                                material.CullMode, material.SrcBlend,
                                 material.DstBlend );
                 for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
-                    OTDU_LOG_DEBUG( "  '%s' slot %u %s = %s (%s)\n", material.Name.c_str(), i,
-                                    IdentifierToString( material.SlotTypes[i] ).c_str(),
-                                    IdentifierToString( material.TextureHashes[i] ).c_str(),
-                                    material.pTextures[i] != nullptr ? "ok" : "missing" );
+                    OTDU_LOG_DEBUG(
+                        "  '%s' slot %u %s = %s (%s)\n", material.Name.c_str(),
+                        i, IdentifierToString( material.SlotTypes[i] ).c_str(),
+                        IdentifierToString( material.TextureHashes[i] ).c_str(),
+                        material.pTextures[i] != nullptr ? "ok" : "missing" );
                 }
                 for ( const auto &parameter : material.Parameters ) {
-                    OTDU_LOG_DEBUG( "  '%s' param %s = %.3f %.3f %.3f %.3f\n", material.Name.c_str(),
-                                    IdentifierToString( parameter.first ).c_str(), parameter.second.x,
-                                    parameter.second.y, parameter.second.z, parameter.second.w );
+                    OTDU_LOG_DEBUG(
+                        "  '%s' param %s = %.3f %.3f %.3f %.3f\n",
+                        material.Name.c_str(),
+                        IdentifierToString( parameter.first ).c_str(),
+                        parameter.second.x, parameter.second.y,
+                        parameter.second.z, parameter.second.w );
                 }
             }
         }
@@ -1451,11 +1750,15 @@ void CinematicCar::setRimDiameters( int32_t frontInch, int32_t rearInch ) {
     rimDiameterFront = frontInch > 0 ? frontInch : rimDiameterFront;
     rimDiameterRear = rearInch > 0 ? rearInch : rimDiameterFront;
     if ( tire.isLoaded() ) {
-        tireNodeFront = tire.getScene().findNode( ( "T_" + std::to_string( rimDiameterFront ) + "P" ).c_str() );
-        tireNodeRear = tire.getScene().findNode( ( "T_" + std::to_string( rimDiameterRear ) + "P" ).c_str() );
+        tireNodeFront = tire.getScene().findNode(
+            ( "T_" + std::to_string( rimDiameterFront ) + "P" ).c_str() );
+        tireNodeRear = tire.getScene().findNode(
+            ( "T_" + std::to_string( rimDiameterRear ) + "P" ).c_str() );
     }
-    OTDU_LOG_INFO( "CinematicCar: rims %d\" / %d\", tire nodes %d / %d, tire radius %.3f m\n", rimDiameterFront,
-                   rimDiameterRear, tireNodeFront, tireNodeRear, tireRadius );
+    OTDU_LOG_INFO( "CinematicCar: rims %d\" / %d\", tire nodes %d / %d, tire "
+                   "radius %.3f m\n",
+                   rimDiameterFront, rimDiameterRear, tireNodeFront,
+                   tireNodeRear, tireRadius );
 }
 
 void CinematicCar::setDashboardNeedles( float speedDegrees, float rpmDegrees ) {
@@ -1468,13 +1771,15 @@ void CinematicCar::setDashboardNeedles( float speedDegrees, float rpmDegrees ) {
     // transform is the value-0 pose captured at load [INF: the retail code
     // FUN_00c52240 uses the ND_x pose nodes; the port's EdenModel keeps world
     // transforms, so a pose parent cannot drive its child].
-    const auto apply = [&]( int32_t node, const Matrix4x4f &rest, float degrees ) {
+    const auto apply = [&]( int32_t node, const Matrix4x4f &rest,
+                            float degrees ) {
         if ( node < 0 ) {
             return;
         }
-        const Quaternionf rotation = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 0.0f, 1.0f ),
-                                                                degrees * kPI / 180.0f );
-        interior.setNodeTransform( node, rest * Matrix4x4f::FromQuaternion( rotation ) );
+        const Quaternionf rotation = Quaternionf::FromAxisAngle(
+            Vector3f( 0.0f, 0.0f, 1.0f ), degrees * kPI / 180.0f );
+        interior.setNodeTransform(
+            node, rest * Matrix4x4f::FromQuaternion( rotation ) );
     };
     apply( dashboardSpeedNode, dashboardSpeedRest, speedDegrees );
     apply( dashboardRpmNode, dashboardRpmRest, rpmDegrees );
@@ -1494,21 +1799,25 @@ void CinematicCar::setWheelSpin( float radians ) {
     };
     if ( !bWheelSpinRests ) {
         for ( size_t i = 0; i < wheelNodes.size(); i++ ) {
-            wheelSpinRests[0].push_back( car.getNodeTransform( wheelNodes[i] ) );
-            wheelSpinRests[1].push_back( car.getNodeTransform( wheelNodes[i] + 1 ) );
+            wheelSpinRests[0].push_back(
+                car.getNodeTransform( wheelNodes[i] ) );
+            wheelSpinRests[1].push_back(
+                car.getNodeTransform( wheelNodes[i] + 1 ) );
         }
         bWheelSpinRests = true;
     }
-    const Matrix4x4f motion =
-        Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), radians ) );
+    const Matrix4x4f motion = Matrix4x4f::FromQuaternion(
+        Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), radians ) );
     for ( size_t i = 0; i < wheelNodes.size(); i++ ) {
         const Matrix4x4f &rest = wheelSpinRests[0][i];
         const Matrix4x4f &tireRest = wheelSpinRests[1][i];
         car.setNodeTransform( wheelNodes[i],
-                              Matrix4x4f::Translation( rest.getTranslation() ) * motion * withoutTranslation( rest ) );
-        car.setNodeTransform( wheelNodes[i] + 1,
-                              Matrix4x4f::Translation( tireRest.getTranslation() ) * motion *
-                                  withoutTranslation( tireRest ) );
+                              Matrix4x4f::Translation( rest.getTranslation() ) *
+                                  motion * withoutTranslation( rest ) );
+        car.setNodeTransform(
+            wheelNodes[i] + 1,
+            Matrix4x4f::Translation( tireRest.getTranslation() ) * motion *
+                withoutTranslation( tireRest ) );
     }
 }
 
@@ -1527,8 +1836,9 @@ void CinematicCar::updateWindows( float deltaTime ) {
     // duration is not in the readable code [INF: 1.2 s, the hardtop's own
     // clip is 17 s for a much larger move].
     const float step = deltaTime / kWndAnimDuration;
-    windowTime = windowTarget > windowTime ? Min( windowTime + step, windowTarget )
-                                          : Max( windowTime - step, windowTarget );
+    windowTime = windowTarget > windowTime
+                     ? Min( windowTime + step, windowTarget )
+                     : Max( windowTime - step, windowTarget );
     for ( int32_t side = 0; side < 2; side++ ) {
         const WindowNodes &window = windows[side];
         if ( window.Raised < 0 ) {
@@ -1537,8 +1847,9 @@ void CinematicCar::updateWindows( float deltaTime ) {
         // FUN_00c66150: the glass moves onto the WND_x2 pose (the door frame
         // at the bottom of the glass) when it is lowered, back to its own rest
         // when raised.
-        car.setNodeTransform( window.Raised,
-                              BlendRigid( window.RaisedRest, window.LoweredRest, windowTime ) );
+        car.setNodeTransform(
+            window.Raised,
+            BlendRigid( window.RaisedRest, window.LoweredRest, windowTime ) );
     }
 }
 
@@ -1561,13 +1872,9 @@ void CinematicCar::setIndicator( int32_t side ) {
                    side < 0 ? "off" : ( side == 0 ? "left" : "right" ) );
 }
 
-void CinematicCar::setBrakeLights( bool bOn ) {
-    bBraking = bOn;
-}
+void CinematicCar::setBrakeLights( bool bOn ) { bBraking = bOn; }
 
-void CinematicCar::setReverseLights( bool bOn ) {
-    bReverse = bOn;
-}
+void CinematicCar::setReverseLights( bool bOn ) { bReverse = bOn; }
 
 // The blinker timer (FUN_00c57ef0 [CODE]): the timer is -1 while no blinker
 // is on, 0 when one starts (the lamp lights at once), then t = fmod(t + dt,
@@ -1599,7 +1906,8 @@ void CinematicCar::updateLights( float deltaTime ) {
     }
     float left = 0.0f, right = 0.0f;
     if ( indicatorTimer >= 0.0f ) {
-        indicatorTimer = std::fmod( indicatorTimer + deltaTime, kBlinkerPeriod );
+        indicatorTimer =
+            std::fmod( indicatorTimer + deltaTime, kBlinkerPeriod );
         if ( indicatorTimer < kBlinkerOnTime ) {
             left = bLeftBlink ? 1.0f : 0.0f;
             right = bRightBlink ? 1.0f : 0.0f;
@@ -1610,7 +1918,8 @@ void CinematicCar::updateLights( float deltaTime ) {
     // cadence above is untouched - the lamp is lit for the same 0.6 s.
     const float targets[2] = { left, right };
     for ( int32_t i = 0; i < 2; i++ ) {
-        const float rate = targets[i] > indicatorGlow[i] ? 1.0f / 0.035f : 1.0f / 0.11f;
+        const float rate =
+            targets[i] > indicatorGlow[i] ? 1.0f / 0.035f : 1.0f / 0.11f;
         const float step = Min( 1.0f, deltaTime * rate );
         indicatorGlow[i] += ( targets[i] - indicatorGlow[i] ) * step;
         if ( indicatorGlow[i] < 0.002f ) {
@@ -1638,7 +1947,8 @@ void CinematicCar::updateLights( float deltaTime ) {
     // materials every frame [CODE-dev]; the port fades it (the
     // TD_flashdashboard transition), the color stays the authored ILUMCOLOR.
     if ( !dashMaterials.empty() && interior.isLoaded() ) {
-        const float target = ( headlightMode != 0 && bDashboardLit ) ? kDashLitIntensity : 0.0f;
+        const float target =
+            ( headlightMode != 0 && bDashboardLit ) ? kDashLitIntensity : 0.0f;
         const float rate = target > dashboardGlow ? 1.0f / 0.15f : 1.0f / 0.35f;
         const float step = Min( 1.0f, deltaTime * rate );
         dashboardGlow += ( target - dashboardGlow ) * step;
@@ -1648,8 +1958,10 @@ void CinematicCar::updateLights( float deltaTime ) {
             dashboardGlow = kDashLitIntensity;
         }
         if ( dashboardGlow != dashboardWritten ) {
-            static const uint64_t kHeadlightsIntensity = GetIdentifier64bit( "HEADLIGHTSINTENSITY" );
-            std::vector<EdenMaterial> &interiorMaterials = interior.getMaterials();
+            static const uint64_t kHeadlightsIntensity =
+                GetIdentifier64bit( "HEADLIGHTSINTENSITY" );
+            std::vector<EdenMaterial> &interiorMaterials =
+                interior.getMaterials();
             for ( int32_t index : dashMaterials ) {
                 interiorMaterials[index].Parameters[kHeadlightsIntensity] =
                     Vector4f( dashboardGlow, 0.0f, 0.0f, 0.0f );
@@ -1675,10 +1987,12 @@ void CinematicCar::collectLights() {
     const std::vector<EdenMaterial> &materials = car.getMaterials();
     static const uint64_t kGlossFct = GetIdentifier64bit( "GLOSSFCT" );
     for ( uint32_t m = 0; m < materials.size(); m++ ) {
-        const uint64_t hashcode = GetIdentifier64bit( materials[m].Name.c_str() );
+        const uint64_t hashcode =
+            GetIdentifier64bit( materials[m].Name.c_str() );
         for ( const LightMaterialName &entry : kLightMaterials ) {
             const uint64_t nameHash = GetIdentifier64bit( entry.pName );
-            if ( nameHash == hashcode && materials[m].Parameters.count( kGlossFct ) != 0 ) {
+            if ( nameHash == hashcode &&
+                 materials[m].Parameters.count( kGlossFct ) != 0 ) {
                 lightMaterials.push_back( { m, entry.bLeft, entry.bFront } );
                 break;
             }
@@ -1695,9 +2009,11 @@ void CinematicCar::collectLights() {
             for ( int32_t n = 0; n < 6; n++ ) {
                 char name[32];
                 if ( n == 0 ) {
-                    snprintf( name, sizeof( name ), "Fa_%c_%s", *pType, kPositions[p] );
+                    snprintf( name, sizeof( name ), "Fa_%c_%s", *pType,
+                              kPositions[p] );
                 } else {
-                    snprintf( name, sizeof( name ), "Fa_%c_%s%d", *pType, kPositions[p], n );
+                    snprintf( name, sizeof( name ), "Fa_%c_%s%d", *pType,
+                              kPositions[p], n );
                 }
                 LightNode light;
                 light.Function = *pType;
@@ -1718,10 +2034,11 @@ void CinematicCar::collectLights() {
             light.Node = static_cast<int32_t>( i );
             ( light.bFlare ? flareNodes : causticNodes ).push_back( light );
         }
-        const int32_t box = strstr( nodes[i].Name.c_str(), "BREAKI" ) != nullptr ? 0
-                            : strstr( nodes[i].Name.c_str(), "EVERS" ) != nullptr ? 1
-                            : strstr( nodes[i].Name.c_str(), "EADLI" ) != nullptr ? 2
-                                                                                  : -1;
+        const int32_t box =
+            strstr( nodes[i].Name.c_str(), "BREAKI" ) != nullptr  ? 0
+            : strstr( nodes[i].Name.c_str(), "EVERS" ) != nullptr ? 1
+            : strstr( nodes[i].Name.c_str(), "EADLI" ) != nullptr ? 2
+                                                                  : -1;
         if ( box >= 0 && nodes[i].Parent == 0 ) {
             lightBoxNodes[box] = static_cast<int32_t>( i );
         }
@@ -1730,7 +2047,8 @@ void CinematicCar::collectLights() {
     for ( const EdenModel::Item &item : car.getItems() ) {
         for ( int32_t box = 0; box < 3; box++ ) {
             if ( item.NodeIndex == lightBoxNodes[box] &&
-                 materials[item.MaterialIndex].Parameters.count( kIntensity ) != 0 ) {
+                 materials[item.MaterialIndex].Parameters.count( kIntensity ) !=
+                     0 ) {
                 lightBoxMaterials[box].push_back( item.MaterialIndex );
             }
         }
@@ -1738,28 +2056,46 @@ void CinematicCar::collectLights() {
     if ( CmdLine::HasArg( "-logcarlights" ) ) {
         for ( const LightNode &light : causticNodes ) {
             Vector3f boundsMin, boundsMax;
-            const bool bBounds = car.getNodeBounds( light.Node, boundsMin, boundsMax );
-            const Vector3f t = car.getNodeTransform( light.Node ).getTranslation();
-            OTDU_LOG_INFO( "CarLight: glow node '%s' %c %s%s at (%.2f, %.2f, %.2f) bounds %d (%.2f, %.2f, %.2f) - (%.2f, %.2f, %.2f)\n",
-                           nodes[light.Node].Name.c_str(), light.Function, light.bFront ? "front" : "rear",
-                           light.bLeft ? " left" : " right", t.x, t.y, t.z, bBounds ? 1 : 0, boundsMin.x, boundsMin.y,
-                           boundsMin.z, boundsMax.x, boundsMax.y, boundsMax.z );
+            const bool bBounds =
+                car.getNodeBounds( light.Node, boundsMin, boundsMax );
+            const Vector3f t =
+                car.getNodeTransform( light.Node ).getTranslation();
+            OTDU_LOG_INFO(
+                "CarLight: glow node '%s' %c %s%s at (%.2f, %.2f, %.2f) bounds "
+                "%d (%.2f, %.2f, %.2f) - (%.2f, %.2f, %.2f)\n",
+                nodes[light.Node].Name.c_str(), light.Function,
+                light.bFront ? "front" : "rear",
+                light.bLeft ? " left" : " right", t.x, t.y, t.z,
+                bBounds ? 1 : 0, boundsMin.x, boundsMin.y, boundsMin.z,
+                boundsMax.x, boundsMax.y, boundsMax.z );
         }
         for ( const EdenModel::Item &item : car.getItems() ) {
             for ( const LightMaterial &light : lightMaterials ) {
                 if ( item.MaterialIndex == light.Material && item.Lod == 0 ) {
-                    const Vector3f t = item.NodeIndex >= 0 ? car.getNodeTransform( item.NodeIndex ).getTranslation() : Vector3f();
-                    OTDU_LOG_INFO( "CarLight: lamp item '%s' node '%s' (at %.2f, %.2f, %.2f) bounds (%.2f, %.2f, %.2f) - (%.2f, %.2f, %.2f)\n",
-                                   materials[light.Material].Name.c_str(),
-                                   item.NodeIndex >= 0 ? nodes[item.NodeIndex].Name.c_str() : "?", t.x, t.y, t.z, item.BoundsMin.x,
-                                   item.BoundsMin.y, item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y, item.BoundsMax.z );
+                    const Vector3f t =
+                        item.NodeIndex >= 0
+                            ? car.getNodeTransform( item.NodeIndex )
+                                  .getTranslation()
+                            : Vector3f();
+                    OTDU_LOG_INFO(
+                        "CarLight: lamp item '%s' node '%s' (at %.2f, %.2f, "
+                        "%.2f) bounds (%.2f, %.2f, %.2f) - (%.2f, %.2f, "
+                        "%.2f)\n",
+                        materials[light.Material].Name.c_str(),
+                        item.NodeIndex >= 0 ? nodes[item.NodeIndex].Name.c_str()
+                                            : "?",
+                        t.x, t.y, t.z, item.BoundsMin.x, item.BoundsMin.y,
+                        item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y,
+                        item.BoundsMax.z );
                 }
             }
         }
     }
     collectLampAnchors();
-    OTDU_LOG_INFO( "CinematicCar: %zu light materials, %zu lamp glow nodes, %zu flare nodes, light boxes %d %d %d\n",
-                   lightMaterials.size(), causticNodes.size(), flareNodes.size(), lightBoxNodes[0], lightBoxNodes[1],
+    OTDU_LOG_INFO( "CinematicCar: %zu light materials, %zu lamp glow nodes, "
+                   "%zu flare nodes, light boxes %d %d %d\n",
+                   lightMaterials.size(), causticNodes.size(),
+                   flareNodes.size(), lightBoxNodes[0], lightBoxNodes[1],
                    lightBoxNodes[2] );
 }
 
@@ -1784,7 +2120,8 @@ void CinematicCar::collectLampAnchors() {
     auto addAnchor = [this]( const LampAnchor &anchor ) {
         // One glow per function and spot (the HR / MR body copies of a lens).
         for ( const LampAnchor &other : lampAnchors ) {
-            if ( other.Function == anchor.Function && other.Node == anchor.Node &&
+            if ( other.Function == anchor.Function &&
+                 other.Node == anchor.Node &&
                  ( other.Local - anchor.Local ).length() < 0.05f ) {
                 return;
             }
@@ -1822,7 +2159,8 @@ void CinematicCar::collectLampAnchors() {
         }
         const std::string &materialName = materials[pLight->Material].Name;
         const std::string &nodeName = nodes[item.NodeIndex].Name;
-        if ( materialName.find( "_SK" ) != std::string::npos || nodeName.empty() || nodeName[0] == '?' ) {
+        if ( materialName.find( "_SK" ) != std::string::npos ||
+             nodeName.empty() || nodeName[0] == '?' ) {
             continue;
         }
         const Vector3f center = ( item.BoundsMin + item.BoundsMax ) * 0.5f;
@@ -1835,11 +2173,14 @@ void CinematicCar::collectLampAnchors() {
         anchor.bLeft = pLight->bLeft;
         anchor.bFront = pLight->bFront;
         anchor.Normal = Vector3f( 0.0f, 0.0f, pLight->bFront ? 1.0f : -1.0f );
-        const bool bOwnNode = StringCmpI( nodeName.c_str(), materialName.c_str() ) == 0;
-        const bool bBodyNode = StringCmpI( nodeName.substr( 0, 5 ).c_str(), "BODY_" ) == 0;
+        const bool bOwnNode =
+            StringCmpI( nodeName.c_str(), materialName.c_str() ) == 0;
+        const bool bBodyNode =
+            StringCmpI( nodeName.substr( 0, 5 ).c_str(), "BODY_" ) == 0;
         if ( bOwnNode && !pLight->bFront ) {
             // The rear cluster: the position light ring and the blinker.
-            anchor.Size = Clamp( Max( extent.x, extent.y ) * 0.55f, 0.08f, 0.22f );
+            anchor.Size =
+                Clamp( Max( extent.x, extent.y ) * 0.55f, 0.08f, 0.22f );
             anchor.Function = 'B';
             addAnchor( anchor );
             // (The blinker glow nodes are the front ones: the rear blinker
@@ -1852,7 +2193,8 @@ void CinematicCar::collectLampAnchors() {
                 addAnchor( anchor );
             }
         } else if ( bOwnNode && pLight->bFront && !bHasFunction['L'] ) {
-            anchor.Size = Clamp( Max( extent.x, extent.y ) * 0.8f, 0.10f, 0.30f );
+            anchor.Size =
+                Clamp( Max( extent.x, extent.y ) * 0.8f, 0.10f, 0.30f );
             anchor.Function = 'L';
             addAnchor( anchor );
         } else if ( bBodyNode && !pLight->bFront && extent.x > 0.25f ) {
@@ -1865,33 +2207,45 @@ void CinematicCar::collectLampAnchors() {
                 strip.bStrip = true;
                 addAnchor( strip );
             }
-        } else if ( bBodyNode && pLight->bFront && Max( extent.y, extent.z ) < 0.10f ) {
+        } else if ( bBodyNode && pLight->bFront &&
+                    Max( extent.y, extent.z ) < 0.10f ) {
             // A side repeater: shines sideways.
             anchor.Size = 0.05f;
             anchor.Function = 'W';
             anchor.bRepeater = true;
-            anchor.Normal = Vector3f( center.x >= 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f );
+            anchor.Normal =
+                Vector3f( center.x >= 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f );
             addAnchor( anchor );
         }
     }
     if ( CmdLine::HasArg( "-logcarlights" ) ) {
         for ( const LampAnchor &anchor : lampAnchors ) {
-            const Vector3f p = anchor.Node >= 0 ? car.getNodeTransform( anchor.Node ).transformPoint( anchor.Local ) : anchor.Local;
-            OTDU_LOG_INFO( "CarLight: glow anchor %c %s %s%s at model (%.2f, %.2f, %.2f) size %.2f\n", anchor.Function,
-                           anchor.bFront ? "front" : "rear", anchor.bLeft ? "left" : "right",
-                           anchor.bRepeater ? " (repeater)" : "", p.x, p.y, p.z, anchor.Size );
+            const Vector3f p = anchor.Node >= 0
+                                   ? car.getNodeTransform( anchor.Node )
+                                         .transformPoint( anchor.Local )
+                                   : anchor.Local;
+            OTDU_LOG_INFO( "CarLight: glow anchor %c %s %s%s at model (%.2f, "
+                           "%.2f, %.2f) size %.2f\n",
+                           anchor.Function, anchor.bFront ? "front" : "rear",
+                           anchor.bLeft ? "left" : "right",
+                           anchor.bRepeater ? " (repeater)" : "", p.x, p.y, p.z,
+                           anchor.Size );
         }
     }
 }
 
-bool CinematicCar::getHeadlampPositions( const Matrix4x4f &world, Vector3f &outLeft, Vector3f &outRight ) const {
+bool CinematicCar::getHeadlampPositions( const Matrix4x4f &world,
+                                         Vector3f &outLeft,
+                                         Vector3f &outRight ) const {
     Vector3f sum[2];
     int32_t count[2] = { 0, 0 };
     for ( const LampAnchor &anchor : lampAnchors ) {
         if ( anchor.Function != 'L' || !anchor.bFront ) {
             continue;
         }
-        const Matrix4x4f node = anchor.Node >= 0 ? world * car.getNodeTransform( anchor.Node ) : world;
+        const Matrix4x4f node =
+            anchor.Node >= 0 ? world * car.getNodeTransform( anchor.Node )
+                             : world;
         const int32_t side = anchor.bLeft ? 0 : 1;
         sum[side] = sum[side] + node.transformPoint( anchor.Local );
         count[side]++;
@@ -1904,7 +2258,8 @@ bool CinematicCar::getHeadlampPositions( const Matrix4x4f &world, Vector3f &outL
     return true;
 }
 
-void CinematicCar::appendLampGlows( const Matrix4x4f &world, std::vector<EdenLampGlow> &out ) const {
+void CinematicCar::appendLampGlows( const Matrix4x4f &world,
+                                    std::vector<EdenLampGlow> &out ) const {
     if ( !car.isLoaded() ) {
         return;
     }
@@ -1913,13 +2268,15 @@ void CinematicCar::appendLampGlows( const Matrix4x4f &world, std::vector<EdenLam
     // [INF: by eye against the retail captures].
     const float night = appliedNight;
     for ( const LampAnchor &anchor : lampAnchors ) {
-        float value = 0.0f, dayShare = 0.0f, core = 1.0f, spread = 0.22f, sizeScale = 1.0f;
+        float value = 0.0f, dayShare = 0.0f, core = 1.0f, spread = 0.22f,
+              sizeScale = 1.0f;
         Vector3f color;
         switch ( anchor.Function ) {
         case 'L':
             // The front blinker sits in the headlamp cluster: its amber is
             // lost under the white glow unless that side's lamp gives way.
-            value = appliedHeadlight * ( 1.0f - 0.5f * indicatorValue[anchor.bLeft ? 0 : 1] );
+            value = appliedHeadlight *
+                    ( 1.0f - 0.5f * indicatorValue[anchor.bLeft ? 0 : 1] );
             color = Vector3f( 1.00f, 0.93f, 0.82f );
             dayShare = 0.30f;
             spread = 0.12f;
@@ -1951,15 +2308,19 @@ void CinematicCar::appendLampGlows( const Matrix4x4f &world, std::vector<EdenLam
         default:
             break;
         }
-        const float strength = value * ( dayShare + ( 1.0f - dayShare ) * night );
+        const float strength =
+            value * ( dayShare + ( 1.0f - dayShare ) * night );
         if ( strength <= 0.01f ) {
             continue;
         }
-        const Matrix4x4f node = anchor.Node >= 0 ? world * car.getNodeTransform( anchor.Node ) : world;
+        const Matrix4x4f node =
+            anchor.Node >= 0 ? world * car.getNodeTransform( anchor.Node )
+                             : world;
         EdenLampGlow glow;
         glow.Position = node.transformPoint( anchor.Local );
         Vector3f normal = world.transformVector( anchor.Normal );
-        glow.Normal = normal.length() > 1e-4f ? normal.normalized() : Vector3f( 0.0f, 0.0f, 1.0f );
+        glow.Normal = normal.length() > 1e-4f ? normal.normalized()
+                                              : Vector3f( 0.0f, 0.0f, 1.0f );
         glow.Color = color;
         glow.Size = anchor.Size * sizeScale * ( 0.75f + 0.25f * night );
         glow.Strength = Saturate( strength );
@@ -1978,7 +2339,9 @@ void CinematicCar::applyLights( const WeatherPreset *pWeather ) {
         if ( pWeather == nullptr ) {
             return 0.0f;
         }
-        return pWeather->getFloat( ( std::string( bInTunnel ? "tunnel_" : "" ) + pName ).c_str(), 0.0f );
+        return pWeather->getFloat(
+            ( std::string( bInTunnel ? "tunnel_" : "" ) + pName ).c_str(),
+            0.0f );
     };
     const int32_t mode = headlightMode < 0 ? 1 : headlightMode;
     const float rawFlare = weather( "car_headlight_flare_intensity" );
@@ -2008,16 +2371,19 @@ void CinematicCar::applyLights( const WeatherPreset *pWeather ) {
     // Per function on top of it: the stop and the blinker lamps are the
     // brightest bulbs of a car (21 W against the 5 W tail light), and at 1.4
     // they still read as a matte red / a dull orange dot on the lens [INF].
-    constexpr float kBrakeWeight = 1.45f, kBlinkerWeight = 1.6f, kReverseWeight = 1.2f;
+    constexpr float kBrakeWeight = 1.45f, kBlinkerWeight = 1.6f,
+                    kReverseWeight = 1.2f;
     for ( const LightMaterial &light : lightMaterials ) {
         auto it = materials[light.Material].Parameters.find( kGlossFct );
         if ( it == materials[light.Material].Parameters.end() ) {
             continue;
         }
-        it->second = Vector4f( light.bFront ? 0.0f : brakeValue * boost * kBrakeWeight,
-                               light.bFront ? 0.0f : reverseValue * boost * kReverseWeight,
-                               light.bFront ? Max( positionValue, headlightValue ) * boost : positionValue * boost,
-                               indicatorValue[light.bLeft ? 0 : 1] * boost * kBlinkerWeight );
+        it->second = Vector4f(
+            light.bFront ? 0.0f : brakeValue * boost * kBrakeWeight,
+            light.bFront ? 0.0f : reverseValue * boost * kReverseWeight,
+            light.bFront ? Max( positionValue, headlightValue ) * boost
+                         : positionValue * boost,
+            indicatorValue[light.bLeft ? 0 : 1] * boost * kBlinkerWeight );
     }
     appliedHeadlight = Saturate( headlightValue );
     appliedPosition = Saturate( positionValue );
@@ -2025,19 +2391,32 @@ void CinematicCar::applyLights( const WeatherPreset *pWeather ) {
     appliedReverse = reverseValue;
     appliedNight = Saturate( rawFlare );
     // The lamp glow meshes / flare sprites: shown with their function.
-    for ( const std::vector<LightNode> *pNodes : { &causticNodes, &flareNodes } ) {
+    for ( const std::vector<LightNode> *pNodes :
+          { &causticNodes, &flareNodes } ) {
         for ( const LightNode &node : *pNodes ) {
             float value = 0.0f;
             switch ( node.Function ) {
-            case 'L': value = headlightValue; break;
-            case 'B': value = positionValue; break;
-            case 'S': value = brakeValue; break;
-            case 'R': value = reverseValue; break;
-            case 'W': value = indicatorValue[node.bLeft ? 0 : 1] > 0.5f ? 1.0f : 0.0f; break;
-            default: break;
+            case 'L':
+                value = headlightValue;
+                break;
+            case 'B':
+                value = positionValue;
+                break;
+            case 'S':
+                value = brakeValue;
+                break;
+            case 'R':
+                value = reverseValue;
+                break;
+            case 'W':
+                value = indicatorValue[node.bLeft ? 0 : 1] > 0.5f ? 1.0f : 0.0f;
+                break;
+            default:
+                break;
             }
             static const bool bNoFlares = CmdLine::HasArg( "-noflares" );
-            car.setNodeVisible( node.Node, value > 0.0f && !( node.bFlare && bNoFlares ) );
+            car.setNodeVisible( node.Node,
+                                value > 0.0f && !( node.bFlare && bNoFlares ) );
         }
     }
     // The projected light boxes: v = car_caustics_intensity (0 in mode 0,
@@ -2050,7 +2429,8 @@ void CinematicCar::applyLights( const WeatherPreset *pWeather ) {
         caustics += 1.0f;
     }
     static const bool bNoLightBoxes = CmdLine::HasArg( "-nolightboxes" );
-    const bool bBoxOn[3] = { caustics > 0.05f && bBraking, caustics > 0.05f && bReverse, caustics > 0.0f };
+    const bool bBoxOn[3] = { caustics > 0.05f && bBraking,
+                             caustics > 0.05f && bReverse, caustics > 0.0f };
     static const uint64_t kIntensity = GetIdentifier64bit( "INTENSITY" );
     for ( int32_t box = 0; box < 3; box++ ) {
         if ( lightBoxNodes[box] < 0 ) {
@@ -2069,17 +2449,20 @@ void CinematicCar::applyLights( const WeatherPreset *pWeather ) {
 // The GPS quad's own UV layout: which way the texture lies on the screen.
 // Viewer-right is -x (car frame), up is the quad's in-plane direction with the
 // larger y; the content position (cx right, cy down) of each corner is matched
-// against its UV over the 8 transpose / flip combinations. [DATA: the California
-// is upright, the 370Z transposed - read from the quad, not hardcoded]
+// against its UV over the 8 transpose / flip combinations. [DATA: the
+// California is upright, the 370Z transposed - read from the quad, not
+// hardcoded]
 void CinematicCar::computeGpsLayout() {
     gpsLayout = GpsUvLayout();
     if ( gpsMaterials.empty() ) {
         return;
     }
     for ( const EdenModel::Item &item : interior.getItems() ) {
-        if ( std::find( gpsMaterials.begin(), gpsMaterials.end(), static_cast<int32_t>( item.MaterialIndex ) ) ==
+        if ( std::find( gpsMaterials.begin(), gpsMaterials.end(),
+                        static_cast<int32_t>( item.MaterialIndex ) ) ==
                  gpsMaterials.end() ||
-             item.PrimitiveVertices.size() < 4 || item.PrimitiveUVs.size() < 8 ) {
+             item.PrimitiveVertices.size() < 4 ||
+             item.PrimitiveUVs.size() < 8 ) {
             continue;
         }
         const std::vector<Vector3f> &p = item.PrimitiveVertices;
@@ -2113,21 +2496,32 @@ void CinematicCar::computeGpsLayout() {
             test.FlipV = ( combo & 4 ) != 0;
             bool bMatch = true;
             for ( size_t i = 0; i < 4 && bMatch; i++ ) {
-                const float cx = ( right[i] - rightMin ) / Max( rightMax - rightMin, 1e-6f ) > 0.5f ? 1.0f : 0.0f;
-                const float cy = ( upMax - upCoord[i] ) / Max( upMax - upMin, 1e-6f ) > 0.5f ? 1.0f : 0.0f;
-                float u = test.Transpose ? cy : cx, v = test.Transpose ? cx : cy;
+                const float cx = ( right[i] - rightMin ) /
+                                             Max( rightMax - rightMin, 1e-6f ) >
+                                         0.5f
+                                     ? 1.0f
+                                     : 0.0f;
+                const float cy =
+                    ( upMax - upCoord[i] ) / Max( upMax - upMin, 1e-6f ) > 0.5f
+                        ? 1.0f
+                        : 0.0f;
+                float u = test.Transpose ? cy : cx,
+                      v = test.Transpose ? cx : cy;
                 u = test.FlipU ? 1.0f - u : u;
                 v = test.FlipV ? 1.0f - v : v;
-                bMatch = fabsf( u - item.PrimitiveUVs[2 * i] ) < 0.1f && fabsf( v - item.PrimitiveUVs[2 * i + 1] ) < 0.1f;
+                bMatch = fabsf( u - item.PrimitiveUVs[2 * i] ) < 0.1f &&
+                         fabsf( v - item.PrimitiveUVs[2 * i + 1] ) < 0.1f;
             }
             if ( bMatch ) {
                 gpsLayout = test;
                 bFound = true;
             }
         }
-        OTDU_LOG_INFO( "CinematicCar: dash GPS uv layout %s transpose %d flipU %d flipV %d\n",
-                       bFound ? "matched:" : "NOT matched (identity):", gpsLayout.Transpose ? 1 : 0,
-                       gpsLayout.FlipU ? 1 : 0, gpsLayout.FlipV ? 1 : 0 );
+        OTDU_LOG_INFO( "CinematicCar: dash GPS uv layout %s transpose %d flipU "
+                       "%d flipV %d\n",
+                       bFound ? "matched:" : "NOT matched (identity):",
+                       gpsLayout.Transpose ? 1 : 0, gpsLayout.FlipU ? 1 : 0,
+                       gpsLayout.FlipV ? 1 : 0 );
         return;
     }
 }
@@ -2144,7 +2538,9 @@ void CinematicCar::setDashboardLit( bool bOn ) {
     // which carry each car's own backlight tint.
 }
 
-bool CinematicCar::setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, const Vector4f &uvOffset ) {
+bool CinematicCar::setGpsTexture( EdenRenderer &renderer,
+                                  GPUTexture *pTexture,
+                                  const Vector4f &uvOffset ) {
     if ( gpsMaterials.empty() || !interior.isLoaded() || pTexture == nullptr ) {
         return false;
     }
@@ -2161,7 +2557,8 @@ bool CinematicCar::setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, 
         // the slot type); one material, so the first match is the screen.
         bAssigned |= renderer.assignTexture( material, "COLOR", pTexture );
         if ( !bAssigned ) {
-            bAssigned |= renderer.assignTexture( material, "SATELLITEMAP", pTexture );
+            bAssigned |=
+                renderer.assignTexture( material, "SATELLITEMAP", pTexture );
         }
         material.Parameters[kUvOffset] = uvOffset;
         renderer.updateProgram( material );
@@ -2171,11 +2568,12 @@ bool CinematicCar::setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, 
     bGpsBound = true;
     if ( !bAssigned ) {
         const EdenMaterial &m = interior.getMaterials()[gpsMaterials[0]];
-        OTDU_LOG_WARN( "CinematicCar: dash GPS bind failed, no satellitemap slot on %d material(s)"
+        OTDU_LOG_WARN( "CinematicCar: dash GPS bind failed, no satellitemap "
+                       "slot on %d material(s)"
                        " (slots: %d, types: '%s' %016llx)\n",
                        static_cast<int32_t>( gpsMaterials.size() ), m.NumSlots,
                        IdentifierToString( m.SlotTypes[0] ).c_str(),
-                       ( unsigned long long )m.SlotTypes[0] );
+                       (unsigned long long)m.SlotTypes[0] );
         return false;
     }
     for ( int32_t node : gpsNodes ) {
@@ -2185,27 +2583,41 @@ bool CinematicCar::setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, 
         const std::vector<EdenModel::Item> &items = interior.getItems();
         for ( size_t i = 0; i < items.size(); i++ ) {
             const EdenModel::Item &item = items[i];
-            if ( std::find( gpsMaterials.begin(), gpsMaterials.end(), static_cast<int32_t>( item.MaterialIndex ) ) ==
+            if ( std::find( gpsMaterials.begin(), gpsMaterials.end(),
+                            static_cast<int32_t>( item.MaterialIndex ) ) ==
                  gpsMaterials.end() ) {
                 continue;
             }
             const Matrix4x4f &t = interior.getNodeTransform( item.NodeIndex );
-            OTDU_LOG_INFO( "GPSDBG item %zu node %d '%s' vis %d idx %u lod %u bounds (%.3f %.3f %.3f)-(%.3f %.3f %.3f) "
-                           "node t (%.3f %.3f %.3f)\n",
-                           i, item.NodeIndex, interior.getScene().getNodes()[item.NodeIndex].Name.c_str(),
-                           interior.isNodeVisible( item.NodeIndex ) ? 1 : 0, item.Mesh.IndexCount, item.Lod,
-                           item.BoundsMin.x, item.BoundsMin.y, item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y,
-                           item.BoundsMax.z, t.getTranslation().x, t.getTranslation().y, t.getTranslation().z );
+            OTDU_LOG_INFO(
+                "GPSDBG item %zu node %d '%s' vis %d idx %u lod %u bounds "
+                "(%.3f %.3f %.3f)-(%.3f %.3f %.3f) "
+                "node t (%.3f %.3f %.3f)\n",
+                i, item.NodeIndex,
+                interior.getScene().getNodes()[item.NodeIndex].Name.c_str(),
+                interior.isNodeVisible( item.NodeIndex ) ? 1 : 0,
+                item.Mesh.IndexCount, item.Lod, item.BoundsMin.x,
+                item.BoundsMin.y, item.BoundsMin.z, item.BoundsMax.x,
+                item.BoundsMax.y, item.BoundsMax.z, t.getTranslation().x,
+                t.getTranslation().y, t.getTranslation().z );
             for ( size_t v = 0; v < item.PrimitiveVertices.size(); v++ ) {
-                OTDU_LOG_INFO( "GPSDBG   v%zu (%.3f %.3f %.3f) uv (%.3f %.3f)\n", v, item.PrimitiveVertices[v].x,
-                               item.PrimitiveVertices[v].y, item.PrimitiveVertices[v].z,
-                               2 * v + 1 < item.PrimitiveUVs.size() ? item.PrimitiveUVs[2 * v] : -1.0f,
-                               2 * v + 1 < item.PrimitiveUVs.size() ? item.PrimitiveUVs[2 * v + 1] : -1.0f );
+                OTDU_LOG_INFO(
+                    "GPSDBG   v%zu (%.3f %.3f %.3f) uv (%.3f %.3f)\n", v,
+                    item.PrimitiveVertices[v].x, item.PrimitiveVertices[v].y,
+                    item.PrimitiveVertices[v].z,
+                    2 * v + 1 < item.PrimitiveUVs.size()
+                        ? item.PrimitiveUVs[2 * v]
+                        : -1.0f,
+                    2 * v + 1 < item.PrimitiveUVs.size()
+                        ? item.PrimitiveUVs[2 * v + 1]
+                        : -1.0f );
             }
         }
     }
-    OTDU_LOG_INFO( "CinematicCar: dash GPS bound, %d material(s), %d node(s), uv (%.1f %.1f %.1f)\n",
-                   static_cast<int32_t>( gpsMaterials.size() ), static_cast<int32_t>( gpsNodes.size() ), uvOffset.x,
+    OTDU_LOG_INFO( "CinematicCar: dash GPS bound, %d material(s), %d node(s), "
+                   "uv (%.1f %.1f %.1f)\n",
+                   static_cast<int32_t>( gpsMaterials.size() ),
+                   static_cast<int32_t>( gpsNodes.size() ), uvOffset.x,
                    uvOffset.y, uvOffset.z );
     return true;
 }
@@ -2223,8 +2635,9 @@ void CinematicCar::updateHardtop( float deltaTime ) {
     if ( !bHardtop || hardtopTarget == hardtopTime ) {
         return;
     }
-    hardtopTime = hardtopTarget > hardtopTime ? Min( hardtopTime + deltaTime, hardtopTarget )
-                                             : Max( hardtopTime - deltaTime, hardtopTarget );
+    hardtopTime = hardtopTarget > hardtopTime
+                      ? Min( hardtopTime + deltaTime, hardtopTarget )
+                      : Max( hardtopTime - deltaTime, hardtopTarget );
     std::vector<BoneTransform> locals( hardtopSkeleton.getNumBones() );
     for ( uint32_t bone = 0; bone < hardtopSkeleton.getNumBones(); bone++ ) {
         locals[bone] = hardtopSkeleton.getBindLocal( bone );
@@ -2262,7 +2675,8 @@ int32_t CinematicCar::getIdCar() const {
     XmbValue root = gpDatabase->getDocument().getRoot();
     for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" ); i++ ) {
         XmbValue record = root.getArrayElement( "DBCarPhysicsData", i );
-        if ( StringCmpI( record["_car_file_name"].asString().c_str(), fileName.c_str() ) == 0 ) {
+        if ( StringCmpI( record["_car_file_name"].asString().c_str(),
+                         fileName.c_str() ) == 0 ) {
             return static_cast<int32_t>( record["_id_car"].asInt( -1 ) );
         }
     }
@@ -2270,72 +2684,84 @@ int32_t CinematicCar::getIdCar() const {
 }
 
 namespace {
-// The DBCarsAndColors rows of a car, in table order (paint_idx indexes them,
-// paint_spec.md 1) [DATA + INF].
-std::vector<XmbValue> PaintRows( int32_t carId ) {
-    std::vector<XmbValue> rows;
-    if ( gpDatabase == nullptr || carId < 0 ) {
+    // The DBCarsAndColors rows of a car, in table order (paint_idx indexes
+    // them, paint_spec.md 1) [DATA + INF].
+    std::vector<XmbValue> PaintRows( int32_t carId ) {
+        std::vector<XmbValue> rows;
+        if ( gpDatabase == nullptr || carId < 0 ) {
+            return rows;
+        }
+        XmbValue root = gpDatabase->getDocument().getRoot();
+        for ( uint32_t i = 0; i < root.getArraySize( "DBCarsAndColors" );
+              i++ ) {
+            XmbValue row = root.getArrayElement( "DBCarsAndColors", i );
+            if ( row["_car"].asUInt64() == static_cast<uint64_t>( carId ) ) {
+                rows.push_back( row );
+            }
+        }
         return rows;
     }
-    XmbValue root = gpDatabase->getDocument().getRoot();
-    for ( uint32_t i = 0; i < root.getArraySize( "DBCarsAndColors" ); i++ ) {
-        XmbValue row = root.getArrayElement( "DBCarsAndColors", i );
-        if ( row["_car"].asUInt64() == static_cast<uint64_t>( carId ) ) {
-            rows.push_back( row );
-        }
-    }
-    return rows;
-}
 
-// vehicules/colors.bnk colors.2dm (GServiceCarColors), loaded once.
-const Render2DM *SharedColorLibrary() {
-    static Render2DM library;
-    static bool bTried = false;
-    static bool bLoaded = false;
-    if ( !bTried ) {
-        bTried = true;
-        Bank bank;
-        if ( bank.load( ( gpFile->getBankFolder() + "vehicules/colors.bnk" ).c_str() ) ) {
-            for ( const BankEntry &entry : bank.getEntries() ) {
-                if ( entry.Extension == "2dm" && library.parse( entry.pData, entry.Size ) ) {
-                    bLoaded = true;
-                    break;
+    // vehicules/colors.bnk colors.2dm (GServiceCarColors), loaded once.
+    const Render2DM *SharedColorLibrary() {
+        static Render2DM library;
+        static bool bTried = false;
+        static bool bLoaded = false;
+        if ( !bTried ) {
+            bTried = true;
+            Bank bank;
+            if ( bank.load( ( gpFile->getBankFolder() + "vehicules/colors.bnk" )
+                                .c_str() ) ) {
+                for ( const BankEntry &entry : bank.getEntries() ) {
+                    if ( entry.Extension == "2dm" &&
+                         library.parse( entry.pData, entry.Size ) ) {
+                        bLoaded = true;
+                        break;
+                    }
                 }
             }
         }
+        return bLoaded ? &library : nullptr;
     }
-    return bLoaded ? &library : nullptr;
-}
 
-const MaterialDesc *FindNamedMaterial( const Render2DM *pLibrary, const std::string &name ) {
-    if ( pLibrary == nullptr || name.empty() || name == "##" ) {
+    const MaterialDesc *FindNamedMaterial( const Render2DM *pLibrary,
+                                           const std::string &name ) {
+        if ( pLibrary == nullptr || name.empty() || name == "##" ) {
+            return nullptr;
+        }
+        // FUN_00c4c0f0( hash( name ) ) [CODE]: by hashcode — the MAT. name
+        // field is cut to 15 characters ("Nuovo_Grigio_In"), so a long colour
+        // id
+        // ("Spider_16M_Ext_Rouge_01") only matches by its hash.
+        if ( const MaterialDesc *pMaterial =
+                 pLibrary->find( GetIdentifier64bit( name.c_str() ) ) ) {
+            return pMaterial;
+        }
+        for ( const MaterialDesc &material : pLibrary->getOrderedMaterials() ) {
+            if ( StringCmpI( material.Name.c_str(), name.c_str() ) == 0 ) {
+                return &material;
+            }
+        }
         return nullptr;
     }
-    // FUN_00c4c0f0( hash( name ) ) [CODE]: by hashcode — the MAT. name field
-    // is cut to 15 characters ("Nuovo_Grigio_In"), so a long colour id
-    // ("Spider_16M_Ext_Rouge_01") only matches by its hash.
-    if ( const MaterialDesc *pMaterial = pLibrary->find( GetIdentifier64bit( name.c_str() ) ) ) {
-        return pMaterial;
-    }
-    for ( const MaterialDesc &material : pLibrary->getOrderedMaterials() ) {
-        if ( StringCmpI( material.Name.c_str(), name.c_str() ) == 0 ) {
-            return &material;
-        }
-    }
-    return nullptr;
-}
 
-// TD_CarPaint2 shader set GUID (paint_spec.md 4) [DATA].
-constexpr uint64_t kTDCarPaint2 = 0x183157b81c6c5377ull;
+    // TD_CarPaint2 shader set GUID (paint_spec.md 4) [DATA].
+    constexpr uint64_t kTDCarPaint2 = 0x183157b81c6c5377ull;
 
-// The paint parameters FUN_00c5ff20 mode 0 copies (paint_spec.md 3.3) [CODE].
-const char *const kPaintParameters[] = { "MATPARAM", "SPECPARM", "SPECBLINN", "FLAKEABNS", "RAMPPOW", "RAMPCLR1",
-                                         "RAMPCLR2", "RAMPCLR3", "RAMPFLAKE", "BLINNCLRA", "BLINNCLRB" };
+    // The paint parameters FUN_00c5ff20 mode 0 copies (paint_spec.md 3.3)
+    // [CODE].
+    const char *const kPaintParameters[] = {
+        "MATPARAM",  "SPECPARM",  "SPECBLINN", "FLAKEABNS",
+        "RAMPPOW",   "RAMPCLR1",  "RAMPCLR2",  "RAMPCLR3",
+        "RAMPFLAKE", "BLINNCLRA", "BLINNCLRB" };
 } // namespace
 
-int32_t CinematicCar::CountDatabasePaints( int32_t carId ) { return static_cast<int32_t>( PaintRows( carId ).size() ); }
+int32_t CinematicCar::CountDatabasePaints( int32_t carId ) {
+    return static_cast<int32_t>( PaintRows( carId ).size() );
+}
 
-std::vector<CinematicCar::PaintInfo> CinematicCar::DatabasePaints( int32_t carId ) {
+std::vector<CinematicCar::PaintInfo>
+CinematicCar::DatabasePaints( int32_t carId ) {
     std::vector<PaintInfo> paints;
     for ( const XmbValue &row : PaintRows( carId ) ) {
         PaintInfo info;
@@ -2346,7 +2772,8 @@ std::vector<CinematicCar::PaintInfo> CinematicCar::DatabasePaints( int32_t carId
     return paints;
 }
 
-std::string CinematicCar::DatabasePaintColorId( int32_t carId, int32_t paintIndex ) {
+std::string CinematicCar::DatabasePaintColorId( int32_t carId,
+                                                int32_t paintIndex ) {
     const std::vector<XmbValue> rows = PaintRows( carId );
     if ( paintIndex < 0 || paintIndex >= static_cast<int32_t>( rows.size() ) ) {
         return "";
@@ -2354,7 +2781,8 @@ std::string CinematicCar::DatabasePaintColorId( int32_t carId, int32_t paintInde
     return rows[static_cast<size_t>( paintIndex )]["_color_id_1"].asString();
 }
 
-uint32_t CinematicCar::bindStickerTexture( EdenRenderer &renderer, GPUTexture *pTexture ) {
+uint32_t CinematicCar::bindStickerTexture( EdenRenderer &renderer,
+                                           GPUTexture *pTexture ) {
     if ( !car.isLoaded() || pTexture == nullptr ) {
         return 0;
     }
@@ -2363,13 +2791,15 @@ uint32_t CinematicCar::bindStickerTexture( EdenRenderer &renderer, GPUTexture *p
     // "USER_TEX", the California's ships as "STIKERS" [DATA: 2dm slot type,
     // the data's own spelling] - accept the variants, none of the other paint
     // slots collide (NORMAL, DETAIL, CUBEMAP, DIRT_SCRATCH, FLAKE, DAMAGE).
-    static const uint64_t kStickerSlots[] = { GetIdentifier64bit( "USER_TEX" ), GetIdentifier64bit( "STIKERS" ),
-                                              GetIdentifier64bit( "STICKERS" ) };
+    static const uint64_t kStickerSlots[] = {
+        GetIdentifier64bit( "USER_TEX" ), GetIdentifier64bit( "STIKERS" ),
+        GetIdentifier64bit( "STICKERS" ) };
     uint32_t bound = 0;
     for ( EdenMaterial &material : car.getMaterials() ) {
         // The body paint materials only (the family + names applyDatabasePaint
         // repaints): liveries / trims / glass keep their own textures.
-        if ( material.ShaderSetGUID != kTDCarPaint2 && material.Name.rfind( "Paint", 0 ) != 0 ) {
+        if ( material.ShaderSetGUID != kTDCarPaint2 &&
+             material.Name.rfind( "Paint", 0 ) != 0 ) {
             continue;
         }
         int32_t slot = -1;
@@ -2384,71 +2814,93 @@ uint32_t CinematicCar::bindStickerTexture( EdenRenderer &renderer, GPUTexture *p
         if ( bLog ) {
             std::string slots;
             for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
-                slots += ( i > 0 ? " " : "" ) + IdentifierToString( material.SlotTypes[i] ) + "='";
-                slots += material.pTextures[i] != nullptr ? material.pTextures[i]->Name : std::string( "-" );
+                slots += ( i > 0 ? " " : "" ) +
+                         IdentifierToString( material.SlotTypes[i] ) + "='";
+                slots += material.pTextures[i] != nullptr
+                             ? material.pTextures[i]->Name
+                             : std::string( "-" );
                 slots += "'";
             }
-            OTDU_LOG_INFO( "Stickers: %s paint material '%s' (shader 0x%llx): slot %s\n", fileName.c_str(),
-                           material.Name.c_str(), static_cast<unsigned long long>( material.ShaderSetGUID ),
-                           slots.c_str() );
+            OTDU_LOG_INFO(
+                "Stickers: %s paint material '%s' (shader 0x%llx): slot %s\n",
+                fileName.c_str(), material.Name.c_str(),
+                static_cast<unsigned long long>( material.ShaderSetGUID ),
+                slots.c_str() );
         }
         if ( slot < 0 ) {
             continue;
         }
         material.pTextures[slot] = pTexture;
-        material.TextureHashes[slot] = GetIdentifier64bit( pTexture->Name.c_str() );
+        material.TextureHashes[slot] =
+            GetIdentifier64bit( pTexture->Name.c_str() );
         renderer.updateProgram( material );
         bound++;
     }
-    OTDU_LOG_INFO( "Stickers: %s sticker canvas bound on %u paint material(s)\n", fileName.c_str(), bound );
+    OTDU_LOG_INFO(
+        "Stickers: %s sticker canvas bound on %u paint material(s)\n",
+        fileName.c_str(), bound );
     return bound;
 }
 
 namespace {
-bool SwatchOf( const MaterialDesc &material, float outRgb[3] ) {
-    Vector4f value;
-    if ( material.getParameter( "RAMPCLR1", value ) ) {
-        outRgb[0] = value.x;
-        outRgb[1] = value.y;
-        outRgb[2] = value.z;
-    } else {
-        outRgb[0] = material.DiffuseColor.x;
-        outRgb[1] = material.DiffuseColor.y;
-        outRgb[2] = material.DiffuseColor.z;
+    bool SwatchOf( const MaterialDesc &material, float outRgb[3] ) {
+        Vector4f value;
+        if ( material.getParameter( "RAMPCLR1", value ) ) {
+            outRgb[0] = value.x;
+            outRgb[1] = value.y;
+            outRgb[2] = value.z;
+        } else {
+            outRgb[0] = material.DiffuseColor.x;
+            outRgb[1] = material.DiffuseColor.y;
+            outRgb[2] = material.DiffuseColor.z;
+        }
+        for ( int32_t i = 0; i < 3; i++ ) {
+            outRgb[i] = outRgb[i] < 0.0f
+                            ? 0.0f
+                            : ( outRgb[i] > 1.0f ? 1.0f : outRgb[i] );
+        }
+        return true;
     }
-    for ( int32_t i = 0; i < 3; i++ ) {
-        outRgb[i] = outRgb[i] < 0.0f ? 0.0f : ( outRgb[i] > 1.0f ? 1.0f : outRgb[i] );
-    }
-    return true;
-}
 } // namespace
 
-bool CinematicCar::FindLibrarySwatch( const std::string &materialName, float outRgb[3] ) {
-    const MaterialDesc *pMaterial = FindNamedMaterial( SharedColorLibrary(), materialName );
+bool CinematicCar::FindLibrarySwatch( const std::string &materialName,
+                                      float outRgb[3] ) {
+    const MaterialDesc *pMaterial =
+        FindNamedMaterial( SharedColorLibrary(), materialName );
     return pMaterial != nullptr && SwatchOf( *pMaterial, outRgb );
 }
 
-bool CinematicCar::getLibrarySwatch( const std::string &colorId, float outRgb[3] ) {
+bool CinematicCar::getLibrarySwatch( const std::string &colorId,
+                                     float outRgb[3] ) {
     Render2DM carLibrary;
-    const BankEntry *pCarColors = carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
-    const bool bCarLibrary = pCarColors != nullptr && carLibrary.parse( pCarColors->pData, pCarColors->Size );
-    const MaterialDesc *pMaterial = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, colorId );
+    const BankEntry *pCarColors =
+        carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
+    const bool bCarLibrary =
+        pCarColors != nullptr &&
+        carLibrary.parse( pCarColors->pData, pCarColors->Size );
+    const MaterialDesc *pMaterial =
+        FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, colorId );
     if ( pMaterial == nullptr ) {
         pMaterial = FindNamedMaterial( SharedColorLibrary(), colorId );
     }
     return pMaterial != nullptr && SwatchOf( *pMaterial, outRgb );
 }
 
-bool CinematicCar::getDatabasePaintSwatch( int32_t paintIndex, float outRgb[3] ) {
+bool CinematicCar::getDatabasePaintSwatch( int32_t paintIndex,
+                                           float outRgb[3] ) {
     const std::vector<XmbValue> rows = PaintRows( getIdCar() );
     if ( paintIndex < 0 || paintIndex >= static_cast<int32_t>( rows.size() ) ) {
         return false;
     }
     const std::string colorId = rows[paintIndex]["_color_id_1"].asString();
     Render2DM carLibrary;
-    const BankEntry *pCarColors = carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
-    const bool bCarLibrary = pCarColors != nullptr && carLibrary.parse( pCarColors->pData, pCarColors->Size );
-    const MaterialDesc *pMaterial = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, colorId );
+    const BankEntry *pCarColors =
+        carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
+    const bool bCarLibrary =
+        pCarColors != nullptr &&
+        carLibrary.parse( pCarColors->pData, pCarColors->Size );
+    const MaterialDesc *pMaterial =
+        FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, colorId );
     if ( pMaterial == nullptr ) {
         pMaterial = FindNamedMaterial( SharedColorLibrary(), colorId );
     }
@@ -2471,31 +2923,46 @@ std::string CinematicCar::applyDatabasePaint( int32_t paintIndex ) {
     // The car's own colour library (a second .2dm of the car bank, FUN_00c4cc30
     // registration) first, then colors.2dm.
     Render2DM carLibrary;
-    const BankEntry *pCarColors = carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
-    const bool bCarLibrary = pCarColors != nullptr && carLibrary.parse( pCarColors->pData, pCarColors->Size );
+    const BankEntry *pCarColors =
+        carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
+    const bool bCarLibrary =
+        pCarColors != nullptr &&
+        carLibrary.parse( pCarColors->pData, pCarColors->Size );
     const auto resolve = [&]( const std::string &name ) {
-        const MaterialDesc *pMaterial = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, name );
-        return pMaterial != nullptr ? pMaterial : FindNamedMaterial( SharedColorLibrary(), name );
+        const MaterialDesc *pMaterial =
+            FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, name );
+        return pMaterial != nullptr
+                   ? pMaterial
+                   : FindNamedMaterial( SharedColorLibrary(), name );
     };
     const MaterialDesc *pColor = resolve( colorId );
     const MaterialDesc *pColorN = resolve( colorId + "_N" );
     const MaterialDesc *pColor2 = resolve( colorId2 );
     if ( bLog ) {
-        OTDU_LOG_INFO( "CarPaint: %s: %zu row(s), row %d '%s' color '%s' (%s%s) / '%s' (%s) callipers '%s'\n",
-                       fileName.c_str(), rows.size(), paintIndex, colorName.c_str(), colorId.c_str(),
-                       pColor != nullptr ? "found" : "no material", pColorN != nullptr ? " + _N" : "", colorId2.c_str(),
-                       pColor2 != nullptr ? "found" : "none", row["_callipers"].asString().c_str() );
+        OTDU_LOG_INFO( "CarPaint: %s: %zu row(s), row %d '%s' color '%s' "
+                       "(%s%s) / '%s' (%s) callipers '%s'\n",
+                       fileName.c_str(), rows.size(), paintIndex,
+                       colorName.c_str(), colorId.c_str(),
+                       pColor != nullptr ? "found" : "no material",
+                       pColorN != nullptr ? " + _N" : "", colorId2.c_str(),
+                       pColor2 != nullptr ? "found" : "none",
+                       row["_callipers"].asString().c_str() );
         if ( bCarLibrary ) {
             std::string names;
-            for ( const MaterialDesc &material : carLibrary.getOrderedMaterials() ) {
+            for ( const MaterialDesc &material :
+                  carLibrary.getOrderedMaterials() ) {
                 names += " " + material.Name;
             }
-            OTDU_LOG_INFO( "CarPaint:   %s_color.2dm:%s\n", fileName.c_str(), names.c_str() );
+            OTDU_LOG_INFO( "CarPaint:   %s_color.2dm:%s\n", fileName.c_str(),
+                           names.c_str() );
         }
         for ( const EdenMaterial &material : car.getMaterials() ) {
-            if ( material.ShaderSetGUID == kTDCarPaint2 || material.Name.rfind( "Paint", 0 ) == 0 ) {
-                OTDU_LOG_INFO( "CarPaint:   car material '%s' shader 0x%llx\n", material.Name.c_str(),
-                               static_cast<unsigned long long>( material.ShaderSetGUID ) );
+            if ( material.ShaderSetGUID == kTDCarPaint2 ||
+                 material.Name.rfind( "Paint", 0 ) == 0 ) {
+                OTDU_LOG_INFO(
+                    "CarPaint:   car material '%s' shader 0x%llx\n",
+                    material.Name.c_str(),
+                    static_cast<unsigned long long>( material.ShaderSetGUID ) );
             }
         }
     }
@@ -2508,8 +2975,10 @@ std::string CinematicCar::applyDatabasePaint( int32_t paintIndex ) {
     // the low resolution Paint_LR / Paint_MR; colour 2 (mode 10, bicolour)
     // onto Paint2 / Paint2_SK. The other TD_CarPaint2 materials are liveries
     // and trims (Carbon, Bande_Noir, the 16M's blanc / rouge / Vert) and keep
-    // their own paint. <id>_N goes onto a "_N" material when the library has it.
-    const auto copyPaint = [&]( EdenMaterial &material, const MaterialDesc &source ) {
+    // their own paint. <id>_N goes onto a "_N" material when the library has
+    // it.
+    const auto copyPaint = [&]( EdenMaterial &material,
+                                const MaterialDesc &source ) {
         for ( const char *pName : kPaintParameters ) {
             Vector4f value;
             if ( source.getParameter( pName, value ) ) {
@@ -2520,7 +2989,8 @@ std::string CinematicCar::applyDatabasePaint( int32_t paintIndex ) {
         material.Ambient = source.AmbientColor;
         material.Specular = source.SpecularColor;
     };
-    const auto isOneOf = [&]( const std::string &name, std::initializer_list<const char *> names ) {
+    const auto isOneOf = [&]( const std::string &name,
+                              std::initializer_list<const char *> names ) {
         for ( const char *pName : names ) {
             if ( StringCmpI( name.c_str(), pName ) == 0 ) {
                 return true;
@@ -2530,19 +3000,27 @@ std::string CinematicCar::applyDatabasePaint( int32_t paintIndex ) {
     };
     size_t painted = 0;
     for ( EdenMaterial &material : car.getMaterials() ) {
-        if ( isOneOf( material.Name, { "Paint", "Paint_SK", "Paint_LR", "Paint_MR", "Paint_N" } ) ) {
-            const bool bNVariant = material.Name.size() > 2 && material.Name.compare( material.Name.size() - 2, 2, "_N" ) == 0;
-            copyPaint( material, ( bNVariant && pColorN != nullptr ) ? *pColorN : *pColor );
+        if ( isOneOf( material.Name, { "Paint", "Paint_SK", "Paint_LR",
+                                       "Paint_MR", "Paint_N" } ) ) {
+            const bool bNVariant =
+                material.Name.size() > 2 &&
+                material.Name.compare( material.Name.size() - 2, 2, "_N" ) == 0;
+            copyPaint( material, ( bNVariant && pColorN != nullptr )
+                                     ? *pColorN
+                                     : *pColor );
             painted++;
-        } else if ( pColor2 != nullptr && isOneOf( material.Name, { "Paint2", "Paint2_SK" } ) ) {
+        } else if ( pColor2 != nullptr &&
+                    isOneOf( material.Name, { "Paint2", "Paint2_SK" } ) ) {
             copyPaint( material, *pColor2 );
             painted++;
         }
     }
     if ( bLog ) {
-        OTDU_LOG_INFO( "CarPaint: %s painted '%s' (%s%s%s) on %zu material(s)\n", fileName.c_str(), colorName.c_str(),
-                       colorId.c_str(), pColor2 != nullptr ? " + " : "", pColor2 != nullptr ? colorId2.c_str() : "",
-                       painted );
+        OTDU_LOG_INFO(
+            "CarPaint: %s painted '%s' (%s%s%s) on %zu material(s)\n",
+            fileName.c_str(), colorName.c_str(), colorId.c_str(),
+            pColor2 != nullptr ? " + " : "",
+            pColor2 != nullptr ? colorId2.c_str() : "", painted );
     }
     // The clean paint values just moved: applySurfaceState must recapture its
     // baseline or the next frame would blend the dirt over the NEW clean value
@@ -2554,20 +3032,24 @@ std::string CinematicCar::applyDatabasePaint( int32_t paintIndex ) {
 }
 
 namespace {
-bool IsBodyPaint( const std::string &name ) {
-    return StringCmpI( name.c_str(), "Paint" ) == 0 || StringCmpI( name.c_str(), "Paint_SK" ) == 0 ||
-           StringCmpI( name.c_str(), "Paint_LR" ) == 0 || StringCmpI( name.c_str(), "Paint_MR" ) == 0 ||
-           StringCmpI( name.c_str(), "Paint_N" ) == 0;
-}
+    bool IsBodyPaint( const std::string &name ) {
+        return StringCmpI( name.c_str(), "Paint" ) == 0 ||
+               StringCmpI( name.c_str(), "Paint_SK" ) == 0 ||
+               StringCmpI( name.c_str(), "Paint_LR" ) == 0 ||
+               StringCmpI( name.c_str(), "Paint_MR" ) == 0 ||
+               StringCmpI( name.c_str(), "Paint_N" ) == 0;
+    }
 
-bool IsSecondPaint( const std::string &name ) {
-    return StringCmpI( name.c_str(), "Paint2" ) == 0 || StringCmpI( name.c_str(), "Paint2_SK" ) == 0;
-}
+    bool IsSecondPaint( const std::string &name ) {
+        return StringCmpI( name.c_str(), "Paint2" ) == 0 ||
+               StringCmpI( name.c_str(), "Paint2_SK" ) == 0;
+    }
 
-Vector4f Rgba8ToVector( uint32_t colour ) {
-    return Vector4f( ( colour & 0xff ) / 255.0f, ( ( colour >> 8 ) & 0xff ) / 255.0f, ( ( colour >> 16 ) & 0xff ) / 255.0f,
-                     1.0f );
-}
+    Vector4f Rgba8ToVector( uint32_t colour ) {
+        return Vector4f( ( colour & 0xff ) / 255.0f,
+                         ( ( colour >> 8 ) & 0xff ) / 255.0f,
+                         ( ( colour >> 16 ) & 0xff ) / 255.0f, 1.0f );
+    }
 } // namespace
 
 uint32_t CinematicCar::getBodyPaintColour() {
@@ -2582,9 +3064,11 @@ uint32_t CinematicCar::getBodyPaintColour() {
             value = it->second;
         }
         const auto toByte = []( float f ) {
-            return static_cast<uint32_t>( ( f < 0.0f ? 0.0f : ( f > 1.0f ? 1.0f : f ) ) * 255.0f + 0.5f );
+            return static_cast<uint32_t>(
+                ( f < 0.0f ? 0.0f : ( f > 1.0f ? 1.0f : f ) ) * 255.0f + 0.5f );
         };
-        return toByte( value.x ) | ( toByte( value.y ) << 8 ) | ( toByte( value.z ) << 16 ) | 0xff000000u;
+        return toByte( value.x ) | ( toByte( value.y ) << 8 ) |
+               ( toByte( value.z ) << 16 ) | 0xff000000u;
     }
     return 0xffffffffu;
 }
@@ -2607,7 +3091,10 @@ void CinematicCar::restorePaint() {
     paintBaselineValid = false;
 }
 
-bool CinematicCar::applyCustomPaint( int32_t type, uint32_t colour1, bool bBicolour, uint32_t colour2 ) {
+bool CinematicCar::applyCustomPaint( int32_t type,
+                                     uint32_t colour1,
+                                     bool bBicolour,
+                                     uint32_t colour2 ) {
     // The paint shop's custom paint [CODE: FUN_00c62490 / FUN_00c62620 pick the
     // base material of colors.2dm by the paint type (CARBON / MATT / METAL /
     // GLOSSY) and apply it in mode 0 and 10, then the custom RGB colours
@@ -2619,7 +3106,8 @@ bool CinematicCar::applyCustomPaint( int32_t type, uint32_t colour1, bool bBicol
     if ( !car.isLoaded() ) {
         return false;
     }
-    static const char *const kTypeMaterials[] = { "GLOSSY", "MATT", "METAL", "CARBON" };
+    static const char *const kTypeMaterials[] = { "GLOSSY", "MATT", "METAL",
+                                                  "CARBON" };
     static const float kHighlight[] = { 0.42f, 0.0f, 0.30f, 0.25f };
     static const float kFlake[] = { 0.0f, 0.0f, 0.60f, 0.0f };
     type = type < 0 ? 0 : ( type > 3 ? 3 : type );
@@ -2627,7 +3115,8 @@ bool CinematicCar::applyCustomPaint( int32_t type, uint32_t colour1, bool bBicol
     if ( !bPaintOriginal ) {
         paintOriginal.clear();
         for ( size_t i = 0; i < materials.size(); i++ ) {
-            if ( !IsBodyPaint( materials[i].Name ) && !IsSecondPaint( materials[i].Name ) ) {
+            if ( !IsBodyPaint( materials[i].Name ) &&
+                 !IsSecondPaint( materials[i].Name ) ) {
                 continue;
             }
             PaintSnapshot snapshot;
@@ -2641,7 +3130,8 @@ bool CinematicCar::applyCustomPaint( int32_t type, uint32_t colour1, bool bBicol
         bPaintOriginal = true;
     }
     restorePaint();
-    const MaterialDesc *pBase = FindNamedMaterial( SharedColorLibrary(), kTypeMaterials[type] );
+    const MaterialDesc *pBase =
+        FindNamedMaterial( SharedColorLibrary(), kTypeMaterials[type] );
     static const uint64_t kRampClr1 = GetIdentifier64bit( "RAMPCLR1" );
     static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
     static const uint64_t kRampFlake = GetIdentifier64bit( "RAMPFLAKE" );
@@ -2659,7 +3149,8 @@ bool CinematicCar::applyCustomPaint( int32_t type, uint32_t colour1, bool bBicol
         }
         const Vector4f body = Rgba8ToVector( colour );
         const auto lighten = [&]( float amount ) {
-            return Vector4f( body.x + ( 1.0f - body.x ) * amount, body.y + ( 1.0f - body.y ) * amount,
+            return Vector4f( body.x + ( 1.0f - body.x ) * amount,
+                             body.y + ( 1.0f - body.y ) * amount,
                              body.z + ( 1.0f - body.z ) * amount, 1.0f );
         };
         material.Parameters[kRampClr2] = body;
@@ -2667,7 +3158,8 @@ bool CinematicCar::applyCustomPaint( int32_t type, uint32_t colour1, bool bBicol
         if ( kFlake[type] > 0.0f ) {
             material.Parameters[kRampFlake] = lighten( kFlake[type] );
         }
-        material.Diffuse = Vector4f( body.x, body.y, body.z, material.Diffuse.w );
+        material.Diffuse =
+            Vector4f( body.x, body.y, body.z, material.Diffuse.w );
     };
     size_t painted = 0;
     for ( EdenMaterial &material : materials ) {
@@ -2685,8 +3177,11 @@ bool CinematicCar::applyCustomPaint( int32_t type, uint32_t colour1, bool bBicol
         if ( bBicolour ) {
             snprintf( second, sizeof( second ), " + %08x", colour2 );
         }
-        OTDU_LOG_INFO( "CarPaint: %s custom paint type %d (%s%s) colour %08x%s on %zu material(s)\n", fileName.c_str(),
-                       type, kTypeMaterials[type], pBase != nullptr ? "" : " MISSING", colour1, second, painted );
+        OTDU_LOG_INFO( "CarPaint: %s custom paint type %d (%s%s) colour %08x%s "
+                       "on %zu material(s)\n",
+                       fileName.c_str(), type, kTypeMaterials[type],
+                       pBase != nullptr ? "" : " MISSING", colour1, second,
+                       painted );
     }
     return painted > 0;
 }
@@ -2706,7 +3201,9 @@ bool CinematicCar::applyColor( const std::string &colorId ) {
             return !applyDatabasePaint( static_cast<int32_t>( i ) ).empty();
         }
     }
-    OTDU_LOG_WARN( "CinematicCar: %s: colour '%s' is not a DBCarsAndColors row\n", fileName.c_str(), colorId.c_str() );
+    OTDU_LOG_WARN(
+        "CinematicCar: %s: colour '%s' is not a DBCarsAndColors row\n",
+        fileName.c_str(), colorId.c_str() );
     return false;
 }
 
@@ -2714,13 +3211,16 @@ bool CinematicCar::applyColor( const std::string &colorId ) {
 // _default_rims; 0 = the car's default rims, as DescFromDatabase) [CODE,
 // FUN_009f4080 slot car]. True even when the rims row is missing (the .2dm
 // rims are kept).
-bool CinematicCar::FindDatabaseDesc( int32_t idCar, uint64_t rimsHashcode, Desc &outDesc ) {
+bool CinematicCar::FindDatabaseDesc( int32_t idCar,
+                                     uint64_t rimsHashcode,
+                                     Desc &outDesc ) {
     if ( gpDatabase == nullptr ) {
         return false;
     }
     XmbValue root = gpDatabase->getDocument().getRoot();
     bool bFound = false;
-    for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" ) && !bFound; i++ ) {
+    for ( uint32_t i = 0;
+          i < root.getArraySize( "DBCarPhysicsData" ) && !bFound; i++ ) {
         XmbValue car = root.getArrayElement( "DBCarPhysicsData", i );
         if ( car["_id_car"].asInt( -2 ) == idCar ) {
             outDesc.FileName = car["_car_file_name"].asString();
@@ -2739,12 +3239,17 @@ bool CinematicCar::FindDatabaseDesc( int32_t idCar, uint64_t rimsHashcode, Desc 
             continue;
         }
         const std::string path = ToLower( rim["_rsc_path"].asString() );
-        outDesc.RimFront = path + "/" + ToLower( rim["_rsc_file_name_front"].asString() );
-        outDesc.RimRear = path + "/" + ToLower( rim["_rsc_file_name_rear"].asString() );
-        outDesc.DiameterFront = static_cast<int32_t>( rim["_diameter_front"].asInt( 18 ) );
-        outDesc.DiameterRear = static_cast<int32_t>( rim["_diameter_rear"].asInt( 18 ) );
+        outDesc.RimFront =
+            path + "/" + ToLower( rim["_rsc_file_name_front"].asString() );
+        outDesc.RimRear =
+            path + "/" + ToLower( rim["_rsc_file_name_rear"].asString() );
+        outDesc.DiameterFront =
+            static_cast<int32_t>( rim["_diameter_front"].asInt( 18 ) );
+        outDesc.DiameterRear =
+            static_cast<int32_t>( rim["_diameter_rear"].asInt( 18 ) );
         outDesc.TireRadius = outDesc.DiameterFront * 0.0254f * 0.5f +
-                             rim["_largeur_front"].asFloat( 245.0f ) * rim["_hauteur_front"].asFloat( 40.0f ) * 1e-5f;
+                             rim["_largeur_front"].asFloat( 245.0f ) *
+                                 rim["_hauteur_front"].asFloat( 40.0f ) * 1e-5f;
         return true;
     }
     return true;
@@ -2772,34 +3277,43 @@ bool CinematicCar::swapRims( uint64_t rimsHashcode ) {
     rimRear.destroy();
     for ( Bank *pBank : { &rimBank, &rimRearBank } ) {
         if ( !pBank->getEntries().empty() ) {
-            gpRender->getTextureCache().releaseOwner( textureOwnerName( *pBank ).c_str() );
+            gpRender->getTextureCache().releaseOwner(
+                textureOwnerName( *pBank ).c_str() );
         }
         pBank->unload();
     }
-    if ( rimBank.load( ( folder + "rim/" + desc.RimFront + ".bnk" ).c_str() ) ) {
+    if ( rimBank.load(
+             ( folder + "rim/" + desc.RimFront + ".bnk" ).c_str() ) ) {
         const std::string rimOwner = textureOwnerName( rimBank );
         textures.loadBankTextures( rimBank, rimOwner.c_str() );
-        rim.load( *gpRender->getEdenRenderer(), rimBank, nullptr, nullptr, rimOwner.c_str() );
+        rim.load( *gpRender->getEdenRenderer(), rimBank, nullptr, nullptr,
+                  rimOwner.c_str() );
         // The rims of several cars (One-77...) are wound the other way round
         // than their culling state: closed meshes, drawn without culling.
         for ( EdenMaterial &material : rim.getMaterials() ) {
             material.CullMode = 1;
         }
     }
-    if ( desc.RimRear != desc.RimFront && rimRearBank.load( ( folder + "rim/" + desc.RimRear + ".bnk" ).c_str() ) ) {
+    if ( desc.RimRear != desc.RimFront &&
+         rimRearBank.load(
+             ( folder + "rim/" + desc.RimRear + ".bnk" ).c_str() ) ) {
         const std::string rimRearOwner = textureOwnerName( rimRearBank );
         textures.loadBankTextures( rimRearBank, rimRearOwner.c_str() );
-        rimRear.load( *gpRender->getEdenRenderer(), rimRearBank, nullptr, nullptr, rimRearOwner.c_str() );
+        rimRear.load( *gpRender->getEdenRenderer(), rimRearBank, nullptr,
+                      nullptr, rimRearOwner.c_str() );
         for ( EdenMaterial &material : rimRear.getMaterials() ) {
             material.CullMode = 1;
         }
     }
-    rimDiameterFront = desc.RimDiameterFront > 0 ? desc.RimDiameterFront : desc.DiameterFront;
-    rimDiameterRear = desc.RimDiameterRear > 0 ? desc.RimDiameterRear : desc.DiameterRear;
+    rimDiameterFront =
+        desc.RimDiameterFront > 0 ? desc.RimDiameterFront : desc.DiameterFront;
+    rimDiameterRear =
+        desc.RimDiameterRear > 0 ? desc.RimDiameterRear : desc.DiameterRear;
     setRimDiameters( rimDiameterFront, rimDiameterRear );
     rimsHashcodeLoaded = rimsHashcode;
-    OTDU_LOG_INFO( "CinematicCar: %s: rims swapped to %s (%d\"/%d\")\n", fileName.c_str(), desc.RimFront.c_str(),
-                   rimDiameterFront, rimDiameterRear );
+    OTDU_LOG_INFO( "CinematicCar: %s: rims swapped to %s (%d\"/%d\")\n",
+                   fileName.c_str(), desc.RimFront.c_str(), rimDiameterFront,
+                   rimDiameterRear );
     return true;
 }
 
@@ -2812,7 +3326,8 @@ bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
     // dev build composes 'Interiors/%s_I' mesh paths; the maps swap
     // sls_amg_int1/int2): the port paints the leather ramps the same way the
     // body paint does (RAMPCLR2 = the colour, RAMPCLR1 a lighter shade).
-    if ( gpDatabase == nullptr || !interior.isLoaded() || interiorHashcode == 0 ) {
+    if ( gpDatabase == nullptr || !interior.isLoaded() ||
+         interiorHashcode == 0 ) {
         return false;
     }
     XmbValue root = gpDatabase->getDocument().getRoot();
@@ -2830,106 +3345,159 @@ bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
     static const uint64_t kRampClr1 = GetIdentifier64bit( "RAMPCLR1" );
     static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
     Render2DM carLibrary;
-    const BankEntry *pCarColors = carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
-    const bool bCarLibrary = pCarColors != nullptr && carLibrary.parse( pCarColors->pData, pCarColors->Size );
+    const BankEntry *pCarColors =
+        carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
+    const bool bCarLibrary =
+        pCarColors != nullptr &&
+        carLibrary.parse( pCarColors->pData, pCarColors->Size );
     const auto swatch = [&]( const char *pId ) {
         float rgb[3] = { 0.32f, 0.32f, 0.32f };
-        // The car's own colour library first (the interior ids 'R8_V10_Int_Rouge_01' live in <car>_color.2dm next to
-        // the paint ids [DATA]), then colors.2dm.
-        const MaterialDesc *pOwn = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, pId );
-        const bool bFound = pOwn != nullptr ? SwatchOf( *pOwn, rgb ) : FindLibrarySwatch( pId, rgb );
+        // The car's own colour library first (the interior ids
+        // 'R8_V10_Int_Rouge_01' live in <car>_color.2dm next to the paint ids
+        // [DATA]), then colors.2dm.
+        const MaterialDesc *pOwn =
+            FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, pId );
+        const bool bFound = pOwn != nullptr ? SwatchOf( *pOwn, rgb )
+                                            : FindLibrarySwatch( pId, rgb );
         if ( CmdLine::HasArg( "-loginterior" ) ) {
-            OTDU_LOG_INFO( "CinematicCar: interior swatch '%s' %s (%.2f %.2f %.2f)\n", pId, bFound ? "found" : "MISSING", rgb[0], rgb[1], rgb[2] );
+            OTDU_LOG_INFO(
+                "CinematicCar: interior swatch '%s' %s (%.2f %.2f %.2f)\n", pId,
+                bFound ? "found" : "MISSING", rgb[0], rgb[1], rgb[2] );
         }
         const Vector4f colour( rgb[0], rgb[1], rgb[2], 1.0f );
-        return Vector4f( colour.x + ( 1.0f - colour.x ) * 0.2f, colour.y + ( 1.0f - colour.y ) * 0.2f,
+        return Vector4f( colour.x + ( 1.0f - colour.x ) * 0.2f,
+                         colour.y + ( 1.0f - colour.y ) * 0.2f,
                          colour.z + ( 1.0f - colour.z ) * 0.2f, 1.0f );
     };
     if ( CmdLine::HasArg( "-loginterior" ) ) {
-        // Every field of the DBInterior row (the schema names the colour slots).
+        // Every field of the DBInterior row (the schema names the colour
+        // slots).
         if ( const XmbType *pType = row.getType() ) {
             for ( const XmbType::Field &field : pType->Fields ) {
-                OTDU_LOG_INFO( "CinematicCar: DBInterior.%s = '%s' (%lld)\n", field.Name.c_str(),
-                               row[field.Name.c_str()].asString().c_str(),
-                               static_cast<long long>( row[field.Name.c_str()].asInt() ) );
+                OTDU_LOG_INFO(
+                    "CinematicCar: DBInterior.%s = '%s' (%lld)\n",
+                    field.Name.c_str(),
+                    row[field.Name.c_str()].asString().c_str(),
+                    static_cast<long long>( row[field.Name.c_str()].asInt() ) );
             }
         }
     }
     if ( CmdLine::HasArg( "-loginterior" ) ) {
-        for ( const char *pField : { "_material", "_interior_color_1", "_interior_color_3" } ) {
+        for ( const char *pField :
+              { "_material", "_interior_color_1", "_interior_color_3" } ) {
             const std::string id = row[pField].asString();
-            const MaterialDesc *pLib = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, id );
+            const MaterialDesc *pLib =
+                FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, id );
             if ( pLib == nullptr ) {
-                OTDU_LOG_INFO( "CinematicCar: lib '%s' (%s): not in the car library\n", id.c_str(), pField );
+                OTDU_LOG_INFO(
+                    "CinematicCar: lib '%s' (%s): not in the car library\n",
+                    id.c_str(), pField );
                 continue;
             }
-            OTDU_LOG_INFO( "CinematicCar: lib '%s' (%s): shader 0x%llx diffuse %.2f %.2f %.2f, %zu texture(s), %zu param(s)\n", id.c_str(),
-                           pField, static_cast<unsigned long long>( pLib->ShaderSetGUID ), pLib->DiffuseColor.x, pLib->DiffuseColor.y,
-                           pLib->DiffuseColor.z, pLib->Textures.size(), pLib->Parameters.size() );
+            OTDU_LOG_INFO(
+                "CinematicCar: lib '%s' (%s): shader 0x%llx diffuse %.2f %.2f "
+                "%.2f, %zu texture(s), %zu param(s)\n",
+                id.c_str(), pField,
+                static_cast<unsigned long long>( pLib->ShaderSetGUID ),
+                pLib->DiffuseColor.x, pLib->DiffuseColor.y,
+                pLib->DiffuseColor.z, pLib->Textures.size(),
+                pLib->Parameters.size() );
             for ( const MaterialTextureSlot &slot : pLib->Textures ) {
-                OTDU_LOG_INFO( "CinematicCar:   tex slotType 0x%llx hash 0x%llx\n", static_cast<unsigned long long>( slot.SlotType ),
-                               static_cast<unsigned long long>( slot.TextureHashcode ) );
+                OTDU_LOG_INFO(
+                    "CinematicCar:   tex slotType 0x%llx hash 0x%llx\n",
+                    static_cast<unsigned long long>( slot.SlotType ),
+                    static_cast<unsigned long long>( slot.TextureHashcode ) );
             }
             for ( const auto &param : pLib->Parameters ) {
-                OTDU_LOG_INFO( "CinematicCar:   param 0x%llx = %.3f %.3f %.3f %.3f\n", static_cast<unsigned long long>( param.first ),
-                               param.second.x, param.second.y, param.second.z, param.second.w );
+                OTDU_LOG_INFO(
+                    "CinematicCar:   param 0x%llx = %.3f %.3f %.3f %.3f\n",
+                    static_cast<unsigned long long>( param.first ),
+                    param.second.x, param.second.y, param.second.z,
+                    param.second.w );
             }
         }
     }
-    const Vector4f colour1 = swatch( row["_interior_color_1"].asString().c_str() );
-    const Vector4f colour2 = swatch( row["_interior_color_2"].asString().c_str() );
-    const Vector4f colour3 = swatch( row["_interior_color_3"].asString().c_str() );
-    const MaterialDesc *pTrim = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, row["_material"].asString() );
+    const Vector4f colour1 =
+        swatch( row["_interior_color_1"].asString().c_str() );
+    const Vector4f colour2 =
+        swatch( row["_interior_color_2"].asString().c_str() );
+    const Vector4f colour3 =
+        swatch( row["_interior_color_3"].asString().c_str() );
+    const MaterialDesc *pTrim = FindNamedMaterial(
+        bCarLibrary ? &carLibrary : nullptr, row["_material"].asString() );
     int32_t painted = 0;
     for ( EdenMaterial &material : interior.getMaterials() ) {
         if ( CmdLine::HasArg( "-loginterior" ) ) {
-            OTDU_LOG_INFO( "CinematicCar: interior material '%s'\n", material.Name.c_str() );
+            OTDU_LOG_INFO( "CinematicCar: interior material '%s'\n",
+                           material.Name.c_str() );
             for ( int32_t t = 0; t < 16; t++ ) {
                 if ( material.pTextures[t] != nullptr ) {
-                    OTDU_LOG_INFO( "CinematicCar:   slot %d '%s'\n", t, material.pTextures[t]->Name.c_str() );
+                    OTDU_LOG_INFO( "CinematicCar:   slot %d '%s'\n", t,
+                                   material.pTextures[t]->Name.c_str() );
                 }
             }
-            if ( material.Name.find( "C1_" ) != std::string::npos || material.Name.find( "C2_" ) != std::string::npos ||
-                 material.Name.find( "C3_" ) != std::string::npos || material.Name == "MAT_1" ) {
-                OTDU_LOG_INFO( "CinematicCar:   shader 0x%llx diffuse %.2f %.2f %.2f\n", static_cast<unsigned long long>( material.ShaderSetGUID ),
-                               material.Diffuse.x, material.Diffuse.y, material.Diffuse.z );
+            if ( material.Name.find( "C1_" ) != std::string::npos ||
+                 material.Name.find( "C2_" ) != std::string::npos ||
+                 material.Name.find( "C3_" ) != std::string::npos ||
+                 material.Name == "MAT_1" ) {
+                OTDU_LOG_INFO(
+                    "CinematicCar:   shader 0x%llx diffuse %.2f %.2f %.2f\n",
+                    static_cast<unsigned long long>( material.ShaderSetGUID ),
+                    material.Diffuse.x, material.Diffuse.y,
+                    material.Diffuse.z );
                 for ( const auto &param : material.Parameters ) {
-                    OTDU_LOG_INFO( "CinematicCar:   mparam 0x%llx = %.3f %.3f %.3f %.3f\n", static_cast<unsigned long long>( param.first ), param.second.x,
-                                   param.second.y, param.second.z, param.second.w );
+                    OTDU_LOG_INFO(
+                        "CinematicCar:   mparam 0x%llx = %.3f %.3f %.3f %.3f\n",
+                        static_cast<unsigned long long>( param.first ),
+                        param.second.x, param.second.y, param.second.z,
+                        param.second.w );
                 }
             }
         }
-        // The trim material slot ('MAT_1' of the Audi interiors, shader TD_CarPaint2-like): the row's `_material`
-        // ('R8_V10_Mat_Gris_01' = brushed alu ramps, 'R8_V10_Mat_Carbon_01' = the carbon weave) of the car's colour
-        // library [DATA: the library entry carries RAMPCLR1/2 + a DETAIL texture, or none for the alu].
+        // The trim material slot ('MAT_1' of the Audi interiors, shader
+        // TD_CarPaint2-like): the row's `_material`
+        // ('R8_V10_Mat_Gris_01' = brushed alu ramps, 'R8_V10_Mat_Carbon_01' =
+        // the carbon weave) of the car's colour library [DATA: the library
+        // entry carries RAMPCLR1/2 + a DETAIL texture, or none for the alu].
         if ( material.Name == "MAT_1" && pTrim != nullptr ) {
-            for ( const char *pParam : { "RAMPCLR1", "RAMPCLR2", "MATPARAM", "SPECPARM" } ) {
+            for ( const char *pParam :
+                  { "RAMPCLR1", "RAMPCLR2", "MATPARAM", "SPECPARM" } ) {
                 Vector4f value;
                 if ( pTrim->getParameter( pParam, value ) ) {
                     material.Parameters[GetIdentifier64bit( pParam )] = value;
                 }
             }
-            material.Diffuse = Vector4f( pTrim->DiffuseColor.x, pTrim->DiffuseColor.y, pTrim->DiffuseColor.z, material.Diffuse.w );
+            material.Diffuse =
+                Vector4f( pTrim->DiffuseColor.x, pTrim->DiffuseColor.y,
+                          pTrim->DiffuseColor.z, material.Diffuse.w );
             const uint64_t detail = pTrim->findTexture( "DETAIL" );
-            GPUTexture *pDetail = detail != 0 ? gpRender->getTextureCache().find( textureOwnerName( interiorBank ).c_str(), detail ) : nullptr;
+            GPUTexture *pDetail =
+                detail != 0
+                    ? gpRender->getTextureCache().find(
+                          textureOwnerName( interiorBank ).c_str(), detail )
+                    : nullptr;
             if ( pDetail == nullptr ) {
-                pDetail = gpRender->getTextureCache().getWhiteTexture(); // the alu: no weave
+                pDetail = gpRender->getTextureCache()
+                              .getWhiteTexture(); // the alu: no weave
             }
             material.pTextures[0] = pDetail;
-            material.TextureHashes[0] = detail != 0 ? detail : GetIdentifier64bit( "white" );
+            material.TextureHashes[0] =
+                detail != 0 ? detail : GetIdentifier64bit( "white" );
             if ( gpRender->getEdenRenderer() != nullptr ) {
                 gpRender->getEdenRenderer()->updateProgram( material );
             }
             painted++;
             continue;
         }
-        // 'C1_*' / 'A_C1_*' = the seat leather (colour 1), 'C2_*' = colour 2, 'A_C3_*' = the couture (colour 3);
-        // the alu 'A_C2_al' keeps its own metal.
+        // 'C1_*' / 'A_C1_*' = the seat leather (colour 1), 'C2_*' = colour 2,
+        // 'A_C3_*' = the couture (colour 3); the alu 'A_C2_al' keeps its own
+        // metal.
         Vector4f colour;
         const size_t cn = material.Name.find( "C" );
         const bool bPrefixed = material.Name.compare( 0, 2, "A_" ) == 0;
         const size_t at = bPrefixed ? 2 : 0;
-        if ( material.Name.size() > at + 2 && material.Name[at] == 'C' && material.Name[at + 2] == '_' ) {
+        if ( material.Name.size() > at + 2 && material.Name[at] == 'C' &&
+             material.Name[at + 2] == '_' ) {
             const char number = material.Name[at + 1];
             if ( number == '1' ) {
                 colour = colour1;
@@ -2945,13 +3513,17 @@ bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
         }
         (void)cn;
         material.Parameters[kRampClr2] = colour;
-        material.Parameters[kRampClr1] = colour; // the leather's two ramps take the trim colour
-        material.Diffuse = Vector4f( colour.x, colour.y, colour.z, material.Diffuse.w );
+        material.Parameters[kRampClr1] =
+            colour; // the leather's two ramps take the trim colour
+        material.Diffuse =
+            Vector4f( colour.x, colour.y, colour.z, material.Diffuse.w );
         painted++;
     }
-    OTDU_LOG_INFO( "CinematicCar: %s: interior '%s' (%s / %s) on %d material(s)\n", fileName.c_str(),
-                   row["_interior_name"].asString().c_str(), row["_interior_color_1"].asString().c_str(),
-                   row["_interior_color_2"].asString().c_str(), painted );
+    OTDU_LOG_INFO(
+        "CinematicCar: %s: interior '%s' (%s / %s) on %d material(s)\n",
+        fileName.c_str(), row["_interior_name"].asString().c_str(),
+        row["_interior_color_1"].asString().c_str(),
+        row["_interior_color_2"].asString().c_str(), painted );
     return painted > 0;
 }
 
@@ -2978,20 +3550,29 @@ bool CinematicCar::DescFromDatabase( int32_t carId, Desc &outDesc ) {
         XmbValue rimDesc = root.getArrayElement( "DBRims", i );
         if ( rimDesc["_hashcode"].asUInt64() == rimHashcode ) {
             const std::string path = ToLower( rimDesc["_rsc_path"].asString() );
-            outDesc.RimFront = path + "/" + ToLower( rimDesc["_rsc_file_name_front"].asString() );
-            outDesc.RimRear = path + "/" + ToLower( rimDesc["_rsc_file_name_rear"].asString() );
-            outDesc.DiameterFront = static_cast<int32_t>( rimDesc["_diameter_front"].asInt( 18 ) );
+            outDesc.RimFront =
+                path + "/" +
+                ToLower( rimDesc["_rsc_file_name_front"].asString() );
+            outDesc.RimRear =
+                path + "/" +
+                ToLower( rimDesc["_rsc_file_name_rear"].asString() );
+            outDesc.DiameterFront =
+                static_cast<int32_t>( rimDesc["_diameter_front"].asInt( 18 ) );
             // Tire: rim radius + sidewall (width x aspect ratio, "245/40").
-            outDesc.TireRadius = outDesc.DiameterFront * 0.0254f * 0.5f +
-                                 rimDesc["_largeur_front"].asFloat( 245.0f ) * rimDesc["_hauteur_front"].asFloat( 40.0f ) * 1e-5f;
-            outDesc.DiameterRear = static_cast<int32_t>( rimDesc["_diameter_rear"].asInt( 18 ) );
+            outDesc.TireRadius =
+                outDesc.DiameterFront * 0.0254f * 0.5f +
+                rimDesc["_largeur_front"].asFloat( 245.0f ) *
+                    rimDesc["_hauteur_front"].asFloat( 40.0f ) * 1e-5f;
+            outDesc.DiameterRear =
+                static_cast<int32_t>( rimDesc["_diameter_rear"].asInt( 18 ) );
             break;
         }
     }
     return true;
 }
 
-bool CinematicCar::getNodeModelTransform( const char *pName, Matrix4x4f &outTransform ) const {
+bool CinematicCar::getNodeModelTransform( const char *pName,
+                                          Matrix4x4f &outTransform ) const {
     if ( !car.isLoaded() ) {
         return false;
     }
@@ -3006,43 +3587,56 @@ bool CinematicCar::getNodeModelTransform( const char *pName, Matrix4x4f &outTran
     return true;
 }
 
-void CinematicCar::setTunerAttachment( const char *pSlot, const EdenMesh &mesh, const EdenMaterial &material,
-                                       const char *pBodyNodeName, const Matrix4x4f &offset ) {
-    TunerAttachment &tunerAttachment = tunerAttachments[pSlot != nullptr ? pSlot : "spoiler"];
+void CinematicCar::setTunerAttachment( const char *pSlot,
+                                       const EdenMesh &mesh,
+                                       const EdenMaterial &material,
+                                       const char *pBodyNodeName,
+                                       const Matrix4x4f &offset ) {
+    TunerAttachment &tunerAttachment =
+        tunerAttachments[pSlot != nullptr ? pSlot : "spoiler"];
     tunerAttachment.Mesh = mesh;
     tunerAttachment.Material = material;
     tunerAttachment.Offset = offset;
-    struct MaskGuard { CinematicCar *p; ~MaskGuard() { p->applyTunerMasks(); } } maskGuard { this };
+    struct MaskGuard {
+        CinematicCar *p;
+        ~MaskGuard() { p->applyTunerMasks(); }
+    } maskGuard{ this };
     // The node to hang from, by name (the scene lookup folds the long names);
     // the low LOD banks have no BODY_HR - BODY_MR is their body, a part on an
     // AI-detail car then still hangs off something sane.
     tunerAttachment.Node = -1;
-    if ( pBodyNodeName != nullptr && pBodyNodeName[0] != '\0' && car.isLoaded() ) {
+    if ( pBodyNodeName != nullptr && pBodyNodeName[0] != '\0' &&
+         car.isLoaded() ) {
         tunerAttachment.Node = car.getScene().findNode( pBodyNodeName );
         if ( tunerAttachment.Node < 0 ) {
-            tunerAttachment.Node = FindNodeByHash( car.getScene(), pBodyNodeName );
+            tunerAttachment.Node =
+                FindNodeByHash( car.getScene(), pBodyNodeName );
         }
-        if ( tunerAttachment.Node < 0 && StringCmpI( pBodyNodeName, "BODY_HR" ) == 0 ) {
+        if ( tunerAttachment.Node < 0 &&
+             StringCmpI( pBodyNodeName, "BODY_HR" ) == 0 ) {
             tunerAttachment.Node = car.getScene().findNode( "BODY_MR" );
         }
         if ( tunerAttachment.Node < 0 ) {
-            OTDU_LOG_WARN( "CinematicCar: tuner part node '%s' not found on '%s' (drawn at the origin)\n",
+            OTDU_LOG_WARN( "CinematicCar: tuner part node '%s' not found on "
+                           "'%s' (drawn at the origin)\n",
                            pBodyNodeName, fileName.c_str() );
         }
     }
-    OTDU_LOG_INFO( "CinematicCar: tuner part attached to '%s' node %d\n", fileName.c_str(), tunerAttachment.Node );
+    OTDU_LOG_INFO( "CinematicCar: tuner part attached to '%s' node %d\n",
+                   fileName.c_str(), tunerAttachment.Node );
     if ( CmdLine::HasArg( "-logtuner" ) ) {
         // The offset calibration: where the body node sits and how tall the
         // body is, so a tuner.txt offset can be set by the numbers.
         Matrix4x4f bodyT;
         Vector3f bMin, bMax;
         if ( getNodeModelTransform( "BODY_HR", bodyT ) ) {
-            OTDU_LOG_INFO( "CinematicCar: BODY_HR at (%.3f, %.3f, %.3f)\n", bodyT.m[3][0], bodyT.m[3][1],
-                           bodyT.m[3][2] );
+            OTDU_LOG_INFO( "CinematicCar: BODY_HR at (%.3f, %.3f, %.3f)\n",
+                           bodyT.m[3][0], bodyT.m[3][1], bodyT.m[3][2] );
         }
         if ( getBodyBounds( bMin, bMax ) ) {
-            OTDU_LOG_INFO( "CinematicCar: body bounds (%.3f, %.3f, %.3f)-(%.3f, %.3f, %.3f)\n", bMin.x, bMin.y, bMin.z,
-                           bMax.x, bMax.y, bMax.z );
+            OTDU_LOG_INFO( "CinematicCar: body bounds (%.3f, %.3f, "
+                           "%.3f)-(%.3f, %.3f, %.3f)\n",
+                           bMin.x, bMin.y, bMin.z, bMax.x, bMax.y, bMax.z );
         }
     }
 }
@@ -3071,40 +3665,63 @@ void CinematicCar::collectTunerMasks() {
     for ( int32_t s = 0; s < 2; s++ ) {
         pBoxes[s] = GetTunerParts().getHideBoxes( fileName, pSlots[s] );
     }
-    if ( pBoxes[0] == nullptr && pBoxes[1] == nullptr && !CmdLine::HasArg( "-dumptunermask" ) ) {
+    const std::map<size_t, std::vector<uint32_t>> *pTris[2] = {
+        GetTunerParts().getHideTris( fileName, pSlots[0] ),
+        GetTunerParts().getHideTris( fileName, pSlots[1] ) };
+    if ( pBoxes[0] == nullptr && pBoxes[1] == nullptr && pTris[0] == nullptr &&
+         pTris[1] == nullptr && !CmdLine::HasArg( "-dumptunermask" ) ) {
         return;
     }
     const std::vector<EdenModel::Item> &items = car.getItems();
     const int32_t bodyNode = car.getScene().findNode( "BODY_HR" );
     if ( CmdLine::HasArg( "-dumptunermask" ) ) {
         OTDU_LOG_INFO( "MASKCAR %s EXHAUST node %s\n", fileName.c_str(),
-                       car.getScene().findNode( "EXHAUST" ) >= 0 ? "yes" : "NO" );
+                       car.getScene().findNode( "EXHAUST" ) >= 0 ? "yes"
+                                                                 : "NO" );
     }
+    // The exact triangle lists beside the boxes (hide_tris_<slot>: a box that
+    // would catch neighbour triangles is replaced by the item's tri numbers).
     for ( size_t i = 0; i < items.size(); i++ ) {
         const EdenModel::Item &item = items[i];
-        if ( item.NodeIndex != bodyNode || item.Lod != 0 || item.PrimitiveIndices.empty() ||
-             item.PrimitiveVertices.empty() ) {
+        if ( item.NodeIndex != bodyNode || item.Lod != 0 ||
+             item.PrimitiveIndices.empty() || item.PrimitiveVertices.empty() ) {
             continue;
         }
         std::vector<uint32_t> groups[3];
         for ( size_t t = 0; t + 2 < item.PrimitiveIndices.size(); t += 3 ) {
-            const Vector3f &a = item.PrimitiveVertices[item.PrimitiveIndices[t]];
-            const Vector3f &b = item.PrimitiveVertices[item.PrimitiveIndices[t + 1]];
-            const Vector3f &cc = item.PrimitiveVertices[item.PrimitiveIndices[t + 2]];
+            const Vector3f &a =
+                item.PrimitiveVertices[item.PrimitiveIndices[t]];
+            const Vector3f &b =
+                item.PrimitiveVertices[item.PrimitiveIndices[t + 1]];
+            const Vector3f &cc =
+                item.PrimitiveVertices[item.PrimitiveIndices[t + 2]];
             const Vector3f centre = ( a + b + cc ) * ( 1.0f / 3.0f );
             int32_t group = 1;
+            const uint32_t triangle = static_cast<uint32_t>( t / 3 );
             static const bool bDump = CmdLine::HasArg( "-dumptunermask" );
             if ( bDump && centre.z < -0.4f ) {
-                OTDU_LOG_INFO( "MASKTRI %s %zu %s %.3f %.3f %.3f\n", fileName.c_str(), i, car.getMaterials()[item.MaterialIndex].Name.c_str(),
-                               centre.x, centre.y, centre.z );
+                OTDU_LOG_INFO(
+                    "MASKTRI %s %zu %s %.3f %.3f %.3f\n", fileName.c_str(), i,
+                    car.getMaterials()[item.MaterialIndex].Name.c_str(),
+                    centre.x, centre.y, centre.z );
             }
             for ( int32_t s = 0; s < 2 && group == 1; s++ ) {
+                if ( pTris[s] != nullptr ) {
+                    const auto found = pTris[s]->find( i );
+                    if ( found != pTris[s]->end() &&
+                         std::find( found->second.begin(), found->second.end(),
+                                    triangle ) != found->second.end() ) {
+                        group = s == 0 ? 0 : 2;
+                        break;
+                    }
+                }
                 if ( pBoxes[s] == nullptr ) {
                     continue;
                 }
                 for ( const auto &box : *pBoxes[s] ) {
-                    if ( centre.x >= box.first.x && centre.x <= box.second.x && centre.y >= box.first.y &&
-                         centre.y <= box.second.y && centre.z >= box.first.z && centre.z <= box.second.z ) {
+                    if ( centre.x >= box.first.x && centre.x <= box.second.x &&
+                         centre.y >= box.first.y && centre.y <= box.second.y &&
+                         centre.z >= box.first.z && centre.z <= box.second.z ) {
                         group = s == 0 ? 0 : 2;
                         break;
                     }
@@ -3125,25 +3742,40 @@ void CinematicCar::collectTunerMasks() {
             mask.Counts[g] = static_cast<uint32_t>( groups[g].size() );
             all.insert( all.end(), groups[g].begin(), groups[g].end() );
         }
-        mask.pIndices = gpRender->getDevice().createBuffer( all.size() * sizeof( uint32_t ),
-                                                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT, all.data() );
+        mask.pIndices = gpRender->getDevice().createBuffer(
+            all.size() * sizeof( uint32_t ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            all.data() );
         mask.Mesh = item.Mesh;
         mask.Mesh.pIndexBuffer = mask.pIndices;
         mask.Mesh.FirstIndex = 0;
         mask.Mesh.IndexCount = static_cast<uint32_t>( all.size() );
-        OTDU_LOG_INFO( "CinematicCar: '%s' item %zu ('%s'): %u exhaust + %u spoiler triangles are maskable\n",
-                       fileName.c_str(), i, car.getMaterials()[item.MaterialIndex].Name.c_str(), mask.Counts[0] / 3,
-                       mask.Counts[2] / 3 );
+        OTDU_LOG_INFO( "CinematicCar: '%s' item %zu ('%s'): %u exhaust + %u "
+                       "spoiler triangles are maskable\n",
+                       fileName.c_str(), i,
+                       car.getMaterials()[item.MaterialIndex].Name.c_str(),
+                       mask.Counts[0] / 3, mask.Counts[2] / 3 );
         tunerMasks.push_back( std::move( mask ) );
     }
     applyTunerMasks();
+}
+
+// The viewer's hide-box edits call this live: re-collect the masks from the
+// (runtime-overridden) tuner data and re-apply them to the current
+// attachments. Needs Desc::bKeepPrimitiveData - the collection reads the
+// primitive vertices a normal load frees after the wipers.
+void CinematicCar::refreshTunerMasks() {
+    if ( !car.isLoaded() || !TunerModEnabled() || !bKeepPrimitiveData ) {
+        return;
+    }
+    collectTunerMasks();
 }
 
 void CinematicCar::applyTunerMasks() {
     const bool bExhaust = tunerAttachments.count( "exhaust" ) != 0;
     const bool bSpoiler = tunerAttachments.count( "spoiler" ) != 0;
     // The stock exhaust tips are the car's own EXHAUST node: hidden while an
-    // exhaust part is fitted (shown again - only if this code hid it - on stock).
+    // exhaust part is fitted (shown again - only if this code hid it - on
+    // stock).
     if ( car.isLoaded() ) {
         const int32_t exhaustNode = car.getScene().findNode( "EXHAUST" );
         if ( exhaustNode >= 0 ) {
@@ -3159,7 +3791,8 @@ void CinematicCar::applyTunerMasks() {
     for ( TunerMask &mask : tunerMasks ) {
         EdenMesh mesh = mask.Mesh;
         mesh.FirstIndex = bExhaust ? mask.Counts[0] : 0;
-        mesh.IndexCount = ( bExhaust ? 0 : mask.Counts[0] ) + mask.Counts[1] + ( bSpoiler ? 0 : mask.Counts[2] );
+        mesh.IndexCount = ( bExhaust ? 0 : mask.Counts[0] ) + mask.Counts[1] +
+                          ( bSpoiler ? 0 : mask.Counts[2] );
         car.setItemMesh( mask.Item, mesh );
     }
 }
@@ -3185,19 +3818,25 @@ bool CinematicCar::getRearBounds( Vector3f &outMin, Vector3f &outMax ) const {
         if ( !car.getNodeBounds( static_cast<int32_t>( n ), bMin, bMax ) ) {
             continue;
         }
-        const Matrix4x4f nodeT = car.getNodeTransform( static_cast<int32_t>( n ) );
+        const Matrix4x4f nodeT =
+            car.getNodeTransform( static_cast<int32_t>( n ) );
         for ( int32_t corner = 0; corner < 8; corner++ ) {
-            const Vector3f p = nodeT.transformPoint( Vector3f( corner & 1 ? bMax.x : bMin.x, corner & 2 ? bMax.y : bMin.y,
-                                                              corner & 4 ? bMax.z : bMin.z ) );
-            outMin = Vector3f( Min( outMin.x, p.x ), Min( outMin.y, p.y ), Min( outMin.z, p.z ) );
-            outMax = Vector3f( Max( outMax.x, p.x ), Max( outMax.y, p.y ), Max( outMax.z, p.z ) );
+            const Vector3f p = nodeT.transformPoint( Vector3f(
+                corner & 1 ? bMax.x : bMin.x, corner & 2 ? bMax.y : bMin.y,
+                corner & 4 ? bMax.z : bMin.z ) );
+            outMin = Vector3f( Min( outMin.x, p.x ), Min( outMin.y, p.y ),
+                               Min( outMin.z, p.z ) );
+            outMax = Vector3f( Max( outMax.x, p.x ), Max( outMax.y, p.y ),
+                               Max( outMax.z, p.z ) );
         }
     }
     return true;
 }
 
-Matrix4x4f CinematicCar::fitOnGround( Vector3f position, const Quaternionf &rotation,
-                                      const SurfaceFunction &surfaceHeight ) const {
+Matrix4x4f
+CinematicCar::fitOnGround( Vector3f position,
+                           const Quaternionf &rotation,
+                           const SurfaceFunction &surfaceHeight ) const {
     const Matrix4x4f cinematicRotation = EdenRotationFromQuaternion( rotation );
     Matrix4x4f tilt = Matrix4x4f::Identity();
     // The cinematic gives the car pose above the road (heading only): in
@@ -3209,11 +3848,13 @@ Matrix4x4f CinematicCar::fitOnGround( Vector3f position, const Quaternionf &rota
     // it (no wheel contact, the bike sat on its chassis). A two-wheeler rests
     // on the average of its two tire bottoms instead [INF].
     if ( wheelNodes.size() == 2 && !CmdLine::HasArg( "-nocarground" ) ) {
-        const Matrix4x4f pose = Matrix4x4f::Translation( position ) * cinematicRotation;
+        const Matrix4x4f pose =
+            Matrix4x4f::Translation( position ) * cinematicRotation;
         float lift = 0.0f;
         int32_t found = 0;
         for ( int32_t node : wheelNodes ) {
-            const Vector3f hubLocal = car.getNodeTransform( node ).getTranslation();
+            const Vector3f hubLocal =
+                car.getNodeTransform( node ).getTranslation();
             const Vector3f hub = pose.transformPoint( hubLocal );
             float surface = 0.0f;
             if ( surfaceHeight( hub.x, hub.z, hub.y + 1.5f, surface ) ) {
@@ -3226,22 +3867,27 @@ Matrix4x4f CinematicCar::fitOnGround( Vector3f position, const Quaternionf &rota
         }
     }
     if ( wheelNodes.size() >= 3 && !CmdLine::HasArg( "-nocarground" ) ) {
-        const Matrix4x4f pose = Matrix4x4f::Translation( position ) * cinematicRotation;
+        const Matrix4x4f pose =
+            Matrix4x4f::Translation( position ) * cinematicRotation;
         std::vector<Vector3f> targets;
         float hubHeight = 0.0f;
         for ( int32_t node : wheelNodes ) {
-            const Vector3f hubLocal = car.getNodeTransform( node ).getTranslation();
+            const Vector3f hubLocal =
+                car.getNodeTransform( node ).getTranslation();
             const Vector3f hub = pose.transformPoint( hubLocal );
             float surface = 0.0f;
             if ( surfaceHeight( hub.x, hub.z, hub.y + 1.5f, surface ) ) {
-                targets.push_back( Vector3f( hub.x - position.x, surface + tireRadius, hub.z - position.z ) );
+                targets.push_back( Vector3f( hub.x - position.x,
+                                             surface + tireRadius,
+                                             hub.z - position.z ) );
                 hubHeight += hubLocal.y;
             }
         }
         if ( targets.size() >= 3 ) {
             hubHeight /= static_cast<float>( targets.size() );
             // Least squares y = a x + b z + c.
-            double sxx = 0, sxz = 0, szz = 0, sx = 0, sz = 0, sy = 0, sxy = 0, szy = 0;
+            double sxx = 0, sxz = 0, szz = 0, sx = 0, sz = 0, sy = 0, sxy = 0,
+                   szy = 0;
             for ( const Vector3f &t : targets ) {
                 sxx += t.x * t.x;
                 sxz += t.x * t.z;
@@ -3253,12 +3899,18 @@ Matrix4x4f CinematicCar::fitOnGround( Vector3f position, const Quaternionf &rota
                 szy += t.z * t.y;
             }
             const double n = static_cast<double>( targets.size() );
-            // Normal equations [sxx sxz sx; sxz szz sz; sx sz n] (a b c) = (sxy szy sy)
-            const double m[3][3] = { { sxx, sxz, sx }, { sxz, szz, sz }, { sx, sz, n } };
+            // Normal equations [sxx sxz sx; sxz szz sz; sx sz n] (a b c) = (sxy
+            // szy sy)
+            const double m[3][3] = {
+                {sxx, sxz, sx},
+                {sxz, szz, sz},
+                {sx,  sz,  n }
+            };
             const double r[3] = { sxy, szy, sy };
-            const double det = m[0][0] * ( m[1][1] * m[2][2] - m[1][2] * m[2][1] ) -
-                               m[0][1] * ( m[1][0] * m[2][2] - m[1][2] * m[2][0] ) +
-                               m[0][2] * ( m[1][0] * m[2][1] - m[1][1] * m[2][0] );
+            const double det =
+                m[0][0] * ( m[1][1] * m[2][2] - m[1][2] * m[2][1] ) -
+                m[0][1] * ( m[1][0] * m[2][2] - m[1][2] * m[2][0] ) +
+                m[0][2] * ( m[1][0] * m[2][1] - m[1][1] * m[2][0] );
             if ( std::abs( det ) > 1e-9 ) {
                 auto solve = [&]( int column ) {
                     double c[3][3];
@@ -3267,20 +3919,27 @@ Matrix4x4f CinematicCar::fitOnGround( Vector3f position, const Quaternionf &rota
                             c[i][j] = j == column ? r[i] : m[i][j];
                         }
                     }
-                    return ( c[0][0] * ( c[1][1] * c[2][2] - c[1][2] * c[2][1] ) -
-                             c[0][1] * ( c[1][0] * c[2][2] - c[1][2] * c[2][0] ) +
-                             c[0][2] * ( c[1][0] * c[2][1] - c[1][1] * c[2][0] ) ) /
+                    return ( c[0][0] *
+                                 ( c[1][1] * c[2][2] - c[1][2] * c[2][1] ) -
+                             c[0][1] *
+                                 ( c[1][0] * c[2][2] - c[1][2] * c[2][0] ) +
+                             c[0][2] *
+                                 ( c[1][0] * c[2][1] - c[1][1] * c[2][0] ) ) /
                            det;
                 };
                 const float slopeX = static_cast<float>( solve( 0 ) );
                 const float slopeZ = static_cast<float>( solve( 1 ) );
                 const float height = static_cast<float>( solve( 2 ) );
-                const Vector3f normal = Vector3f( -slopeX, 1.0f, -slopeZ ).normalized();
-                const Vector3f axis = Vector3f( 0.0f, 1.0f, 0.0f ).cross( normal );
+                const Vector3f normal =
+                    Vector3f( -slopeX, 1.0f, -slopeZ ).normalized();
+                const Vector3f axis =
+                    Vector3f( 0.0f, 1.0f, 0.0f ).cross( normal );
                 const float sine = axis.length();
                 if ( sine > 1e-6f ) {
-                    tilt = Matrix4x4f::FromQuaternion(
-                        Quaternionf::FromAxisAngle( axis * ( 1.0f / sine ), std::atan2( sine, normal.y ) ) );
+                    tilt =
+                        Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle(
+                            axis * ( 1.0f / sine ),
+                            std::atan2( sine, normal.y ) ) );
                 }
                 // Hub plane at the car centre, car origin hubHeight below it.
                 position.y = height;
@@ -3289,19 +3948,23 @@ Matrix4x4f CinematicCar::fitOnGround( Vector3f position, const Quaternionf &rota
         }
     }
     if ( CmdLine::HasArg( "-logcar" ) ) {
-        const Matrix4x4f world = Matrix4x4f::Translation( position ) * tilt * cinematicRotation;
+        const Matrix4x4f world =
+            Matrix4x4f::Translation( position ) * tilt * cinematicRotation;
         for ( int32_t node : wheelNodes ) {
-            const Vector3f hub = world.transformPoint( car.getNodeTransform( node ).getTranslation() );
+            const Vector3f hub = world.transformPoint(
+                car.getNodeTransform( node ).getTranslation() );
             float surface = -1000.0f;
             surfaceHeight( hub.x, hub.z, hub.y + 1.5f, surface );
-            OTDU_LOG_INFO( "wheel %d hub (%.3f %.3f %.3f) bottom %.3f surface %.3f\n", node, hub.x, hub.y, hub.z,
-                           hub.y - tireRadius, surface );
+            OTDU_LOG_INFO(
+                "wheel %d hub (%.3f %.3f %.3f) bottom %.3f surface %.3f\n",
+                node, hub.x, hub.y, hub.z, hub.y - tireRadius, surface );
         }
     }
     static const bool bLogCar = CmdLine::HasArg( "-logcar" );
     if ( bLogCar ) {
-        OTDU_LOG_INFO( "Car pos (%.3f %.3f %.3f) q (%.4f %.4f %.4f %.4f)\n", position.x, position.y, position.z,
-                       rotation.x, rotation.y, rotation.z, rotation.w );
+        OTDU_LOG_INFO( "Car pos (%.3f %.3f %.3f) q (%.4f %.4f %.4f %.4f)\n",
+                       position.x, position.y, position.z, rotation.x,
+                       rotation.y, rotation.z, rotation.w );
     }
     return Matrix4x4f::Translation( position ) * tilt * cinematicRotation;
 }
@@ -3345,7 +4008,8 @@ void CinematicCar::collectWipers() {
         const Vector3f center = ( item.BoundsMin + item.BoundsMax ) * 0.5f;
         // Up on the body, ahead of the driver (the windscreen band).
         if ( bHaveBody ) {
-            if ( center.y < bodyMin.y + ( bodyMax.y - bodyMin.y ) * 0.40f || center.z < 0.0f ) {
+            if ( center.y < bodyMin.y + ( bodyMax.y - bodyMin.y ) * 0.40f ||
+                 center.z < 0.0f ) {
                 continue;
             }
         }
@@ -3355,7 +4019,9 @@ void CinematicCar::collectWipers() {
         }
     }
     if ( best < 0 ) {
-        car.clearPrimitiveData();
+        if ( !bKeepPrimitiveData ) {
+            car.clearPrimitiveData();
+        }
         return; // this car bakes no wiper strip (or it did not match)
     }
     const EdenModel::Item &item = items[static_cast<size_t>( best )];
@@ -3364,8 +4030,10 @@ void CinematicCar::collectWipers() {
     // Split the triangles into the two blades at x = 0 (the parked art is one
     // strip: the halves meet in the middle of the glass).
     std::vector<uint32_t> halves[2];
-    Vector3f halfMin[2] = { Vector3f( 1e9f, 1e9f, 1e9f ), Vector3f( 1e9f, 1e9f, 1e9f ) };
-    Vector3f halfMax[2] = { Vector3f( -1e9f, -1e9f, -1e9f ), Vector3f( -1e9f, -1e9f, -1e9f ) };
+    Vector3f halfMin[2] = { Vector3f( 1e9f, 1e9f, 1e9f ),
+                            Vector3f( 1e9f, 1e9f, 1e9f ) };
+    Vector3f halfMax[2] = { Vector3f( -1e9f, -1e9f, -1e9f ),
+                            Vector3f( -1e9f, -1e9f, -1e9f ) };
     const std::vector<uint32_t> &indices = item.PrimitiveIndices;
     const std::vector<Vector3f> &vertices = item.PrimitiveVertices;
     for ( size_t t = 0; t + 2 < indices.size(); t += 3 ) {
@@ -3376,12 +4044,14 @@ void CinematicCar::collectWipers() {
         for ( uint32_t k = 0; k < 3; k++ ) {
             halves[half].push_back( indices[t + k] );
         }
-        halfMin[half] = Vector3f( Min( halfMin[half].x, Min( a.x, Min( b.x, c.x ) ) ),
-                                  Min( halfMin[half].y, Min( a.y, Min( b.y, c.y ) ) ),
-                                  Min( halfMin[half].z, Min( a.z, Min( b.z, c.z ) ) ) );
-        halfMax[half] = Vector3f( Max( halfMax[half].x, Max( a.x, Max( b.x, c.x ) ) ),
-                                  Max( halfMax[half].y, Max( a.y, Max( b.y, c.y ) ) ),
-                                  Max( halfMax[half].z, Max( a.z, Max( b.z, c.z ) ) ) );
+        halfMin[half] =
+            Vector3f( Min( halfMin[half].x, Min( a.x, Min( b.x, c.x ) ) ),
+                      Min( halfMin[half].y, Min( a.y, Min( b.y, c.y ) ) ),
+                      Min( halfMin[half].z, Min( a.z, Min( b.z, c.z ) ) ) );
+        halfMax[half] =
+            Vector3f( Max( halfMax[half].x, Max( a.x, Max( b.x, c.x ) ) ),
+                      Max( halfMax[half].y, Max( a.y, Max( b.y, c.y ) ) ),
+                      Max( halfMax[half].z, Max( a.z, Max( b.z, c.z ) ) ) );
     }
     wiperNode = items[static_cast<size_t>( best )].NodeIndex;
     RenderDevice &device = gpRender->getDevice();
@@ -3392,9 +4062,9 @@ void CinematicCar::collectWipers() {
         WiperHalf wiper;
         wiper.ItemIndex = best;
         wiper.Mesh = item.Mesh; // the item's vertex streams and layout
-        wiper.pIndices =
-            device.createBuffer( halves[h].size() * sizeof( uint32_t ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                 halves[h].data() );
+        wiper.pIndices = device.createBuffer(
+            halves[h].size() * sizeof( uint32_t ),
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, halves[h].data() );
         wiper.Mesh.pIndexBuffer = wiper.pIndices;
         wiper.Mesh.FirstIndex = 0;
         wiper.Mesh.IndexCount = static_cast<uint32_t>( halves[h].size() );
@@ -3411,15 +4081,19 @@ void CinematicCar::collectWipers() {
         }
         wipers.push_back( std::move( wiper ) );
     }
-    car.clearPrimitiveData();
-    OTDU_LOG_INFO( "CinematicCar: wipers %s (item %d '%s' %.2f x %.2f x %.2f, halves %u + %u indices)\n",
-                   wipers.size() == 2 ? "found" : "partial", best, car.getScene().getNodes()[wiperNode].Name.c_str(),
-                   size.x, size.y, size.z,
-                   wipers.size() > 0 ? wipers[0].IndexCount : 0, wipers.size() > 1 ? wipers[1].IndexCount : 0 );
+    if ( !bKeepPrimitiveData ) {
+        car.clearPrimitiveData();
+    }
+    OTDU_LOG_INFO( "CinematicCar: wipers %s (item %d '%s' %.2f x %.2f x %.2f, "
+                   "halves %u + %u indices)\n",
+                   wipers.size() == 2 ? "found" : "partial", best,
+                   car.getScene().getNodes()[wiperNode].Name.c_str(), size.x,
+                   size.y, size.z, wipers.size() > 0 ? wipers[0].IndexCount : 0,
+                   wipers.size() > 1 ? wipers[1].IndexCount : 0 );
 }
 
 namespace {
-void FillGlassTint( std::vector<uint8_t> &pixels );
+    void FillGlassTint( std::vector<uint8_t> &pixels );
 }
 
 // Fits uv = A . (x, y, z, 1) over the windscreen's vertices (car space), so a
@@ -3436,13 +4110,17 @@ void CinematicCar::collectGlassFit() {
     float uvMin[2] = { 1e9f, 1e9f }, uvMax[2] = { -1e9f, -1e9f };
     Vector3f pMin( 1e9f, 1e9f, 1e9f ), pMax( -1e9f, -1e9f, -1e9f );
     for ( const EdenModel::Item &item : car.getItems() ) {
-        if ( item.NodeIndex != glassNode || item.PrimitiveUVs.size() < item.PrimitiveVertices.size() * 2 ) {
+        if ( item.NodeIndex != glassNode ||
+             item.PrimitiveUVs.size() < item.PrimitiveVertices.size() * 2 ) {
             continue;
         }
         const Matrix4x4f nodeT = car.getNodeTransform( glassNode );
         for ( size_t i = 0; i < item.PrimitiveVertices.size(); i++ ) {
-            const Vector3f p = nodeT.transformPoint( item.PrimitiveVertices[i] );
-            const double row[4] = { std::abs( p.x ), p.y, p.z, 1.0 }; // the glass uv is mirrored left / right
+            const Vector3f p =
+                nodeT.transformPoint( item.PrimitiveVertices[i] );
+            const double row[4] = {
+                std::abs( p.x ), p.y, p.z,
+                1.0 }; // the glass uv is mirrored left / right
             for ( int32_t a = 0; a < 4; a++ ) {
                 for ( int32_t b = 0; b < 4; b++ ) {
                     ata[a][b] += row[a] * row[b];
@@ -3450,10 +4128,14 @@ void CinematicCar::collectGlassFit() {
                 atb[0][a] += row[a] * item.PrimitiveUVs[i * 2];
                 atb[1][a] += row[a] * item.PrimitiveUVs[i * 2 + 1];
             }
-            uvMin[0] = Min( uvMin[0], item.PrimitiveUVs[i * 2] ); uvMax[0] = Max( uvMax[0], item.PrimitiveUVs[i * 2] );
-            uvMin[1] = Min( uvMin[1], item.PrimitiveUVs[i * 2 + 1] ); uvMax[1] = Max( uvMax[1], item.PrimitiveUVs[i * 2 + 1] );
-            pMin = Vector3f( Min( pMin.x, p.x ), Min( pMin.y, p.y ), Min( pMin.z, p.z ) );
-            pMax = Vector3f( Max( pMax.x, p.x ), Max( pMax.y, p.y ), Max( pMax.z, p.z ) );
+            uvMin[0] = Min( uvMin[0], item.PrimitiveUVs[i * 2] );
+            uvMax[0] = Max( uvMax[0], item.PrimitiveUVs[i * 2] );
+            uvMin[1] = Min( uvMin[1], item.PrimitiveUVs[i * 2 + 1] );
+            uvMax[1] = Max( uvMax[1], item.PrimitiveUVs[i * 2 + 1] );
+            pMin = Vector3f( Min( pMin.x, p.x ), Min( pMin.y, p.y ),
+                             Min( pMin.z, p.z ) );
+            pMax = Vector3f( Max( pMax.x, p.x ), Max( pMax.y, p.y ),
+                             Max( pMax.z, p.z ) );
             count++;
         }
     }
@@ -3499,9 +4181,14 @@ void CinematicCar::collectGlassFit() {
         }
     }
     bGlassFit = true;
-    OTDU_LOG_INFO( "CinematicCar: glass uv %.2f..%.2f x %.2f..%.2f, pos x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f\n", uvMin[0], uvMax[0], uvMin[1], uvMax[1], pMin.x, pMax.x, pMin.y, pMax.y, pMin.z, pMax.z );
-    OTDU_LOG_INFO( "CinematicCar: windscreen uv fit from %u vertices (u %.2f %.2f %.2f %.2f, v %.2f %.2f %.2f %.2f)\n", count,
-                   glassFit[0][0], glassFit[0][1], glassFit[0][2], glassFit[0][3], glassFit[1][0], glassFit[1][1],
+    OTDU_LOG_INFO( "CinematicCar: glass uv %.2f..%.2f x %.2f..%.2f, pos x "
+                   "%.2f..%.2f y %.2f..%.2f z %.2f..%.2f\n",
+                   uvMin[0], uvMax[0], uvMin[1], uvMax[1], pMin.x, pMax.x,
+                   pMin.y, pMax.y, pMin.z, pMax.z );
+    OTDU_LOG_INFO( "CinematicCar: windscreen uv fit from %u vertices (u %.2f "
+                   "%.2f %.2f %.2f, v %.2f %.2f %.2f %.2f)\n",
+                   count, glassFit[0][0], glassFit[0][1], glassFit[0][2],
+                   glassFit[0][3], glassFit[1][0], glassFit[1][1],
                    glassFit[1][2], glassFit[1][3] );
 }
 
@@ -3511,7 +4198,8 @@ void CinematicCar::collectGlassFit() {
 // left), they leave a short trail behind. The overlay is re-rendered while
 // something changes (about 30 Hz while wiping, 3 Hz otherwise).
 void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
-    if ( deltaTime <= 0.0f || gpRender == nullptr || !car.isLoaded() || appliedDamageState == 1 ) {
+    if ( deltaTime <= 0.0f || gpRender == nullptr || !car.isLoaded() ||
+         appliedDamageState == 1 ) {
         return;
     }
     auto rnd = [this]() {
@@ -3520,11 +4208,14 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
     };
     const auto toUv = [this]( const Vector3f &p, float &u, float &v ) {
         const float ax = std::abs( p.x );
-        u = glassFit[0][0] * ax + glassFit[0][1] * p.y + glassFit[0][2] * p.z + glassFit[0][3];
-        v = glassFit[1][0] * ax + glassFit[1][1] * p.y + glassFit[1][2] * p.z + glassFit[1][3];
+        u = glassFit[0][0] * ax + glassFit[0][1] * p.y + glassFit[0][2] * p.z +
+            glassFit[0][3];
+        v = glassFit[1][0] * ax + glassFit[1][1] * p.y + glassFit[1][2] * p.z +
+            glassFit[1][3];
     };
     // Spawn / evaporate toward the body's water film.
-    const size_t target = static_cast<size_t>( Clamp( wetVisual, 0.0f, 1.0f ) * 300.0f );
+    const size_t target =
+        static_cast<size_t>( Clamp( wetVisual, 0.0f, 1.0f ) * 300.0f );
     const float rate = rainAlpha > 0.001f ? 40.0f : 25.0f;
     float budget = rate * deltaTime;
     while ( glassDrops.size() < target && budget > 0.0f ) {
@@ -3535,21 +4226,25 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
         const float roll = rnd();
         drop.Radius = roll < 0.85f ? 0.8f + rnd() * 1.6f : 2.2f + rnd() * 2.2f;
         drop.Alpha = 0.05f;
-        drop.RunAt = drop.Radius > 2.2f ? 3.0f + rnd() * 10.0f : ( rnd() < 0.12f ? 6.0f + rnd() * 20.0f : 1e9f );
+        drop.RunAt = drop.Radius > 2.2f
+                         ? 3.0f + rnd() * 10.0f
+                         : ( rnd() < 0.12f ? 6.0f + rnd() * 20.0f : 1e9f );
         drop.Phase = rnd() * 6.2831853f;
         glassDrops.push_back( drop );
         bGlassDirty = true;
     }
     while ( glassDrops.size() > target && budget > 0.0f ) {
         budget -= 1.0f;
-        glassDrops[static_cast<size_t>( rnd() * glassDrops.size() ) % glassDrops.size()] = glassDrops.back();
+        glassDrops[static_cast<size_t>( rnd() * glassDrops.size() ) %
+                   glassDrops.size()] = glassDrops.back();
         glassDrops.pop_back();
         bGlassDirty = true;
     }
     // Down the glass: the world's down in the windscreen uv (the fit's y
     // gradient), so a drop that gets heavy runs along it on its own.
     float gravityU = -glassFit[0][1], gravityV = -glassFit[1][1];
-    const float gravityLength = std::sqrt( gravityU * gravityU + gravityV * gravityV );
+    const float gravityLength =
+        std::sqrt( gravityU * gravityU + gravityV * gravityV );
     if ( gravityLength > 1e-4f ) {
         gravityU /= gravityLength;
         gravityV /= gravityLength;
@@ -3569,18 +4264,23 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
         if ( drop.Age > drop.RunAt && drop.Alpha >= 1.0f ) {
             // Running: it speeds up, wobbles a little sideways, leaves a trail
             // and loses water (it shrinks); a spent drop is gone.
-            drop.Speed = Min( 0.16f, drop.Speed + 0.05f * deltaTime + 0.01f * deltaTime * drop.Radius );
-            const float wobble = std::sin( drop.Phase + drop.Age * 3.0f ) * 0.15f;
-            const float dirU = gravityU - gravityV * wobble, dirV = gravityV + gravityU * wobble;
+            drop.Speed = Min( 0.16f, drop.Speed + 0.05f * deltaTime +
+                                         0.01f * deltaTime * drop.Radius );
+            const float wobble =
+                std::sin( drop.Phase + drop.Age * 3.0f ) * 0.15f;
+            const float dirU = gravityU - gravityV * wobble,
+                        dirV = gravityV + gravityU * wobble;
             drop.U += dirU * drop.Speed * deltaTime;
             drop.V += dirV * drop.Speed * deltaTime;
             drop.TailX -= dirU * drop.Speed * deltaTime * 6.0f;
             drop.TailY -= dirV * drop.Speed * deltaTime * 6.0f;
             drop.Radius -= 0.35f * drop.Speed * deltaTime * 10.0f;
             bRunning = true;
-            bKill = drop.Radius < 0.7f || drop.U < -0.05f || drop.U > 1.05f || drop.V < -0.05f || drop.V > 1.05f;
+            bKill = drop.Radius < 0.7f || drop.U < -0.05f || drop.U > 1.05f ||
+                    drop.V < -0.05f || drop.V > 1.05f;
         }
-        const float decay = drop.Speed > 0.0f ? 1.0f : Max( 0.0f, 1.0f - 2.0f * deltaTime );
+        const float decay =
+            drop.Speed > 0.0f ? 1.0f : Max( 0.0f, 1.0f - 2.0f * deltaTime );
         drop.TailX *= decay;
         drop.TailY *= decay;
         if ( bKill ) {
@@ -3611,21 +4311,30 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
             const float lengthSq = Max( 1e-8f, sx * sx + sy * sy );
             for ( size_t i = 0; i < glassDrops.size(); ) {
                 GlassDrop &drop = glassDrops[i];
-                const float t = ( ( drop.U - cur[0] ) * sx + ( drop.V - cur[1] ) * sy ) / lengthSq;
+                const float t =
+                    ( ( drop.U - cur[0] ) * sx + ( drop.V - cur[1] ) * sy ) /
+                    lengthSq;
                 bool bKill = false;
                 if ( t >= 0.0f && t <= 1.0f ) {
                     const float px = cur[0] + sx * t, py = cur[1] + sy * t;
-                    const float dist = std::sqrt( ( drop.U - px ) * ( drop.U - px ) + ( drop.V - py ) * ( drop.V - py ) );
+                    const float dist =
+                        std::sqrt( ( drop.U - px ) * ( drop.U - px ) +
+                                   ( drop.V - py ) * ( drop.V - py ) );
                     if ( dist < 0.03f ) {
-                        // how far this point of the blade moved since last frame
-                        const float qx = prev[0] + ( prev[2] - prev[0] ) * t, qy = prev[1] + ( prev[3] - prev[1] ) * t;
+                        // how far this point of the blade moved since last
+                        // frame
+                        const float qx = prev[0] + ( prev[2] - prev[0] ) * t,
+                                    qy = prev[1] + ( prev[3] - prev[1] ) * t;
                         const float dx = px - qx, dy = py - qy;
                         drop.U += dx;
                         drop.V += dy;
                         drop.TailX -= dx * 3.0f;
                         drop.TailY -= dy * 3.0f;
-                        drop.Alpha -= 2.5f * std::sqrt( dx * dx + dy * dy ) + 0.01f;
-                        bKill = drop.Alpha <= 0.0f || drop.U < -0.05f || drop.U > 1.05f || drop.V < -0.05f || drop.V > 1.05f;
+                        drop.Alpha -=
+                            2.5f * std::sqrt( dx * dx + dy * dy ) + 0.01f;
+                        bKill = drop.Alpha <= 0.0f || drop.U < -0.05f ||
+                                drop.U > 1.05f || drop.V < -0.05f ||
+                                drop.V > 1.05f;
                         bWiping = true;
                     }
                 }
@@ -3665,31 +4374,40 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
             return;
         }
     } else {
-        std::vector<uint8_t> pixels( static_cast<size_t>( kSize ) * kSize * 4, 0 );
+        std::vector<uint8_t> pixels( static_cast<size_t>( kSize ) * kSize * 4,
+                                     0 );
         FillGlassTint( pixels );
         for ( const GlassDrop &drop : glassDrops ) {
             const float cx = drop.U * kSize, cy = drop.V * kSize;
             const float grow = Clamp( drop.Alpha, 0.0f, 1.0f );
             const float radius = drop.Radius * ( 0.55f + 0.45f * grow );
-            const float tailLength = std::sqrt( drop.TailX * drop.TailX + drop.TailY * drop.TailY ) * kSize;
+            const float tailLength =
+                std::sqrt( drop.TailX * drop.TailX + drop.TailY * drop.TailY ) *
+                kSize;
             const float tailMax = Min( tailLength, 24.0f );
             const int32_t extent = static_cast<int32_t>( radius + tailMax ) + 3;
-            const float tx = tailLength > 0.01f ? drop.TailX * kSize / tailLength : 0.0f;
-            const float ty = tailLength > 0.01f ? drop.TailY * kSize / tailLength : 0.0f;
+            const float tx =
+                tailLength > 0.01f ? drop.TailX * kSize / tailLength : 0.0f;
+            const float ty =
+                tailLength > 0.01f ? drop.TailY * kSize / tailLength : 0.0f;
             for ( int32_t dy = -extent; dy <= extent; dy++ ) {
                 for ( int32_t dx = -extent; dx <= extent; dx++ ) {
                     float alpha = 0.0f, shade = 0.0f;
-                    const float d = std::sqrt( static_cast<float>( dx * dx + dy * dy ) );
+                    const float d =
+                        std::sqrt( static_cast<float>( dx * dx + dy * dy ) );
                     if ( d <= radius ) {
                         alpha = 0.10f + 0.10f * ( d / radius );
-                        const float side = ( -dx * 0.5f + dy * 0.8f ) / Max( radius, 1.0f );
+                        const float side =
+                            ( -dx * 0.5f + dy * 0.8f ) / Max( radius, 1.0f );
                         shade = 0.55f + 0.45f * Clamp( side, 0.0f, 1.0f );
                         alpha += 0.22f * Clamp( side, 0.0f, 1.0f );
                     } else if ( tailLength > 1.0f ) {
-                        // the trail: along (tx, ty) from the drop, about 2 px wide
+                        // the trail: along (tx, ty) from the drop, about 2 px
+                        // wide
                         const float along = dx * tx + dy * ty;
                         const float across = std::abs( dx * -ty + dy * tx );
-                        if ( along > 0.0f && along < tailMax && across < 0.8f ) {
+                        if ( along > 0.0f && along < tailMax &&
+                             across < 0.8f ) {
                             alpha = 0.06f * ( 1.0f - along / tailMax );
                             shade = 0.8f;
                         }
@@ -3698,15 +4416,25 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
                     if ( alpha <= 0.0f ) {
                         continue;
                     }
-                    const int32_t x = ( ( static_cast<int32_t>( cx ) + dx ) % kSize + kSize ) % kSize;
-                    const int32_t y = ( ( static_cast<int32_t>( cy ) + dy ) % kSize + kSize ) % kSize;
-                    uint8_t *px = &pixels[( static_cast<size_t>( y ) * kSize + x ) * 4];
+                    const int32_t x =
+                        ( ( static_cast<int32_t>( cx ) + dx ) % kSize +
+                          kSize ) %
+                        kSize;
+                    const int32_t y =
+                        ( ( static_cast<int32_t>( cy ) + dy ) % kSize +
+                          kSize ) %
+                        kSize;
+                    uint8_t *px =
+                        &pixels[( static_cast<size_t>( y ) * kSize + x ) * 4];
                     const float a = Max( alpha, px[3] / 255.0f );
                     const float c = Clamp( 0.45f + 0.40f * shade, 0.0f, 1.0f );
                     (void)a;
-                    px[0] = static_cast<uint8_t>( px[0] * ( 1.0f - alpha ) + 205.0f * c * alpha );
-                    px[1] = static_cast<uint8_t>( px[1] * ( 1.0f - alpha ) + 222.0f * c * alpha );
-                    px[2] = static_cast<uint8_t>( px[2] * ( 1.0f - alpha ) + 240.0f * c * alpha );
+                    px[0] = static_cast<uint8_t>( px[0] * ( 1.0f - alpha ) +
+                                                  205.0f * c * alpha );
+                    px[1] = static_cast<uint8_t>( px[1] * ( 1.0f - alpha ) +
+                                                  222.0f * c * alpha );
+                    px[2] = static_cast<uint8_t>( px[2] * ( 1.0f - alpha ) +
+                                                  240.0f * c * alpha );
                 }
             }
         }
@@ -3714,7 +4442,8 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
         const uint32_t size = static_cast<uint32_t>( pixels.size() );
         char name[40];
         snprintf( name, sizeof( name ), "rain_dyn_%u", ++dynGlassSerial );
-        pWanted = gpRender->getDevice().createTexture2D( kSize, kSize, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, name );
+        pWanted = gpRender->getDevice().createTexture2D(
+            kSize, kSize, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, name );
         if ( pWanted == nullptr ) {
             return;
         }
@@ -3723,7 +4452,8 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
     static const uint64_t kDetail2 = GetIdentifier64bit( "DETAIL2" );
     static const uint64_t kCarPaint = 0x183157b81c6c7357ull;
     for ( EdenMaterial &material : car.getMaterials() ) {
-        if ( material.ShaderSetGUID != kCarPaint || material.Name.compare( 0, 5, "Glass" ) != 0 ) {
+        if ( material.ShaderSetGUID != kCarPaint ||
+             material.Name.compare( 0, 5, "Glass" ) != 0 ) {
             continue;
         }
         for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
@@ -3734,7 +4464,8 @@ void CinematicCar::updateGlassDrops( float deltaTime, float rainAlpha ) {
         }
     }
     if ( pDynGlass != nullptr ) {
-        gpRender->getDevice().destroyTexture( pDynGlass ); // deferred by the device
+        gpRender->getDevice().destroyTexture(
+            pDynGlass ); // deferred by the device
     }
     pDynGlass = glassDrops.empty() ? nullptr : pWanted;
     appliedGlassWet = glassDrops.empty() ? 0 : -1;
@@ -3777,7 +4508,9 @@ void CinematicCar::updateWipers( float deltaTime, float rainAlpha ) {
             wiperTimer = 0.0f;
         }
     };
-    const bool bActive = wiperMode == eWiperMode::Fast || ( wiperMode == eWiperMode::Auto && rainAlpha > 0.001f );
+    const bool bActive =
+        wiperMode == eWiperMode::Fast ||
+        ( wiperMode == eWiperMode::Auto && rainAlpha > 0.001f );
     if ( !bActive ) {
         park();
         return;
@@ -3787,14 +4520,18 @@ void CinematicCar::updateWipers( float deltaTime, float rainAlpha ) {
         wiperTimer += deltaTime / kSweepTime;
         if ( wiperTimer >= 0.0f ) {
             wiperAngle = 0.0f;
-            wiperTimer = wiperMode == eWiperMode::Fast
-                             ? 0.0f
-                             : Max( kIntervalMin,
-                                    kIntervalMax - Clamp( rainAlpha / 255.0f, 0.0f, 1.0f ) * ( kIntervalMax - kIntervalMin ) );
+            wiperTimer =
+                wiperMode == eWiperMode::Fast
+                    ? 0.0f
+                    : Max( kIntervalMin,
+                           kIntervalMax -
+                               Clamp( rainAlpha / 255.0f, 0.0f, 1.0f ) *
+                                   ( kIntervalMax - kIntervalMin ) );
         } else {
             wiperAngle = kMaxAngle * sinf( 3.14159265f * -wiperTimer );
             if ( wiperAngle > 0.5f * kMaxAngle ) {
-                // the blades are across the glass: it clears over the sweep, not at once
+                // the blades are across the glass: it clears over the sweep,
+                // not at once
                 glassWater = Max( 0.0f, glassWater - 3.0f * deltaTime );
             }
         }
@@ -3803,25 +4540,34 @@ void CinematicCar::updateWipers( float deltaTime, float rainAlpha ) {
     // Waiting for the next sweep (0: sweep right away).
     wiperTimer -= deltaTime;
     if ( wiperTimer <= 0.0f ) {
-        wiperTimer = -1.0f; // a sweep starts at progress 0 (was -1e-6: it ended on the next frame)
+        wiperTimer = -1.0f; // a sweep starts at progress 0 (was -1e-6: it ended
+                            // on the next frame)
     }
 }
 
-bool CinematicCar::getWiperSweep( uint32_t half, Vector3f &outPivot, Vector3f &outTip ) const {
+bool CinematicCar::getWiperSweep( uint32_t half,
+                                  Vector3f &outPivot,
+                                  Vector3f &outTip ) const {
     if ( wipers.empty() || wiperAngle <= 0.001f || half >= wipers.size() ) {
         return false;
     }
     const WiperHalf &wiper = wipers[half];
-    const Matrix4x4f nodeT = wiperNode >= 0 ? car.getNodeTransform( wiperNode ) : Matrix4x4f();
+    const Matrix4x4f nodeT =
+        wiperNode >= 0 ? car.getNodeTransform( wiperNode ) : Matrix4x4f();
     // The swing of draw(): the blade rotated about the windscreen normal
     // through the pivot (mirrored on the right half).
-    const Vector3f axis( 0.0f, 0.557f, 0.830f ); // the Delta's 34 degree rake [INF]
+    const Vector3f axis( 0.0f, 0.557f,
+                         0.830f ); // the Delta's 34 degree rake [INF]
     const float angle = ( half == 0 ? 1.0f : -1.0f ) * wiperAngle;
-    const Matrix4x4f swing = Matrix4x4f::Translation( wiper.Pivot ) *
-                             Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( axis, angle ) ) *
-                             Matrix4x4f::Translation( Vector3f( -wiper.Pivot.x, -wiper.Pivot.y, -wiper.Pivot.z ) );
+    const Matrix4x4f swing =
+        Matrix4x4f::Translation( wiper.Pivot ) *
+        Matrix4x4f::FromQuaternion(
+            Quaternionf::FromAxisAngle( axis, angle ) ) *
+        Matrix4x4f::Translation(
+            Vector3f( -wiper.Pivot.x, -wiper.Pivot.y, -wiper.Pivot.z ) );
     outPivot = nodeT.transformPoint( wiper.Pivot );
-    outTip = nodeT.transformPoint( swing.transformPoint( wiper.Pivot + wiper.Blade ) );
+    outTip = nodeT.transformPoint(
+        swing.transformPoint( wiper.Pivot + wiper.Blade ) );
     return true;
 }
 
@@ -3833,7 +4579,8 @@ void CinematicCar::applyGlassSwap( bool bInside ) {
         }
         int32_t glassI = -1;
         for ( uint32_t i = 0; i < interior.getMaterials().size(); i++ ) {
-            if ( StringCmpI( interior.getMaterials()[i].Name.c_str(), "Glass_I" ) == 0 ) {
+            if ( StringCmpI( interior.getMaterials()[i].Name.c_str(),
+                             "Glass_I" ) == 0 ) {
                 glassI = static_cast<int32_t>( i );
                 break;
             }
@@ -3843,34 +4590,42 @@ void CinematicCar::applyGlassSwap( bool bInside ) {
         }
         glassDirt = interior.getMaterials()[glassI];
         for ( uint32_t i = 0; i < car.getMaterials().size(); i++ ) {
-            if ( StringCmpI( car.getMaterials()[i].Name.c_str(), "Glass" ) == 0 ) {
+            if ( StringCmpI( car.getMaterials()[i].Name.c_str(), "Glass" ) ==
+                 0 ) {
                 glassSwap.emplace_back( &car, static_cast<int32_t>( i ) );
             }
         }
         glassOriginals.reserve( glassSwap.size() );
         for ( const auto &swap : glassSwap ) {
-            glassOriginals.push_back( swap.first->getMaterials()[static_cast<size_t>( swap.second )] );
+            glassOriginals.push_back(
+                swap.first
+                    ->getMaterials()[static_cast<size_t>( swap.second )] );
         }
-        OTDU_LOG_DEBUG( "CinematicCar: glass swap %zu material(s) -> Glass_I\n", glassSwap.size() );
+        OTDU_LOG_DEBUG( "CinematicCar: glass swap %zu material(s) -> Glass_I\n",
+                        glassSwap.size() );
     }
     if ( glassSwap.empty() || bGlassSwapped == bInside ) {
         return;
     }
     for ( size_t k = 0; k < glassSwap.size(); k++ ) {
-        EdenMaterial &material = glassSwap[k].first->getMaterials()[static_cast<size_t>( glassSwap[k].second )];
+        EdenMaterial &material =
+            glassSwap[k].first->getMaterials()[static_cast<size_t>(
+                glassSwap[k].second )];
         material = bInside ? glassDirt : glassOriginals[k];
     }
     bGlassSwapped = bInside;
-    // The swap wrote whole materials: back outside they are the clean snapshot, and the
-    // cracked glass of a damaged car must be bound again (the owner: the smashed window
-    // was repaired by switching to the chase camera). applyDamageState is idempotent, so
-    // forget what it applied.
+    // The swap wrote whole materials: back outside they are the clean snapshot,
+    // and the cracked glass of a damaged car must be bound again (the owner:
+    // the smashed window was repaired by switching to the chase camera).
+    // applyDamageState is idempotent, so forget what it applied.
     appliedDamageState = -1;
     appliedGlassWet = 0;
     bGlassDirty = true;
 }
 
-void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const WeatherPreset *pWeather,
+void CinematicCar::draw( EdenRenderer &renderer,
+                         const Matrix4x4f &world,
+                         const WeatherPreset *pWeather,
                          bool bEnvironmentAssigned ) {
     if ( !car.isLoaded() ) {
         return;
@@ -3879,22 +4634,32 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     // x: reflection (x MatParam.x), y: specular, z / w: fresnel coefficient /
     // power (x MatParam.zw)). The static cubemap of common_car.bnk stands in
     // for the dynamic one.
-    const Vector4f fresnel = pWeather != nullptr ? pWeather->getVector4( "car_fresnel_coeff_power_boost_specular",
-                                                                         Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ) )
-                                                 : Vector4f( 1.0f, 1.0f, 1.0f, 1.0f );
+    const Vector4f fresnel =
+        pWeather != nullptr
+            ? pWeather->getVector4( "car_fresnel_coeff_power_boost_specular",
+                                    Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ) )
+            : Vector4f( 1.0f, 1.0f, 1.0f, 1.0f );
     auto factor = [pWeather]( const char *pName, float defaultValue ) {
-        return pWeather != nullptr ? pWeather->getFloat( pName, defaultValue ) : defaultValue;
+        return pWeather != nullptr ? pWeather->getFloat( pName, defaultValue )
+                                   : defaultValue;
     };
-    const float specular = fresnel.w * factor( "car_sun_specular_factor", 1.0f );
-    const float staticFactor = bEnvironmentAssigned ? 1.0f : factor( "car_envmap_factor_static_cubemap", 0.7f );
-    const Vector4f envCoeff( factor( "car_envmap_factor", 1.0f ) * staticFactor, specular, fresnel.x, fresnel.y );
-    const Vector4f rimEnvCoeff( factor( "car_rim_envmap_factor", 1.0f ) * staticFactor, specular, fresnel.x,
-                                fresnel.y );
+    const float specular =
+        fresnel.w * factor( "car_sun_specular_factor", 1.0f );
+    const float staticFactor =
+        bEnvironmentAssigned
+            ? 1.0f
+            : factor( "car_envmap_factor_static_cubemap", 0.7f );
+    const Vector4f envCoeff( factor( "car_envmap_factor", 1.0f ) * staticFactor,
+                             specular, fresnel.x, fresnel.y );
+    const Vector4f rimEnvCoeff( factor( "car_rim_envmap_factor", 1.0f ) *
+                                    staticFactor,
+                                specular, fresnel.x, fresnel.y );
     // The dynamic surface state (applySurfaceState): a dirty body loses its
     // reflection, a wet one gains a little (the water film acts as a mirror on
     // the clean paint). The body carries stainVisual / wetVisual; the rims and
     // the tires keep the weather values.
-    const float gloss = ( 1.0f - 0.85f * stainVisual ) * ( 1.0f + 0.7f * wetVisual );
+    const float gloss =
+        ( 1.0f - 0.85f * stainVisual ) * ( 1.0f + 0.7f * wetVisual );
     Vector4f bodyEnvCoeff = envCoeff;
     bodyEnvCoeff.x = envCoeff.x * gloss;
     static const uint64_t kEnvCoeff = GetIdentifier64bit( "ENVCOEFF" );
@@ -3902,16 +4667,21 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
         for ( EdenMaterial &material : pModel->getMaterials() ) {
             auto it = material.Parameters.find( kEnvCoeff );
             if ( it != material.Parameters.end() ) {
-                it->second = ( pModel == &rim || pModel == &rimRear ) ? rimEnvCoeff
-                                                                     : ( pModel == &car ? bodyEnvCoeff : envCoeff );
+                it->second = ( pModel == &rim || pModel == &rimRear )
+                                 ? rimEnvCoeff
+                                 : ( pModel == &car ? bodyEnvCoeff : envCoeff );
             }
         }
     }
 
-    for ( size_t i = 0; i < wheelShadowNodes.size() && i < wheelNodes.size(); i++ ) {
-        const Vector3f hub = car.getNodeTransform( wheelNodes[i] ).getTranslation();
-        const Matrix4x4f box = Matrix4x4f::Translation( Vector3f( hub.x, hub.y - tireRadius, hub.z ) ) *
-                               Matrix4x4f::Scale( Vector3f( 0.25f, 0.12f, 0.45f ) );
+    for ( size_t i = 0; i < wheelShadowNodes.size() && i < wheelNodes.size();
+          i++ ) {
+        const Vector3f hub =
+            car.getNodeTransform( wheelNodes[i] ).getTranslation();
+        const Matrix4x4f box =
+            Matrix4x4f::Translation(
+                Vector3f( hub.x, hub.y - tireRadius, hub.z ) ) *
+            Matrix4x4f::Scale( Vector3f( 0.25f, 0.12f, 0.45f ) );
         car.setNodeTransform( wheelShadowNodes[i], box );
     }
     // Car level of detail (FUN_00c4e630 / FUN_00c4dcb0): distance from the
@@ -3922,13 +4692,16 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     // caster and reflection passes keep the last one.
     bool bInterior = bLastInterior;
     if ( !renderer.isShadowCasterMode() && !renderer.isReflectionPass() ) {
-        const float distance = ( world.getTranslation() - renderer.getSceneParams().CameraPosition ).length();
+        const float distance = ( world.getTranslation() -
+                                 renderer.getSceneParams().CameraPosition )
+                                   .length();
         static const int32_t forcedLod = CmdLine::GetArgInt( "-carlod", -1 );
         bInterior = interior.isLoaded() && !interiorDrawnNodes.empty() &&
                     ( forcedLod >= 0 ? forcedLod == 4 : distance < 5.0f );
         static const bool bLogLod = CmdLine::HasArg( "-logcar" );
         if ( bLogLod && bInterior != bLastInterior ) {
-            OTDU_LOG_INFO( "CinematicCar: camera %.2f m, LOD %d\n", distance, bInterior ? 4 : 3 );
+            OTDU_LOG_INFO( "CinematicCar: camera %.2f m, LOD %d\n", distance,
+                           bInterior ? 4 : 3 );
         }
         bLastInterior = bInterior;
     }
@@ -3944,11 +4717,14 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
         // below); only the windscreen is hidden. -hidesidewindows = the old
         // all-hidden behaviour.
         static const bool bHideSides = CmdLine::HasArg( "-hidesidewindows" );
-        static const bool bHideWindscreen = CmdLine::HasArg( "-hidewindscreen" );
+        static const bool bHideWindscreen =
+            CmdLine::HasArg( "-hidewindscreen" );
         const int32_t windscreenNode = car.getScene().findNode( "GLASS_F" );
         for ( int32_t node : glassNodes ) {
             const bool bWindscreen = node == windscreenNode;
-            car.setNodeVisible( node, !bInterior || bKeepGlass || ( bWindscreen ? !bHideWindscreen : !bHideSides ) );
+            car.setNodeVisible(
+                node, !bInterior || bKeepGlass ||
+                          ( bWindscreen ? !bHideWindscreen : !bHideSides ) );
         }
     }
     for ( int32_t node : alwaysHiddenNodes[0] ) {
@@ -3957,7 +4733,8 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     for ( int32_t node : alwaysHiddenNodes[1] ) {
         interior.setNodeVisible( node, false );
     }
-    applyGlassSwap( bInterior && !CmdLine::HasArg( "-keepglass" ) ); // -keepglass: the A/B
+    applyGlassSwap( bInterior &&
+                    !CmdLine::HasArg( "-keepglass" ) ); // -keepglass: the A/B
     // The light state (FUN_00c588d0): the GLOSSFCT channels, the lamp glow
     // node flags and the light box INTENSITY — before the draw, for this
     // frame's view camera (the shadow / reflection passes reuse the state).
@@ -3966,7 +4743,8 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     // its triangles at the sweep angle below). The hardtop skinned path has
     // no draw params - a roof car's wipers stay parked there [INF: the
     // convertibles this path serves show no windscreen blades anyway].
-    const bool bWipersSwinging = !wipers.empty() && wiperAngle > 0.001f && !bHardtop;
+    const bool bWipersSwinging =
+        !wipers.empty() && wiperAngle > 0.001f && !bHardtop;
     EdenDrawParams wiperParams;
     wiperParams.ForceHiddenItems = lowResItems;
     // Without it a params draw records its blended items at once, out of the
@@ -3981,19 +4759,30 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
     if ( bHardtop ) {
         car.drawSkinned( renderer, world, hardtopSkin );
     } else {
-        car.draw( renderer, world, !wiperParams.ForceHiddenItems.empty() ? &wiperParams : nullptr );
+        car.draw( renderer, world,
+                  !wiperParams.ForceHiddenItems.empty() ? &wiperParams
+                                                        : nullptr );
     }
     if ( bWipersSwinging ) {
-        const Matrix4x4f nodeT = wiperNode >= 0 ? car.getNodeTransform( wiperNode ) : Matrix4x4f();
-        const Vector3f axis( 0.0f, 0.557f, 0.830f ); // the Delta's 34 degree rake [INF]
+        const Matrix4x4f nodeT =
+            wiperNode >= 0 ? car.getNodeTransform( wiperNode ) : Matrix4x4f();
+        const Vector3f axis( 0.0f, 0.557f,
+                             0.830f ); // the Delta's 34 degree rake [INF]
         for ( uint32_t h = 0; h < wipers.size(); h++ ) {
             const WiperHalf &wiper = wipers[h];
             const float angle = ( h == 0 ? 1.0f : -1.0f ) * wiperAngle;
-            const Matrix4x4f swing = Matrix4x4f::Translation( wiper.Pivot ) *
-                                     Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( axis, angle ) ) *
-                                     Matrix4x4f::Translation( Vector3f( -wiper.Pivot.x, -wiper.Pivot.y, -wiper.Pivot.z ) );
-            renderer.draw( wiper.Mesh, car.getMaterials()[car.getItems()[static_cast<size_t>( wiper.ItemIndex )].MaterialIndex],
-                           world * nodeT * swing );
+            const Matrix4x4f swing =
+                Matrix4x4f::Translation( wiper.Pivot ) *
+                Matrix4x4f::FromQuaternion(
+                    Quaternionf::FromAxisAngle( axis, angle ) ) *
+                Matrix4x4f::Translation( Vector3f(
+                    -wiper.Pivot.x, -wiper.Pivot.y, -wiper.Pivot.z ) );
+            renderer.draw(
+                wiper.Mesh,
+                car.getMaterials()[car.getItems()[static_cast<size_t>(
+                                                      wiper.ItemIndex )]
+                                       .MaterialIndex],
+                world * nodeT * swing );
         }
     }
     // The tuner-garage part (setTunerAttachment): one borrowed mesh on the
@@ -4004,8 +4793,11 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
             continue;
         }
         const Matrix4x4f nodeT =
-            tunerAttachment.Node >= 0 ? car.getNodeTransform( tunerAttachment.Node ) : Matrix4x4f();
-        renderer.draw( tunerAttachment.Mesh, tunerAttachment.Material, world * nodeT * tunerAttachment.Offset );
+            tunerAttachment.Node >= 0
+                ? car.getNodeTransform( tunerAttachment.Node )
+                : Matrix4x4f();
+        renderer.draw( tunerAttachment.Mesh, tunerAttachment.Material,
+                       world * nodeT * tunerAttachment.Offset );
     }
     if ( bInterior ) {
         interior.draw( renderer, world );
@@ -4018,8 +4810,11 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
         // all four wheels use the rear rim / diameter.
         const std::string &nodeName = car.getScene().getNodes()[node].Name;
         const size_t axle = nodeName.rfind( '_' );
-        const bool bRear = axle != std::string::npos && axle + 1 < nodeName.size() && nodeName[axle + 1] == 'R';
-        const EdenModel &wheelRim = ( bRear && rimRear.isLoaded() ) ? rimRear : rim;
+        const bool bRear = axle != std::string::npos &&
+                           axle + 1 < nodeName.size() &&
+                           nodeName[axle + 1] == 'R';
+        const EdenModel &wheelRim =
+            ( bRear && rimRear.isLoaded() ) ? rimRear : rim;
         static const bool bNoRim = CmdLine::HasArg( "-norim" );
         if ( wheelRim.isLoaded() && !bNoRim ) {
             // Rim meshes are normalized (radius 0.212 m). The baked D_RIM_xx
@@ -4029,38 +4824,51 @@ void CinematicCar::draw( EdenRenderer &renderer, const Matrix4x4f &world, const 
             // baked scale out), and a scene with no baked radius (scale 1)
             // gets it from the diameter too.
             Matrix4x4f rimTransform = car.getNodeTransform( node );
-            const Vector3f up( rimTransform.m[1][0], rimTransform.m[1][1], rimTransform.m[1][2] );
+            const Vector3f up( rimTransform.m[1][0], rimTransform.m[1][1],
+                               rimTransform.m[1][2] );
             float radialScale = 1.0f;
             const int32_t diameter = bRear ? rimDiameterRear : rimDiameterFront;
             const float bakedScale = up.length();
             if ( bakedScale > 1e-4f ) {
-                const float bakedDiameter = ( bakedScale * kRimMeshRadius - kRimLip ) * 2.0f / 0.0254f;
-                if ( std::abs( bakedDiameter - static_cast<float>( diameter ) ) > 0.25f ) {
-                    radialScale = ( ( diameter * 0.0254f * 0.5f + kRimLip ) / kRimMeshRadius ) / bakedScale;
-                    // Per car (the showrooms draw 8 cars a frame; a process-wide
-                    // guard re-logged for every car whose diameter differed).
+                const float bakedDiameter =
+                    ( bakedScale * kRimMeshRadius - kRimLip ) * 2.0f / 0.0254f;
+                if ( std::abs( bakedDiameter -
+                               static_cast<float>( diameter ) ) > 0.25f ) {
+                    radialScale = ( ( diameter * 0.0254f * 0.5f + kRimLip ) /
+                                    kRimMeshRadius ) /
+                                  bakedScale;
+                    // Per car (the showrooms draw 8 cars a frame; a
+                    // process-wide guard re-logged for every car whose diameter
+                    // differed).
                     int32_t &logged = bRear ? loggedRimRear : loggedRimFront;
                     if ( logged != diameter ) {
                         logged = diameter;
-                        OTDU_LOG_INFO( "CinematicCar: rim %d\" drawn at lip %.3f m (multiplier %.3f on the baked %.3f)\n",
-                                       diameter, diameter * 0.0254f * 0.5f + kRimLip, radialScale, bakedScale );
+                        OTDU_LOG_INFO(
+                            "CinematicCar: rim %d\" drawn at lip %.3f m "
+                            "(multiplier %.3f on the baked %.3f)\n",
+                            diameter, diameter * 0.0254f * 0.5f + kRimLip,
+                            radialScale, bakedScale );
                     }
                 }
             }
-            rimTransform = rimTransform * Matrix4x4f::Scale( Vector3f( 1.0f, radialScale, radialScale ) );
+            rimTransform =
+                rimTransform *
+                Matrix4x4f::Scale( Vector3f( 1.0f, radialScale, radialScale ) );
             wheelRim.draw( renderer, world * rimTransform );
         }
         const int32_t tireNode = bRear ? tireNodeRear : tireNodeFront;
         static const bool bNoTire = CmdLine::HasArg( "-notire" );
         if ( tireNode >= 0 && !bNoTire ) {
-            tire.drawNode( renderer, tireNode, world * car.getNodeTransform( node + 1 ) );
+            tire.drawNode( renderer, tireNode,
+                           world * car.getNodeTransform( node + 1 ) );
         }
     }
 }
 
 void CinematicCar::applyDamageState( int32_t state ) {
     const bool bCracked = state >= 2;
-    if ( appliedDamageState == ( bCracked ? 1 : 0 ) || gpRender == nullptr || !car.isLoaded() ) {
+    if ( appliedDamageState == ( bCracked ? 1 : 0 ) || gpRender == nullptr ||
+         !car.isLoaded() ) {
         return;
     }
     static const uint64_t kDetail2 = GetIdentifier64bit( "DETAIL2" );
@@ -4074,11 +4882,13 @@ void CinematicCar::applyDamageState( int32_t state ) {
     GPUTexture *pWanted = bCracked ? pCracked : pClean;
     uint32_t changed = 0;
     for ( EdenMaterial &material : car.getMaterials() ) {
-        if ( material.ShaderSetGUID != kCarPaint || material.Name.compare( 0, 5, "Glass" ) != 0 ) {
+        if ( material.ShaderSetGUID != kCarPaint ||
+             material.Name.compare( 0, 5, "Glass" ) != 0 ) {
             continue;
         }
         for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
-            if ( material.SlotTypes[i] == kDetail2 && material.TextureHashes[i] != wanted ) {
+            if ( material.SlotTypes[i] == kDetail2 &&
+                 material.TextureHashes[i] != wanted ) {
                 material.pTextures[i] = pWanted;
                 material.TextureHashes[i] = wanted;
                 changed++;
@@ -4086,89 +4896,113 @@ void CinematicCar::applyDamageState( int32_t state ) {
         }
     }
     appliedDamageState = bCracked ? 1 : 0;
-    OTDU_LOG_INFO( "CinematicCar: damage state %d -> %s glass (%u slot(s))\n", state, bCracked ? "cracked" : "clean", changed );
+    OTDU_LOG_INFO( "CinematicCar: damage state %d -> %s glass (%u slot(s))\n",
+                   state, bCracked ? "cracked" : "clean", changed );
 }
 
 namespace {
-// A droplet overlay for the exterior glass (the glass shader's DETAIL2 slot is
-// an RGBA overlay: base = lerp( base, G_I.rgb, G_I.a ), car_glass_spec.md 2 -
-// the cracked glass swaps there too). Procedural: round beads with a bright
-// lower rim and, on the bigger ones, a short run-off tail. Three densities.
-constexpr int32_t kRainGlassLevels = 12;
-// The stock glass overlay (G_I) is a heavy dark tint over the whole window
-// (measured: a dry windscreen shows the cabin at about 25 % of the untinted
-// value). The droplet overlays carry that tint themselves and blend the beads
-// over it, or the glass would turn milky white [DATA: screenshot A/B].
-void FillGlassTint( std::vector<uint8_t> &pixels ) {
-    for ( size_t i = 0; i + 3 < pixels.size(); i += 4 ) {
-        pixels[i] = 24;
-        pixels[i + 1] = 25;
-        pixels[i + 2] = 28;
-        pixels[i + 3] = 222;
-    }
-}
-GPUTexture *MakeRainGlassTexture( int32_t level ) {
-    constexpr int32_t kSize = 256;
-    constexpr int32_t kDrops = 340;
-    const float wet = static_cast<float>( level ) / kRainGlassLevels;
-    std::vector<uint8_t> pixels( static_cast<size_t>( kSize ) * kSize * 4, 0 );
-    FillGlassTint( pixels );
-    // The same drops at every level (fixed seed, every random drawn up front):
-    // each one has its own wetness threshold and fades / swells in over 0.2 of
-    // it, so one level step changes the picture only a little (a smooth fade).
-    uint32_t seed = 0x1badf00du;
-    auto rnd = [&]() {
-        seed = seed * 1664525u + 1013904223u;
-        return static_cast<float>( seed >> 8 ) / 16777216.0f;
-    };
-    for ( int32_t n = 0; n < kDrops; n++ ) {
-        const float cx = rnd() * kSize, cy = rnd() * kSize;
-        const float sizeRoll = rnd(), sizeA = rnd(), sizeB = rnd(), tailRoll = rnd(), tailA = rnd();
-        const float threshold = rnd() * 0.85f;
-        const float grow = Clamp( ( wet - threshold ) / 0.2f, 0.0f, 1.0f );
-        if ( grow <= 0.0f ) {
-            continue;
+    // A droplet overlay for the exterior glass (the glass shader's DETAIL2 slot
+    // is an RGBA overlay: base = lerp( base, G_I.rgb, G_I.a ),
+    // car_glass_spec.md 2 - the cracked glass swaps there too). Procedural:
+    // round beads with a bright lower rim and, on the bigger ones, a short
+    // run-off tail. Three densities.
+    constexpr int32_t kRainGlassLevels = 12;
+    // The stock glass overlay (G_I) is a heavy dark tint over the whole window
+    // (measured: a dry windscreen shows the cabin at about 25 % of the untinted
+    // value). The droplet overlays carry that tint themselves and blend the
+    // beads over it, or the glass would turn milky white [DATA: screenshot
+    // A/B].
+    void FillGlassTint( std::vector<uint8_t> &pixels ) {
+        for ( size_t i = 0; i + 3 < pixels.size(); i += 4 ) {
+            pixels[i] = 24;
+            pixels[i + 1] = 25;
+            pixels[i + 2] = 28;
+            pixels[i + 3] = 222;
         }
-        const float fullRadius = sizeRoll < 0.85f ? 0.8f + sizeA * 1.6f : 2.2f + sizeB * 2.2f;
-        const float radius = fullRadius * ( 0.55f + 0.45f * grow );
-        const float tail = fullRadius > 2.2f && tailRoll < 0.6f ? radius * ( 2.0f + tailA * 4.0f ) : 0.0f;
-        const int32_t extent = static_cast<int32_t>( radius + tail ) + 2;
-        for ( int32_t dy = -static_cast<int32_t>( radius ) - 2; dy <= extent; dy++ ) {
-            for ( int32_t dx = -static_cast<int32_t>( radius ) - 2; dx <= static_cast<int32_t>( radius ) + 2; dx++ ) {
-                float alpha = 0.0f, shade = 0.0f;
-                const float d = std::sqrt( static_cast<float>( dx * dx + dy * dy ) );
-                if ( d <= radius ) {
-                    alpha = 0.10f + 0.10f * ( d / radius );
-                    // bright rim on the lower left, a dark core: a lens
-                    const float side = ( -dx * 0.5f + dy * 0.8f ) / Max( radius, 1.0f );
-                    shade = 0.55f + 0.45f * Clamp( side, 0.0f, 1.0f );
-                    alpha += 0.22f * Clamp( side, 0.0f, 1.0f );
-                } else if ( dy > 0 && dy < tail && std::abs( dx ) <= 1 ) {
-                    alpha = 0.06f * ( 1.0f - dy / tail );
-                    shade = 0.8f;
+    }
+    GPUTexture *MakeRainGlassTexture( int32_t level ) {
+        constexpr int32_t kSize = 256;
+        constexpr int32_t kDrops = 340;
+        const float wet = static_cast<float>( level ) / kRainGlassLevels;
+        std::vector<uint8_t> pixels( static_cast<size_t>( kSize ) * kSize * 4,
+                                     0 );
+        FillGlassTint( pixels );
+        // The same drops at every level (fixed seed, every random drawn up
+        // front): each one has its own wetness threshold and fades / swells in
+        // over 0.2 of it, so one level step changes the picture only a little
+        // (a smooth fade).
+        uint32_t seed = 0x1badf00du;
+        auto rnd = [&]() {
+            seed = seed * 1664525u + 1013904223u;
+            return static_cast<float>( seed >> 8 ) / 16777216.0f;
+        };
+        for ( int32_t n = 0; n < kDrops; n++ ) {
+            const float cx = rnd() * kSize, cy = rnd() * kSize;
+            const float sizeRoll = rnd(), sizeA = rnd(), sizeB = rnd(),
+                        tailRoll = rnd(), tailA = rnd();
+            const float threshold = rnd() * 0.85f;
+            const float grow = Clamp( ( wet - threshold ) / 0.2f, 0.0f, 1.0f );
+            if ( grow <= 0.0f ) {
+                continue;
+            }
+            const float fullRadius =
+                sizeRoll < 0.85f ? 0.8f + sizeA * 1.6f : 2.2f + sizeB * 2.2f;
+            const float radius = fullRadius * ( 0.55f + 0.45f * grow );
+            const float tail = fullRadius > 2.2f && tailRoll < 0.6f
+                                   ? radius * ( 2.0f + tailA * 4.0f )
+                                   : 0.0f;
+            const int32_t extent = static_cast<int32_t>( radius + tail ) + 2;
+            for ( int32_t dy = -static_cast<int32_t>( radius ) - 2;
+                  dy <= extent; dy++ ) {
+                for ( int32_t dx = -static_cast<int32_t>( radius ) - 2;
+                      dx <= static_cast<int32_t>( radius ) + 2; dx++ ) {
+                    float alpha = 0.0f, shade = 0.0f;
+                    const float d =
+                        std::sqrt( static_cast<float>( dx * dx + dy * dy ) );
+                    if ( d <= radius ) {
+                        alpha = 0.10f + 0.10f * ( d / radius );
+                        // bright rim on the lower left, a dark core: a lens
+                        const float side =
+                            ( -dx * 0.5f + dy * 0.8f ) / Max( radius, 1.0f );
+                        shade = 0.55f + 0.45f * Clamp( side, 0.0f, 1.0f );
+                        alpha += 0.22f * Clamp( side, 0.0f, 1.0f );
+                    } else if ( dy > 0 && dy < tail && std::abs( dx ) <= 1 ) {
+                        alpha = 0.06f * ( 1.0f - dy / tail );
+                        shade = 0.8f;
+                    }
+                    alpha *= grow;
+                    if ( alpha <= 0.0f ) {
+                        continue;
+                    }
+                    const int32_t x =
+                        ( ( static_cast<int32_t>( cx ) + dx ) % kSize +
+                          kSize ) %
+                        kSize;
+                    const int32_t y =
+                        ( ( static_cast<int32_t>( cy ) + dy ) % kSize +
+                          kSize ) %
+                        kSize;
+                    uint8_t *px =
+                        &pixels[( static_cast<size_t>( y ) * kSize + x ) * 4];
+                    const float a = Max( alpha, px[3] / 255.0f );
+                    const float c = Clamp( 0.45f + 0.40f * shade, 0.0f, 1.0f );
+                    (void)a;
+                    px[0] = static_cast<uint8_t>( px[0] * ( 1.0f - alpha ) +
+                                                  205.0f * c * alpha );
+                    px[1] = static_cast<uint8_t>( px[1] * ( 1.0f - alpha ) +
+                                                  222.0f * c * alpha );
+                    px[2] = static_cast<uint8_t>( px[2] * ( 1.0f - alpha ) +
+                                                  240.0f * c * alpha );
                 }
-                alpha *= grow;
-                if ( alpha <= 0.0f ) {
-                    continue;
-                }
-                const int32_t x = ( ( static_cast<int32_t>( cx ) + dx ) % kSize + kSize ) % kSize;
-                const int32_t y = ( ( static_cast<int32_t>( cy ) + dy ) % kSize + kSize ) % kSize;
-                uint8_t *px = &pixels[( static_cast<size_t>( y ) * kSize + x ) * 4];
-                const float a = Max( alpha, px[3] / 255.0f );
-                const float c = Clamp( 0.45f + 0.40f * shade, 0.0f, 1.0f );
-                (void)a;
-                px[0] = static_cast<uint8_t>( px[0] * ( 1.0f - alpha ) + 205.0f * c * alpha );
-                px[1] = static_cast<uint8_t>( px[1] * ( 1.0f - alpha ) + 222.0f * c * alpha );
-                px[2] = static_cast<uint8_t>( px[2] * ( 1.0f - alpha ) + 240.0f * c * alpha );
             }
         }
+        const void *pData = pixels.data();
+        const uint32_t size = static_cast<uint32_t>( pixels.size() );
+        char name[32];
+        snprintf( name, sizeof( name ), "rain_glass_%d", level );
+        return gpRender->getDevice().createTexture2D(
+            kSize, kSize, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, name );
     }
-    const void *pData = pixels.data();
-    const uint32_t size = static_cast<uint32_t>( pixels.size() );
-    char name[32];
-    snprintf( name, sizeof( name ), "rain_glass_%d", level );
-    return gpRender->getDevice().createTexture2D( kSize, kSize, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, name );
-}
 } // namespace
 
 // Rain on the car's windows from outside: the wetter the car (CarDirt water
@@ -4176,12 +5010,18 @@ GPUTexture *MakeRainGlassTexture( int32_t level ) {
 // the glass materials' DETAIL2 slot. -norainglass leaves the glass alone.
 void CinematicCar::applyGlassWet( float wet ) {
     static const bool bOff = CmdLine::HasArg( "-norainglass" );
-    // A cracked window keeps its crack texture (applyDamageState owns the slot).
-    if ( bOff || gpRender == nullptr || !car.isLoaded() || appliedDamageState == 1 ) {
+    // A cracked window keeps its crack texture (applyDamageState owns the
+    // slot).
+    if ( bOff || gpRender == nullptr || !car.isLoaded() ||
+         appliedDamageState == 1 ) {
         return;
     }
     // 12 steps of the same drops growing in (MakeRainGlassTexture): smooth.
-    const int32_t level = wet < 0.03f ? 0 : Clamp( static_cast<int32_t>( wet * kRainGlassLevels + 0.5f ), 1, kRainGlassLevels );
+    const int32_t level =
+        wet < 0.03f
+            ? 0
+            : Clamp( static_cast<int32_t>( wet * kRainGlassLevels + 0.5f ), 1,
+                     kRainGlassLevels );
     if ( level == appliedGlassWet ) {
         return;
     }
@@ -4197,16 +5037,20 @@ void CinematicCar::applyGlassWet( float wet ) {
         }
     }
     GPUTexture *pWanted = level == 0 ? pClean : pRain[level];
-    const uint64_t wanted = level == 0 ? GetIdentifier64bit( "G_I" ) : GetIdentifier64bit( pRain[level]->Name.c_str() );
+    const uint64_t wanted =
+        level == 0 ? GetIdentifier64bit( "G_I" )
+                   : GetIdentifier64bit( pRain[level]->Name.c_str() );
     static const uint64_t kDetail2 = GetIdentifier64bit( "DETAIL2" );
     static const uint64_t kCarPaint = 0x183157b81c6c7357ull;
     uint32_t changed = 0;
     for ( EdenMaterial &material : car.getMaterials() ) {
-        if ( material.ShaderSetGUID != kCarPaint || material.Name.compare( 0, 5, "Glass" ) != 0 ) {
+        if ( material.ShaderSetGUID != kCarPaint ||
+             material.Name.compare( 0, 5, "Glass" ) != 0 ) {
             continue;
         }
         for ( uint32_t i = 0; i < material.NumSlots; i++ ) {
-            if ( material.SlotTypes[i] == kDetail2 && material.TextureHashes[i] != wanted ) {
+            if ( material.SlotTypes[i] == kDetail2 &&
+                 material.TextureHashes[i] != wanted ) {
                 material.pTextures[i] = pWanted;
                 material.TextureHashes[i] = wanted;
                 changed++;
@@ -4214,32 +5058,45 @@ void CinematicCar::applyGlassWet( float wet ) {
         }
     }
     appliedGlassWet = level;
-    OTDU_LOG_DEBUG( "CinematicCar: rain on the glass level %d (water %.2f, %u slot(s))\n", level, wet, changed );
+    OTDU_LOG_DEBUG(
+        "CinematicCar: rain on the glass level %d (water %.2f, %u slot(s))\n",
+        level, wet, changed );
 }
 
-void CinematicCar::applyPartDamage( float front, float rear, float left, float right ) {
+void CinematicCar::applyPartDamage( float front,
+                                    float rear,
+                                    float left,
+                                    float right ) {
     if ( !car.isLoaded() ) {
         return;
     }
     if ( !bPartsGathered ) {
         bPartsGathered = true;
         partRig.gather( car );
-        OTDU_LOG_INFO( "CinematicCar: damage parts: %s\n", partRig.summary().c_str() );
+        OTDU_LOG_INFO( "CinematicCar: damage parts: %s\n",
+                       partRig.summary().c_str() );
     }
-    // The doors: loose from ~6000 of side damage, up to ~0.2 rad (the retail "not shut properly").
+    // The doors: loose from ~6000 of side damage, up to ~0.2 rad (the retail
+    // "not shut properly").
     const float sides[2] = { left, right };
     for ( int32_t door = 0; door < 2; door++ ) {
-        const float ajar = 0.2f * Clamp( ( sides[door] - 6000.0f ) / 40000.0f, 0.0f, 1.0f );
+        const float ajar =
+            0.2f * Clamp( ( sides[door] - 6000.0f ) / 40000.0f, 0.0f, 1.0f );
         const float angle = door == 0 ? -ajar : ajar;
         if ( std::abs( angle - doorAngle[door] ) > 0.002f ) {
             setDoorAngle( door, angle );
         }
     }
-    // The bumpers and the bonnet / boot lid (quantised: the nodes are only rewritten when the pose moves).
-    const int32_t keyFront = static_cast<int32_t>( 40.0f * Clamp( front / 65535.0f, 0.0f, 1.0f ) );
-    const int32_t keyRear = static_cast<int32_t>( 40.0f * Clamp( rear / 65535.0f, 0.0f, 1.0f ) );
-    const int32_t keyLost = static_cast<int32_t>( partRig.lostMask( front, rear, left, right, false ) );
-    if ( keyFront == appliedPartKey[0] && keyRear == appliedPartKey[1] && keyLost == appliedPartKey[2] ) {
+    // The bumpers and the bonnet / boot lid (quantised: the nodes are only
+    // rewritten when the pose moves).
+    const int32_t keyFront =
+        static_cast<int32_t>( 40.0f * Clamp( front / 65535.0f, 0.0f, 1.0f ) );
+    const int32_t keyRear =
+        static_cast<int32_t>( 40.0f * Clamp( rear / 65535.0f, 0.0f, 1.0f ) );
+    const int32_t keyLost = static_cast<int32_t>(
+        partRig.lostMask( front, rear, left, right, false ) );
+    if ( keyFront == appliedPartKey[0] && keyRear == appliedPartKey[1] &&
+         keyLost == appliedPartKey[2] ) {
         return;
     }
     appliedPartKey[0] = keyFront;
@@ -4249,17 +5106,21 @@ void CinematicCar::applyPartDamage( float front, float rear, float left, float r
     partRig.apply( car, front, rear, left, right, false );
 }
 
-void CinematicCar::addDent( const Vector3f &point, const Vector3f &direction, float depth ) {
+void CinematicCar::addDent( const Vector3f &point,
+                            const Vector3f &direction,
+                            float depth ) {
     if ( !bCanCrumple || depth <= 0.002f ) {
         return;
     }
     const Vector3f dir = direction.normalized();
     for ( Dent &dent : dents ) {
         if ( ( dent.Point - point ).length() < 0.45f ) {
-            // The same place again: it gets deeper (and the point drifts to the new hit).
+            // The same place again: it gets deeper (and the point drifts to the
+            // new hit).
             dent.Depth = Min( dent.Depth + depth, 0.5f );
             dent.Point = dent.Point * 0.6f + point * 0.4f;
-            dent.Direction = ( dent.Direction * 0.6f + dir * 0.4f ).normalized();
+            dent.Direction =
+                ( dent.Direction * 0.6f + dir * 0.4f ).normalized();
             dent.Radius = Min( 0.55f + dent.Depth * 1.6f, 1.2f );
             bDentsDirty = true;
             return;
@@ -4300,7 +5161,8 @@ void CinematicCar::clearDents() {
 
 void CinematicCar::updateCrumple( float deltaTime ) {
     crumpleCooldown -= deltaTime;
-    if ( !bCanCrumple || !bDentsDirty || crumpleCooldown > 0.0f || !car.isLoaded() ) {
+    if ( !bCanCrumple || !bDentsDirty || crumpleCooldown > 0.0f ||
+         !car.isLoaded() ) {
         return;
     }
     bDentsDirty = false;
@@ -4309,14 +5171,20 @@ void CinematicCar::updateCrumple( float deltaTime ) {
         car.deformPositions( nullptr );
         return;
     }
-    // The nodes that never move with the body: the wheel placeholders and the shadow boxes.
+    // The nodes that never move with the body: the wheel placeholders and the
+    // shadow boxes.
     const std::vector<SceneNode> &nodes = car.getScene().getNodes();
     const std::vector<Dent> list = dents;
-    static const float kNoise = [] { const char *v = CmdLine::GetArgValue( "-crumplenoise" ); return v ? static_cast<float>( atof( v ) ) : 0.5f; }();
+    static const float kNoise = [] {
+        const char *v = CmdLine::GetArgValue( "-crumplenoise" );
+        return v ? static_cast<float>( atof( v ) ) : 0.5f;
+    }();
     car.deformPositions( [&]( int32_t node, const Vector3f &p ) {
         const std::string &name = nodes[static_cast<size_t>( node )].Name;
-        if ( name.find( "RIM" ) != std::string::npos || name.find( "TIRE" ) != std::string::npos ||
-             name.find( "SHADOW" ) != std::string::npos || name.find( "BRAKE" ) != std::string::npos ) {
+        if ( name.find( "RIM" ) != std::string::npos ||
+             name.find( "TIRE" ) != std::string::npos ||
+             name.find( "SHADOW" ) != std::string::npos ||
+             name.find( "BRAKE" ) != std::string::npos ) {
             return p;
         }
         Vector3f move( 0.0f, 0.0f, 0.0f );
@@ -4327,12 +5195,17 @@ void CinematicCar::updateCrumple( float deltaTime ) {
             }
             const float t = distance / dent.Radius;
             const float falloff = ( 1.0f - t * t ) * ( 1.0f - t * t );
-            // A smooth crumple: the surface wrinkles (ridges across the dent) instead of a clean bowl.
-            const float wrinkle = 1.0f + kNoise * 0.35f * std::sin( p.x * 6.0f + p.y * 4.0f ) * std::cos( p.z * 5.0f - p.y * 3.0f );
+            // A smooth crumple: the surface wrinkles (ridges across the dent)
+            // instead of a clean bowl.
+            const float wrinkle =
+                1.0f + kNoise * 0.35f * std::sin( p.x * 6.0f + p.y * 4.0f ) *
+                           std::cos( p.z * 5.0f - p.y * 3.0f );
             move = move + dent.Direction * ( dent.Depth * falloff * wrinkle );
             // The metal buckles sideways a little as it folds.
-            const Vector3f side = dent.Direction.cross( Vector3f( 0.0f, 1.0f, 0.0f ) );
-            move = move + side * ( kNoise * 0.18f * dent.Depth * falloff * std::sin( p.y * 8.0f + p.x * 3.0f ) );
+            const Vector3f side =
+                dent.Direction.cross( Vector3f( 0.0f, 1.0f, 0.0f ) );
+            move = move + side * ( kNoise * 0.18f * dent.Depth * falloff *
+                                   std::sin( p.y * 8.0f + p.x * 3.0f ) );
         }
         const float length = move.length();
         if ( length > 0.55f ) {
@@ -4342,7 +5215,10 @@ void CinematicCar::updateCrumple( float deltaTime ) {
     } );
 }
 
-void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, float wetness ) {
+void CinematicCar::applySurfaceState( float mud,
+                                      float dirt,
+                                      float hardness,
+                                      float wetness ) {
     // The crust (hardness) drives the CarDirt wash law; the paint only needs
     // how much stain there is and how wet the body is.
     (void)hardness;
@@ -4353,7 +5229,8 @@ void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, flo
     const float wet = Clamp( wetness, 0.0f, 1.0f );
     // The paint did not visibly move: skip the material walk (draw() runs
     // several times a frame for the cube / shadow / mirror passes).
-    if ( paintBaselineValid && std::abs( stain - stainVisual ) < 0.004f && std::abs( wet - wetVisual ) < 0.004f ) {
+    if ( paintBaselineValid && std::abs( stain - stainVisual ) < 0.004f &&
+         std::abs( wet - wetVisual ) < 0.004f ) {
         return;
     }
     stainVisual = stain;
@@ -4361,8 +5238,9 @@ void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, flo
     static const uint64_t kRampClr1 = GetIdentifier64bit( "RAMPCLR1" );
     static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
     const auto isPaint = []( const std::string &name ) {
-        return name == "Paint" || name == "Paint_SK" || name == "Paint_LR" || name == "Paint_MR" ||
-               name == "Paint_N" || name == "Paint2" || name == "Paint2_SK";
+        return name == "Paint" || name == "Paint_SK" || name == "Paint_LR" ||
+               name == "Paint_MR" || name == "Paint_N" || name == "Paint2" ||
+               name == "Paint2_SK";
     };
     if ( !paintBaselineValid ) {
         // Capture the clean values once (and again after applyDatabasePaint):
@@ -4397,10 +5275,12 @@ void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, flo
     // gloss term mirrors it.
     const Vector4f mudTint( 0.33f, 0.25f, 0.17f, 1.0f );
     const Vector4f dustTint( 0.46f, 0.41f, 0.34f, 1.0f );
-    const float mudShare = stain > 0.001f ? Clamp( mud / stain, 0.0f, 1.0f ) : 0.0f;
+    const float mudShare =
+        stain > 0.001f ? Clamp( mud / stain, 0.0f, 1.0f ) : 0.0f;
     const float blend = Clamp( stain * 0.85f, 0.0f, 0.88f );
     const float darkness = 1.0f - 0.30f * wet; // a soaked body reads darker
-    const Vector4f tint( Lerp1( dustTint.x, mudTint.x, mudShare ), Lerp1( dustTint.y, mudTint.y, mudShare ),
+    const Vector4f tint( Lerp1( dustTint.x, mudTint.x, mudShare ),
+                         Lerp1( dustTint.y, mudTint.y, mudShare ),
                          Lerp1( dustTint.z, mudTint.z, mudShare ), 1.0f );
     std::vector<EdenMaterial> &materials = car.getMaterials();
     for ( PaintBaseline &baseline : paintBaseline ) {
@@ -4425,15 +5305,17 @@ void CinematicCar::applySurfaceState( float mud, float dirt, float hardness, flo
             material.Diffuse =
                 Vector4f( Lerp1( baseline.Diffuse.x, tint.x, blend ) * darkness,
                           Lerp1( baseline.Diffuse.y, tint.y, blend ) * darkness,
-                          Lerp1( baseline.Diffuse.z, tint.z, blend ) * darkness, baseline.Diffuse.w );
+                          Lerp1( baseline.Diffuse.z, tint.z, blend ) * darkness,
+                          baseline.Diffuse.w );
             material.Ambient =
                 Vector4f( Lerp1( baseline.Ambient.x, tint.x, blend ) * darkness,
                           Lerp1( baseline.Ambient.y, tint.y, blend ) * darkness,
-                          Lerp1( baseline.Ambient.z, tint.z, blend ) * darkness, baseline.Ambient.w );
+                          Lerp1( baseline.Ambient.z, tint.z, blend ) * darkness,
+                          baseline.Ambient.w );
             const float specular = 1.0f - 0.8f * blend;
-            material.Specular = Vector4f( baseline.Specular.x * specular, baseline.Specular.y * specular,
-                                          baseline.Specular.z * specular, baseline.Specular.w );
+            material.Specular = Vector4f(
+                baseline.Specular.x * specular, baseline.Specular.y * specular,
+                baseline.Specular.z * specular, baseline.Specular.w );
         }
     }
 }
-

@@ -96,3 +96,9 @@ Each step is useful alone; stopping after any of them leaves something working.
 ## Status (session 47, 2026-11-18)
 
 - **Shipped:** slots per car (spoiler + exhaust), menu rows, six spoilers, four exhaust tip sets (`align = rear` fits any car), exhaust pops / burble (lift-off, shifts, overrun crackle; synthesized samples, ear-tuning pending). Order of work step 2 (pops) is done for audio; flames, turbo flutter and body kits remain.
+
+## Status (session 48, 2026-11-18)
+
+- **Shipped:** the car viewer + exporter (`-gm assetviewer -car <name>`, `docs/re/car_viewer_spec.md`): the DB car list, a loaded car in the asset viewer's 3D view, the tuner authoring loop (fit parts live, hide boxes as a wireframe overlay + masked-triangle highlight, offset nudge, copy the `tuner.txt` lines) and the whole-assembly OBJ export with the round-trip law proven (`-objroundtrip` delta 0.0000 on the GTR). The dump-and-guess loop for adding a car to the catalog (`-dumptunermask` + eyeballed boxes) is replaced by the panel.
+- **`hide_tris_<slot>`** in tuner.txt: exact triangle lists beside the boxes (a box that catches neighbour triangles is replaced by the item's tri numbers); verified on the GTR (656 -> 659 maskable with a 3-tri list on item 7).
+- The stock-lip / stock-tips replacement stays non-destructive (index-range swap at draw time) - the A/B pair `docs/images/tuner_ab_stock_s48.webp` / `tuner_ab_fitted_s48.webp` (lip + round tips vs GT wing + quad tips) re-verified after the runtime-override refactor.
