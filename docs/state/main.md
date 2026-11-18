@@ -14,6 +14,50 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (58, `main`): a ripped TDUSC Lambo is a DRIVEABLE car (visual swap on a donor) - no hosting, no assets in the repo
+
+The owner: "make it a driveable vehicle, we just can't host it" (the car from `E:\TDUSC Rips\Cars\Lambo fixed.fbx`).
+**Design [INF]**: a retail car stays the *donor* for physics, sound, gearing, collision and the wheel nodes; the mod
+only swaps what is DRAWN. No Lamborghini exists in this install (no licence), so the donor is the **Ferrari 458 Italia**
+(`458_italia`, mid-engine, 2.77 m wheelbase). The swapped car drives exactly like the 458 and looks like the Lambo.
+
+### What changed
+- `source/game/freeride/car_swap.{h,cpp}` - the data-driven loader: `carswap/carswap.txt` in the mods overlay
+  (`[swap:<donor _car_file_name>]`, `body = <obj>`, `wheel_front/rear = <rim obj> <tire obj>`, four `wheel_pos_*`
+  engine-space centres), OBJs from `carswap/` via `LoadObjDraws` (TD_Gouraud), `-nocarswap` disables it.
+- `source/game/cinematic/cinematic_car.{h,cpp}` - `setVisualSwap`: the car hides every retail item
+  (`ForceHiddenItems`), draws the swap's body / glass / interior on `BODY_HR` as `nodeT * inverse(restT)` (so roll / pitch
+  follow), and each wheel at OUR wheel centre with the donor node's rotation (spin + steer, scale normalised) plus its
+  travel from the apply pose; the engine-positive-x side turns the mesh 180 deg like the retail rims. The model is aligned
+  to the donor at apply time: our wheel centroid -> the donor wheel nodes' centroid (origin + ride height). Applied lazily
+  on the first `draw()` (the renderer exists then); cleared in `unload()`. Retail lights / glow nodes still draw (hidden items
+  only - the lamp glow stays; the headlights glow on the Lambo).
+- `tools/tdusc/blender_car_split.py` - now exports into `<mods>/carswap/` + writes `carswap.txt`; **levels the rip**
+  (yaw 3.31 deg, roll -1.82 deg measured from the four rim centres) and exports one centred rim + tire per axle.
+  `tools/tdusc/car_mtl_fix.py` - the solid-colour PNG + `d`/alpha fix for the new names.
+
+### Verified (build 293)
+- `-car 458_italia` (freeride, `-island ibiza`): log `CarSwap: 1 swap(s)`, the body / interior / glass / wheel OBJs load,
+  the car is the Lambo with the 458's yellow gauges; side view shows spoked wheels, glass, the lit headlights.
+- Driven headless: `-car 458_italia -snaproad 150 -logdrive -autoplay "40:hold=accel;..."` -> 83.7 km/h, gear 2, steer
+  +-0.527, `contacts 1111` (screenshot `_drv1`, not committed: ripped art).
+  Run: `opentdu2-main.exe -game ... -mods C:\temp\otdu2-tdusc-mods -gm FREERIDE -island ibiza -skipcine -nopad -fixedtimestep
+  -car 458_italia -tp 12640,10.5,16686`.
+
+### Ruled out
+- Matrix order: a post-multiplied flip (`wheelT * Flip`) like the retail rim scale; a pre-multiplied flip would turn the
+  wheel's world position, not the mesh.
+- The first spawn at `-tp` hit a tree (0 km/h, wheels spinning) - add `-snaproad 150`, it is not a swap bug.
+
+### Not done / next
+- **Wheel spin and steer were not seen in a still** (the shots are a few pixels per wheel); check `-autoplay` shots with the
+  chase camera rotated (`look=`) at speed, then confirm the rim face points OUT on both sides (if one side shows the back, swap
+  the `side == 1` flip in `cinematic_car.cpp` to the other side).
+- Not swapped: shadows / reflection passes and the damage / paint / doors / lights models (the retail light glow still
+  draws; nothing deforms); the paint colour (flat red PNG - `TD_CarPaint` needs the retail cube map); the garage / dealer
+  lists still show the 458. Every 458 in the world (traffic, showrooms) gets the swap too - scope it later by owner car id.
+- `CarSwaps::unloadMeshes()` is not yet called at shutdown.
+
 ## Session 2026-11-18 (57, `main`): TDUSC bring-your-own props - a ripped Lambo renders in Ibiza (tools only, no assets)
 
 The owner: "a mod that, using the same bring-your-own-legally-owned-games rules, adds stuff from TDUSC into our

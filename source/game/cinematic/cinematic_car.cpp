@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "cinematic_car.h"
+#include "game/freeride/car_swap.h"
 
 #include "core/xmb.h"
 #include "database/gs_database.h"
@@ -428,6 +429,10 @@ void CinematicCar::unload() {
     wheelSpinRests[0].clear();
     wheelSpinRests[1].clear();
     bWheelSpinRests = false;
+    bSwapActive = false;
+    bSwapChecked = false;
+    visualSwap = VisualSwap();
+    swapWheelRest.clear();
     tunerAttachments.clear(); // the part's node index died with the model
                               // (re-applied by the caller)
     bHardtop = false;
@@ -3587,6 +3592,63 @@ bool CinematicCar::getNodeModelTransform( const char *pName,
     return true;
 }
 
+namespace {
+    // Inverse of a rotation + translation (row vector convention, m[3] = translation).
+    Matrix4x4f RigidInverse( const Matrix4x4f &f ) {
+        Matrix4x4f r = Matrix4x4f::Identity();
+        for ( int32_t i = 0; i < 3; i++ ) {
+            for ( int32_t j = 0; j < 3; j++ ) {
+                r.m[i][j] = f.m[j][i];
+            }
+        }
+        for ( int32_t j = 0; j < 3; j++ ) {
+            r.m[3][j] = -( f.m[3][0] * r.m[0][j] + f.m[3][1] * r.m[1][j] + f.m[3][2] * r.m[2][j] );
+        }
+        return r;
+    }
+} // namespace
+
+void CinematicCar::setVisualSwap( const VisualSwap &swap ) {
+    if ( !car.isLoaded() || swap.Body.empty() ) {
+        return;
+    }
+    visualSwap = swap;
+    swapBodyNode = car.getScene().findNode( "BODY_HR" );
+    if ( swapBodyNode < 0 ) {
+        swapBodyNode = car.getScene().findNode( "BODY_MR" );
+    }
+    swapBodyRest = swapBodyNode >= 0 ? car.getNodeTransform( swapBodyNode ) : Matrix4x4f::Identity();
+    swapWheelRest.clear();
+    for ( int32_t node : wheelNodes ) {
+        swapWheelRest.push_back( car.getNodeTransform( node ) );
+    }
+    // Align the model with the donor: its four wheel centres' centroid goes onto the donor's
+    // wheel nodes' centroid (x, z: the origin; y: the ride height).
+    Vector3f donor( 0.0f, 0.0f, 0.0f ), ours( 0.0f, 0.0f, 0.0f );
+    int32_t counted = 0;
+    for ( size_t i = 0; i < wheelNodes.size(); i++ ) {
+        const std::string &name = car.getScene().getNodes()[wheelNodes[i]].Name;
+        const size_t us = name.rfind( '_' );
+        const bool bRear = us != std::string::npos && us + 1 < name.size() && name[us + 1] == 'R';
+        const int32_t side = swapWheelRest[i].m[3][0] > 0.0f ? 1 : 0;
+        if ( !swap.bWheelPos[bRear ? 1 : 0][side] ) {
+            continue;
+        }
+        const Vector3f &p = swap.WheelPos[bRear ? 1 : 0][side];
+        donor = donor + Vector3f( swapWheelRest[i].m[3][0], swapWheelRest[i].m[3][1], swapWheelRest[i].m[3][2] );
+        ours = ours + p;
+        counted++;
+    }
+    swapOffset = Vector3f( 0.0f, 0.0f, 0.0f );
+    if ( counted > 0 ) {
+        const float inv = 1.0f / static_cast<float>( counted );
+        swapOffset = Vector3f( ( donor.x - ours.x ) * inv, ( donor.y - ours.y ) * inv, ( donor.z - ours.z ) * inv );
+    }
+    OTDU_LOG_INFO( "CarSwap: '%s' aligned, offset (%.3f, %.3f, %.3f) from %d wheel(s)\n", fileName.c_str(),
+                   swapOffset.x, swapOffset.y, swapOffset.z, counted );
+    bSwapActive = true;
+}
+
 void CinematicCar::setTunerAttachment( const char *pSlot,
                                        const EdenMesh &mesh,
                                        const EdenMaterial &material,
@@ -4679,6 +4741,10 @@ void CinematicCar::draw( EdenRenderer &renderer,
                          const Matrix4x4f &world,
                          const WeatherPreset *pWeather,
                          bool bEnvironmentAssigned ) {
+    if ( !bSwapChecked && car.isLoaded() ) {
+        bSwapChecked = true;
+        GetCarSwaps().apply( *this );
+    }
     if ( !car.isLoaded() ) {
         return;
     }
@@ -4808,14 +4874,21 @@ void CinematicCar::draw( EdenRenderer &renderer,
             wiperParams.ForceHiddenItems.push_back( wiper.ItemIndex );
         }
     }
-    if ( bHardtop ) {
+    if ( bSwapActive ) {
+        // The visual swap draws instead of the retail body: hide every item.
+        wiperParams.ForceHiddenItems.clear();
+        for ( size_t item = 0; item < car.getItems().size(); item++ ) {
+            wiperParams.ForceHiddenItems.push_back( static_cast<int32_t>( item ) );
+        }
+    }
+    if ( bHardtop && !bSwapActive ) {
         car.drawSkinned( renderer, world, hardtopSkin );
     } else {
         car.draw( renderer, world,
                   !wiperParams.ForceHiddenItems.empty() ? &wiperParams
                                                         : nullptr );
     }
-    if ( bWipersSwinging ) {
+    if ( bWipersSwinging && !bSwapActive ) {
         const Matrix4x4f nodeT =
             wiperNode >= 0 ? car.getNodeTransform( wiperNode ) : Matrix4x4f();
         const Vector3f axis( 0.0f, 0.557f,
@@ -4851,10 +4924,56 @@ void CinematicCar::draw( EdenRenderer &renderer,
         renderer.draw( tunerAttachment.Mesh, tunerAttachment.Material,
                        world * nodeT * tunerAttachment.Offset );
     }
-    if ( bInterior ) {
+    if ( bSwapActive ) {
+        const Matrix4x4f bodyT = swapBodyNode >= 0 ? car.getNodeTransform( swapBodyNode ) * RigidInverse( swapBodyRest )
+                                                   : Matrix4x4f::Identity();
+        for ( const SwapMesh &part : visualSwap.Body ) {
+            renderer.draw( part.Mesh, part.Material, world * bodyT * Matrix4x4f::Translation( swapOffset ) );
+        }
+    }
+    if ( bInterior && !bSwapActive ) {
         interior.draw( renderer, world );
     }
-    for ( int32_t node : wheelNodes ) {
+    for ( size_t wheelIndex = 0; wheelIndex < wheelNodes.size(); wheelIndex++ ) {
+        const int32_t node = wheelNodes[wheelIndex];
+        if ( bSwapActive ) {
+            // The swap's wheels: the node's rotation (spin, steer) with its scale
+            // normalised, placed at OUR wheel centre plus the node's travel from
+            // the pose the swap was applied in (suspension).
+            const Matrix4x4f nodeT = car.getNodeTransform( node );
+            const Matrix4x4f &rest = swapWheelRest[wheelIndex];
+            const std::string &swapName = car.getScene().getNodes()[node].Name;
+            const size_t swapAxle = swapName.rfind( '_' );
+            const bool bSwapRear = swapAxle != std::string::npos && swapAxle + 1 < swapName.size() &&
+                                   swapName[swapAxle + 1] == 'R';
+            const int32_t side = rest.m[3][0] > 0.0f ? 1 : 0;
+            const int32_t axleIdx = bSwapRear ? 1 : 0;
+            if ( visualSwap.bWheelPos[axleIdx][side] ) {
+                Matrix4x4f wheelT = Matrix4x4f::Identity();
+                for ( int32_t i = 0; i < 3; i++ ) {
+                    const float len = std::sqrt( nodeT.m[i][0] * nodeT.m[i][0] + nodeT.m[i][1] * nodeT.m[i][1] +
+                                                 nodeT.m[i][2] * nodeT.m[i][2] );
+                    const float inv = len > 1e-5f ? 1.0f / len : 1.0f;
+                    for ( int32_t j = 0; j < 3; j++ ) {
+                        wheelT.m[i][j] = nodeT.m[i][j] * inv;
+                    }
+                }
+                const Vector3f &centre = visualSwap.WheelPos[axleIdx][side];
+                const float base[3] = { centre.x + swapOffset.x, centre.y + swapOffset.y, centre.z + swapOffset.z };
+                for ( int32_t j = 0; j < 3; j++ ) {
+                    wheelT.m[3][j] = base[j] + nodeT.m[3][j] - rest.m[3][j];
+                }
+                if ( side == 1 ) {
+                    // The mesh turns first (post-multiplied, like the retail rim scale).
+                    wheelT = wheelT * Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle(
+                                          Vector3f( 0.0f, 1.0f, 0.0f ), 3.14159265f ) );
+                }
+                for ( const SwapMesh &part : bSwapRear ? visualSwap.WheelRear : visualSwap.WheelFront ) {
+                    renderer.draw( part.Mesh, part.Material, world * wheelT );
+                }
+            }
+            continue;
+        }
         // D_RIM_xx: rim size (scale) and side (right wheels turned by 180
         // degrees); the next node (?_TIRE_xx) places the tire. The axle letter
         // is the character after the last '_' ("D_RIM_FR"): a plain

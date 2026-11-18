@@ -136,6 +136,21 @@ public:
     // = no-op.
     void setTunerAttachmentTexture( const char *pSlot, GPUTexture *pTexture );
     inline bool hasTunerAttachment() const { return !tunerAttachments.empty(); }
+    // The car visual swap (game/freeride/car_swap.h): a user model drawn in
+    // place of the retail visuals; physics / sound / nodes stay the donor's.
+    // Meshes are copies of the CarSwaps cache's (the buffers stay there).
+    struct SwapMesh {
+        EdenMesh Mesh;
+        EdenMaterial Material;
+    };
+    struct VisualSwap {
+        std::vector<SwapMesh> Body;                  // car space, hung from BODY_HR
+        std::vector<SwapMesh> WheelFront, WheelRear; // centred on the wheel
+        Vector3f WheelPos[2][2];                     // [front 0 / rear 1][neg 0 / pos 1]
+        bool bWheelPos[2][2] = { { false, false }, { false, false } };
+    };
+    void setVisualSwap( const VisualSwap &swap );
+    inline bool hasVisualSwap() const { return bSwapActive; }
     // The flame origins of a fitted part (its exhaust tips, tuner.txt `tip =`
     // lines): setTunerAttachmentTips stores them part-space on the slot's
     // attachment; getTunerAttachmentTips returns them in world space for the
@@ -727,6 +742,13 @@ private:
         std::vector<Vector3f> Tips; // part-space flame origins (exhaust tips)
     };
     std::map<std::string, TunerAttachment> tunerAttachments; // by slot
+    VisualSwap visualSwap;
+    bool bSwapActive = false;
+    bool bSwapChecked = false;
+    int32_t swapBodyNode = -1;
+    Matrix4x4f swapBodyRest;
+    Vector3f swapOffset; // the swap model's wheel centroid -> the donor's (aligns origin + ride height)
+    std::vector<Matrix4x4f> swapWheelRest; // per wheelNodes entry, at apply time
     // The stock parts a fitted tuner part replaces (the retail spoiler lip,
     // the stock exhaust tips are triangles inside the big body items): per
     // item, one index buffer ordered [exhaust tris][the rest][spoiler tris],

@@ -1,7 +1,8 @@
 import bpy, math, sys
 from mathutils import Vector, Matrix
 SCALE=float(sys.argv[-1]) if sys.argv[-1].replace('.','').isdigit() else 1.0
-OUT=r"C:/temp/otdu2-tdusc-mods/props/"
+OUT=r"C:/temp/otdu2-tdusc-mods/carswap/"  # the car visual swap folder (game/freeride/car_swap.h)
+PFX="lambo_"
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.fbx(filepath=r"E:/TDUSC Rips/Cars/Lambo fixed.fbx")
 sc=bpy.context.scene
@@ -58,6 +59,19 @@ for o in cls['tire']:
 # global transform: rotate -90 about Z (+X front -> -Y), scale, centre, ground
 R=Matrix.Rotation(-math.pi/2,4,'Z')@Matrix.Scale(SCALE,4)
 for o in allo:o.data.transform(R)
+# level the rip: its wheel centres show a yaw (~3.3 deg) and a roll (~1.8 deg) [DATA, measured from the four
+# rim centres]; rotate the whole model so the front axle is square and level before anything is centred.
+def _ctr(o):
+    cs=[v.co for v in o.data.vertices]
+    return Vector([(min(p[i] for p in cs)+max(p[i] for p in cs))/2 for i in range(3)])
+_rc=[_ctr(r) for r in cls['rim']]
+_fr=[c for c in _rc if c.y<0]
+_L=min(_fr,key=lambda c:c.x);_Rr=max(_fr,key=lambda c:c.x)
+_yaw=math.atan2(_Rr.y-_L.y,_Rr.x-_L.x)
+_roll=math.atan2(_Rr.z-_L.z,_Rr.x-_L.x)
+print("LEVEL yaw deg",math.degrees(_yaw),"roll deg",math.degrees(_roll))
+LV=Matrix.Rotation(_roll,4,'Y')@Matrix.Rotation(-_yaw,4,'Z')
+for o in allo:o.data.transform(LV)
 pts=[v.co for o in allo for v in o.data.vertices]
 mn=Vector((min(p[i] for p in pts) for i in range(3)));mx=Vector((max(p[i] for p in pts) for i in range(3)))
 rz=min(v.co.z for o in cls['tire'] for v in o.data.vertices)
@@ -74,12 +88,41 @@ for o in list(cls['body']):
         cls['interior'].append(o);cls['body'].remove(o)
 print('interior meshes',len(cls['interior']),'body',len(cls['body']))
 COL={'interior':(0.08,0.08,0.09),'body':(0.55,0.02,0.02),'glass':(0.03,0.05,0.07),'rim':(0.7,0.7,0.72),'tire':(0.02,0.02,0.02)}
+# --- wheels: one rim + one tire per axle, taken from the engine-negative-x side (Blender x > 0, because
+# the loader mirrors X), re-centred on the wheel so the game can spin / steer / flip them per node.
+def ctr(o):
+    cs=[v.co for v in o.data.vertices]
+    return Vector([(min(p[i] for p in cs)+max(p[i] for p in cs))/2 for i in range(3)])
+corner={}
+for rim in cls['rim']:
+    c=ctr(rim)
+    tire=min(cls['tire'],key=lambda t:(ctr(t)-c).length)
+    corner[(c.y<0,c.x>0)]=(rim,tire,c)   # (front?, engine-neg-x?)
+def eng(c):  # Blender car space -> engine space: x mirrored, z -> y up, -y -> z forward
+    return (-c.x,c.z,-c.y)
+lines=["[swap:458_italia]","body = %sbody"%PFX,"body = %sinterior"%PFX,"body = %sglass"%PFX,
+       "wheel_front = %srimF %stireF"%(PFX,PFX),"wheel_rear = %srimR %stireR"%(PFX,PFX)]
+for (front,neg),(rim,tire,c) in sorted(corner.items()):
+    lines.append("wheel_pos_%s_%s = %.4f %.4f %.4f"%('f' if front else 'r','neg' if neg else 'pos',*eng(c)))
+wheelcls={}
+for (front,neg),(rim,tire,c) in corner.items():
+    if not neg: continue
+    for o in (rim,tire): o.data.transform(Matrix.Translation(-c))
+    wheelcls['rim'+('F' if front else 'R')]=[rim]
+    wheelcls['tire'+('F' if front else 'R')]=[tire]
+del cls['rim'];del cls['tire']
+cls.update(wheelcls)
+COL['rimF']=COL['rimR']=COL['rim'];COL['tireF']=COL['tireR']=COL['tire']
+import os
+os.makedirs(OUT,exist_ok=True)
+open(OUT+"carswap.txt","w").write("\n".join(lines)+"\n")
+print("\n".join(lines))
 for c,objs in cls.items():
     if not objs:continue
-    mat=bpy.data.materials.new("lambo_"+c);mat.diffuse_color=COL[c]+(1,)
+    mat=bpy.data.materials.new(PFX+c);mat.diffuse_color=COL[c]+(1,)
     mat.use_nodes=True;mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value=COL[c]+(1,)
     bpy.ops.object.select_all(action='DESELECT')
     for o in objs:
         o.data.materials.clear();o.data.materials.append(mat);o.select_set(True)
     bpy.context.view_layer.objects.active=objs[0]
-    bpy.ops.wm.obj_export(filepath=OUT+"tdusc_lambo_"+c+".obj",export_selected_objects=True,export_materials=True,export_normals=True,export_uv=True,forward_axis='NEGATIVE_Z',up_axis='Y')
+    bpy.ops.wm.obj_export(filepath=OUT+PFX+c+".obj",export_selected_objects=True,export_materials=True,export_normals=True,export_uv=True,forward_axis='NEGATIVE_Z',up_axis='Y')

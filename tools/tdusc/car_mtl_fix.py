@@ -3,34 +3,30 @@
 
 The prop loader's no-texture TD_Gouraud variant is flat white and ignores Kd, so every part gets a
 tiny solid-colour map_Kd PNG; glass is alpha blended (`d` < 1 in the mtl AND alpha in the PNG).
-Usage: python car_mtl_fix.py <mods>/props [prefix=tdusc_lambo_]   (the tire PNG is baked separately)
+The tyres share one baked atlas, `<prefix>tire.png` (copy it beside the OBJs first).
+Usage: python car_mtl_fix.py <mods>/carswap [prefix=lambo_]
 """
-import os, re, sys
+import glob, os, re, sys
 from PIL import Image
-props = sys.argv[1]
-prefix = sys.argv[2] if len(sys.argv) > 2 else 'tdusc_lambo_'
-PNG = {'body': (150, 10, 12, 255), 'glass': (20, 32, 42, 95), 'rim': (185, 188, 194, 255),
-       'interior': (22, 22, 24, 255)}
-for part, rgba in PNG.items():
-    mtl = os.path.join(props, prefix + part + '.mtl')
-    if not os.path.exists(mtl):
-        continue
-    png = os.path.join(props, prefix + part + '.png')
-    if not os.path.exists(png):
-        Image.new('RGBA', (8, 8), rgba).save(png)
+
+folder = sys.argv[1]
+prefix = sys.argv[2] if len(sys.argv) > 2 else 'lambo_'
+SOLID = {'body': (150, 10, 12, 255), 'glass': (20, 32, 42, 95), 'rimF': (185, 188, 194, 255),
+         'rimR': (185, 188, 194, 255), 'interior': (22, 22, 24, 255)}
+for mtl in glob.glob(os.path.join(folder, prefix + '*.mtl')):
+    part = os.path.basename(mtl)[len(prefix):-4]
     t = open(mtl).read()
     t = re.sub(r'^Ka .*$', 'Ka 1.0 1.0 1.0', t, flags=re.M)
     t = re.sub(r'^Kd .*$', 'Kd 1.0 1.0 1.0', t, flags=re.M)
+    if part.startswith('tire'):
+        png = prefix + 'tire.png'
+    else:
+        png = prefix + part + '.png'
+        if part in SOLID and not os.path.exists(os.path.join(folder, png)):
+            Image.new('RGBA', (8, 8), SOLID[part]).save(os.path.join(folder, png))
     if part == 'glass':
         t = re.sub(r'^d .*$', 'd 0.35', t, flags=re.M)
     if 'map_Kd' not in t:
-        t = t.rstrip() + '\nmap_Kd %s%s.png\n' % (prefix, part)
+        t = t.rstrip() + '\nmap_Kd %s\n' % png
     open(mtl, 'w').write(t)
-t = os.path.join(props, prefix + 'tire.mtl')
-if os.path.exists(t):
-    s = open(t).read()
-    s = re.sub(r'^Ka .*$', 'Ka 1.0 1.0 1.0', s, flags=re.M)
-    s = re.sub(r'^Kd .*$', 'Kd 1.0 1.0 1.0', s, flags=re.M)
-    if 'map_Kd' not in s:
-        s = s.rstrip() + '\nmap_Kd %stire.png\n' % prefix
-    open(t, 'w').write(s)
+    print(os.path.basename(mtl), '->', png)
