@@ -6,6 +6,9 @@
 #include "game/player_profile.h"
 #include "system/cmd_line.h"
 
+#include <algorithm>
+#include <set>
+
 const std::vector<HouseRow> &GetHouses() {
     static std::vector<HouseRow> houses;
     static bool bRead = false;
@@ -121,4 +124,64 @@ bool GrantHouse( const char *pSpotName, bool bSetHome ) {
     // True when the profile changed: the caller saves the profile then (the
     // story grant must survive the session, not only live in memory).
     return !bOwned || bHomeChanged;
+}
+
+int32_t HouseGarageCapacity( const std::string &houseSpotName ) {
+    for ( const HouseRow &house : GetHouses() ) {
+        if ( house.SpotName == houseSpotName ) {
+            return house.NbCarSlots;
+        }
+    }
+    return 0;
+}
+
+const std::vector<int32_t> &HouseGarageCars( const std::string &houseSpotName ) {
+    PlayerProfile &profile = GetPlayerProfile();
+    // Forget what left: cars no longer owned, houses no longer owned, duplicates.
+    std::set<int32_t> placed;
+    for ( auto garage = profile.HouseGarages.begin(); garage != profile.HouseGarages.end(); ) {
+        const bool bHouseOwned = std::find( profile.OwnedHouses.begin(), profile.OwnedHouses.end(), garage->first ) != profile.OwnedHouses.end();
+        std::vector<int32_t> kept;
+        for ( int32_t carId : garage->second ) {
+            const bool bOwned = std::find( profile.OwnedCars.begin(), profile.OwnedCars.end(), carId ) != profile.OwnedCars.end();
+            if ( bHouseOwned && bOwned && placed.insert( carId ).second &&
+                 static_cast<int32_t>( kept.size() ) < HouseGarageCapacity( garage->first ) ) {
+                kept.push_back( carId );
+            }
+        }
+        garage->second = std::move( kept );
+        garage = bHouseOwned ? std::next( garage ) : profile.HouseGarages.erase( garage );
+    }
+    // New cars: the home house first, then the other owned houses, while there is room.
+    std::vector<std::string> order;
+    order.push_back( profile.HomeHouse );
+    for ( const std::string &owned : profile.OwnedHouses ) {
+        if ( owned != profile.HomeHouse ) {
+            order.push_back( owned );
+        }
+    }
+    bool bChanged = false;
+    for ( int32_t carId : profile.OwnedCars ) {
+        if ( placed.count( carId ) != 0 ) {
+            continue;
+        }
+        for ( const std::string &house : order ) {
+            if ( std::find( profile.OwnedHouses.begin(), profile.OwnedHouses.end(), house ) == profile.OwnedHouses.end() ) {
+                continue;
+            }
+            std::vector<int32_t> &garage = profile.HouseGarages[house];
+            if ( static_cast<int32_t>( garage.size() ) < HouseGarageCapacity( house ) ) {
+                garage.push_back( carId );
+                placed.insert( carId );
+                bChanged = true;
+                OTDU_LOG_INFO( "Garage: car %d goes to the garage of '%s' (%zu / %d)\n", carId, house.c_str(), garage.size(),
+                               HouseGarageCapacity( house ) );
+                break;
+            }
+        }
+    }
+    (void)bChanged;
+    static const std::vector<int32_t> kNone;
+    const auto found = profile.HouseGarages.find( houseSpotName );
+    return found != profile.HouseGarages.end() ? found->second : kNone;
 }

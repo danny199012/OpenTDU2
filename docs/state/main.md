@@ -13,6 +13,24 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+
+## Session 2026-11-18 (`main`): per-house garages, garage cars wear stickers + spoiler, the map's home card
+
+Owner: "garage cars stickers and spoilers; a car with a spoiler / stickers must be remembered; check owned properties remember the cars in the house's garage" (360 shots: the map card of Fontanelles house / Caravan: picture, Garage 2/2, level stars, Vehicles list with class badges).
+
+### What changed
+- **Per-house garages.** `PlayerProfile::HouseGarages` (house spot -> car ids, saved as `house_garages = SPOT=id,id|SPOT=...`). `HouseGarageCars( spot )` (`house_shop.cpp`) assigns every owned car that is in no garage to the home house first, then the other owned houses, up to `DBHouse._nbcarslots` (`HouseGarageCapacity`), drops sold cars / unowned houses, and remembers the result (log `Garage: car 387 goes to the garage of ...`). `InteriorWalk::placeGarageCars` shows THIS house's cars only (it showed every owned car in any house).
+- **Garage cars wear their own look** (`placeDisplayCars( ids, bOwned )`): ordered / custom paint, rims, the tuner mod's spoiler, and a sticker canvas per car (`GarageStickers`, composited and bound in `InteriorWalk::renderOffscreen`).
+- **Bug**: `TunerParts::isTunerCar` was asked before `load()` (also in `dressRoomCar`), so no spoiler was ever drawn on room cars; fixed in both.
+- **Map home card** (`map_screen.cpp`): an owned `EPH_*` spot uses the movie's `home` kind - title = the house name, the house's `realtorscr/<house>/img_ext` picture (loaded for owned houses), `/:nb_cars` of `/:nb_garage_places`, `/:HouseLevel` (level + 1 stars), `/:car<N>_gp` (class) / `_car_name`.
+
+### Verified (profile `persist2`: cars 387 + 403, stickers on 387, `car_tuner_parts 403:spoiler=wing_ducktail`)
+- `-atspot EPH_L3DI_5067I -housegarage`: both cars in the garage, the California green with its stickers; with `-tunermod` vs `-notunermod` the GT-R shows a ducktail (26 changed px at its tail); profile now holds `house_garages = EPH_L3DI_5067I=387,403`.
+- `-mapcardicon estates,18 -mapcardextend`: "Sa Cala house", picture, Garage 2 / 6, 3 stars, California (A3) and GT-R (A2) (`docs/images/map_home_card.webp`).
+
+### Not done / next
+- Buying a second house does not move cars; no UI to move a car between garages (retail has the car-move screen, not read). The unowned `forsale` card still uses the realtor layout. The class badge digit comes from `VehicleClassName( _vehiclecategory )` as in the dealer card (not compared with the 360's "A2" for the GT-R / R8).
+
 ## Session 2026-11-18 (`main`): stickers and the other car places
 
 Owner: "check the sticker layouts and the other car places".

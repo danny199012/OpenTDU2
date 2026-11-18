@@ -11,6 +11,8 @@
 #include "game/house_shop.h"
 #include "game/spots/house_furniture.h"
 #include "game/freeride/tuner.h"
+#include "game/freeride/tuner_parts.h"
+#include "game/freeride/sticker_bank.h"
 #include "game/freeride/surgery_menu.h"
 #include "database/gs_database.h"
 #include "game/player_profile.h"
@@ -124,6 +126,7 @@ size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds, bool 
     // Slot i -> PosCams[i] [INF: the order pairing; both lists are the
     // shop's own, the placing code is ENC].
     const std::vector<std::string> &posCams = scene.getShopPosCams();
+    garageStickers.clear();
     size_t placed = 0;
     for ( size_t i = 0; i < carIds.size() && i < posCams.size(); i++ ) {
         CinematicCar::Desc desc;
@@ -160,6 +163,28 @@ size_t InteriorWalk::placeDisplayCars( const std::vector<int32_t> &carIds, bool 
                     const auto rims = owner.OwnedCarRimSizes.find( carIds[i] );
                     if ( rims != owner.OwnedCarRimSizes.end() && rims->second > 0 ) {
                         pCar->setRimDiameters( rims->second, rims->second );
+                    }
+                    // The tuner mod's spoiler this car was left with.
+                    if ( TunerModEnabled() && ( GetTunerParts().load(), GetTunerParts().isTunerCar( carIds[i] ) ) ) {
+                        const auto parts = owner.OwnedCarTunerParts.find( carIds[i] );
+                        const auto slot = parts != owner.OwnedCarTunerParts.end() ? parts->second.Parts.find( "spoiler" )
+                                                                                  : decltype( parts->second.Parts.end() )();
+                        if ( parts != owner.OwnedCarTunerParts.end() && slot != parts->second.Parts.end() && !slot->second.empty() ) {
+                            if ( const TunerPart *pPart = GetTunerParts().findPart( slot->second ) ) {
+                                GetTunerParts().applyPart( *pCar, carIds[i], pPart );
+                            }
+                        }
+                    }
+                    // Its stickers: a canvas of its own (the room's other cars wear their own layouts).
+                    const auto stickers = owner.OwnedCarStickers.find( carIds[i] );
+                    if ( StickerBankCatalog::isEnabled() && stickers != owner.OwnedCarStickers.end() && !stickers->second.empty() ) {
+                        GarageStickers entry;
+                        entry.DisplayIndex = scene.getNumDisplayCars() - 1;
+                        entry.Canvas = std::make_unique<StickerCanvas>();
+                        std::vector<GPUTexture *> art;
+                        StickerResolveArt( stickers->second, art );
+                        entry.Canvas->setLayout( stickers->second, art );
+                        garageStickers.push_back( std::move( entry ) );
                     }
                 }
             }
@@ -681,8 +706,8 @@ bool InteriorWalk::tookRoomSwap() {
 void InteriorWalk::placeGarageCars() {
     // The owned cars on the garage bank's Entity__ShopData slots (D_CAR_01..)
     // [INF: the pairing; the retail garage stores the cars itself].
-    const PlayerProfile &profile = GetPlayerProfile();
-    placeDisplayCars( profile.OwnedCars, true );
+    // The garage of THIS house: the cars it was left with (HouseGarageCars), not every car the player owns.
+    placeDisplayCars( houseSpot.empty() ? GetPlayerProfile().OwnedCars : HouseGarageCars( houseSpot ), true );
 }
 
 void InteriorWalk::exit() {
@@ -693,6 +718,7 @@ void InteriorWalk::exit() {
     if ( gpFrontEndMusic != nullptr ) {
         gpFrontEndMusic->stop();
     }
+    garageStickers.clear();
     scene.setCameraOverride( nullptr );
     walk.setWorldHook( nullptr );
     worldCollision.clear();
@@ -1051,6 +1077,17 @@ void InteriorWalk::tickBackground( float deltaTime ) {
 }
 
 void InteriorWalk::renderOffscreen() {
+    // The garage cars' sticker canvases: composite, bind to that car's paint materials once.
+    if ( bActive && !garageStickers.empty() && gpRender != nullptr && gpRender->getEdenRenderer() != nullptr ) {
+        for ( GarageStickers &entry : garageStickers ) {
+            entry.Canvas->render( gpRender->getDevice(), gpRender->get2DRenderer() );
+            if ( !entry.bBound && entry.Canvas->getTexture() != nullptr ) {
+                if ( CinematicCar *pCar = scene.getDisplayCar( entry.DisplayIndex ) ) {
+                    entry.bBound = pCar->bindStickerTexture( *gpRender->getEdenRenderer(), entry.Canvas->getTexture() ) > 0;
+                }
+            }
+        }
+    }
     if ( bActive ) {
         scene.renderOffscreen();
     }

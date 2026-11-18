@@ -390,6 +390,32 @@ void LoadProfile() {
             }
         } else if ( key == "home_house" ) {
             profile.HomeHouse = value;
+        } else if ( key == "house_garages" ) {
+            // "<house spot>=<id>,<id>|<house spot>=..."
+            profile.HouseGarages.clear();
+            size_t at = 0;
+            while ( at < value.size() ) {
+                size_t end = value.find( '|', at );
+                if ( end == std::string::npos ) {
+                    end = value.size();
+                }
+                const std::string entry = value.substr( at, end - at );
+                const size_t equals = entry.find( '=' );
+                if ( equals != std::string::npos ) {
+                    std::vector<int32_t> &cars = profile.HouseGarages[entry.substr( 0, equals )];
+                    const char *pText = entry.c_str() + equals + 1;
+                    while ( *pText != 0 ) {
+                        char *pEnd = nullptr;
+                        const long id = strtol( pText, &pEnd, 10 );
+                        if ( pEnd == pText ) {
+                            break;
+                        }
+                        cars.push_back( static_cast<int32_t>( id ) );
+                        pText = *pEnd == ',' ? pEnd + 1 : pEnd;
+                    }
+                }
+                at = end + 1;
+            }
         } else if ( key == "car_tuning" ) {
             // "<id_car>:<accel>,<braking>,<speed>,..."
             const char *pText = value.c_str();
@@ -890,6 +916,18 @@ bool SaveProfile( const char *pReason ) {
         }
         file << "\n";
         file << "home_house = " << profile.HomeHouse << "\n";
+        file << "house_garages = ";
+        {
+            bool bFirstHouse = true;
+            for ( const auto &garage : profile.HouseGarages ) {
+                file << ( bFirstHouse ? "" : "|" ) << garage.first << "=";
+                bFirstHouse = false;
+                for ( size_t i = 0; i < garage.second.size(); i++ ) {
+                    file << ( i > 0 ? "," : "" ) << garage.second[i];
+                }
+            }
+        }
+        file << "\n";
         file << "house_intros_seen = ";
         for ( size_t i = 0; i < profile.SeenHouseIntros.size(); i++ ) {
             file << ( i > 0 ? "," : "" ) << profile.SeenHouseIntros[i];

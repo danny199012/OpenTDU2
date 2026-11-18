@@ -1301,6 +1301,10 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
     if ( pKind == nullptr ) {
         return false;
     }
+    // A house you own is the movie's `home` card (Garage n / n, the level stars, the Vehicles list), not the realtor's.
+    if ( strcmp( pKind, "estates" ) == 0 && spot.Name.compare( 0, 3, "EPH" ) == 0 && IsHouseOwned( spot.Id ) ) {
+        pKind = "home";
+    }
     player.setVariable( "/:WhatSpot", pKind );
     player.setVariable( "/:WhatSpotType", "spot" );
     std::string title = spot.Name;
@@ -1388,6 +1392,38 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
             cardAgency = stock[0]->Realtor;
             for ( char &c : cardAgency ) {
                 c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+            }
+        }
+        if ( pHouseSpot != nullptr ) {
+            std::string spotKey = pHouseSpot->SpotName;
+            for ( char &c : spotKey ) {
+                c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
+            }
+            cardPicture = "house_" + spotKey; // the house's own exterior picture on the card
+        }
+        // An owned house: its garage (CarsList: /:nb_cars of /:nb_garage_places, /:car<N>_gp the class and _car_name) and the
+        // level stars (_root.HouseLevel = the stars clip's frame, level + 1) [DATA: map.vmf SetInfos / CarsList].
+        if ( pHouseSpot != nullptr && IsHouseOwned( spot.Id ) ) {
+            const std::vector<int32_t> &garage = HouseGarageCars( pHouseSpot->SpotName );
+            for ( size_t i = 0; i < garage.size(); i++ ) {
+                const std::string key = "/:car" + std::to_string( i );
+                int32_t category = 0;
+                const int32_t row = FindCarPhysicsRow( garage[i] );
+                if ( gpDatabase != nullptr && row >= 0 ) {
+                    category = static_cast<int32_t>(
+                        gpDatabase->getDocument().getRoot().getArrayElement( "DBCarPhysicsData", static_cast<uint32_t>( row ) )["_vehiclecategory"].asInt() );
+                }
+                const char *pClass = VehicleClassName( category );
+                player.setVariable( key + "_gp", pClass != nullptr && pClass[0] != '\0' ? pClass : "empty" );
+                player.setVariable( key + "_car_name", FindCarDisplayName( garage[i] ) );
+                player.setVariable( key + "_state", "false" );
+            }
+            player.setVariable( "/:nb_cars", std::to_string( garage.size() ) );
+            player.setVariable( "/:nb_garage_places", std::to_string( HouseGarageCapacity( pHouseSpot->SpotName ) ) );
+            player.setVariableNumber( "/:HouseLevel", pHouseSpot->Level + 1 );
+            if ( CmdLine::HasArg( "-logcard" ) ) {
+                OTDU_LOG_INFO( "MapScreen: home card '%s': %zu car(s) of %d places, level %d\n", pHouseSpot->Name.c_str(), garage.size(),
+                               HouseGarageCapacity( pHouseSpot->SpotName ), pHouseSpot->Level );
             }
         }
         int32_t bought = 0;
@@ -2223,6 +2259,10 @@ void MapScreen::loadRealtorPreviews() {
         for ( const HouseRow *pHouse : stock ) {
             load( "frontend/allres/realtorscr/", lower( pHouse->SpotName ), "img_ext", "house_" + lower( pHouse->SpotName ) );
         }
+    }
+    // The houses you own: their card picture (the same img_ext the realtor's list uses).
+    for ( const std::string &owned : GetPlayerProfile().OwnedHouses ) {
+        load( "frontend/allres/realtorscr/", lower( owned ), "img_ext", "house_" + lower( owned ) );
     }
     // Every other shop's picture (clothes, dealers, tuning, sticker, hair, wash...): the bank
     // mapscreens/spots/<full spots.bin name>.bnk, its name hashed = the spot record id [DATA: 131 banks, one per

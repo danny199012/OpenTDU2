@@ -36,3 +36,10 @@ bool IsHouseOwned( uint64_t spotId );
 // caller uses that to decide whether a save is needed); logs only the grant
 // that happened.
 bool GrantHouse( const char *pSpotName, bool bSetHome );
+
+// The cars standing in an owned house's garage (profile.HouseGarages), after the assignment: every car of
+// profile.OwnedCars not yet in a garage goes to the home house, then the other owned houses, while there is room
+// (DBHouse._nbcarslots); cars that were sold leave. The assignment is remembered in the profile.
+const std::vector<int32_t> &HouseGarageCars( const std::string &houseSpotName );
+// DBHouse._nbcarslots of a house by spot name (0 when unknown).
+int32_t HouseGarageCapacity( const std::string &houseSpotName );

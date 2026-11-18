@@ -4559,8 +4559,7 @@ void GMFreeRide::dressRoomCar( CinematicCar &roomCar ) {
         roomCar.setRimDiameters( rimSize, rimSize );
     }
     // The tuner mod's saved spoiler.
-    if ( TunerModEnabled() && GetTunerParts().isTunerCar( carId ) ) {
-        GetTunerParts().load();
+    if ( TunerModEnabled() && ( GetTunerParts().load(), GetTunerParts().isTunerCar( carId ) ) ) {
         const auto parts = profile.OwnedCarTunerParts.find( carId );
         if ( parts != profile.OwnedCarTunerParts.end() ) {
             const auto slot = parts->second.Parts.find( "spoiler" );

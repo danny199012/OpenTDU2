@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "game/avatarchoice/intro_cinematic.h"
 #include "game/walkmode/walk_mode.h"
 #include "physics/vehicle_collision.h"
@@ -23,6 +26,13 @@ struct HouseRow;
 // room in its own frame (no island), like the FIRST_WM garage [INF: the
 // retail transition is a fade; the interior's placement in the island is
 // not needed to walk it].
+// One garage car's own sticker canvas (the sticker layout of THAT car, bound to its paint materials once).
+struct GarageStickers {
+    size_t DisplayIndex = 0;
+    std::unique_ptr<class StickerCanvas> Canvas;
+    bool bBound = false;
+};
+
 class InteriorWalk {
 public:
     enum class eResult {
@@ -164,6 +174,7 @@ private:
 
     void startWalk( const char *pPreferredCamera = nullptr );
     void playHeadView( float distance = 0.0f );
+    std::vector<GarageStickers> garageStickers;
     void applyTestAim(); // -walkaim
     // The emote key / slots / auto return (the FIRST_WM law, shared).
     void updateEmotes( float deltaTime );

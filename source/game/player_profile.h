@@ -187,6 +187,9 @@ struct PlayerProfile {
     std::vector<std::string> OwnedHouses = { "EPH_L3DI_5067I" };
     // The DBHouse _spotname of the home house (the FREERIDE house-flow spawn).
     std::string HomeHouse = "EPH_L3DI_5067I";
+    // The cars standing in each owned house's garage (house spot name -> _id_car), at most DBHouse._nbcarslots each.
+    // Assigned when a car is first seen in OwnedCars (the home house first) and then remembered (HouseGarageCars).
+    std::map<std::string, std::vector<int32_t>> HouseGarages;
     // The house entry cinematics already played, keyed by interior bank name
     // (lph_l0c, gph_l0c ...): the entry shot plays once per house per profile -
     // the owner: "everytime you enter it seems to replay the caravan scene"
