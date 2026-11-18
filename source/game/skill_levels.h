@@ -49,3 +49,19 @@ bool AwardSkillEvent( const char *pEvent );
 // (COLLECTION_CARS_DIF / _HOUSES / _FURNITURES / _CLOTHES / _HAIRCUTS / _STICKERS). Each event is
 // once only (_nbtimesallowed), so calling it after every purchase is safe. [DATA]
 void AwardCollectionMilestones( const char *pFamily, int32_t count );
+
+// The area levels (DBAreaLevel: Stranger / Familiar / Buddy / Friend, per island; -1 is the default table). The
+// area level points (ALP) of a cruising zone are the Cruising points of the DBRewardXP events of that area
+// ("CRUISING_<ISLAND>_..._AREA<n>..." : roads, wrecks, events won) times the times each was earned [INF: DBAreaLevel's
+// 200..1700 scale matches the ~1200 points those events pay per area; the dev exe loader is 0x49a1c0].
+struct AreaLevel {
+    int32_t Island = -1; // _island: -1 default, 0 Ibiza, 1 Hawai
+    int32_t Level = 0;
+    int32_t Alp = 0; // _alpneeded
+    std::string Title, Reward, RewardDesc;
+};
+const std::vector<AreaLevel> &GetAreaLevels();
+// ALP of area n (1-based) of an island ("IBIZA" / "HAWAI"), from the profile's EventsDone.
+int32_t GetAreaPoints( const std::string &island, int32_t area );
+// The level row an ALP total reaches on an island (the island's own table, else the default one); null when none.
+const AreaLevel *FindAreaLevel( int32_t islandIndex, int32_t alp );

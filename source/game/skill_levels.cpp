@@ -120,6 +120,72 @@ const std::vector<RewardXp> &GetRewardXp() {
     return table;
 }
 
+const std::vector<AreaLevel> &GetAreaLevels() {
+    static std::vector<AreaLevel> table;
+    static bool bRead = false;
+    if ( !bRead && gpDatabase != nullptr ) {
+        bRead = true;
+        XmbValue root = gpDatabase->getDocument().getRoot();
+        for ( uint32_t i = 0; i < root.getArraySize( "DBAreaLevel" ); i++ ) {
+            XmbValue row = root.getArrayElement( "DBAreaLevel", i );
+            AreaLevel level;
+            level.Island = static_cast<int32_t>( row["_island"].asInt() );
+            level.Level = static_cast<int32_t>( row["_level"].asInt() );
+            level.Alp = static_cast<int32_t>( row["_alpneeded"].asInt() );
+            const char *pTitle = gpDatabase->getString( static_cast<int32_t>( row["_grade_hc"].asUInt64() ) );
+            const char *pReward = gpDatabase->getString( static_cast<int32_t>( row["_rewardname_hc"].asUInt64() ) );
+            const char *pDesc = gpDatabase->getString( static_cast<int32_t>( row["_rewarddesc_hc"].asUInt64() ) );
+            level.Title = pTitle != nullptr ? pTitle : "";
+            level.Reward = pReward != nullptr ? pReward : "";
+            level.RewardDesc = pDesc != nullptr ? pDesc : "";
+            table.push_back( level );
+        }
+    }
+    return table;
+}
+
+int32_t GetAreaPoints( const std::string &island, int32_t area ) {
+    std::string upper = island;
+    for ( char &c : upper ) {
+        c = static_cast<char>( toupper( static_cast<unsigned char>( c ) ) );
+    }
+    const std::string islandTag = "_" + upper + "_";
+    const std::string areaTag = "_AREA" + std::to_string( area );
+    int32_t alp = 0;
+    for ( const auto &entry : GetPlayerProfile().EventsDone ) {
+        const std::string &event = entry.first;
+        if ( event.compare( 0, 9, "CRUISING_" ) != 0 || entry.second <= 0 ) {
+            continue;
+        }
+        // The area tag must end at a '_' or the end of the name (AREA1 vs AREA10).
+        const size_t areaAt = event.find( areaTag );
+        const bool bArea = areaAt != std::string::npos &&
+                           ( areaAt + areaTag.size() == event.size() || event[areaAt + areaTag.size()] == '_' );
+        if ( !bArea || event.find( islandTag ) == std::string::npos ) {
+            continue;
+        }
+        if ( const RewardXp *pXp = FindRewardXp( event.c_str() ) ) {
+            alp += pXp->Points[1] * entry.second;
+        }
+    }
+    return alp;
+}
+
+const AreaLevel *FindAreaLevel( int32_t islandIndex, int32_t alp ) {
+    const AreaLevel *pBest = nullptr;
+    for ( const int32_t wanted : { islandIndex, -1 } ) {
+        for ( const AreaLevel &level : GetAreaLevels() ) {
+            if ( level.Island == wanted && level.Alp <= alp && ( pBest == nullptr || level.Level > pBest->Level ) ) {
+                pBest = &level;
+            }
+        }
+        if ( pBest != nullptr ) {
+            break;
+        }
+    }
+    return pBest;
+}
+
 const RewardXp *FindRewardXp( const char *pEvent ) {
     for ( const RewardXp &xp : GetRewardXp() ) {
         if ( StringCmpI( xp.Event.c_str(), pEvent ) == 0 ) {

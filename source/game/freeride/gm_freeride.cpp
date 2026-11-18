@@ -8145,6 +8145,36 @@ void GMFreeRide::tick( float deltaTime ) {
             }
             lastLevel[skill] = at;
         }
+        // Area levels (DBAreaLevel: Stranger / Familiar / Buddy / Friend): an area whose level points (the Cruising
+        // points its roads, wrecks and events paid) reach the next threshold announces the new level [INF: shown on
+        // the pop_news banner; the retail popup has a NewAreaTitle page].
+        {
+            const CruisingZones &zones = GetCruisingZones();
+            static std::map<std::string, int32_t> lastAreaLevel;
+            std::string island = zones.getIsland();
+            for ( char &c : island ) {
+                c = static_cast<char>( toupper( static_cast<unsigned char>( c ) ) );
+            }
+            const int32_t islandIndex = island == "IBIZA" ? 0 : island == "HAWAI" ? 1 : -1;
+            for ( int32_t area = 1; area <= zones.getCount() && islandIndex >= 0; area++ ) {
+                const int32_t alp = GetAreaPoints( island, area );
+                const AreaLevel *pLevel = FindAreaLevel( islandIndex, alp );
+                if ( pLevel == nullptr ) {
+                    continue;
+                }
+                int32_t &last = lastAreaLevel[island + std::to_string( area )];
+                if ( last > 0 && pLevel->Level > last && !gSuppressLevelUp ) {
+                    std::string text = zones.getName( area - 1 ) + ": " + pLevel->Title;
+                    OTDU_LOG_INFO( "FREERIDE: area level up %s %d points -> level %d '%s'\n", zones.getName( area - 1 ).c_str(), alp,
+                                   pLevel->Level, pLevel->Title.c_str() );
+                    if ( !pLevel->Reward.empty() ) {
+                        text += " - " + pLevel->Reward;
+                    }
+                    hud.showDiscovery( text );
+                }
+                last = pLevel->Level;
+            }
+        }
         GetPlayerProfile().ExploredPercent = mapScreen.getExploredPercent();
     }
     // Radio: keep the playlist going (next song at the end) and refresh the
