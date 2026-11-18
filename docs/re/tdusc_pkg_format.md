@@ -109,10 +109,27 @@ pilot poses). `P3D` and `PTX` are **stored** (`kind 0`); `PSI`, `PMA`, `PAN` are
   `u16 numTiles`, `u32 { tileSizeIdx : 2, lastTileSize : 18, reserved }` (tiles are 64 KiB), then `u32 tileEnd[numTiles]`
   (cumulative compressed end offsets), then the tile data. Uncompressed size = `(numTiles-1) * 65536 + lastTileSize` and
   equals main header word 18 (Huracan LR: 46,272; wheel W_R_03: 206,492 = 3 x 64 KiB + 9,884). Verified on 13 files.
-  GDeflate is **not** plain deflate (raw deflate / zlib / LZ4 / zstd / brotli / lzma were all tried and fail); it is Microsoft's
-  published GPU-friendly deflate (32 interleaved bitstreams per tile), so a CPU decoder is a well-defined job.
-  `dstorage.dll` + `dstoragecore.dll` ship in the TDUSC folder; calling `DStorageCreateCompressionCodec(GDEFLATE, ...)` through
-  ctypes returned `E_NOTIMPL` with my guessed interface id, so that route is open but unproven.
+  GDeflate is **not** plain deflate (raw deflate / zlib / LZ4 / zstd / brotli / lzma were all tried and fail); it is the format
+  published with Microsoft's DirectStorage (github.com/microsoft/DirectStorage, `GDeflate/README.md`, `shaders/GDeflate.hlsl`,
+  Apache-2.0): 32 interleaved bitstreams ("lanes") per tile decoded in rounds, Deflate64-style length / distance tables.
+  **`tools/tdusc/gdeflate.py` is a pure-Python decoder written from that description - it decodes all 13 Huracan blobs**
+  (LR: 27,236 -> 46,272 bytes in 0.07 s; HR: 1.2 MB -> 2.1 MB in ~4 s). Tile layout, from the reference
+  `GDeflateDecompress.cpp`: tile 0 starts at data offset 0, tile i > 0 at `tileOffsets[i]`, and the LAST tile's compressed size is
+  `tileOffsets[0]`. (The DirectStorage runtime route via ctypes returned `E_NOTIMPL` and was dropped.)
+
+### 7.1 The decoded blob [DATA, Huracan]
+
+Per part, offsets from the plain section index the decoded blob: `vtan` (4 B / vertex, packed tangent), `vnor` (**4 x half**, xyz
+unit length, w = sign), `vpos` (**3 x float**, metres, **Z up, Y along the car, X across**), `vuvs` (8 B / vertex; not decoded, the LR
+parts read as zeros), optional `vcol`; the **index buffer is `u16` triangle list** at `iboff` (right after the vertex streams, 16-byte
+aligned), `ntri` triangles. Part entry in the plain section, after `MESH` + 10 floats (bbox min xyz, max xyz, sphere centre xyz, radius)
++ `u32 nparts`: `u32 1, u32 nWords, char fmt[nWords*4], u32 0, u32 0, u32 vcount, u32 nStreams, {char[4] tag, u32 offset} x nStreams,
+u32 ntri, u32 iboff, f32 (a distance? e.g. 358.3)`.
+**Verified**: the LR body is 708 + 36 + 488 vertices (+ small parts), its positions span exactly the header bounding box
+(-1.095..1.097, -2.405..2.093, -0.003..1.013 m = 2.19 x 4.50 x 1.02) and Blender renders a recognisable low-poly Huracan Performante
+(wing, side intakes); HR = 38 meshes / 90 parts / 55,217 triangles (body shell, wheel arches, suspension, interior, mirrors).
+**The parts are in node-local space**: doors, wheels and suspension pieces sit at their own node origin until the scene-graph
+transforms (the node table after the mesh entries) are applied. `tools/tdusc/p3d_to_obj.py` writes the OBJ.
 
 `tools/tdusc/tdusc_read.py` (`ls` / `info` / `strings` / `export`) reads any entry by its game path.
 

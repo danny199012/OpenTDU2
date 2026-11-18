@@ -14,7 +14,7 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
-## Session 2026-11-18 (60, `main`): TDUSC Huracan - the model container is read, the vertex blob is DirectStorage GDeflate
+## Session 2026-11-18 (60, `main`): TDUSC Huracan - decoded: GDeflate decoder works, the car's meshes export to OBJ
 
 The owner: "Decode a car (Huracan)". Spec section 7 of `docs/re/tdusc_pkg_format.md`; reader `tools/tdusc/tdusc_read.py`.
 
@@ -33,7 +33,22 @@ The owner: "Decode a car (Huracan)". Spec section 7 of `docs/re/tdusc_pkg_format
 - DirectStorage via ctypes (`DStorageCreateCompressionCodec(1, ...)`) -> `E_NOTIMPL`: my guessed interface id (or the call) is wrong;
   11,019 GUID-like constants in the DLLs scanned, none accepted.
 
-### Not done / next
+### Later in s60: the geometry decodes
+- The owner approved fetching Microsoft's open-source GDeflate source (sparse clone of `microsoft/DirectStorage` `GDeflate/`, 247 KB,
+  into the scratchpad, nothing run from it). `tools/tdusc/gdeflate.py` is my pure-Python port of `shaders/GDeflate.hlsl`'s algorithm
+  (32 lanes, per-lane 64-bit buffers, shared refill pointer, Deflate64 tables, stored blocks per the shader).
+- `tools/tdusc/p3d_to_obj.py`: Huracan LR -> 5 parts / 841 triangles, bbox exactly the header's, a recognisable Performante in Blender;
+  HR -> 38 meshes / 90 parts / 55,217 triangles in 4.5 s; wheel `W_F_01` -> 8 parts / 7,670 triangles. Renders are outside the repo
+  (`C:\temp\tdusc-export`). Needs numpy for the OBJ writer (`python` without `-I`).
+- Ruled out earlier in the session: the ctypes DirectStorage route (`E_NOTIMPL`), the "second mask key" (hexdump overlap illusion).
+
+### Not done / next (updated)
+- Apply the **node transforms** (the table after the mesh entries: names `D_CAR`, `Fork_FL`, `Engine`, doors ... with matrices) so doors,
+  wheels and suspension land in place; decode `vuvs` (8 B: likely 2 x half2 or unorm16) and `vtan`; the `PMA` material layout and
+  `PTX` -> DDS for the look.
+- Then a TDUSC car -> a carswap pack (`docs/state/main.md` s58): body / glass / wheels from the decoded parts, no re-capturing needed.
+
+### Superseded next-steps (kept for the record)
 - **A GDeflate CPU decoder** (Microsoft publishes the format and a reference decoder; needs fetching or writing), then: split the decoded
   blob by the stream offsets, build an OBJ of the Huracan LR body, view it in Blender, then HR / wheels, `PMA` + `PTX` for the look.
 - `PTX` -> DDS, the PMA parameter layout, PWS compression.
