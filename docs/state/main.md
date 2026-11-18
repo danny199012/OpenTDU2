@@ -14,6 +14,43 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (57, `main`): TDUSC bring-your-own props - a ripped Lambo renders in Ibiza (tools only, no assets)
+
+The owner: "a mod that, using the same bring-your-own-legally-owned-games rules, adds stuff from TDUSC into our
+game ... we're still not hosting". glm had already written `tools/tdusc/glb_props.py` (Ibiza.glb scene rip ->
+the OBJ props route); this session took `E:\TDUSC Rips\Cars\Lambo fixed.fbx` through the same route.
+**No TDUSC data is in the repo** - the tools read the owner's files and write into a mods folder
+(`C:\temp\otdu2-tdusc-mods`); no screenshots of ripped art are committed either.
+
+### What changed
+- `tools/tdusc/glb_props.py` (glm, committed here) - glTF scene capture -> `props/*.obj` + `props.txt` lines; repairs
+  the rip's broken BIN chunk / u16-as-u32 index accessors / wrong index offsets, dedupes the double captures.
+- `tools/tdusc/blender_car_split.py` - Blender headless (`blender -b --python ... -- 1.0`): imports the car FBX,
+  dedupes the triple capture, splits body / glass / rims / tires (by material + poly count), **squashes Z by 0.565**,
+  rotates +X-front to -Y, centres, grounds on the tire minimum, writes UVs for the tires and exports 4 OBJs.
+- `tools/tdusc/twodb_to_png.py` - TDU2 `.2db` (DXT1/3/5) -> PNG, for the game's own tire maps in `common_car.bnk`.
+
+### Verified
+- Run: `opentdu2-main.exe -game ... -mods C:\temp\otdu2-tdusc-mods -gm FREERIDE -island ibiza -skipcine -nopad
+  -fixedtimestep -tp 12640,10.5,16686 -heading 0 -autoplay "300:shot=..." -exitframe 330`; log
+  `ModProps: 'tdusc_lambo_*' ... shader TD_Gouraud` for all four, tire texture `assigned=1`.
+- **The rip is vertically stretched ~1.75x** [DATA]: rims 0.94 m tall (real 0.53), car 1.98 m (real 1.14). After
+  `Z *= 0.565` the car is 4.68 x 2.35 x 1.12 m = an Aventador SVJ. Visually checked next to the stock California.
+- TDU2's tire maps (`ts_tire_s/_v/_cgv`, `common_car.bnk`) are **normal maps / masks**, not colour; the tread atlas is
+  lit from `ts_tire_s` into a dark colour map (sidewall rings are procedural [INF]).
+
+### Ruled out
+- `TD_CarPaint2` on the body -> renders **black** (it needs the retail cube map / paint params).
+- `Kd` in the `.mtl` does nothing: the loader's no-texture `TD_Gouraud` variant is flat white (`obj_mesh.cpp` ~l.361), so
+  every part needs a (solid-colour) `map_Kd` PNG. Blender writes `Ka 1 1 1`; set `Ka`/`Kd` to 1 when a texture is used.
+
+### Not done / next
+- Tread / sidewall never inspected closer than ~10 m (a few pixels): check with `-tp 12636,10.5,16690`.
+- Body is 199k tris (decimate before real use); flat red, no gloss; glass opaque (loader sets no blend: `obj_mesh.cpp`
+  `States[0xa] = 6`; honour `d < 1` / a `glass` flag there); the interior meshes are inside the body class already.
+- Drivable: needs a "visual swap" car (clone an existing DB car's physics, mount these OBJ parts on its wheel
+  anchors from `anchors.txt`), the same shape as the tuner parts. FModel exports of an installed TDUSC would add textures.
+
 ## Session 2026-11-18 (56, `main`): tuner garage - card UI, spoiler finishes, exhaust pop flames
 
 The owner: "give it a proper UI ... exhaust tips customizable chrome, burnt, gold etc... look good as if they
