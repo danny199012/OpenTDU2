@@ -35,17 +35,29 @@ public:
 
 private:
     // One row of the panel: a slot the car takes (spoiler, exhaust tips...).
+    // The finish row (Slot "exhaust_finish", right under the exhaust row)
+    // cycles the tip finishes instead of parts.
     struct SlotRow {
-        std::string Slot;                     // "spoiler" / "exhaust"
+        std::string Slot;                     // "spoiler" / "exhaust" / "exhaust_finish"
         std::vector<const TunerPart *> Parts; // the car's catalog for the slot
         int32_t Preview = -1;                 // previewed now (-1 = stock)
         int32_t Fitted = -1;                  // what the profile wears
+        // The finish row only: the index into the catalog's finishes, -1 =
+        // the mesh's own material.
+        int32_t FinishPreview = -1;
+        int32_t FinishFitted = -1;
     };
-    // Previews a part of the row on the room car (-1 = stock).
+    // Previews a part of the row on the room car (-1 = stock). The exhaust
+    // row re-applies the finish row's previewed finish on top.
     void preview( SlotRow &row, int32_t index );
+    // Previews a tip finish on the room car's fitted exhaust (-1 = the mesh's
+    // own material). No tuner exhaust on the car = nothing to do.
+    void previewFinish( SlotRow &row, int32_t index );
     // The installed part of the profile for a slot, as a parts index (-1 =
     // stock / unknown id).
     int32_t installedIndex( const SlotRow &row ) const;
+    // The installed tip finish, as a finishes index (-1 = none / unknown id).
+    int32_t installedFinish() const;
 
     std::vector<SlotRow> rows;
     size_t selected = 0; // the row up / down moved to

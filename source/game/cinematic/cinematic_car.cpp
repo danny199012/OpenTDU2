@@ -3650,6 +3650,23 @@ void CinematicCar::clearTunerAttachment( const char *pSlot ) {
     applyTunerMasks();
 }
 
+void CinematicCar::setTunerAttachmentTexture( const char *pSlot,
+                                              GPUTexture *pTexture ) {
+    if ( pSlot == nullptr || pTexture == nullptr || gpRender == nullptr ) {
+        return;
+    }
+    const auto found = tunerAttachments.find( pSlot );
+    if ( found == tunerAttachments.end() ) {
+        return;
+    }
+    EdenRenderer *pRenderer = gpRender->getEdenRenderer();
+    if ( pRenderer == nullptr ) {
+        return;
+    }
+    pRenderer->assignTexture( found->second.Material, "COLOR", pTexture );
+    pRenderer->updateProgram( found->second.Material );
+}
+
 // The stock spoiler / exhaust tips of a tuner car are triangles of the body's
 // big items. tuner.txt gives each a box (hide_spoiler / hide_exhaust, item
 // space): the triangles whose centroid is inside go to their own index

@@ -30,12 +30,19 @@
 #                          tip mesh's opening is at z=0 facing the rear, the
 #                          pipe running +Z into the car.
 #
+#   [finish:<id>]          a tip finish (the look of an exhaust part, chosen
+#                          in the garage's "Tip finish" row; saved as
+#                          exhaust_finish). texture = the PNG in parts/;
+#                          tint = r g b multipliers (optional).
+#     name = ...           the menu label
+#
 #   [car:<file name>]      a tuner car, keyed by the DBCarPhysicsData
 #                          _car_file_name (so both catalog rows of a car - e.g.
 #                          the two GTR rows - match). A car absent from this
 #                          list is not a tuner car.
 #     slots = spoiler, exhaust   the slots its garage menu offers
 #     spoiler_offset = ... overrides the slot's default offset for this car
+#     exhaust_offset = ... the same for exhaust tips (align = rear)
 #
 # The retail roster is small: no R34, Evo, Supra, RX-7, S15 or NSX exists in
 # the game's 279 car rows [DATA: -dumpdbtable DBCarPhysicsData] - those would
@@ -173,6 +180,48 @@ mesh = exhaust_bigbore.obj
 offset = 0 0.22 -0.03
 node = BODY_HR
 align = rear
+
+# Tip finishes: the look of an exhaust part, chosen in the garage's "Tip
+# finish" row and saved as exhaust_finish in the profile (session 55). A
+# finish is a texture swap on the tip mesh - the PNG in parts/, painted to
+# the tip UV layout (u around the tube, v along the pipe) - with an optional
+# tint = r g b (multipliers baked into the pixels at load, so any colour is
+# a data row: gold is chrome.png tinted). The menu's first entry, "Mesh
+# default", is the OBJ's own material (no finish).
+[finish:burnt]
+name = Burnt Titanium
+texture = titanium.png
+
+[finish:blueburnt]
+name = Blue Burnt
+texture = titanium_blue.png
+
+[finish:chrome]
+name = Chrome
+texture = chrome.png
+
+[finish:carbon]
+name = Carbon
+texture = carbonsteel.png
+
+[finish:gold]
+name = Gold
+texture = chrome.png
+tint = 1.0 0.72 0.28
+
+[finish:copper]
+name = Copper Burnt
+texture = titanium.png
+tint = 1.3 0.82 0.55
+
+[finish:black]
+name = Ceramic Black
+texture = ceramic.png
+
+[finish:gunmetal]
+name = Gunmetal
+texture = ceramic.png
+tint = 1.9 2.0 2.15
 
 [car:GTR]
 slots = spoiler, exhaust

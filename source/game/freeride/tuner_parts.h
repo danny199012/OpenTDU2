@@ -9,6 +9,19 @@
 
 class CinematicCar;
 class EdenRenderer;
+struct GPUTexture;
+
+// A tip finish (session 55): the look of an exhaust part - chrome, burnt,
+// carbon, gold... - chosen in the garage's "Tip finish" row and saved as
+// exhaust_finish in the profile. A finish is a texture swap on the part's
+// material, with an optional tint (rgb multipliers baked into the pixels at
+// load), so any colour is a data row (gold is chrome.png tinted).
+struct TunerFinish {
+    std::string Id;      // the save's finish id (the [finish:<id>] block)
+    std::string Name;    // the menu label
+    std::string Texture; // the PNG in tuner/parts/
+    Vector3f Tint = Vector3f( 1.0f, 1.0f, 1.0f );
+};
 
 // The tuner-garage mod's data (docs/TUNER_MOD_PLAN.md 1, session 42): the part
 // catalog and the per-car tuner profiles of `tuner/tuner.txt` in the mods
@@ -60,6 +73,9 @@ public:
     inline bool isLoaded() const { return bLoaded; }
     inline const std::vector<TunerPart> &getParts() const { return parts; }
     inline const std::vector<TunerCar> &getCars() const { return cars; }
+    // The tip finishes in catalog order (the menu cycles these; "mesh
+    // default" - no finish - is the menu's index -1).
+    inline const std::vector<TunerFinish> &getFinishes() const { return finishes; }
 
     // Is this DBCarPhysicsData row a tuner car (its _car_file_name has a
     // [car:...] block)? The duplicate catalog rows of one car (the GTR ships
@@ -73,6 +89,8 @@ public:
     // The part by save id (nullptr when unknown - a save carrying a part the
     // catalog lost skips it at load; it never crashes and the data stays).
     const TunerPart *findPart( const std::string &id ) const;
+    // The finish by save id (nullptr when unknown - same skip rule).
+    const TunerFinish *findFinish( const std::string &id ) const;
     // The body-node-space position the part takes on this car: the car's
     // `<slot>_offset` override, else the part's default.
     Vector3f offsetFor( int32_t carId, const TunerPart &part ) const;
@@ -83,10 +101,20 @@ public:
     // time a part's mesh is loaded; without one (or without the OBJ) it
     // applies nothing and says so in the log.
     // pSlot names the slot being set/cleared ("spoiler", "exhaust").
+    // pFinishId: the tip finish to wear (nullptr = the mesh's own material);
+    // only meaningful for the exhaust slot, and re-applied by applyFinish
+    // when the part stays and just the look changes.
     void applyPart( CinematicCar &car,
                     int32_t carId,
                     const char *pSlot,
-                    const TunerPart *pPart );
+                    const TunerPart *pPart,
+                    const char *pFinishId = nullptr );
+    // Re-colours a fitted part in place (the menu's finish cycle): swaps the
+    // attachment material's colour texture. pFinishId null = back to the
+    // mesh's own texture. No attachment on the slot = nothing to do.
+    void applyFinish( CinematicCar &car,
+                      const char *pSlot,
+                      const char *pFinishId );
     // The box (item space) of the car's stock part for a slot (the retail
     // spoiler lip / exhaust tips a fitted part replaces); false = none known.
     // The runtime override (setRuntimeHideBoxes) wins: the car viewer's live
@@ -118,8 +146,9 @@ public:
     float popStrength( int32_t carId,
                        const std::map<std::string, std::string> &saved ) const;
     // Applies a car's whole saved loadout (slot -> part id, the profile's
-    // TunerCarParts::Parts): every slot the car takes is set to its saved part
-    // or cleared; an id the catalog lost is skipped (the data stays saved).
+    // TunerCarParts::Parts; the optional exhaust_finish key colours the
+    // exhaust): every slot the car takes is set to its saved part or cleared;
+    // an id the catalog lost is skipped (the data stays).
     void applySaved( CinematicCar &car,
                      int32_t carId,
                      const std::map<std::string, std::string> &saved );
@@ -135,11 +164,16 @@ public:
 private:
     TunerParts() = default;
     const TunerPart *partForMesh( const std::string &meshFile ) const;
+    // The finish's tinted texture, created once per finish (the cache owns
+    // it; the car materials borrow it). nullptr = not loadable.
+    GPUTexture *finishTexture( const TunerFinish &finish );
 
     std::vector<TunerPart> parts;
+    std::vector<TunerFinish> finishes;
     std::vector<TunerCar> cars;
     bool bLoaded = false;
     std::map<std::string, std::vector<ObjMeshDraw>> meshes; // by OBJ file name
+    std::map<std::string, GPUTexture *> finishTextures;     // by finish id
     // The viewer's live hide-box edits: (car file name, slot) -> boxes.
     std::map<std::pair<std::string, std::string>,
              std::vector<std::pair<Vector3f, Vector3f>>>

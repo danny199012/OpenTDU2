@@ -5,6 +5,8 @@
 #include "filesystem/gs_file.h"
 #include "game/cinematic/cinematic_car.h"
 #include "render/gs_render.h"
+#include "render/image_file.h"
+#include "render/texture_cache.h"
 #include "system/cmd_line.h"
 
 #include <cstring>
@@ -70,20 +72,25 @@ bool TunerParts::load() {
     // The INI-like reader the other data files use (sounds.ini, menu_rows.ini):
     // [section] blocks, key = value lines, '#' comments.
     const std::string text( data.begin(), data.end() );
-    std::string block; // "part" / "car", and the id after the ':'
+    std::string block; // "part" / "finish" / "car", and the id after the ':'
     TunerPart part;
+    TunerFinish finish;
     TunerCar car;
-    bool bInPart = false, bInCar = false;
+    bool bInPart = false, bInFinish = false, bInCar = false;
     auto flush = [&]() {
         if ( bInPart && !part.Id.empty() && !part.Mesh.empty() ) {
             parts.push_back( part );
+        }
+        if ( bInFinish && !finish.Id.empty() && !finish.Texture.empty() ) {
+            finishes.push_back( finish );
         }
         if ( bInCar && !car.FileName.empty() && !car.Slots.empty() ) {
             cars.push_back( car );
         }
         part = TunerPart();
+        finish = TunerFinish();
         car = TunerCar();
-        bInPart = bInCar = false;
+        bInPart = bInFinish = bInCar = false;
     };
     size_t pos = 0;
     while ( pos <= text.size() ) {
@@ -114,6 +121,10 @@ bool TunerParts::load() {
                     part = TunerPart();
                     part.Id = id;
                     bInPart = true;
+                } else if ( block == "finish" ) {
+                    finish = TunerFinish();
+                    finish.Id = ToLower( id );
+                    bInFinish = true;
                 } else if ( block == "car" ) {
                     car = TunerCar();
                     car.FileName = id;
@@ -143,6 +154,14 @@ bool TunerParts::load() {
                 part.Node = value;
             } else if ( key == "align" ) {
                 part.Align = ToLower( value );
+            }
+        } else if ( bInFinish ) {
+            if ( key == "name" ) {
+                finish.Name = value;
+            } else if ( key == "texture" ) {
+                finish.Texture = value;
+            } else if ( key == "tint" ) {
+                ParseVector3( value, finish.Tint );
             }
         } else if ( bInCar ) {
             if ( key == "slots" ) {
@@ -210,8 +229,8 @@ bool TunerParts::load() {
     }
     flush();
     bLoaded = true;
-    OTDU_LOG_INFO( "Tuner: %zu parts, %zu tuner cars ('%s'%s)\n", parts.size(),
-                   cars.size(), kTunerFile,
+    OTDU_LOG_INFO( "Tuner: %zu parts, %zu finishes, %zu tuner cars ('%s'%s)\n",
+                   parts.size(), finishes.size(), cars.size(), kTunerFile,
                    CmdLine::HasArg( "-logtuner" ) ? ", -logtuner" : "" );
     for ( const TunerCar &entry : cars ) {
         OTDU_LOG_INFO( "Tuner: car '%s' (slots: %s)\n", entry.FileName.c_str(),
@@ -271,6 +290,62 @@ const TunerPart *TunerParts::findPart( const std::string &id ) const {
         }
     }
     return nullptr;
+}
+
+const TunerFinish *TunerParts::findFinish( const std::string &id ) const {
+    const_cast<TunerParts *>( this )->load();
+    for ( const TunerFinish &finish : finishes ) {
+        if ( StringCmpI( finish.Id.c_str(), id.c_str() ) == 0 ) {
+            return &finish;
+        }
+    }
+    return nullptr;
+}
+
+GPUTexture *TunerParts::finishTexture( const TunerFinish &finish ) {
+    const auto cached = finishTextures.find( finish.Id );
+    if ( cached != finishTextures.end() ) {
+        return cached->second;
+    }
+    if ( gpRender == nullptr ) {
+        return nullptr; // no renderer yet: the caller retries (drawOffscreen)
+    }
+    const std::string texturePath = std::string( kPartsFolder ) + finish.Texture;
+    auto resolved = gpFile->resolvePath( texturePath.c_str() );
+    std::vector<uint8_t> pixels;
+    uint32_t width = 0, height = 0;
+    if ( !resolved || !LoadImageFileRGBA( *resolved, pixels, width, height ) ||
+         width == 0 || height == 0 ) {
+        OTDU_LOG_WARN( "Tuner: finish '%s': '%s' is not readable\n",
+                       finish.Id.c_str(), texturePath.c_str() );
+        finishTextures[finish.Id] = nullptr;
+        return nullptr;
+    }
+    // The tint is baked into the pixels: any colour is a data row (gold is
+    // chrome.png with a tint = ), no shader or texture change needed.
+    if ( finish.Tint.x != 1.0f || finish.Tint.y != 1.0f || finish.Tint.z != 1.0f ) {
+        for ( size_t i = 0; i + 3 < pixels.size(); i += 4 ) {
+            pixels[i + 0] = static_cast<uint8_t>(
+                Min( 255.0f, static_cast<float>( pixels[i + 0] ) * finish.Tint.x ) );
+            pixels[i + 1] = static_cast<uint8_t>(
+                Min( 255.0f, static_cast<float>( pixels[i + 1] ) * finish.Tint.y ) );
+            pixels[i + 2] = static_cast<uint8_t>(
+                Min( 255.0f, static_cast<float>( pixels[i + 2] ) * finish.Tint.z ) );
+        }
+    }
+    // Named per finish (not per texture) so two finishes on one base PNG stay
+    // distinct in the texture cache.
+    GPUTexture *pTexture = gpRender->getTextureCache().createFromRGBA(
+        width, height, pixels.data(),
+        ( std::string( "tuner_finish_" ) + finish.Id ).c_str() );
+    finishTextures[finish.Id] = pTexture;
+    OTDU_LOG_INFO( "Tuner: finish '%s' ('%s'%s) loaded\n", finish.Id.c_str(),
+                   texturePath.c_str(),
+                   finish.Tint.x != 1.0f || finish.Tint.y != 1.0f ||
+                           finish.Tint.z != 1.0f
+                       ? ", tinted"
+                       : "" );
+    return pTexture;
 }
 
 Vector3f TunerParts::offsetFor( int32_t carId, const TunerPart &part ) const {
@@ -425,13 +500,21 @@ void TunerParts::applySaved( CinematicCar &car,
     size_t slotCount = 0;
     const char *const *pSlots = slotNames( slotCount );
     const TunerCar *pCar = findCar( carId );
+    // The tip finish rides in the same map (exhaust_finish = <finish id>); a
+    // finish the catalog lost is skipped like an unknown part id.
+    const auto finishKey = saved.find( "exhaust_finish" );
+    const char *pFinishId = finishKey != saved.end() && !finishKey->second.empty()
+                                ? finishKey->second.c_str()
+                                : nullptr;
     for ( size_t i = 0; i < slotCount && pCar != nullptr; i++ ) {
         const auto found = saved.find( pSlots[i] );
         if ( found == saved.end() || found->second.empty() ) {
             continue;
         }
         if ( const TunerPart *pPart = findPart( found->second ) ) {
-            applyPart( car, carId, pSlots[i], pPart );
+            applyPart( car, carId, pSlots[i], pPart,
+                       StringCmpI( pSlots[i], "exhaust" ) == 0 ? pFinishId
+                                                               : nullptr );
         } else {
             OTDU_LOG_INFO( "Tuner: part '%s' (%s) is not in the catalog (kept "
                            "as data, not drawn)\n",
@@ -440,10 +523,33 @@ void TunerParts::applySaved( CinematicCar &car,
     }
 }
 
+void TunerParts::applyFinish( CinematicCar &car,
+                              const char *pSlot,
+                              const char *pFinishId ) {
+    if ( pSlot == nullptr ) {
+        return;
+    }
+    GPUTexture *pTexture = nullptr;
+    if ( pFinishId != nullptr && pFinishId[0] != '\0' ) {
+        const TunerFinish *pFinish = findFinish( pFinishId );
+        if ( pFinish == nullptr ) {
+            OTDU_LOG_INFO( "Tuner: finish '%s' is not in the catalog (kept as "
+                           "data, not drawn)\n", pFinishId );
+            return;
+        }
+        pTexture = finishTexture( *pFinish );
+        if ( pTexture == nullptr ) {
+            return;
+        }
+    }
+    car.setTunerAttachmentTexture( pSlot, pTexture );
+}
+
 void TunerParts::applyPart( CinematicCar &car,
                             int32_t carId,
                             const char *pSlot,
-                            const TunerPart *pPart ) {
+                            const TunerPart *pPart,
+                            const char *pFinishId ) {
     car.clearTunerAttachment( pSlot );
     if ( pPart == nullptr || pPart->Mesh.empty() ) {
         return;
@@ -500,6 +606,9 @@ void TunerParts::applyPart( CinematicCar &car,
     car.setTunerAttachment( pSlot, found->second.front().Mesh,
                             found->second.front().Material, pPart->Node.c_str(),
                             Matrix4x4f::Translation( offset ) );
+    // The tip finish lands on the attachment's own material copy (per car),
+    // so two cars can wear one mesh in different looks.
+    applyFinish( car, pSlot, pFinishId );
 }
 
 void TunerParts::unloadMeshes() {
@@ -507,4 +616,14 @@ void TunerParts::unloadMeshes() {
         UnloadObjDraws( entry.second );
     }
     meshes.clear();
+    // The finish textures: the cache owns them (the car materials borrow).
+    if ( gpRender != nullptr ) {
+        RenderDevice &device = gpRender->getDevice();
+        for ( auto &entry : finishTextures ) {
+            if ( entry.second != nullptr ) {
+                device.destroyTexture( entry.second );
+            }
+        }
+    }
+    finishTextures.clear();
 }

@@ -14,6 +14,43 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 55): tuner mod - tip finishes (chrome / burnt / gold... per exhaust)
+
+The owner: "upon buying can it be possible to choose how they look between chrome, burnt
+etc... love this burnt look on exhausts but want to all each exhaust to be able to have a
+different colour look to it or even if we can also maybe apply a custom colour to it would be
+cool in case people want a gold tipped exhaust" (reference photo: deep blue rim over a gold
+bore).
+
+### What changed
+- `tuner.txt` - `[finish:<id>]` blocks (name, texture, optional `tint = r g b` baked into the
+  pixels at load): Burnt Titanium, Blue Burnt (new `titanium_blue.png`, the photo's look),
+  Chrome, Carbon, Gold (chrome.png tinted), Copper Burnt (tinted titanium), Ceramic Black and
+  Gunmetal (tinted `ceramic.png`).
+- `tuner_parts.*` - the finish catalog, `findFinish`, the tinted-texture cache
+  (`finishTexture`, GPU-owned, freed in `unloadMeshes`), `applyPart(..., pFinishId)` and
+  `applyFinish` (re-colour a fitted part in place), `applySaved` reads the `exhaust_finish`
+  key of the same profile map (unknown ids skip like unknown part ids).
+- `cinematic_car.*` - `setTunerAttachmentTexture` (the attachment's material is a per-car
+  copy, so two cars can wear one mesh in different looks).
+- `tuner_menu.*` - the **Tip finish** row under the exhaust row: Left / Right cycles (mesh
+  default first), the room car previews live, validate saves free into
+  `OwnedCarTunerParts[..].Parts["exhaust_finish"]`; close() reverts finish preview before part
+  preview (the part revert re-applies the finish).
+
+### Verified (build 289, headless)
+- Gold and Blue Burnt quad on the GTR (`docs/images/tuner_finish_gold_s55.webp`,
+  `tuner_finish_blueburnt_s55.webp`); the menu run buys Dual Chrome, cycles four finishes
+  live (one texture load per finish in the log) and saves - profile.sav
+  `car_tuner_parts = 403:exhaust=exhaust_dual;exhaust_finish=gold;spoiler=wing_street`
+  (`tuner_finish_menu_s55.webp`); a plain respawn wears the saved gold; a bogus finish id
+  logs `not in the catalog (kept as data, not drawn)`.
+
+### Not done / next
+- Finishes are free (the part's price covers them) - per-finish pricing if the owner wants;
+  no finish preview swatch in the row (name text only); the asset viewer's authoring loop
+  does not cycle finishes yet.
+
 ## Session 2026-11-18 (`main`, 54): tuner mod - exhaust tips rebuilt, five new parts
 
 The owner: "in the tuner mod please could you start adding more items also add some polish to

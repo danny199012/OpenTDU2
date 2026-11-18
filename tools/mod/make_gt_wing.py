@@ -465,25 +465,40 @@ def metal_textures():
         v = max(0, min(255, v + n))
         return (v, v, min(255, v + 5), 255)
 
-    def titanium(x, y):
-        t = y / float(H - 1)                        # along the pipe
-        # burnt titanium, kept dark and muted so it reads as heat-stained
-        # metal, not candy: violet-blue at the rim, bronze-gold further in
-        stops = [(0.00, (88, 66, 132)), (0.08, (76, 86, 148)),
-                 (0.24, (128, 122, 112)), (0.46, (172, 138, 86)),
-                 (0.72, (186, 156, 94)), (0.86, (30, 25, 28)),
-                 (1.00, (22, 18, 20))]
-        for k in range(len(stops) - 1):
-            t0, c0 = stops[k]
-            t1, c1 = stops[k + 1]
-            if t <= t1 or k == len(stops) - 2:
-                f = 0.0 if t1 <= t0 else min(1.0, max(0.0, (t - t0) / (t1 - t0)))
-                c = tuple(int(c0[i] + (c1[i] - c0[i]) * f) for i in range(3))
-                break
-        # the faint burn rings: a slow sinusoid along the pipe
-        ring = int(7 * math.sin(t * 40.0))
-        n = ((x * 5 + y * 11) % 9 - 4) + ring
-        return (max(0, c[0] + n), max(0, c[1] + n), max(0, c[2] + n), 255)
+    def burnt(stops):
+        def pixel(x, y):
+            t = y / float(H - 1)                    # along the pipe
+            for k in range(len(stops) - 1):
+                t0, c0 = stops[k]
+                t1, c1 = stops[k + 1]
+                if t <= t1 or k == len(stops) - 2:
+                    f = 0.0 if t1 <= t0 else min(1.0, max(0.0, (t - t0) / (t1 - t0)))
+                    c = tuple(int(c0[i] + (c1[i] - c0[i]) * f) for i in range(3))
+                    break
+            # the faint burn rings: a slow sinusoid along the pipe
+            ring = int(7 * math.sin(t * 40.0))
+            n = ((x * 5 + y * 11) % 9 - 4) + ring
+            return (max(0, c[0] + n), max(0, c[1] + n), max(0, c[2] + n), 255)
+        return pixel
+
+    def ceramic(x, y):
+        # near-black ceramic coat with a soft top sheen
+        d = abs(x / float(W - 1) - 0.75)            # angular distance from the top
+        v = 30 + int(34 * max(0.0, 1.0 - d / 0.30)) + (x * 3 % 5)
+        return (v, v, min(255, v + 3), 255)
+
+    # burnt titanium, kept dark and muted so it reads as heat-stained metal,
+    # not candy: violet-blue at the rim, bronze-gold further in
+    titanium = burnt([(0.00, (88, 66, 132)), (0.08, (76, 86, 148)),
+                      (0.24, (128, 122, 112)), (0.46, (172, 138, 86)),
+                      (0.72, (186, 156, 94)), (0.86, (30, 25, 28)),
+                      (1.00, (22, 18, 20))])
+    # the deep-blue burnt: a saturated blue rim over the gold (the show-car
+    # burnt look of the owner's reference photo)
+    titanium_blue = burnt([(0.00, (46, 62, 185)), (0.16, (66, 92, 190)),
+                           (0.34, (128, 128, 120)), (0.55, (178, 144, 86)),
+                           (0.76, (200, 162, 82)), (0.86, (30, 25, 28)),
+                           (1.00, (22, 18, 20))])
 
     def carbonsteel(x, y):
         t = y / float(H - 1)
@@ -501,8 +516,10 @@ def metal_textures():
 
     png(os.path.join(OUT_DIR, "chrome.png"), W, H, chrome)
     png(os.path.join(OUT_DIR, "titanium.png"), W, H, titanium)
+    png(os.path.join(OUT_DIR, "titanium_blue.png"), W, H, titanium_blue)
     png(os.path.join(OUT_DIR, "carbonsteel.png"), W, H, carbonsteel)
-    print(f"  chrome.png, titanium.png, carbonsteel.png ({W}x{H})")
+    png(os.path.join(OUT_DIR, "ceramic.png"), W, H, ceramic)
+    print(f"  chrome.png, titanium.png, titanium_blue.png, carbonsteel.png, ceramic.png ({W}x{H})")
 
 
 def carbon_texture():

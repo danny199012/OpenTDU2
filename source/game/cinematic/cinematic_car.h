@@ -130,6 +130,11 @@ public:
                              const Matrix4x4f &offset );
     // pSlot null = every slot back to stock.
     void clearTunerAttachment( const char *pSlot = nullptr );
+    // Re-colours a fitted part (the tuner garage's tip finishes): swaps the
+    // attachment's own material copy onto pTexture (a per-car copy, so two
+    // cars can wear one mesh in different looks). No attachment on the slot
+    // = no-op.
+    void setTunerAttachmentTexture( const char *pSlot, GPUTexture *pTexture );
     inline bool hasTunerAttachment() const { return !tunerAttachments.empty(); }
 
     // Car world pose: the cinematic pose with the 4 tires resting on the

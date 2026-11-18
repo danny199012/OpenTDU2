@@ -125,3 +125,24 @@ Each step is useful alone; stopping after any of them leaves something working.
   `align = rear` on a second body + the per-car offset (`tuner_exhaust_impreza_s54.webp`);
   the Evo Blade replaces the stock lip on the GTR and the stock STI wing on the Impreza
   (`tuner_blade_carbon_s54.webp`).
+
+## Status (session 55, 2026-11-18)
+
+- **Tip finishes** (the owner: pick how an exhaust looks on purchase - chrome / burnt / etc.,
+  maybe a custom colour, "gold tipped"): a new `[finish:<id>]` data block in tuner.txt (name,
+  texture, optional `tint = r g b` multipliers baked into the pixels at load, so any colour is
+  a data row - Gold is chrome.png tinted). The garage menu gained a **Tip finish** row under
+  the exhaust row (Left / Right cycles, validate saves free into the same profile map as
+  `exhaust_finish`); the room car previews live, the mesh's own material is the row's
+  "Mesh default". `applySaved` re-colours from the save (unknown finish ids skip like
+  unknown part ids); `CinematicCar::setTunerAttachmentTexture` swaps the attachment's own
+  material copy, so two cars can wear one mesh in different looks. Eight finishes ship:
+  Burnt Titanium, Blue Burnt (the owner's reference photo: deep blue rim over gold - new
+  `titanium_blue.png`), Chrome, Carbon, Gold, Copper Burnt (tinted titanium), Ceramic Black
+  and Gunmetal (tinted `ceramic.png`).
+- **Verified** (build 289, headless): gold and blue-burnt quad on the GTR
+  (`docs/images/tuner_finish_gold_s55.webp`, `tuner_finish_blueburnt_s55.webp`); the menu run
+  buys the tips, cycles all four finishes live and saves - profile.sav
+  `car_tuner_parts = 403:exhaust=exhaust_dual;exhaust_finish=gold;spoiler=wing_street`
+  (`tuner_finish_menu_s55.webp`); a plain respawn wears the saved gold; a bogus finish id logs
+  `is not in the catalog (kept as data, not drawn)` and the mesh default draws.

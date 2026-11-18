@@ -48,6 +48,27 @@ int32_t TunerMenu::installedIndex( const SlotRow &row ) const {
     return -1;
 }
 
+int32_t TunerMenu::installedFinish() const {
+    const PlayerProfile &profile = GetPlayerProfile();
+    const auto found = profile.OwnedCarTunerParts.find( carId );
+    if ( found == profile.OwnedCarTunerParts.end() ) {
+        return -1;
+    }
+    const auto finish = found->second.Parts.find( "exhaust_finish" );
+    if ( finish == found->second.Parts.end() ) {
+        return -1;
+    }
+    // A finish the catalog no longer knows reads as none (the data stays
+    // saved; the apply step skips it the same way).
+    const std::vector<TunerFinish> &finishes = GetTunerParts().getFinishes();
+    for ( size_t i = 0; i < finishes.size(); i++ ) {
+        if ( StringCmpI( finishes[i].Id.c_str(), finish->second.c_str() ) == 0 ) {
+            return static_cast<int32_t>( i );
+        }
+    }
+    return -1;
+}
+
 void TunerMenu::preview( SlotRow &row, int32_t index ) {
     row.Preview = index;
     if ( pCar == nullptr ) {
@@ -57,6 +78,36 @@ void TunerMenu::preview( SlotRow &row, int32_t index ) {
                                index >= 0 && index < static_cast<int32_t>( row.Parts.size() )
                                    ? row.Parts[static_cast<size_t>( index )]
                                    : nullptr );
+    // The exhaust row's preview resets the material to the mesh's own, so the
+    // finish (the finish row's preview, what you see now) goes back on top.
+    if ( row.Slot == "exhaust" ) {
+        for ( SlotRow &other : rows ) {
+            if ( other.Slot == "exhaust_finish" ) {
+                GetTunerParts().applyFinish(
+                    *pCar, "exhaust",
+                    other.FinishPreview >= 0 &&
+                            other.FinishPreview <
+                                static_cast<int32_t>( GetTunerParts().getFinishes().size() )
+                        ? GetTunerParts().getFinishes()[static_cast<size_t>( other.FinishPreview )]
+                              .Id.c_str()
+                        : nullptr );
+                break;
+            }
+        }
+    }
+}
+
+void TunerMenu::previewFinish( SlotRow &row, int32_t index ) {
+    row.FinishPreview = index;
+    if ( pCar == nullptr ) {
+        return;
+    }
+    const std::vector<TunerFinish> &finishes = GetTunerParts().getFinishes();
+    GetTunerParts().applyFinish(
+        *pCar, "exhaust",
+        index >= 0 && index < static_cast<int32_t>( finishes.size() )
+            ? finishes[static_cast<size_t>( index )].Id.c_str()
+            : nullptr );
 }
 
 void TunerMenu::open( int32_t newCarId, const std::string &name, CinematicCar *pPreviewCar ) {
@@ -84,13 +135,31 @@ void TunerMenu::open( int32_t newCarId, const std::string &name, CinematicCar *p
     for ( SlotRow &row : rows ) {
         preview( row, row.Preview );
     }
+    // The tip finish sits right under the exhaust row (it colours whatever
+    // exhaust part is fitted or previewed).
+    for ( size_t i = 0; i < rows.size(); i++ ) {
+        if ( rows[i].Slot == "exhaust" ) {
+            SlotRow finishRow;
+            finishRow.Slot = "exhaust_finish";
+            finishRow.FinishFitted = finishRow.FinishPreview = installedFinish();
+            rows.insert( rows.begin() + static_cast<ptrdiff_t>( i ) + 1,
+                         std::move( finishRow ) );
+            break;
+        }
+    }
     OTDU_LOG_INFO( "Tuner: garage for car %d '%s' (%zu slots)\n", carId, carName.c_str(), rows.size() );
     PlayFrontEndCue( "mopen" );
 }
 
 void TunerMenu::close() {
     // A previewed-but-unbought part goes back to what is fitted (the sticker
-    // editor's unbind rule).
+    // editor's unbind rule). The finish first: the exhaust revert below
+    // re-applies whatever the finish row previews.
+    for ( SlotRow &row : rows ) {
+        if ( row.Slot == "exhaust_finish" && row.FinishPreview != row.FinishFitted ) {
+            previewFinish( row, row.FinishFitted );
+        }
+    }
     for ( SlotRow &row : rows ) {
         if ( row.Preview != row.Fitted ) {
             preview( row, row.Fitted );
@@ -123,6 +192,68 @@ void TunerMenu::tick( float deltaTime ) {
         PlayFrontEndCue( "move" );
     }
     SlotRow &row = rows[selected];
+    if ( row.Slot == "exhaust_finish" ) {
+        // The tip finish: left / right cycle the catalog's finishes on the
+        // fitted exhaust (the mesh's own look first), validate saves it - a
+        // finish is free, the part's price covered the metal.
+        const std::vector<TunerFinish> &finishes = GetTunerParts().getFinishes();
+        const int32_t lastFinish = static_cast<int32_t>( finishes.size() ) - 1;
+        if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
+            previewFinish( row, row.FinishPreview < 0 ? lastFinish
+                                                      : row.FinishPreview - 1 );
+            PlayFrontEndCue( "move" );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
+            previewFinish( row, row.FinishPreview >= lastFinish
+                                    ? -1
+                                    : row.FinishPreview + 1 );
+            PlayFrontEndCue( "move" );
+        }
+        if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
+            // The stock tips are triangles of the retail body (not our
+            // material), so a finish needs a tuner exhaust on the car.
+            bool bHasExhaust = false;
+            for ( const SlotRow &other : rows ) {
+                if ( other.Slot == "exhaust" && other.Fitted >= 0 ) {
+                    bHasExhaust = true;
+                    break;
+                }
+            }
+            if ( !bHasExhaust ) {
+                message = "Fit an exhaust first";
+            } else if ( row.FinishPreview == row.FinishFitted ) {
+                message = row.FinishPreview < 0
+                              ? std::string( "Mesh default already picked" )
+                              : "This finish is already picked";
+            } else {
+                PlayerProfile &profile = GetPlayerProfile();
+                TunerCarParts &carParts = profile.OwnedCarTunerParts[carId];
+                if ( row.FinishPreview < 0 ) {
+                    carParts.Parts.erase( "exhaust_finish" );
+                    message = "Tip finish: mesh default";
+                } else {
+                    carParts.Parts["exhaust_finish"] =
+                        finishes[static_cast<size_t>( row.FinishPreview )].Id;
+                    message = "Tip finish: " +
+                              finishes[static_cast<size_t>( row.FinishPreview )].Name;
+                }
+                row.FinishFitted = row.FinishPreview;
+                OTDU_LOG_INFO( "Tuner: car %d exhaust_finish '%s'\n", carId,
+                               row.FinishPreview >= 0
+                                   ? finishes[static_cast<size_t>( row.FinishPreview )]
+                                         .Id.c_str()
+                                   : "(none)" );
+                SaveProfile( "tuner finish picked" );
+                PlayFrontEndCue( "valid" );
+            }
+            messageTimer = 3.0f;
+        } else if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ||
+                    gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
+            close();
+            PlayFrontEndCue( "back" );
+        }
+        return;
+    }
     const int32_t last = static_cast<int32_t>( row.Parts.size() ) - 1;
     if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
         preview( row, row.Preview < 0 ? last : row.Preview - 1 ); // stock wraps to the last part
@@ -192,10 +323,33 @@ void TunerMenu::draw( Renderer2D &renderer ) {
                        eTextAlign::TA_Right );
     float y = y0 + 80.0f;
     // One row per slot the car takes: what left / right preview, and the price.
+    // The finish row under the exhaust row cycles the tip finishes (free).
     for ( size_t i = 0; i < rows.size(); i++ ) {
         const SlotRow &row = rows[i];
         if ( i == selected ) {
             renderer.drawRect( Rect2D( x0 + 10.0f, y - 4.0f, w - 20.0f, 40.0f ), Rgba( 24, 96, 78, 255 ) );
+        }
+        if ( row.Slot == "exhaust_finish" ) {
+            renderer.drawText( pFont, "Tip finish", x0 + 24.0f, y, textSize,
+                               Rgba( 255, 255, 255 ) );
+            const std::vector<TunerFinish> &finishes = GetTunerParts().getFinishes();
+            const std::string right =
+                row.FinishPreview >= 0 &&
+                        row.FinishPreview < static_cast<int32_t>( finishes.size() )
+                    ? finishes[static_cast<size_t>( row.FinishPreview )].Name
+                    : std::string( "Mesh default" );
+            uint32_t color = Rgba( 255, 255, 255 );
+            std::string suffix;
+            if ( row.FinishPreview == row.FinishFitted ) {
+                suffix = " picked";
+                color = Rgba( 150, 150, 150 );
+            } else {
+                suffix = ": free";
+            }
+            renderer.drawText( pFont, ( right + suffix ).c_str(), x0 + w - 24.0f, y,
+                               textSize, color, eTextAlign::TA_Right );
+            y += 44.0f;
+            continue;
         }
         renderer.drawText( pFont, TunerParts::slotLabel( row.Slot.c_str() ), x0 + 24.0f, y, textSize,
                            Rgba( 255, 255, 255 ) );
