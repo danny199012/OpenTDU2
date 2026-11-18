@@ -71,7 +71,7 @@ func, `D3DCULL`), which `PipelineDesc`'s four `eBlendMode` cases cannot express
   mapping spelled out).
 - `PROGRESS.md` - the D3D12 row.
 
-### Verified (build 223 (1c326db+dirty) - cline)
+### Verified (build 223 (1c326db+dirty), re-run on build 224 (778e3fb+dirty) - cline)
 
 ```powershell
 # the constants and the state, hardware (debug layer on)

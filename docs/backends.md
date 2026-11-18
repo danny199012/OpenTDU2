@@ -383,7 +383,8 @@ packs blocks by order instead of by register cannot pass). Three draws:
 | left again, blended | ps b0 = blue at alpha 0.5, SRC_ALPHA / INV_SRC_ALPHA | 0.5 red + 0.5 blue = (128, 0, 128) |
 
 Measured (build `223 (1c326db+dirty) - cline`, 1280x720, debug layer on and
-silent, exit 0):
+silent, exit 0; re-run unchanged on the final `224 (778e3fb+dirty)` after the
+documentation-only rebuild):
 
 ```
 D3D12 constant test: 60 frame(s) of two quads on 'NVIDIA GeForce RTX 5070 Ti' (1280x720);
