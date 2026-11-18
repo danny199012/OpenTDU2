@@ -1005,9 +1005,11 @@ void GMShop::playPageCamera( int32_t option ) {
         insetFov = 0.6f;
         break;
     case 4:
-        eyeLocal = Vector3f( 0.36f, 1.1f, -0.15f );
-        targetLocal = Vector3f( 0.36f, 0.95f, 0.8f );
-        fov = 1.0f;
+        // Retail (360 capture, owner): the driver's door is open and the camera stands in the door gap, so the
+        // cabin and the rest of the car are in view [INF].
+        eyeLocal = Vector3f( 1.6f, 1.25f, -0.2f );
+        targetLocal = Vector3f( 0.1f, 0.8f, 0.35f );
+        fov = 0.95f;
         insetEyeLocal = Vector3f( 1.7f, 1.4f, 0.5f );
         insetTargetLocal = Vector3f( 0.45f, 1.0f, 0.35f );
         insetFov = 0.7f;
@@ -2063,8 +2065,8 @@ void GMShop::renderPageInset() {
             // Paint: the camera goes round the whole car (period ~22 s) [INF: the owner's reading of the 360 panel].
             targetLocal = Vector3f( 0.0f, 0.6f, 0.0f );
             const float angle = 0.6f + pageTime * 0.28f;
-            eyeLocal = targetLocal + Vector3f( std::sin( angle ) * 5.6f, 0.7f, std::cos( angle ) * 5.6f );
-            fovNow = 0.62f;
+            eyeLocal = targetLocal + Vector3f( std::sin( angle ) * 4.3f, 0.6f, std::cos( angle ) * 4.3f );
+            fovNow = 0.6f;
         } else {
             // Wheels / interior: the eye swings +-0.4 rad about the target's vertical axis (period ~7 s).
             const float swing = std::sin( pageTime * 0.9f ) * 0.40f;

@@ -2714,9 +2714,18 @@ bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
     static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
     const auto swatch = [&]( const char *pId ) {
         float rgb[3] = { 0.32f, 0.32f, 0.32f };
-        FindLibrarySwatch( pId, rgb );
+        // The car's own colour library first (the interior ids 'R8_V10_Int_Rouge_01' live in <car>_color.2dm next to
+        // the paint ids [DATA]), then colors.2dm.
+        const MaterialDesc *pOwn = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, pId );
+        const bool bFound = pOwn != nullptr ? SwatchOf( *pOwn, rgb ) : FindLibrarySwatch( pId, rgb );
+        if ( CmdLine::HasArg( "-loginterior" ) ) {
+            OTDU_LOG_INFO( "CinematicCar: interior swatch '%s' %s (%.2f %.2f %.2f)\n", pId, bFound ? "found" : "MISSING", rgb[0], rgb[1], rgb[2] );
+        }
         const Vector4f colour( rgb[0], rgb[1], rgb[2], 1.0f );
         return Vector4f( colour.x + ( 1.0f - colour.x ) * 0.2f, colour.y + ( 1.0f - colour.y ) * 0.2f,
+    Render2DM carLibrary;
+    const BankEntry *pCarColors = carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
+    const bool bCarLibrary = pCarColors != nullptr && carLibrary.parse( pCarColors->pData, pCarColors->Size );
                          colour.z + ( 1.0f - colour.z ) * 0.2f, 1.0f );
     };
     const Vector4f colour1 = swatch( row["_interior_color_1"].asString().c_str() );
@@ -2728,6 +2737,14 @@ bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
             colour = colour1;
         } else if ( material.Name.compare( 0, 3, "C2_" ) == 0 ) {
             colour = colour2;
+        if ( CmdLine::HasArg( "-loginterior" ) ) {
+            OTDU_LOG_INFO( "CinematicCar: interior material '%s'\n", material.Name.c_str() );
+            for ( int32_t t = 0; t < 16; t++ ) {
+                if ( material.pTextures[t] != nullptr ) {
+                    OTDU_LOG_INFO( "CinematicCar:   slot %d '%s'\n", t, material.pTextures[t]->Name.c_str() );
+                }
+            }
+        }
         } else {
             continue;
         }
