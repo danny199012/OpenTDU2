@@ -45,6 +45,14 @@ Owner: "detach the spoiler under the custom one; if the car already has a quad e
 - Verified: `docs/images/tuner_stock_parts_hidden_s47.webp` (swan neck + quad on the GTR: no lip under the wing, no stock tips); lip and tips come back with stock.
 - **Only the GTR has a `hide_spoiler` box** - the other six tuner cars still show their stock spoiler (if any) under a fitted wing. Each is one data line after a `-dumptunermask` run (`-car <name>`). Their stock tips already hide (every car checked has `EXHAUST`? - only the GTR was looked at).
 
+### Follow-up 2 (same session): the other tuner cars measured
+- `-dumptunermask` now dumps for every car (`MASKCAR` = has an EXHAUST node, `MASKTRI <car> ...` = triangle centres of the rear half). `-tunerfit "spoiler=wing_gt;exhaust=exhaust_quad"` fits parts on the driven car without touching the save (test flag).
+- **370Z**: no stock spoiler; wing deck `spoiler_offset = 0 0.86 -1.85`. **Impreza WRX STI 2007**: stock wing is body Paint above the 0.86 m deck - `hide_spoiler = -0.80 0.872 -2.10 0.80 1.30 -1.65` (785 triangles), `spoiler_offset = 0 0.86 -1.95`. **Delta Integrale Evo 2**: hatchback, no stock spoiler; wing on the hatch roof edge `spoiler_offset = 0 1.12 -1.40`. All three have an EXHAUST node (stock tips hide).
+- `align = rear` now uses `CinematicCar::getRearBounds` (BODY_HR plus the separate `?UMP_R_H` rear bumper node): on the 370Z / Delta / Impreza the bumper sticks out past the body bounds and the tips sat inside it.
+- Evidence: `docs/images/tuner_four_cars_s47.webp` (GTR, 370Z, Impreza, Delta with a ducktail + quad tips).
+- **350Z_CPE, RX8_Cpe, Escort_RS_Cosworth have NO model in this install** (`CinematicCar: '<car>' not available, using the California`): they are in the DB and tuner.txt but cannot be measured or shown - they draw as the California. Not removed from the catalog.
+- Impreza: the lower rear bumper has a hole in the middle with or without parts (the car's own render, not the mod).
+
 ### Next
 - Listen, then tune the pops. Then flames (a sprite at the exhaust per pop, position = the `align = rear` tip) and a body kit slot.
 

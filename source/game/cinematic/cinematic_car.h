@@ -232,6 +232,9 @@ public:
     bool getNodeModelTransform( const char *pName, Matrix4x4f &outTransform ) const;
     // Model space bounds of the high resolution body (BODY_HR).
     bool getBodyBounds( Vector3f &outMin, Vector3f &outMax ) const;
+    // The body plus the separate rear bumper node(s) (names containing UMP_R_H):
+    // where a bolt-on rear part (the exhaust tips) has to stand. Model space.
+    bool getRearBounds( Vector3f &outMin, Vector3f &outMax ) const;
     void draw( EdenRenderer &renderer, const Matrix4x4f &world, const WeatherPreset *pWeather,
                bool bEnvironmentAssigned );
 

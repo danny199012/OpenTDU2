@@ -2980,11 +2980,15 @@ void CinematicCar::collectTunerMasks() {
     for ( int32_t s = 0; s < 2; s++ ) {
         pBoxes[s] = GetTunerParts().getHideBoxes( fileName, pSlots[s] );
     }
-    if ( pBoxes[0] == nullptr && pBoxes[1] == nullptr ) {
+    if ( pBoxes[0] == nullptr && pBoxes[1] == nullptr && !CmdLine::HasArg( "-dumptunermask" ) ) {
         return;
     }
     const std::vector<EdenModel::Item> &items = car.getItems();
     const int32_t bodyNode = car.getScene().findNode( "BODY_HR" );
+    if ( CmdLine::HasArg( "-dumptunermask" ) ) {
+        OTDU_LOG_INFO( "MASKCAR %s EXHAUST node %s\n", fileName.c_str(),
+                       car.getScene().findNode( "EXHAUST" ) >= 0 ? "yes" : "NO" );
+    }
     for ( size_t i = 0; i < items.size(); i++ ) {
         const EdenModel::Item &item = items[i];
         if ( item.NodeIndex != bodyNode || item.Lod != 0 || item.PrimitiveIndices.empty() ||
@@ -3000,7 +3004,7 @@ void CinematicCar::collectTunerMasks() {
             int32_t group = 1;
             static const bool bDump = CmdLine::HasArg( "-dumptunermask" );
             if ( bDump && centre.z < -0.4f ) {
-                OTDU_LOG_INFO( "MASKTRI %zu %s %.3f %.3f %.3f\n", i, car.getMaterials()[item.MaterialIndex].Name.c_str(),
+                OTDU_LOG_INFO( "MASKTRI %s %zu %s %.3f %.3f %.3f\n", fileName.c_str(), i, car.getMaterials()[item.MaterialIndex].Name.c_str(),
                                centre.x, centre.y, centre.z );
             }
             for ( int32_t s = 0; s < 2 && group == 1; s++ ) {
@@ -3075,6 +3079,30 @@ bool CinematicCar::getBodyBounds( Vector3f &outMin, Vector3f &outMax ) const {
     }
     const int32_t body = car.getScene().findNode( "BODY_HR" );
     return body >= 0 && car.getNodeBounds( body, outMin, outMax );
+}
+
+bool CinematicCar::getRearBounds( Vector3f &outMin, Vector3f &outMax ) const {
+    if ( !getBodyBounds( outMin, outMax ) ) {
+        return false;
+    }
+    const std::vector<SceneNode> &nodes = car.getScene().getNodes();
+    for ( size_t n = 0; n < nodes.size(); n++ ) {
+        if ( nodes[n].Name.find( "UMP_R_H" ) == std::string::npos ) {
+            continue;
+        }
+        Vector3f bMin, bMax;
+        if ( !car.getNodeBounds( static_cast<int32_t>( n ), bMin, bMax ) ) {
+            continue;
+        }
+        const Matrix4x4f nodeT = car.getNodeTransform( static_cast<int32_t>( n ) );
+        for ( int32_t corner = 0; corner < 8; corner++ ) {
+            const Vector3f p = nodeT.transformPoint( Vector3f( corner & 1 ? bMax.x : bMin.x, corner & 2 ? bMax.y : bMin.y,
+                                                              corner & 4 ? bMax.z : bMin.z ) );
+            outMin = Vector3f( Min( outMin.x, p.x ), Min( outMin.y, p.y ), Min( outMin.z, p.z ) );
+            outMax = Vector3f( Max( outMax.x, p.x ), Max( outMax.y, p.y ), Max( outMax.z, p.z ) );
+        }
+    }
+    return true;
 }
 
 Matrix4x4f CinematicCar::fitOnGround( Vector3f position, const Quaternionf &rotation,

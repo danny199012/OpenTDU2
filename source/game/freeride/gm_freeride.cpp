@@ -3397,6 +3397,25 @@ void GMFreeRide::applyTunerParts() {
     }
     GetTunerParts().load();
     const PlayerProfile &profile = GetPlayerProfile();
+    // -tunerfit "slot=part;slot=part": test flag, fits parts on the driven car
+    // without touching the save (checks a car's offsets / stock-part boxes).
+    if ( const char *pFit = CmdLine::GetArgValue( "-tunerfit" ) ) {
+        std::map<std::string, std::string> fit;
+        std::string text( pFit );
+        size_t pos = 0;
+        while ( pos < text.size() ) {
+            size_t end = text.find( ';', pos );
+            end = end == std::string::npos ? text.size() : end;
+            const std::string pair = text.substr( pos, end - pos );
+            const size_t eq = pair.find( '=' );
+            if ( eq != std::string::npos ) {
+                fit[pair.substr( 0, eq )] = pair.substr( eq + 1 );
+            }
+            pos = end + 1;
+        }
+        GetTunerParts().applySaved( car, car.getIdCar(), fit );
+        return;
+    }
     const auto found = profile.OwnedCarTunerParts.find( car.getIdCar() );
     if ( found == profile.OwnedCarTunerParts.end() ) {
         car.clearTunerAttachment();

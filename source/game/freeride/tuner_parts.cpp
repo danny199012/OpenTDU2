@@ -354,7 +354,7 @@ void TunerParts::applyPart( CinematicCar &car, int32_t carId, const char *pSlot,
         // THIS car, so a catalog offset of (x, 0.2, -0.03) puts the opening
         // 3 cm past the rear bumper on any tuner car.
         Vector3f bMin, bMax;
-        if ( car.getBodyBounds( bMin, bMax ) ) {
+        if ( car.getRearBounds( bMin, bMax ) ) {
             offset = Vector3f( offset.x, bMin.y + offset.y, bMin.z + offset.z );
         }
     }
