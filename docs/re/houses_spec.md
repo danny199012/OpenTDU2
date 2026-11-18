@@ -543,3 +543,35 @@ sits on "Connecting to server" + Cancel - the online ranking, as retail does off
 draws a panel over it: Instant = the player's own best times (`PlayerProfile::PassedTests`: licence tests,
 championship races), Multiplayer = "needs the Eden servers" [INF]. `-logdiary` logs the validate variables.
 `docs/images/house_leaderboards_local.webp`.
+
+### 15.1 TDU Media: music, a real forecast, News and DLC channels (session 2026-11-18, `main`, 53)
+
+**Music.** Opening the TV plays the `TDMEDIA` track of fe_snd.bnk (`tdumedia.wav`) through `FrontEndMusic`; closing
+brings the room's track back [DATA + INF].
+
+**Forecast.** The weather is now a **schedule**, not a roll, on the retail clock: `WeatherCycle::ScheduledIntempery(island,
+block)` (block = 20 game minutes) walks the state tables from a dry state 16 game hours back with a hash of
+(island, block) - a pure function of the wall clock like the clock itself, so Ibiza and Hawai differ and every
+machine agrees. FREERIDE follows it on the retail clock (`setIsland`; the rolled walk stays for `-clock*` test
+clocks) and the TV forecasts it: now / +2 h / +4 h icons clear / cloudy (1, 2, 4) / rainy (3, 5) / stormy (6) with the
+hour's day / night [INF: the transition weights and the 3 / 5 / 6 split are ours]. Verified: the TV showed rain now
+on both islands and FREERIDE then started on `intempery 3` (`docs/images/house_tdu_media_forecast.webp`).
+
+**Channels.** `TDMedia.vmf` (disassembled with `tools/vmf_disasm.py` after `otdu2_bnk_tool extract`): tiles by flag -
+weather and news always, `/:IsDLCChannel` shopping, `/:IsDLCHsys` the Exploration-pack help (not offered: the pack is
+not installed); news tabs by `/:IsNews<Tutorial|GameProgress|Community|Club|DLC|GM|Vehicles|Avatar|Furnitures|Stickers>`.
+The list engine (`ASFlashList`) is native and reduced to a cursor here, so the game drives the clip
+`/lists/news_list` (the one clip serves both channels; `list_name` = `news_<tab>` / `dlc_<tab>`): 6 `lineN` clips whose text
+fields read `../../../:news_title` = a variable **of the line clip** (probed: the content clip does not work) and
+`news_date`, `SetLineState( n, normal|empty )`, the cursor via `setListSelection`, the details pane from `/:NewsTitle` /
+`/:NewsDescription` / `/:CurrentNewsIndex` / `/:NbNews`. Up / Down move the game's cursor and scroll; Left / Right call
+`/lists:changeTab( left|right )`; A ticks (`tdmd:news:<tab>:slct`), Y deletes the ticked rows (this session).
+- **News** (offline, our content from the profile): Game Progress (level, money, cars, houses, events), Vehicles (owned
+  cars), Avatar (owned clothes), Stickers (owned packs); the other tabs are empty (the retail feed is the server's).
+  `docs/images/house_tdu_media_news.webp`.
+- **TDU Shopping (DLC)**: the data's own DLC catalogue - 15 cars (`DBCarPhysicsData._isdlc`) and 24 clothes
+  (`DBClothe._dlc`); Buy answers with the movie's `m_DlcUnavailable_` text in a toast (the store is gone).
+  `docs/images/house_tdu_media_dlc.webp`. `-probedlc` counts the flagged rows of the tables.
+Flags: `-dumpmediacmd <fscommand>` / `-dumpmediadepth` (the clip tree at an FSCommand).
+**Not done:** Packs / Furniture / Stickers DLC tabs (no flagged rows in the tables read), the empty-list text
+(`emptyListText` does not show), the Hsys help channel, a stormy icon check (state 6 not seen in a run).

@@ -14,6 +14,25 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 53): TDU Media - music, forecast schedule, News and DLC channels
+
+The owner: "yes please do the tv music, forecast icons and the news and dlc channel thanks".
+
+### What changed
+- `source/game/freeride/weather_cycle.{h,cpp}` - `ScheduledIntempery` / `RetailBlock` / `RetailHour`; the retail clock follows the schedule (`setIsland`), `gm_freeride.cpp` passes the island.
+- `source/game/spots/interior_walk.{h,cpp}` - TV music, forecast icons from the schedule, News + DLC channel lists (`buildNews`, `updateMediaNews`), toast, `-dumpmediacmd`, `-probedlc`.
+- `docs/re/houses_spec.md` 15.1.
+
+### Verified (build 288, headless, 0 VUIDs)
+- music log `FrontEndMusic: 'tdmedia'`; forecast rain/cloud/moon icons; News list + details + tick + delete + tab switch; DLC 15 cars / 24 clothes, Buy toast.
+
+### Ruled out
+- Setting the news line variables on the content clip: nothing shows; the text fields' `../../../:news_title` is the line clip.
+- Forcing no key for tab change (`sendKeyTo /lists/tabs`): no effect; `/lists:changeTab` works.
+
+### Not done / next
+- DLC Packs / Furniture / Stickers tabs have no data rows; `emptyListText`; the Hsys help channel; the schedule changes the freeride weather behaviour (the old random walk is only for test clocks) - the owner should confirm the new rhythm feels right.
+
 ## Session 2026-11-18 (`main`, 52): closet avatar camera + live clothes, Leaderboards offline panel
 
 The owner: "Both please" (Leaderboards and the closet camera).

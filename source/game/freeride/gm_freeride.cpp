@@ -584,6 +584,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     // one preset, -intempery its variant, -clocktime / -clockrate the clock,
     // -clock HH.MM freezes it (the GLM shape of the same hook), -night the
     // darkest time.
+    weatherCycle.setIsland( islandName == "HAWAI" || islandName == "Hawai" || islandName == "hawai" ? 1 : 0 );
     weatherCycle.load( gameWeathers );
     pWeather = weatherCycle.getPreset();
     // -intempery without -weather / -night: the running cycle would walk away

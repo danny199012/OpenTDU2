@@ -51,6 +51,19 @@ public:
     Tick tick( float deltaTime );
 
     inline const WeatherPreset *getPreset() const { return pPreset; }
+
+    // The weather SCHEDULE: on the retail clock (wall clock, 3 h game day) the intempery is a pure function of the
+    // game-time block (20 game minutes) and the island, like the clock itself, so the house TV's forecast
+    // (TDMEDIA.vmf) is the weather the player then drives in. [INF: the retail scheduler is not decoded; the
+    // transition weights are ours.]
+    static constexpr double kBlockGameSeconds = 20.0 * 60.0;
+    // The block number at `gameSecondsAhead` game seconds from now (retail clock: game seconds = real x 8).
+    static int64_t RetailBlock( double gameSecondsAhead = 0.0 );
+    // The intempery (1 clear, 2 cloud, 3 / 5 / 6 rain / storm, 4 drying) of a block on an island (0 Ibiza, 1 Hawai).
+    static int32_t ScheduledIntempery( int32_t island, int64_t block );
+    // The hour of day at `gameSecondsAhead` game seconds from now on the retail clock.
+    static int32_t RetailHour( double gameSecondsAhead = 0.0 );
+    void setIsland( int32_t islandIndex ) { island = islandIndex; }
     int32_t getHour() const { return hour; }
     int32_t getMinute() const { return minute; }
     // True when the clock runs (the retail-driven tests pin a preset instead).
@@ -71,6 +84,8 @@ private:
     bool bWallClock = false;
     float weatherClock = 0.0f; // game seconds since the run began (the weather schedule; never wraps)
     bool bPinned = false;
+    int32_t island = 0;
+    int64_t lastBlock = -1;
     // The weather state (intempery of the current time preset) and when it ends
     // (seconds of day, so a clock rate changes nothing about the schedule).
     int32_t intempery = 0;

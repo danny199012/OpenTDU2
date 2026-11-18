@@ -3,12 +3,14 @@
 #include "interior_walk.h"
 
 #include "audio/frontend_music.h"
+#include "audio/frontend_audio.h"
 #include "render/gs_render.h"
 #include "filesystem/gs_file.h"
 #include "flash/flash_player.h"
 #include "flash/gs_flash.h"
 #include "flash/flash_localization.h"
 #include "game/world_clock.h"
+#include "game/freeride/weather_cycle.h"
 #include "game/clothes_shop.h"
 #include "game/car_shop.h"
 #include "game/house_shop.h"
@@ -923,7 +925,9 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     }
     if ( bMediaOpen ) {
         mediaPlayer.tick( deltaTime );
+        mediaToastTimer = Max( 0.0f, mediaToastTimer - deltaTime );
         updateMediaWeather();
+        updateMediaNews( false );
         if ( bMediaCloseRequested ) {
             bMediaCloseRequested = false;
             closeMedia();
@@ -1157,6 +1161,13 @@ void InteriorWalk::draw() {
         garageMove.draw( gpRender->get2DRenderer() );
         if ( bMediaOpen ) {
             mediaPlayer.draw( gpRender->get2DRenderer() );
+            if ( mediaToastTimer > 0.0f && !mediaToast.empty() ) {
+                Renderer2D &renderer = gpRender->get2DRenderer();
+                const Font *pFont = gpFlash->getTitleFont();
+                renderer.drawRect( Rect2D( 300.0f, 540.0f, 680.0f, 56.0f ), AlbumRgba( 14, 24, 44, 240 ) );
+                renderer.drawRectOutline( Rect2D( 300.0f, 540.0f, 680.0f, 56.0f ), 2.0f, AlbumRgba( 120, 160, 220, 255 ) );
+                renderer.drawText( pFont, mediaToast.c_str(), 640.0f, 556.0f, 22.0f, AlbumRgba( 255, 255, 255 ), eTextAlign::TA_Center );
+            }
         }
         if ( bLeaderOpen && leaderTime > 2.0f ) {
             drawLeaderPanel( gpRender->get2DRenderer() );
@@ -1632,12 +1643,47 @@ void InteriorWalk::openMedia() {
         showMessage( "TDU Media is not available" );
         return;
     }
+    // The channel tiles and news tabs the movie shows by flag [DATA: TDMedia.vmf initSquares / initTabs]: weather and news
+    // always, the shopping channel when the store is reachable, the Hsys help page when the pack is installed.
+    mediaPlayer.setVariableBool( "/:IsDLCChannel", true );
+    for ( const char *pTab : { "IsNewsTutorial", "IsNewsGameProgress", "IsNewsVehicles", "IsNewsAvatar", "IsNewsFurnitures", "IsNewsStickers" } ) {
+        mediaPlayer.setVariableBool( std::string( "/:" ) + pTab, true );
+    }
     mediaPlayer.setVariable( "/:db_tdmedia", "1" );
+    if ( CmdLine::HasArg( "-probedlc" ) ) {
+        probeDlc();
+    }
     ApplyFlashLocalization( mediaPlayer );
     mediaPlayer.setFSCommandCallback( [this]( const std::string &command, const std::string &args ) {
         OTDU_LOG_INFO( "InteriorWalk: TDU Media FSCommand %s %s\n", command.c_str(), args.c_str() );
+        if ( const char *pDumpCommand = CmdLine::GetArgValue( "-dumpmediacmd" ); pDumpCommand != nullptr && command == pDumpCommand ) {
+            mediaPlayer.dumpClips( "/", CmdLine::GetArgInt( "-dumpmediadepth", 6 ) );
+        }
         if ( command == "tdmd:clos" ) {
             bMediaCloseRequested = true; // the movie closed itself: unload outside its own callback
+        }
+        if ( command == "tdmd:news:open" || command == "tdmd:cdlc:open" ) {
+            bMediaNews = true;
+            bMediaDlc = command == "tdmd:cdlc:open";
+            newsTab.clear();
+        }
+        if ( command == "tdmd:cdlc:clos" ) {
+            bMediaNews = false;
+            bMediaDlc = false;
+        }
+        if ( command == "tdmd:news:clos" ) {
+            bMediaNews = false;
+            bMediaDlc = false;
+        }
+        if ( command.compare( 0, 10, "tdmd:news:" ) == 0 && command.size() > 5 && command.compare( command.size() - 5, 5, ":slct" ) == 0 && newsCursor >= 0 && newsCursor < static_cast<int32_t>( newsItems.size() ) ) {
+            newsItems[static_cast<size_t>( newsCursor )].bTicked = !newsItems[static_cast<size_t>( newsCursor )].bTicked;
+            newsSettle = 20;
+        }
+        if ( command.compare( 0, 10, "tdmd:news:" ) == 0 && command.size() > 5 && command.compare( command.size() - 5, 5, ":delt" ) == 0 ) {
+            newsItems.erase( std::remove_if( newsItems.begin(), newsItems.end(), []( const NewsItem &item ) { return item.bTicked; } ), newsItems.end() );
+            newsCursor = Clamp( newsCursor, 0, Max( 0, static_cast<int32_t>( newsItems.size() ) - 1 ) );
+            newsTop = Clamp( newsTop, 0, Max( 0, static_cast<int32_t>( newsItems.size() ) - 6 ) );
+            newsSettle = 20;
         }
         if ( command == "tdmd:weat:open" ) {
             bMediaWeather = true;
@@ -1650,6 +1696,9 @@ void InteriorWalk::openMedia() {
         mediaPlayer.dumpClips( "/", atoi( pDump ) );
     }
     bMediaOpen = true;
+    if ( gpFrontEndMusic != nullptr ) {
+        gpFrontEndMusic->playKey( "TDMEDIA", 1.0f ); // the TV's own track (sound/musics/tdumedia.wav) [DATA: fe_snd.bnk]
+    }
     OTDU_LOG_INFO( "InteriorWalk: TDU Media opened\n" );
 }
 
@@ -1661,8 +1710,7 @@ void InteriorWalk::updateMediaWeather() {
     if ( !bMediaWeather ) {
         return;
     }
-    const int32_t hour = WorldClockHours();
-    const int32_t key = hour * 4 + ( WorldClockMinutes() / 15 );
+    const int32_t key = static_cast<int32_t>( WeatherCycle::RetailBlock() & 0x7fffffff );
     static int32_t settle = 0;
     if ( key == mediaWeatherKey && settle > 0 ) {
         settle--; // the movie re-places its tiles for a few frames after the channel opens: re-apply
@@ -1677,12 +1725,16 @@ void InteriorWalk::updateMediaWeather() {
     mediaWeatherKey = key;
     for ( const char *pIsland : { "ibiza", "hawaii" } ) {
         for ( int32_t step = 0; step < 3; step++ ) {
-            const int32_t at = ( hour + step * 2 ) % 24;
+            // The schedule the freeride weather follows (WeatherCycle::ScheduledIntempery): +2 h game time = 6 blocks.
+            const double ahead = step * 2.0 * 3600.0;
+            const int32_t at = WeatherCycle::RetailHour( ahead );
             const bool bDay = at >= 7 && at < 20;
+            const int32_t state = WeatherCycle::ScheduledIntempery( pIsland[0] == 'h' ? 1 : 0, WeatherCycle::RetailBlock( ahead ) );
+            const char *pIcon = state == 6 ? "stormy" : ( state == 3 || state == 5 ) ? "rainy" : ( state == 1 ? "clear" : "cloudy" );
             const std::string base = std::string( "/weather/" ) + pIsland + std::to_string( step );
             const char *pPrefix = bDay ? "d_" : "n_";
             const bool bIsland = mediaPlayer.gotoLabel( base + "/island", std::string( pPrefix ) + pIsland, false );
-            const bool bIcon = mediaPlayer.gotoLabel( base + "/island/weather", std::string( pPrefix ) + "clear", false );
+            const bool bIcon = mediaPlayer.gotoLabel( base + "/island/weather", std::string( pPrefix ) + pIcon, false );
             if ( CmdLine::HasArg( "-logmedia" ) ) {
                 OTDU_LOG_INFO( "InteriorWalk: TDU Media weather %s -> %d %d\n", base.c_str(), bIsland ? 1 : 0, bIcon ? 1 : 0 );
             }
@@ -1690,9 +1742,156 @@ void InteriorWalk::updateMediaWeather() {
     }
 }
 
+void InteriorWalk::buildNews( const std::string &tab ) {
+    // The retail feed is the server's (news_<tab>); offline each tab lists what this profile owns / did [INF].
+    newsItems.clear();
+    const PlayerProfile &profile = GetPlayerProfile();
+    auto add = [this]( const std::string &title, const std::string &date, const std::string &text ) {
+        NewsItem item;
+        item.Title = title;
+        item.Date = date;
+        item.Text = text;
+        newsItems.push_back( std::move( item ) );
+    };
+    if ( tab.compare( 0, 4, "dlc_" ) == 0 ) {
+        // TDU Shopping: the catalogue of the downloadable content the data carries (cars _isdlc, clothes _dlc). The Eden
+        // store is gone, so Buy answers with the retail "unavailable" text [INF].
+        XmbValue root = gpDatabase->getDocument().getRoot();
+        if ( tab == "dlc_vehicles" ) {
+            for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" ); i++ ) {
+                XmbValue car = root.getArrayElement( "DBCarPhysicsData", i );
+                if ( car["_isdlc"].asInt() != 0 && car["_isvalidpc"].asInt() != 0 ) {
+                    const bool bOwned = std::find( profile.OwnedCars.begin(), profile.OwnedCars.end(), static_cast<int32_t>( car["_id_car"].asInt() ) ) != profile.OwnedCars.end();
+                    add( FindCarDisplayName( static_cast<int32_t>( car["_id_car"].asInt() ) ), bOwned ? "Owned" : "Download", "Downloadable vehicle. The store is offline." );
+                }
+            }
+        } else if ( tab == "dlc_avatar" ) {
+            for ( uint32_t i = 0; i < root.getArraySize( "DBClothe" ); i++ ) {
+                XmbValue row = root.getArrayElement( "DBClothe", i );
+                if ( row["_dlc"].asInt() != 0 && row["_isvalid"].asBool() ) {
+                    const int32_t id = static_cast<int32_t>( row["_id_num"].asInt() );
+                    if ( const ClotheItem *pItem = FindClothe( id ) ) {
+                        const bool bOwned = std::find( profile.OwnedClothes.begin(), profile.OwnedClothes.end(), id ) != profile.OwnedClothes.end();
+                        add( pItem->Brand.empty() ? pItem->Name : pItem->Name + " - " + pItem->Brand, bOwned ? "Owned" : "Download", "Downloadable clothing. The store is offline." );
+                    }
+                }
+            }
+        }
+    } else if ( tab == "news_game_progress" ) {
+        int32_t level = 0;
+        for ( int32_t skill = 0; skill < 4; skill++ ) {
+            const std::vector<SkillLevel> &levels = GetSkillLevels( skill );
+            const int32_t at = Max( 0, FindSkillLevelIndex( levels, profile.Points[skill] ) );
+            level += at < static_cast<int32_t>( levels.size() ) ? levels[static_cast<size_t>( at )].Level : 0;
+        }
+        add( "Your level: " + std::to_string( level ), "Today", "Your global level is the sum of your four skill levels (Racing, Cruising, Collection, Social)." );
+        add( "Money: $ " + std::to_string( profile.Money ), "Today", "The money in your wallet." );
+        add( std::to_string( profile.OwnedCars.size() ) + " car(s) in your garages", "Today", "Visit a dealer to add to your collection." );
+        add( std::to_string( profile.OwnedHouses.size() ) + " house(s) owned", "Today", "Change the furniture of a house from its Diary (MyTDUHouse)." );
+        add( std::to_string( profile.EventsDone.size() ) + " event(s) completed", "Today", "Races, licence tests and challenges you finished." );
+    } else if ( tab == "news_vehicles" ) {
+        for ( const int32_t carId : profile.OwnedCars ) {
+            add( FindCarDisplayName( carId ), "Garage", "This vehicle is in one of your garages." );
+        }
+    } else if ( tab == "news_avatar" ) {
+        for ( const int32_t id : profile.OwnedClothes ) {
+            if ( const ClotheItem *pItem = FindClothe( id ) ) {
+                add( pItem->Name, pItem->Brand.empty() ? std::string( "Wardrobe" ) : pItem->Brand, "Wear it from the walk-in closet of a house." );
+            }
+        }
+    } else if ( tab == "news_stickers" ) {
+        for ( const std::string &bank : profile.OwnedStickerBanks ) {
+            add( bank, "Collection", "A sticker pack you bought." );
+        }
+    }
+    newsCursor = 0;
+    newsTop = 0;
+    newsSettle = 30;
+}
+
+void InteriorWalk::updateMediaNews( bool bForce ) {
+    if ( !bMediaNews ) {
+        return;
+    }
+    const std::string root = std::string( "/lists/news_list" );
+    const std::string tab = mediaPlayer.getVariable( root + ":list_name" );
+    if ( tab.empty() ) {
+        return;
+    }
+    if ( tab != newsTab ) {
+        newsTab = tab;
+        buildNews( tab );
+    }
+    if ( !bForce && newsSettle <= 0 ) {
+        return;
+    }
+    newsSettle--;
+    const int32_t count = static_cast<int32_t>( newsItems.size() );
+    mediaPlayer.setVariableBool( root + ":IsListEmpty", count == 0 );
+    mediaPlayer.setVariableBool( "/lists:IsListEmpty", count == 0 );
+    if ( count == 0 ) {
+        mediaPlayer.setVariable( "/:NewsTitle", std::string() );
+        mediaPlayer.setVariable( "/:NewsDescription", std::string() );
+        mediaPlayer.setVariable( "/:CurrentNewsIndex", std::string() );
+        mediaPlayer.setVariable( "/:NbNews", std::string() );
+    }
+    mediaPlayer.setListSelection( root, newsCursor - newsTop );
+    for ( int32_t i = 0; i < 6; i++ ) {
+        const std::string line = root + "/line" + std::to_string( i + 1 );
+        const int32_t index = newsTop + i;
+        if ( index < count ) {
+            const NewsItem &item = newsItems[static_cast<size_t>( index )];
+            mediaPlayer.setVariable( line + "/:news_title", item.Title ); // the text fields read ../../../:news_title: the line clip [DATA, probed]
+            mediaPlayer.setVariable( line + "/:news_date", item.Date );
+            mediaPlayer.setVariable( line + "/content/:news_date", item.Date );
+            mediaPlayer.gotoLabel( line + "/content/checkbox", item.bTicked ? "on" : "default", false );
+            mediaPlayer.invoke( root, "SetLineState", { std::to_string( i + 1 ), "normal" } );
+        } else {
+            mediaPlayer.invoke( root, "SetLineState", { std::to_string( i + 1 ), "empty" } );
+        }
+    }
+    if ( count > 0 ) {
+        const NewsItem &item = newsItems[static_cast<size_t>( newsCursor )];
+        mediaPlayer.setVariable( "/:NewsTitle", item.Title );
+        mediaPlayer.setVariable( "/:NewsDescription", item.Text );
+        mediaPlayer.setVariable( "/:CurrentNewsIndex", std::to_string( newsCursor + 1 ) );
+        mediaPlayer.setVariable( "/:NbNews", std::to_string( count ) );
+    }
+}
+
+void InteriorWalk::probeDlc() {
+    if ( gpDatabase == nullptr ) {
+        return;
+    }
+    XmbValue root = gpDatabase->getDocument().getRoot();
+    for ( const char *pTable : { "DBFurniture", "DBClothe", "DBCarPhysicsData", "DBStickersBanks", "DBCarShop", "DBHouse", "DBMaterial" } ) {
+        const uint32_t count = root.getArraySize( pTable );
+        uint32_t dlc = 0, field = 0;
+        std::string sample;
+        for ( uint32_t i = 0; i < count; i++ ) {
+            XmbValue row = root.getArrayElement( pTable, i );
+            for ( const char *pField : { "_isdlc", "_dlc", "_isDLC", "_dlcid", "_dlc_id" } ) {
+                if ( row[pField].asInt() != 0 ) {
+                    dlc++;
+                    field = 1;
+                    if ( sample.empty() ) {
+                        sample = std::string( pField ) + " row " + std::to_string( i );
+                    }
+                    break;
+                }
+            }
+        }
+        OTDU_LOG_INFO( "InteriorWalk: DLC probe %s: %u rows, %u flagged (%s)\n", pTable, count, dlc, sample.c_str() );
+        (void)field;
+    }
+}
+
 void InteriorWalk::closeMedia() {
     bMediaOpen = false;
     bMediaWeather = false;
+    bMediaNews = false;
+    bMediaDlc = false;
+    updateMusic(); // the room's track comes back
     mediaPlayer.unload();
     walk.resume( scene );
     OTDU_LOG_INFO( "InteriorWalk: TDU Media closed\n" );
@@ -1701,7 +1900,15 @@ void InteriorWalk::closeMedia() {
 void InteriorWalk::routeMediaInput() {
     // The movie's key catchers: 13 validate, 8 back, 1 / 2 / 14 / 15 the arrows (the HOME routing) [DATA + INF].
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
-        mediaPlayer.sendKey( 13 );
+        if ( bMediaDlc && !newsItems.empty() ) {
+            // "Buy this DLC": the Eden store is gone - the retail "unavailable" answer instead of its purchase popup [INF].
+            PlayFrontEndCue( "wrong" );
+            const std::string text = mediaPlayer.getVariable( "/:m_DlcUnavailable_" ); // the movie's own localized string
+            mediaToast = text.empty() ? std::string( "This downloadable content is unavailable." ) : text;
+            mediaToastTimer = 3.0f;
+        } else {
+            mediaPlayer.sendKey( 13 );
+        }
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
         if ( !mediaPlayer.sendKey( 8 ) ) {
@@ -1709,17 +1916,43 @@ void InteriorWalk::routeMediaInput() {
             return;
         }
     }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuUp ) ) {
-        mediaPlayer.sendKey( 14 );
+    const bool bUp = gpInput->wasPressed( eInputAction::IA_MenuUp );
+    const bool bDown = gpInput->wasPressed( eInputAction::IA_MenuDown );
+    if ( bMediaNews && !newsItems.empty() && ( bUp || bDown ) ) {
+        // The native list engine's cursor is the game's here: move it, scroll the 6-line view, refill.
+        const int32_t count = static_cast<int32_t>( newsItems.size() );
+        newsCursor = Clamp( newsCursor + ( bDown ? 1 : -1 ), 0, count - 1 );
+        if ( newsCursor < newsTop ) {
+            newsTop = newsCursor;
+        } else if ( newsCursor >= newsTop + 6 ) {
+            newsTop = newsCursor - 5;
+        }
+        newsSettle = 20;
+        updateMediaNews( true );
+    } else {
+        if ( bUp ) {
+            mediaPlayer.sendKey( 14 );
+        }
+        if ( bDown ) {
+            mediaPlayer.sendKey( 15 );
+        }
     }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuDown ) ) {
-        mediaPlayer.sendKey( 15 );
+    if ( bMediaNews && gpInput->wasPressed( eInputAction::IA_MenuOption1 ) ) {
+        // Y = "Delete selected News" (the movie's own button sends tdmd:news:<tab>:delt; its key is not decoded): the
+        // ticked rows go for this session [INF].
+        newsItems.erase( std::remove_if( newsItems.begin(), newsItems.end(), []( const NewsItem &item ) { return item.bTicked; } ), newsItems.end() );
+        newsCursor = Clamp( newsCursor, 0, Max( 0, static_cast<int32_t>( newsItems.size() ) - 1 ) );
+        newsTop = Clamp( newsTop, 0, Max( 0, static_cast<int32_t>( newsItems.size() ) - 6 ) );
+        updateMediaNews( true );
     }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuLeft ) ) {
-        mediaPlayer.sendKey( 1 );
-    }
-    if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
-        mediaPlayer.sendKey( 2 );
+    for ( const int32_t side : { 1, 2 } ) {
+        const eInputAction action = side == 1 ? eInputAction::IA_MenuLeft : eInputAction::IA_MenuRight;
+        if ( gpInput->wasPressed( action ) ) {
+            // In the news list the arrows switch the category tabs (the tabs clip owns them).
+            if ( !( bMediaNews && mediaPlayer.invoke( "/lists", "changeTab", { side == 1 ? "left" : "right" } ) ) ) {
+                mediaPlayer.sendKey( static_cast<uint8_t>( side ) );
+            }
+        }
     }
 }
 

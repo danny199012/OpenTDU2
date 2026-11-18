@@ -75,6 +75,48 @@ float RetailSecondsOfDay() {
 }
 } // namespace
 
+namespace {
+double RetailGameSecondsSinceAnchor() {
+    std::tm base = {};
+    base.tm_year = 2007 - 1900;
+    base.tm_mon = 0;
+    base.tm_mday = 1;
+    base.tm_isdst = -1;
+    static const std::time_t anchor = std::mktime( &base );
+    const double now = std::chrono::duration<double>( std::chrono::system_clock::now().time_since_epoch() ).count();
+    return ( now - static_cast<double>( anchor ) ) * ( 86400.0 / 10800.0 );
+}
+
+uint32_t ScheduleHash( uint64_t value ) {
+    value ^= value >> 33;
+    value *= 0xff51afd7ed558ccdULL;
+    value ^= value >> 33;
+    value *= 0xc4ceb9fe1a85ec53ULL;
+    value ^= value >> 33;
+    return static_cast<uint32_t>( value );
+}
+} // namespace
+
+int64_t WeatherCycle::RetailBlock( double gameSecondsAhead ) {
+    return static_cast<int64_t>( std::floor( ( RetailGameSecondsSinceAnchor() + gameSecondsAhead ) / kBlockGameSeconds ) );
+}
+
+int32_t WeatherCycle::RetailHour( double gameSecondsAhead ) {
+    const double seconds = std::fmod( RetailGameSecondsSinceAnchor() + gameSecondsAhead, 86400.0 );
+    return static_cast<int32_t>( ( seconds < 0.0 ? seconds + 86400.0 : seconds ) / 3600.0 ) % 24;
+}
+
+int32_t WeatherCycle::ScheduledIntempery( int32_t island, int64_t block ) {
+    // A walk over the state tables from a dry state 48 blocks (16 game hours) back: a pure function of (island,
+    // block), so every machine and the TV agree.
+    int32_t state = kFirstIntempery;
+    for ( int64_t at = block - 48; at <= block; at++ ) {
+        const uint32_t roll = ScheduleHash( static_cast<uint64_t>( at ) * 2654435761ULL + static_cast<uint64_t>( island ) * 0x9E3779B1ULL + 17ULL );
+        state = ( IsWetIntempery( state ) ? kWetChoices : kDryChoices )[roll % static_cast<uint32_t>( kNumChoices )];
+    }
+    return state;
+}
+
 void WeatherCycle::load( const WeatherLibrary &library ) {
     pLibrary = &library;
     pPreset = nullptr;
@@ -155,6 +197,10 @@ void WeatherCycle::load( const WeatherLibrary &library ) {
     // weather moves while the player drives.
     presetIndex = findTimePreset( lastMinuteOfDay );
     intempery = kFirstIntempery;
+    if ( bWallClock ) {
+        lastBlock = RetailBlock();
+        intempery = ScheduledIntempery( island, lastBlock ); // the schedule, not a roll (the TV forecasts it)
+    }
     pPreset = presetFor( presetIndex, intempery );
     nextStateChange = weatherClock + ( 60.0f + static_cast<float>( rng() % 120u ) ) * ( bWallClock ? kRetailRate : 1.0f );
     OTDU_LOG_INFO( "WeatherCycle: clock %02d:%02d, weather '%s' intempery %d, rate %.2f\n", hour, minute,
@@ -204,8 +250,19 @@ WeatherCycle::Tick WeatherCycle::tick( float deltaTime ) {
         pPreset = presetFor( presetIndex, intempery );
         result.bPresetChanged = true;
     }
-    // The weather state expires after the duration nextState() gave it.
-    if ( weatherClock >= nextStateChange ) {
+    // The retail clock follows the schedule (a block = 20 game minutes); the rolled walk is for the test clocks.
+    if ( bWallClock ) {
+        const int64_t block = RetailBlock();
+        if ( block != lastBlock ) {
+            lastBlock = block;
+            const int32_t scheduled = ScheduledIntempery( island, block );
+            if ( scheduled != intempery ) {
+                intempery = scheduled;
+                pPreset = presetFor( presetIndex, intempery );
+                result.bPresetChanged = true;
+            }
+        }
+    } else if ( weatherClock >= nextStateChange ) {
         intempery = nextState();
         pPreset = presetFor( presetIndex, intempery );
         result.bPresetChanged = true;

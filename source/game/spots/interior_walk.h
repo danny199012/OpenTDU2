@@ -210,6 +210,22 @@ private:
     // TDU Media: the house TV (td_media selectable) runs the retail tdmedia.vmf in its own player.
     FlashPlayer mediaPlayer;
     bool bMediaOpen = false;
+    // The News channel: rows built from the local profile (the retail feed is online), 6 lines in view.
+    struct NewsItem {
+        std::string Title, Date, Text;
+        bool bTicked = false;
+    };
+    std::vector<NewsItem> newsItems;
+    std::string newsTab;
+    bool bMediaNews = false;
+    bool bMediaDlc = false;
+    std::string mediaToast; // a one-line answer drawn over the TV (the GENERAL pop-ups sit under it)
+    float mediaToastTimer = 0.0f;
+    int32_t newsTop = 0, newsCursor = 0, newsSettle = 0;
+    std::string newsRoot = "/lists/news_list"; // the list clip of the open channel (news / dlc)
+    void buildNews( const std::string &tab );
+    void probeDlc();
+    void updateMediaNews( bool bForce );
     bool bMediaWeather = false;
     bool bMediaCloseRequested = false;
     int32_t mediaWeatherKey = -1;
