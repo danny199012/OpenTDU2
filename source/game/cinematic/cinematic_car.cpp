@@ -2113,6 +2113,23 @@ bool CinematicCar::setGpsTexture( EdenRenderer &renderer, GPUTexture *pTexture, 
     for ( int32_t node : gpsNodes ) {
         interior.setNodeVisible( node, true );
     }
+    if ( CmdLine::HasArg( "-loggps" ) ) {
+        const std::vector<EdenModel::Item> &items = interior.getItems();
+        for ( size_t i = 0; i < items.size(); i++ ) {
+            const EdenModel::Item &item = items[i];
+            if ( std::find( gpsMaterials.begin(), gpsMaterials.end(), static_cast<int32_t>( item.MaterialIndex ) ) ==
+                 gpsMaterials.end() ) {
+                continue;
+            }
+            const Matrix4x4f &t = interior.getNodeTransform( item.NodeIndex );
+            OTDU_LOG_INFO( "GPSDBG item %zu node %d '%s' vis %d idx %u lod %u bounds (%.3f %.3f %.3f)-(%.3f %.3f %.3f) "
+                           "node t (%.3f %.3f %.3f)\n",
+                           i, item.NodeIndex, interior.getScene().getNodes()[item.NodeIndex].Name.c_str(),
+                           interior.isNodeVisible( item.NodeIndex ) ? 1 : 0, item.Mesh.IndexCount, item.Lod,
+                           item.BoundsMin.x, item.BoundsMin.y, item.BoundsMin.z, item.BoundsMax.x, item.BoundsMax.y,
+                           item.BoundsMax.z, t.getTranslation().x, t.getTranslation().y, t.getTranslation().z );
+        }
+    }
     OTDU_LOG_INFO( "CinematicCar: dash GPS bound, %d material(s), %d node(s), uv (%.1f %.1f %.1f)\n",
                    static_cast<int32_t>( gpsMaterials.size() ), static_cast<int32_t>( gpsNodes.size() ), uvOffset.x,
                    uvOffset.y, uvOffset.z );

@@ -8997,10 +8997,11 @@ void GMFreeRide::drawOffscreen() {
     // screen draw; docs/re/opentdu1_reuse.md 1). Bound once per car load —
     // the first render initialises the target, then setGpsTexture puts it
     // into the TD_GPS satellitemap slot with TDU1's UVOffset params.
-    // WIP (session 49): everything binds and logs, but the quad is not
-    // visible in any UVOffset variant tried yet — default off until the
-    // param semantics are cracked (see the STATE session entry).
-    static const bool bGpsScreen = CmdLine::GetArgInt( "-gps", 0 ) != 0;
+    // On by default (-gps 0 disables). The TD_GPS vertex shader is a plain
+    // WorldViewProj with uv * UVOffset.xy [CODE: _gpsvs dump of TD_GPS.sob],
+    // so the quad was never off-screen: it is a 13 x 7 cm screen on the
+    // centre stack (interior nodes 5 / 31), below the default cockpit view.
+    static const bool bGpsScreen = CmdLine::GetArgInt( "-gps", 1 ) != 0;
     static const Vector4f gpsUv = [] {
         Vector4f uv( 1.0f, 1.0f, 3.0f, 0.0f );
         if ( const char *pArg = CmdLine::GetArgValue( "-gpsuv" ) ) {

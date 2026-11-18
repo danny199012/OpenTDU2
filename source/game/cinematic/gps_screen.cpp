@@ -88,24 +88,12 @@ void GpsScreen::render( float carX, float carZ, float headingX, float headingZ, 
         const Vector2f topLeft = toScreen( 0.0f, 0.0f );
         renderer.drawQuad( pIslandTexture,
                            Rect2D( topLeft.x, topLeft.y, extentX * kMetersPerPixel, extentZ * kMetersPerPixel ),
-                           0xffffffffu );
+                           0xff707070u ); // dimmed: the roads and route must read on it
     }
     std::vector<Vertex2D> vertices;
     if ( pCollision != nullptr ) {
         // The roads around the car (the HUD minimap's data, AIRL_ROAD white).
         const float radius = 0.5f * sqrtf( kGpsWidth * kGpsWidth + kGpsHeight * kGpsHeight ) * kMetersPerPixel;
-        auto pushQuad = [&]( const Vector2f &a, const Vector2f &b, const Vector2f &c, const Vector2f &d,
-                             uint32_t color ) {
-            Vertex2D v{};
-            v.U = v.V = 0.0f;
-            v.Color = color;
-            v.X = a.x; v.Y = a.y; vertices.push_back( v );
-            v.X = b.x; v.Y = b.y; vertices.push_back( v );
-            v.X = c.x; v.Y = c.y; vertices.push_back( v );
-            v.X = c.x; v.Y = c.y; vertices.push_back( v );
-            v.X = d.x; v.Y = d.y; vertices.push_back( v );
-            v.X = a.x; v.Y = a.y; vertices.push_back( v );
-        };
         pCollision->forEachRoadTriangle(
             Vector3f( carX, 0.0f, carZ ), radius, [&]( const Vector3f &a, const Vector3f &b, const Vector3f &c ) {
                 const Vector2f sa = toScreen( a.x, a.z ), sb = toScreen( b.x, b.z ), sc = toScreen( c.x, c.z );
@@ -113,31 +101,22 @@ void GpsScreen::render( float carX, float carZ, float headingX, float headingZ, 
                 if ( std::fabs( area ) < 0.05f ) {
                     return; // a sliver on this zoom: skip (the quad doubles it)
                 }
-                // The triangle is a road strip piece; its long axis is the
-                // road direction — widen across it (the minimap draws the
-                // raw triangles, but at 2 px/m they read thin).
-                const float lengthAB = sqrtf( ( sb.x - sa.x ) * ( sb.x - sa.x ) + ( sb.y - sa.y ) * ( sb.y - sa.y ) );
-                const float lengthAC = sqrtf( ( sc.x - sa.x ) * ( sc.x - sa.x ) + ( sc.y - sa.y ) * ( sc.y - sa.y ) );
-                const float lengthBC = sqrtf( ( sc.x - sb.x ) * ( sc.x - sb.x ) + ( sc.y - sb.y ) * ( sc.y - sb.y ) );
-                const Vector2f *pLongA = &sa;
-                const Vector2f *pLongB = &sb;
-                if ( lengthAC >= lengthAB && lengthAC >= lengthBC ) {
-                    pLongA = &sa;
-                    pLongB = &sc;
-                } else if ( lengthBC >= lengthAB && lengthBC >= lengthAC ) {
-                    pLongA = &sb;
-                    pLongB = &sc;
-                }
-                const float ex = pLongB->x - pLongA->x, ey = pLongB->y - pLongA->y;
-                const float length = sqrtf( ex * ex + ey * ey );
-                if ( length < 0.01f ) {
-                    return;
-                }
-                const float half = 1.6f; // ~3 px road
-                const float nx = -ey / length * half, ny = ex / length * half;
-                const Vector2f a1( pLongA->x + nx, pLongA->y + ny ), a2( pLongA->x - nx, pLongA->y - ny );
-                const Vector2f b1( pLongB->x + nx, pLongB->y + ny ), b2( pLongB->x - nx, pLongB->y - ny );
-                pushQuad( a1, b1, b2, a2, 0xffdcdcccu ); // AABBGGRR: R dc G dc B dc
+                // The road triangles filled as they are (the minimap draws the
+                // raw triangles): widening one edge only traced the outline.
+                // A touch of dilation keeps neighbours from showing seams.
+                const Vector2f centre( ( sa.x + sb.x + sc.x ) / 3.0f, ( sa.y + sb.y + sc.y ) / 3.0f );
+                auto grow = [&]( const Vector2f &p ) {
+                    const float dx = p.x - centre.x, dy = p.y - centre.y;
+                    const float len = sqrtf( dx * dx + dy * dy );
+                    return len > 0.001f ? Vector2f( p.x + dx / len * 0.75f, p.y + dy / len * 0.75f ) : p;
+                };
+                Vertex2D v{};
+                v.U = v.V = 0.0f;
+                v.Color = 0xff9a8c80u; // AABBGGRR: a mid blue-grey road (the dash shader lights it, white clips)
+                const Vector2f ga = grow( sa ), gb = grow( sb ), gc = grow( sc );
+                v.X = ga.x; v.Y = ga.y; vertices.push_back( v );
+                v.X = gb.x; v.Y = gb.y; vertices.push_back( v );
+                v.X = gc.x; v.Y = gc.y; vertices.push_back( v );
             } );
     }
     if ( pRoute != nullptr && pRoute->size() > 1 ) {
@@ -150,11 +129,11 @@ void GpsScreen::render( float carX, float carZ, float headingX, float headingZ, 
             if ( length < 0.01f ) {
                 continue;
             }
-            const float half = 2.0f;
+            const float half = 2.5f;
             const float nx = -ey / length * half, ny = ex / length * half;
             Vertex2D v{};
             v.U = v.V = 0.0f;
-            v.Color = 0xff1a1affu; // AABBGGRR: R ff G 1a B 1a
+            v.Color = 0xff0066ffu; // AABBGGRR: GamePC.cpr [HudMap] route 255/102/0
             v.X = a.x + nx; v.Y = a.y + ny; vertices.push_back( v );
             v.X = b.x + nx; v.Y = b.y + ny; vertices.push_back( v );
             v.X = b.x - nx; v.Y = b.y - ny; vertices.push_back( v );
@@ -175,11 +154,11 @@ void GpsScreen::render( float carX, float carZ, float headingX, float headingZ, 
             // local arrow space: +x forward
             return Vector2f( cx + lx * ca - ly * sa, cy + lx * sa + ly * ca );
         };
-        const Vector2f tip = arrow( 9.0f, 0.0f ), left = arrow( -6.0f, 6.0f ), right = arrow( -6.0f, -6.0f );
+        const Vector2f tip = arrow( 13.0f, 0.0f ), left = arrow( -8.0f, 9.0f ), right = arrow( -8.0f, -9.0f );
         std::vector<Vertex2D> arrowVerts;
         Vertex2D v{};
         v.U = v.V = 0.0f;
-        v.Color = 0xffffffffu;
+        v.Color = 0xff00d7ffu; // AABBGGRR: amber car arrow
         v.X = tip.x; v.Y = tip.y; arrowVerts.push_back( v );
         v.X = left.x; v.Y = left.y; arrowVerts.push_back( v );
         v.X = right.x; v.Y = right.y; arrowVerts.push_back( v );

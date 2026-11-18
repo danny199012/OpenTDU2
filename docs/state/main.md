@@ -529,6 +529,23 @@ from grid coordinates, so a BLAS had nothing to read. Solved:
   the dashboard intensity wiring are the lighting port work.
 
 
+
+## Session 2026-11-18 (`main`, 52): the dash satnav shows in the cockpit (render-to-texture, on by default); dash backlight confirmed
+
+Owner: "add the cockpit view lighting for dash and the satnav for cars with satnavs" (+ "I think it probably uses render to texture").
+
+### What changed
+- `source/game/freeride/gm_freeride.cpp` - `-gps` now defaults to 1 (`-gps 0` = off). The session-49 "invisible quad" was not a shader problem: [CODE] TD_GPS.sob's VS (dumped with `otdu2_sob_tool`) is a plain WorldViewProj, `uv * UVOffset.xy`, colour = lerp(ambient, diffuse, N.L) * vertex colour. The quad is a 13 x 7 cm screen at car-local (0, 0.65, 0.14) on the centre stack, below the default cockpit view.
+- `source/game/cinematic/gps_screen.cpp` - the render target now fills the road triangles (the old widened long edge only traced outlines), dims the island map, orange route (GamePC.cpr [HudMap] 255/102/0), bigger amber car arrow.
+- `source/game/cinematic/cinematic_car.cpp` - `-loggps` prints the GPS items (node, bounds, index count).
+
+### Verified
+- `-gm FREERIDE -skipcine -nopad -fixedtimestep -tp 21796.3,24188.1 -snaproad 150 -gpsdrive "24500,25300,20" -autoplay "100:press=camera;130:press=camera;200:look=0.35,0.7;380:shot=..."` : map on the California's screen, `docs/images/dash_satnav_california.png`.
+- Dash backlight (already wired via `setDashboardLit` / HEADLIGHTSINTENSITY): `-carlights 1` vs `0` cockpit shots differ by 34k pixels, gauges lit blue, `docs/images/dash_backlight_night.png`.
+
+### Not done / next
+- Only the California checked; other cars' GPS node placement unchecked. Daylight look unchecked (screen is lit by the scene sun, so noon may clip). No in-car zoom / rotating mode. The cockpit's non-dash surfaces get no cabin light at night (retail has none found yet).
+
 ## Session 2026-11-17 (`main`, 51): the dev-build car-lighting dig - the [ENC] lamp functions decoded, the light data found, the dashboard mechanism named
 
 Owner: *"dig the dev build see if you find any car lighting data head lights, tail lights, interior dash
