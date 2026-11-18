@@ -498,7 +498,7 @@ public:
     void renderInset( const EdenSceneView::Camera &inset, RenderTarget *pTarget, const Rect2D &uv, int32_t showCar = -1 );
     // The same with the camera given in the walk frame (scene-local, like setLocalCamera).
     void renderLocalInset( const Vector3f &position, const Quaternionf &heading, float fov, RenderTarget *pTarget,
-                           const Rect2D &uv );
+                           const Rect2D &uv, int32_t onlyDisplayCar = -1 );
     void draw();
     // The frontend movies only (tests without the 3D view, -no3d).
     void drawUi();
@@ -781,6 +781,7 @@ private:
     EdenSceneView::Camera cameraOverride;
     bool bCameraOverride = false;
     int32_t insetShowCar = -1; // renderInset's only-this-car filter (drawSets)
+    int32_t insetDisplayCar = -1; // the same for a display car (the tuning shop's panel)
     bool bLoaded = false;
 
 private:

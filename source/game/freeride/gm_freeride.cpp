@@ -8689,7 +8689,8 @@ void GMFreeRide::renderTuneInset() {
                                Max( 1.0f, static_cast<float>( gpRender->get2DRenderer().getTargetHeight() ) );
     const float keep = Clamp( 1.42f / windowAspect, 0.2f, 1.0f );
     interior.getScene().renderLocalInset( tuneInsetEye, tuneInsetRot, 40.0f * kDegToRad, pTuneInset,
-                                          Rect2D( ( 1.0f - keep ) * 0.5f, 0.0f, keep, 1.0f ) );
+                                          Rect2D( ( 1.0f - keep ) * 0.5f, 0.0f, keep, 1.0f ),
+                                          CmdLine::HasArg( "-insetfull" ) ? -1 : 0 ); // the lifted car on the grey backdrop
     FlashPlayer *pUi = interior.getTuneUi();
     if ( pUi != nullptr ) {
         pUi->setBitmapOverride( "/menu_rims/lure", &pTuneInset->Color, 0.0f, 0.0f, 1.0f, 1.0f );

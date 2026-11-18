@@ -1906,6 +1906,14 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
     if ( pass == EdenSceneView::ePass::Environment ) {
         return;
     }
+    if ( insetDisplayCar >= 0 ) {
+        // The tuning shop's panel feed: the one display car on the flat backdrop.
+        if ( static_cast<size_t>( insetDisplayCar ) < displayCars.size() ) {
+            const DisplayCar &display = displayCars[static_cast<size_t>( insetDisplayCar )];
+            display.Car->draw( renderer, display.World, view.getWeather(), display.bEnvironment );
+        }
+        return;
+    }
     if ( insetShowCar >= 0 ) {
         // The panel feed: the one showroom car, nothing else.
         Matrix4x4f showWorld;
@@ -2800,7 +2808,7 @@ void IntroCinematic::renderInset( const EdenSceneView::Camera &inset, RenderTarg
     const EdenSceneView::Camera oldCamera = cameraOverride;
     setCameraOverride( &inset );
     insetShowCar = showCar;
-    if ( showCar >= 0 ) {
+    if ( showCar >= 0 || insetDisplayCar >= 0 ) {
         view.setShowcaseMode( true, ColorRGBA( 0.30f, 0.31f, 0.33f, 1.0f ) );
     }
     renderOffscreen();
@@ -2821,13 +2829,15 @@ void IntroCinematic::renderInset( const EdenSceneView::Camera &inset, RenderTarg
 }
 
 void IntroCinematic::renderLocalInset( const Vector3f &position, const Quaternionf &heading, float fov,
-                                       RenderTarget *pTarget, const Rect2D &uv ) {
+                                       RenderTarget *pTarget, const Rect2D &uv, int32_t onlyDisplayCar ) {
     EdenSceneView::Camera local = camera;
     local.Position = sceneOrigin.transformPoint( position );
     local.Rotation = heading * Conjugate( sceneRotation );
     local.Fov = fov;
     local.Near = 0.05f;
+    insetDisplayCar = onlyDisplayCar;
     renderInset( local, pTarget, uv, -1 );
+    insetDisplayCar = -1;
 }
 
 void IntroCinematic::drawFade() {

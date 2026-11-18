@@ -22,7 +22,8 @@ the Wheels page (`/:option_name`, `/:cur_op_price`), buy (`kiva`) and rims (`tun
 The owner, from retail 360 screenshots: the car is on the lift; the Rims preview is a second-camera close-up on the wheel that pans left-right-left in a loop (the dealership interior shot does the same); paint orbits the car.
 - `GMFreeRide`: at `afmk` the driven car is placed on the room's car place (`InteriorWalk::placeStickerCar`, the sticker/tuner-garage rule) with its paint (`pTuneRoomCar`; `-notunecar` skips). Log: `InteriorWalk: sticker car 387 on D_CAR`.
 - While `TuneUi::isRimsPage()`: a **second render into the movie's preview clip** (the dealer's technique: `IntroCinematic::renderLocalInset` -> `RenderTarget` 512x360 -> `FlashPlayer::setBitmapOverride("/menu_rims/lure")`, found with `-dumptuneclips 7`). The camera pans +-0.40 rad (period ~7 s) about the front-left hub (D_RIM_FL 0.826, 0.229, 1.335 [DATA]) at 1.5 m. `GMFreeRide::renderTuneInset`; `-noinset` skips it, the main view stays the room's. New `IntroCinematic::getDisplayCarYaw`. Evidence `docs/images/tuning_wheel_pan.webp` (3 frames of one loop, the panel shows the wheel, the room behind is unchanged).
-- Not done: paint orbit (the tuner has no paint page); the preview shows the whole room, retail's has a darker backdrop.
+- The panel is grey-boxed like the dealer's: only the lifted car is drawn on the flat grey backdrop (`renderLocalInset(..., onlyDisplayCar)` -> `insetDisplayCar` in `drawSets`, showcase mode); `-insetfull` shows the whole room again.
+- Not done: paint orbit (the tuner has no paint page).
 
 ### Not done / next
 - The part cinematic, 4th level (spec section 4). Hawai tuning shops not walked.
