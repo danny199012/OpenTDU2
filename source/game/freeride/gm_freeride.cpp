@@ -3806,6 +3806,21 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
                     // A cup (class 0): DBRewardXP RACING_CUP_<ISLAND><n> (IBIZA1, HAWAI1, HAWAI2) [DATA names,
                     // INF: n = the row's _order]. The medal rows (RACING_CHAMP_GOLD/SILVER/BRONZE_<class>) wait
                     // for a medal rule - the port has none.
+                    // The medal rows: RACING_CHAMP_<BRONZE|SILVER|GOLD>_<class>[H] [CODE-dev 0xa3c8f0 / 0xa3ce64:
+                    // the player's final championship rank 1st / 2nd / 3rd -> medal 3 / 2 / 1, and medal n pays the
+                    // events from BRONZE up (bronze; +silver; +gold), each once. The rank is the placing of the
+                    // last race: the port completes a championship only when every race is won, so it is 1st
+                    // [INF: no championship points table is kept].
+                    const char *pClass = VehicleClassName( pChampionship->VehicleCategory[0] );
+                    if ( pClass != nullptr && pClass[0] != '\0' && ChampionshipFamily( *pChampionship ) != "cup" ) {
+                        const int32_t rank = opponents.isActive() ? Max( 1, opponents.getPlayerPosition() ) : 1;
+                        const std::string suffix = std::string( pClass ) + ( pChampionship->Order == 2 ? "H" : "" );
+                        static const char *const kMedals[3] = { "BRONZE", "SILVER", "GOLD" };
+                        const int32_t medal = rank <= 3 ? 4 - rank : 0;
+                        for ( int32_t m = 0; m < medal; m++ ) {
+                            AwardSkillEvent( ( std::string( "RACING_CHAMP_" ) + kMedals[m] + "_" + suffix ).c_str() );
+                        }
+                    }
                     if ( ChampionshipFamily( *pChampionship ) == "cup" ) {
                         AwardSkillEvent( ( std::string( "RACING_CUP_" ) + ( pChampionship->Island == 0 ? "IBIZA" : "HAWAI" ) +
                                            std::to_string( Max( 1, pChampionship->Order ) ) ).c_str() );

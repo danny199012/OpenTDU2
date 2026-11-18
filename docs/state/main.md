@@ -6,6 +6,18 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 61): championship medal XP (RACING_CHAMP_BRONZE/SILVER/GOLD) wired from the dev exe's rule
+
+### What changed
+- `gm_freeride.cpp` (championship-complete block) pays `RACING_CHAMP_<medal>_<class>[H]` [CODE-dev `0xa3c8f0`/`0xa3ce64`]: the final rank (index in the 8-id sorted array) 1st/2nd/3rd -> medal 3/2/1; medal n pays BRONZE.. up cumulatively, each once. `H` = the `_order 2` championship. Class name = `VehicleClassName(VehicleCategory[0])`; cups are skipped (they keep `RACING_CUP_*`).
+- `[INF]` The port completes a championship only when all races are won, so the rank is the last race's place = 1st: it always pays all three. No championship points table is kept.
+
+### Verified
+- Event names resolve: `-awardevent RACING_CHAMP_BRONZE_A4H` logs `skill 0 +45 points`. The completion path itself was not driven headlessly (needs winning a whole championship).
+
+### Not done / next
+- A real points table (non-winning completions give silver/bronze); `spec skills_spec.md` still lists the medal rows as dark.
+
 ## Session 2026-11-18 (`main`, 60): phone-call progression rules from the dev exe's trigger table (6 more calls fire)
 
 The owner: *"with dev build can we try do all progression stuff"* — scoped (asked) to the phone-call triggers first; the rest of the progression backlog is untouched.

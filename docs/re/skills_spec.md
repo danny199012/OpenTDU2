@@ -34,7 +34,7 @@ Tags as in CLAUDE.md. Code: `source/game/skill_levels.{h,cpp}`, `pause_menu.cpp`
   `COLLECTION_CLOTHES_<n>` (clothes shop, owned clothes), `COLLECTION_STICKERS_<n>` (sticker shop pay; the count is the **packs** owned [INF - the row says "Stickers bought"]),
   `COLLECTION_FURNITURES_<n>` (MyTDUHouse furniture; the count is the distinct furniture models placed [INF]), `RACING_LICENCE_<classes>` (a licence's last test, `A7 / A6` -> `A7A6`),
   `RACING_CUP_<IBIZA|HAWAI><order>` (a cup championship completed [INF: order]).
-- **Dark (no trigger exists yet)**: `RACING_CHAMP_<GOLD|SILVER|BRONZE>_<class>` (needs a medal rule; the port has none), `RACING_DUEL_*`, `RACING_INSTCHALL` / `MULTICHALL`, `CRUISING_PHOTOS_*` (panorama nodes: 2 on Ibiza, detected but not paid),
+- **Dark (no trigger exists yet)**: `RACING_CHAMP_*` now paid on championship completion (main 61; rank always 1st), `RACING_DUEL_*`, `RACING_INSTCHALL` / `MULTICHALL`, `CRUISING_PHOTOS_*` (panorama nodes: 2 on Ibiza, detected but not paid),
   `COLLECTION_HAIRCUTS_*` / `COLLECTION_SURGERY` (no hairdresser / surgeon flow), `SOCIAL_*` (club, friends, chase mode, co-op, gambling hall), `CRUISING_*_EVENT_AREA*`, the `TUTO_*` rows (goal texts).
 - `DBAreaLevel` (area exploration levels, `NewAreaTitle`) is still not wired.
 - Tests: `-awardevent <NAME>`, `-awardmilestone <FAMILY>,<n>` (`COLLECTION_CLOTHES,12` pays 5 and 10), `-logskills` lists the 191 rows. Licence: a profile with the first five C4 tests in `tests_passed=` plus
