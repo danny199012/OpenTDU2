@@ -51,14 +51,33 @@ tables for other sizes unverified]. CHUNK_2 part 1, 99 records: 47 x 1024^2, 20 
 0x8c60c0) just under the file size (9,796,158), a `0xABCD` marker, dense body (entropy 7.8-7.95, i.e. compressed).
 **The compression is not identified yet.**
 
-## 4. The masked table of contents [DATA / INF]
+## 4. The table of contents [DATA] - SOLVED (session 58)
 
-The first ~1.98 MB of every part has a steady byte entropy of 7.1 (not 8: it is not a cipher stream), the
-text-like key `oL7bFfNRojSzr4y7t6s7wWM...` recurs at +0x1000 and +0x100000, and rows of **160 bytes (0xA0)**
-repeat with ~26 % equal bytes. Read as u32, 325,002 of 495,616 values fall inside the file's own offset range,
-so it is an **offset table obfuscated with a repeating printable key** [INF], not compressed data.
-Not solved: the key period and the row layout. Without it, records have no names or object grouping; the
-scene description (which buffers and textures make a car) is the next thing to find.
+The first ~2 MB of every part is a **name table masked with a 32-byte repeating text key**
+`oL7bFfNRojSzr4y7t6s7wWMIA0w03zDz` (the same in all 23 parts; XOR from file offset 0, period 32). It was recovered
+from the table itself: wherever the plaintext cell is zero the key shows through (`oL7bFfNR...` at every
+32-byte cell: 9,623 hits in one part). After the XOR the table is plain: **`u32 pathLen`, the path
+(`WIN32\GRAPH\CARS\...`), then an 88-byte tail** (entries are packed, not aligned):
+
+```
+u32 flag     u64 offset (absolute, the PKGB position)   u64 FILETIME
+u64 frameBytes   u64 decodedBytes   u32 kind (2 = LZ4 frame, 0 = stored)
+u8[16] hash (MD5-like, unverified)   u8[32] zero
+```
+Verified: for the first 300 entries of CHUNK_0 part 5 the offset points at `PKGB` (300/300) and `frameBytes` /
+`decodedBytes` match the LZ4 frame and the decoded RIFF exactly (e.g. EMOTE_LAUGH.PAN 126,748 -> 225,714). One
+entry (EMOTE_MICHELIN_FLAG.PAN) failed the pure-python LZ4 decode: probably a multi-block frame detail, open.
+`pkg_scan.py --toc` decodes all 23 parts: **154,623 named files, 53.1 GB decoded**.
+
+### 4.1 What is in the game (counts by extension / folder) [DATA]
+
+`PTX` 69,755 textures (`PATX-SP2`, stored, `kind 0`), `PMA` 30,184 (materials), `PSI` 20,557, `P3D` 18,951 (models),
+`PACLOG` 8,301, `PAN` 3,035 (animations: record type `PA__`), `PLM` 1,855, `PSVO` 1,239, `PSK` 395 (skeletons),
+`PFX` 269, `PMC` 42, `PFT` 38, `PIM` 2. Largest folders: `GRAPH\LEVELS` 39,569, **`GRAPH\CARS` 22,176** (45
+brand folders: AC ... WMOTORS, incl. **LAMBORGHINI**: Centenario, Diablo VT, Huracan, ...; 1,097 PMA, 360 PTX,
+205 PSI, 151 P3D, 142 PAN for that brand), `TEXTURES\PROBES` 12,296, `LEVELS\HONGKONG` 10,336,
+**`GRAPH\CHARACTERS` 8,114** (AVATAR\MALE 5,297, FEMALE 1,971, NPC 819), `GRAPH\PROPS` 8,016,
+`LEVELS\IBIZA` 4,288 (per `TILE_Xnn`), `GUI\LIVERYEDITOR` 1,774, `GRAPH\INTERIOR` 3,516.
 
 ## 5. What it unlocks
 
@@ -70,4 +89,4 @@ scene description (which buffers and textures make a car) is the next thing to f
 
 * "The PKGs are AES-encrypted": no, record payloads are plain LZ4 / raw texture data. The first sample was the
   masked TOC and a fill gap, not the content.
-* A single repeating XOR key over the whole file: the self-similarity peaks at 0xA0 (row size), not at a key period.
+* A single XOR key over the WHOLE file: only the name table is masked, the records are not. (A 160-byte self-similarity peak was a multiple of the real 32-byte period, found later from the repeating `oL7bFfNR` cells.)

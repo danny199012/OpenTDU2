@@ -14,7 +14,7 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
-## Session 2026-11-18 (59, `main`): TDUSC .PKG format - records decode (LZ4 + PA__ / PATX-SP2), the table of contents is still masked
+## Session 2026-11-18 (59, `main`): TDUSC .PKG format - records decode AND the name table is solved: 154,623 named files
 
 The owner installed TDUSC from Steam and asked to "dig through the game ... mod pack ... clothes, cars, islands,
 physics". TDUSC is **not Unreal** (own engine, no .pak; the earlier FModel suggestion was wrong). The owner confirmed no
@@ -29,12 +29,25 @@ DRM / anti-cheat (SARD was scrapped) and approved decoding the masked part. Spec
   LZ4 `PA__` records; `--pkg <CHUNK_2_PART0001.PKG>` lists 99 `PATX-SP2` textures (47 x 1024^2, 20 x 4096^2, 17 x 2048^2 ...).
 - Not encrypted: the records are plain LZ4 frames / raw BC1 texture data; a part is mostly 0x30 padding.
 
+### Later in s59: the TOC is solved
+- The name table at the start of each part is XOR-masked with the 32-byte text key `oL7bFfNRojSzr4y7t6s7wWMIA0w03zDz`
+  (period 32 from offset 0, same in all 23 parts, read off the zero cells of the table). Entries: `u32 pathLen`, path, 88-byte tail
+  `{u32 flag, u64 offset, u64 FILETIME, u64 frameBytes, u64 decodedBytes, u32 kind, 16-byte hash, 32 zero}`. Validated: 300/300
+  offsets of CHUNK_0 part 5 hit `PKGB`, frame / decoded sizes match exactly. `pkg_scan.py --toc` -> 154,623 entries, 53.1 GB
+  decoded, all 23 parts (CSV into `C:\temp\tdusc-scan`, not the repo).
+- The game's contents (by extension): 69,755 PTX textures, 30,184 PMA materials, 20,557 PSI, 18,951 P3D models, 8,301 PACLOG,
+  3,035 PAN animations, 395 PSK skeletons; folders: `GRAPH\CARS` 22,176 (45 brands incl. LAMBORGHINI: Centenario, Diablo VT,
+  Huracan ...), `GRAPH\CHARACTERS` 8,114 (AVATAR male 5,297 / female 1,971 / NPC 819), `LEVELS\IBIZA` + `HONGKONG` by TILE_X, `GRAPH\PROPS`
+  8,016, `GUI\LIVERYEDITOR` 1,774.
+- Open: one PAN (EMOTE_MICHELIN_FLAG) fails the pure-python LZ4 decode (multi-block detail?); the PSI / P3D / PMA / PSK formats are
+  not read yet; the PWS compression is unidentified.
+
 ### Ruled out
 - "The PKGs are encrypted / one XOR key": the first 2 MB (the table of contents) is masked, the content is not; the
   self-similarity peak is the 160-byte row, not a key period.
 
 ### Not done / next
-- **Solve the masked TOC** (key period + the 160-byte row layout: hash / offset / size?), so records get names and grouping.
+- ~~Solve the masked TOC~~ DONE (above). Next: the `P3D` model + `PSI` + `PMA` formats of one car (e.g. `GRAPH\\CARS\\LAMBORGHINI\\HURACAN`), `PTX` -> DDS.
 - PWS compression (header offsets known, body entropy 7.8-7.95).
 - PATX -> DDS (confirm BC1 vs BC3/BC7 per header), `PA__` vertex-buffer strides, then cars (a PA__ group + textures).
 - Nothing extracted or committed from the game; the owner decides what a mod pack may carry.
