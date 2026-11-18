@@ -1007,12 +1007,13 @@ void GMShop::playPageCamera( int32_t option ) {
     case 4:
         // Retail (owner's capture of the same R8): the main view sits in the driver's seat looking at the wheel and
         // sways left-right (applyPageCameraPose); the panel shows the cabin from the open door, still [INF].
-        eyeLocal = Vector3f( 0.36f, 0.98f, -0.25f );
-        targetLocal = Vector3f( 0.36f, 0.80f, 0.5f );
+        eyeLocal = Vector3f( 0.38f, 0.92f, -0.1f );
+        targetLocal = Vector3f( 0.48f, 0.50f, 0.55f );
         fov = 1.0f;
-        insetEyeLocal = Vector3f( 1.7f, 1.4f, 0.5f );
-        insetTargetLocal = Vector3f( 0.45f, 1.0f, 0.35f );
-        insetFov = 0.7f;
+        // The panel: from the open door looking across the cabin at the wheel and the passenger seat [DATA: capture].
+        insetEyeLocal = Vector3f( 0.95f, 0.95f, -0.4f );
+        insetTargetLocal = Vector3f( 0.0f, 0.75f, 0.3f );
+        insetFov = 0.85f;
         break;
     default:
         // The confirm page (5) and the drive-out cinematic need the walk
@@ -1082,11 +1083,9 @@ void GMShop::applyPageCameraPose( float deltaTime ) {
     }
     Vector3f targetLocal = pageTargetLocal;
     if ( pageOption == 4 ) {
-        // The seat view sways left-right about the wheel (period ~7.3 s, +-4 deg) [DATA: the capture's pan].
-        const float sway = std::sin( pageTime * 0.86f ) * 0.07f;
-        const Vector3f arm = targetLocal - eyeLocal;
-        const float cs = std::cos( sway ), sn = std::sin( sway );
-        targetLocal = eyeLocal + Vector3f( arm.x * cs + arm.z * sn, arm.y, -arm.x * sn + arm.z * cs );
+        // The seat view slides left-right while it keeps looking at the wheel (period ~7.3 s): the wheel stays put
+        // in the frame and the door / windows swing past [DATA: the capture].
+        eyeLocal.x += std::sin( pageTime * 0.86f ) * 0.14f;
     }
     const Vector3f eye = pageCameraCarWorld.transformPoint( eyeLocal );
     const Vector3f direction = ( pageCameraCarWorld.transformPoint( targetLocal ) - eye ).normalized();
