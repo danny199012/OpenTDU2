@@ -114,19 +114,32 @@ public:
         const D3D9State *pState = nullptr;
     };
 
-    // An uploaded mesh: vertex + index buffer live in an upload heap for the
-    // rest of the run (a streaming world wants a default heap copy; the Eden
-    // port is where that lands, docs/backends.md section 5).
+    // An uploaded mesh: up to three vertex streams and one 32-bit index buffer,
+    // all in upload heaps for the rest of the run (a streaming world wants a
+    // default-heap copy; the Eden port is where that lands, docs/backends.md
+    // section 5). Three streams because that is what a `.3DG` node has - the
+    // position/normal/colour stream, the texture-coordinate/weight stream and
+    // the per-vertex bone stream (EdenMesh::kMaxStreams) - and every attribute
+    // in PipelineDesc::Attribute names the stream it is read from.
     struct Mesh {
-        void *pVertexBuffer = nullptr;
-        void *pIndexBuffer = nullptr;
-        uint32_t NumIndices = 0;
-        uint32_t VertexStride = 0;
+        static constexpr uint32_t kMaxStreams = 3;
+        void *pVertexBuffers[kMaxStreams] = {};
         // The vertex buffer's size in bytes: D3D12_VERTEX_BUFFER_VIEW::SizeInBytes
         // is the whole buffer, not one vertex (passing the stride silently makes
         // the input assembler treat the buffer as a single vertex and drop every
         // triangle that indexes past it).
-        uint32_t VertexBytes = 0;
+        uint32_t VertexBytes[kMaxStreams] = {};
+        uint32_t Strides[kMaxStreams] = {};
+        uint32_t NumStreams = 0;
+        void *pIndexBuffer = nullptr;
+        uint32_t NumIndices = 0;
+
+        inline const void *streamBuffer( uint32_t stream ) const {
+            return stream < kMaxStreams ? pVertexBuffers[stream] : nullptr;
+        }
+        inline uint32_t streamSize( uint32_t stream ) const {
+            return stream < kMaxStreams ? ( VertexBytes[stream] != 0 ? VertexBytes[stream] : Strides[stream] ) : 0;
+        }
     };
 
 public:
@@ -162,6 +175,15 @@ public:
                      const uint32_t *pIndices,
                      uint32_t numIndices,
                      Mesh &mesh );
+    // The multi-stream form (an Eden mesh has up to three streams): one vertex
+    // buffer per entry, each with its own stride, all bound by one draw.
+    bool createMeshStreams( const void *const *ppVertexData,
+                            const uint32_t *pVertexBytes,
+                            const uint32_t *pStrides,
+                            uint32_t numStreams,
+                            const uint32_t *pIndices,
+                            uint32_t numIndices,
+                            Mesh &mesh );
     void destroyMesh( Mesh &mesh );
 
     // Records one indexed draw into the frame D3D12Device::beginFrame opened.
@@ -193,6 +215,16 @@ public:
     // -d3d12-dump-shaders <dir>: the HLSL of every pipeline the scene builds,
     // so a black draw can be read instead of guessed at.
     inline void setShaderDumpDir( const char *pDir ) { shaderDumpDir = pDir != nullptr ? pDir : ""; }
+
+    // No INFO line per created pipeline. The catalogue tally (-d3d12-pipetest)
+    // creates thousands; its own totals are the report and a refusal still
+    // logs as an error.
+    inline void setQuietPipelines( bool bEnable ) { bQuietPipelines = bEnable; }
+
+    // Releases every cached pipeline (the GPU state objects only - meshes and
+    // heaps stay). The tally uses it to bound memory: it creates one PSO per
+    // .sob permutation and keeps none of them.
+    void releasePipelines();
 
 private:
     static constexpr uint32_t kMaxRootConstants = 32; // 128 bytes, the Vulkan budget
@@ -245,6 +277,7 @@ private:
     std::unordered_map<std::string, void *> pipelines;
     std::string shaderDumpDir;
     uint32_t dumpedShaders = 0;
+    bool bQuietPipelines = false;
 
     bool createRootSignature();
     bool createSamplerHeap();
@@ -309,3 +342,17 @@ bool D3D12RunEdenTest();
 // file system service, not in -renderer-selftest, which reads no -game. Returns
 // true when every stage of every library compiled.
 bool D3D12RunShaderTest();
+
+// -d3d12-pipetest: the breadth measurement that comes before EdenRenderer is
+// pointed at the backend (docs/backends.md section 3.10). The shader tally
+// (above) proves every *stage* compiles; this proves the *pairs* link and that
+// the device accepts them as a pipeline. Every .sob library's permutations are
+// matched VS item <-> PS item by hashcode (the pairing the libraries encode),
+// the pair goes through D3D12ShaderCompiler::compilePair - so a sparse varying
+// register set is padded into alignment - the vertex input layout is built from
+// the vertex shader's dcl list, and D3D12Scene::getPipeline creates a real
+// PSO. The tally is per library and in total: pairs, compiled, refused by the
+// device, and the classes that are not a pair at all (a one-sided library, a
+// permutation with no partner). It needs Euro/Shaders plus a device, so it
+// runs in the bootstrap next to -d3d12-edentest and ends the run there.
+bool D3D12RunPipelineTest();

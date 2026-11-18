@@ -249,8 +249,18 @@ bool VaryingsLineUp( const std::vector<ShaderVarying> &vsVaryings,
                      const std::vector<ShaderVarying> &psVaryings,
                      uint32_t &outMismatchSlot ) {
     outMismatchSlot = 0;
-    if ( psVaryings.size() > vsVaryings.size() ) {
-        outMismatchSlot = static_cast<uint32_t>( vsVaryings.size() );
+    // Equal length, not "the pixel stage may stop early". D3D12 compares the
+    // *hardware register* of every parameter, and a system value takes the
+    // register after the generics (the measured FXC fact below). A pixel stage
+    // that reads 9 of the 11 varyings a vertex stage writes therefore puts its
+    // SV_Position in register 9 against the vertex stage's 11, and the pipeline
+    // is refused with "Semantic 'SV_Position' is defined for mismatched
+    // hardware registers" although every generic semantic matches. Found by
+    // -d3d12-pipetest (docs/backends.md section 3.10): 32 of TD_Accessories2's
+    // 64 pairs and all 16 of TD_Avatar's were refused for exactly this.
+    if ( psVaryings.size() != vsVaryings.size() ) {
+        outMismatchSlot = static_cast<uint32_t>( psVaryings.size() < vsVaryings.size() ? psVaryings.size()
+                                                                                       : vsVaryings.size() );
         return false;
     }
     for ( uint32_t i = 0; i < psVaryings.size(); i++ ) {
@@ -408,14 +418,27 @@ bool LinkVaryings( D3D12ShaderStage &vs, D3D12ShaderStage &ps, const char *pDebu
     if ( VaryingsLineUp( vs.Varyings, ps.Varyings, mismatch ) ) {
         return true;
     }
-    if ( ps.Varyings.empty() || vs.Varyings.empty() ) {
-        outError = "the shader interface could not be reflected";
+    if ( vs.Varyings.empty() ) {
+        // A vertex stage that writes only system values has no register for the
+        // pixel stage to read: unlinkable unless the pixel stage reads nothing
+        // either (that case lines up above, without padding).
+        outError = "the vertex stage reflects no varying, pixel inputs " + DescribeVaryings( ps.Varyings );
         return false;
     }
+    // A pixel stage that reads *no* varying is normal - TD_Bones' 48 pairs are
+    // exactly that, a flat colour shader - and it still needs the pads: its
+    // SV_Position has to land on the register the vertex stage's SV_Position
+    // occupies, which is the one after the vertex stage's generics.
 
     std::string padded;
     uint32_t pads = 0;
     uint32_t unplaced = 0;
+    if ( ps.HLSL.find( "struct SPIRV_Cross_Input" ) == std::string::npos ) {
+        // The pixel stage takes no parameter at all - not even SV_Position - so
+        // there is no register of its own to align: extra vertex outputs are
+        // harmless and the pair links as it is.
+        return true;
+    }
     if ( !PadPixelInputs( vs.Varyings, ps.Varyings, ps.HLSL, padded, pads, unplaced ) ) {
         outError = "pixel inputs " + DescribeVaryings( ps.Varyings ) + " do not line up with vertex outputs " +
                    DescribeVaryings( vs.Varyings ) + " (the input struct could not be rewritten)";

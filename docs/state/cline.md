@@ -16,6 +16,113 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-18 (ninety-ninth, `cline`): the Direct3D 12 pipeline tally - every library's vertex/pixel pair creates a real PSO, and it found the SV_Position register drift
+
+The owner: *"please continue with Direct X 12 support thanks but please don't
+stop after a few mins"*. The "next" the previous entry named was the
+catalogue-wide *pipeline* tally before `EdenRenderer` is pointed at `D3D12Scene`
+(`docs/backends.md` 3.10-3.12).
+
+### What changed
+
+- `source/render/d3d12/d3d12_vertex_layout.{h,cpp}` (new) -
+  **`D3D12VertexLayout`** and **`D3D12BuildVertexLayout`**: the vertex input a
+  program needs, built from the vertex shader's dcl list
+  (`TranslatedShader::Inputs`) and a mesh's own `.3DG` declaration (matched by
+  usage *and* usage index, the format from `VAF_*`, the stream and offset from
+  the mesh); a dcl the mesh does not carry falls back to one `float4` in stream 3
+  (Direct3D 12 reads an unbound stream as zero, Vulkan leaves it undefined).
+  `D3D12GetVertexFormat` is the `VAF_*` -> DXGI table.
+- `source/render/d3d12/d3d12_mesh_builder.{h,cpp}` (new) -
+  **`D3D12PrepareMesh`**: a `GeometryPrimitive` -> upload-ready streams. Three
+  storage formats have no DXGI equivalent (`A2B10G10R10 SNORM`,
+  `UBYTE4 USCALED` bone indices), so a primitive that uses one is rebuilt into
+  one interleaved stream with the packed values decoded to floats; anything else
+  passes the engine's bytes through. **`-d3d12-meshconvtest`** is the CPU probe
+  (no device, no game data).
+- `source/render/d3d12/d3d12_shader.cpp` - **`VaryingsLineUp` now requires the
+  two lists to be the same length**, not merely a prefix, and `LinkVaryings`
+  pads a pixel stage that reads *no* varying (it still needs the pads: its
+  SV_Position lands on the register after the vertex stage's generics) and skips
+  padding when the pixel stage takes no parameter at all.
+- `source/render/d3d12/d3d12_scene.{h,cpp}` - **`-d3d12-pipetest [<text>]`**, the
+  catalogue-wide pipeline tally (distinct attrib pairs measured once, a real
+  `CreateGraphicsPipelineState` per distinct program, the cache flushed every
+  512); the pipeline cache key is now a hash of the two DXBC blobs (it was the
+  *address* of each stage's `std::vector`), `getPipeline` accepts an empty input
+  layout (a screen-space program), `setQuietPipelines` / `releasePipelines` keep
+  the tally readable and bounded, **`Mesh` carries up to three vertex streams**
+  with `createMeshStreams`, `draw` binds them all in one `IASetVertexBuffers`,
+  and `-d3d12-splitstreams` uploads the scene test's cube as two streams (the
+  A/B).
+- `source/tdu_instance.cpp` - the three probes are wired (`-d3d12-pipetest` ends
+  the bootstrap like `-d3d12-edentest`; `-d3d12-meshconvtest` exits before
+  anything is initialised).
+- `docs/backends.md` - **3.10** (the tally and the two defects), **3.11**
+  (multi-stream meshes, the byte-identical A/B), **3.12** (the `.3DG` streams and
+  the expansion probe), section 5 (step 2a3 and the start of 2b), the status
+  matrix and section 6.
+
+### Verified (build 227 (a0cbfca+dirty) - cline)
+
+The three new probes and the two A/Bs, on the RTX 5070 Ti:
+
+```powershell
+# 1. The mesh stream expansion (CPU only, no game data)
+build-cline\bin\opentdu2-cline.exe -d3d12-meshconvtest -nolog        # exit 0
+#    D3D12 mesh convert test: PASSED (stride 52, 2 expanded attribute(s),
+#    SNORM -1 -> -1.0, UScaled 255 -> 255.0)
+
+# 2. The multi-stream A/B (the scene test's cube, one stream vs two)
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-scenetest -renderer-selftest 30 `
+    -renderer-shot E:\Cline\_st_stream1.ppm
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-scenetest -d3d12-splitstreams `
+    -renderer-selftest 30 -renderer-shot E:\Cline\_st_stream2.ppm
+#    both SHA256 E505B37F0063C7750BF39A9DC4579FD4E97937722B5DC825B7C1470C3F778CEB
+#    (the hash every earlier scene-test build produced)
+
+# 3. The catalogue-wide pipeline tally
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-pipetest `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx -log E:\Cline\_pipe.log
+```
+
+```
+D3D12 pipetest: 116 libraries (0 one-sided), 31470 pair(s) (15365 repeat(s) collapsed to distinct
+  programs): 16105 pipeline(s) accepted, 0 refused by the device, 0 link failure(s), 0 compile
+  failure(s), 0 unpaired pixel item(s) in 2986.9 s
+D3D12 pipetest: PASSED (16105 of 16105 distinct program(s) created a pipeline)
+```
+
+- **Every distinct program of the catalogue is a pipeline**: 16105 of 16105, 0
+  refused, 0 link failures, 0 compile failures, 116 libraries (0 one-sided).
+  The run takes 49.8 minutes, because `CreateGraphicsPipelineState` per program
+  is real driver work; the dedupe is what keeps that finite (`TD_Building` 11376
+  permutations -> 4429 programs, `TD_Bones` 48 -> 1).
+- **The two defects it found are fixed in the same build**: the pixel stage's
+  SV_Position register drift (`TD_Accessories2` 32 of 64 and `TD_Avatar` 16 of 16
+  refused before it, 100 % after) and the pipeline key that identified stages by
+  the address of their bytecode vector (now a content hash; `-d3d12-scenetest`'s
+  PPM is still `E505B37F...C3F778CEB`).
+- **The padded path is exercised**: 4704 pairs needed the pixel input pads and
+  logged their relink line; the frame-level proof is still section 3.9's
+  `TD_LightBeam` quad and 3.8's `TD_Lamp` checker.
+
+### Next
+
+- Point `EdenRenderer` at `D3D12Scene`: the program cache (`compilePair` per
+  `EdenProgram`, the PSO keyed by its two stages + the mesh's layout),
+  `FillEdenConstants` into b0 and the b13 push constants, the sampler heap and
+  the per-draw texture table it already binds, then the render targets / shadow /
+  reflection / post passes.
+- The mesh path: `D3D12PrepareMesh` + `createMeshStreams` are ready for a real
+  `.3DG` (the asset viewer or a sector's statics), which is the first draw of
+  game *geometry* rather than a synthetic quad.
+- `-d3d12-pipetest` takes 50 minutes for the catalogue; a per-library filter is
+  the fast path (`-d3d12-pipetest TD_Ground`), and `-verbose` names the pair a
+  slow library is stuck on.
+
+
+
 ## Session 2026-11-18 (ninety-eighth, `cline`): the Direct3D 12 vertex/pixel interface - the pipeline the device refused was a VS->PS *slot* mismatch, and the debug layer's errors had been filtered away by our own code
 
 Continuation of the entry below on *"please continue with Direct X 12 support

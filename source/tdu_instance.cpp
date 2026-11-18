@@ -18,6 +18,7 @@
 #include "input/gs_input.h"
 #include "physics/gs_physics.h"
 #include "render/gs_render.h"
+#include "render/d3d12/d3d12_mesh_builder.h"
 #include "render/d3d12/d3d12_scene.h"
 #include "render/rhi/render_backend.h"
 #include "system/cmd_line.h"
@@ -106,6 +107,18 @@ int32_t TestDrive::InitAndRun( const char **pCmdLineArgs,
         Logger::Shutdown();
         return bPassed ? 0 : 1;
     }
+
+#if defined( OTDU_D3D12 )
+    // -d3d12-meshconvtest: the .3DG stream expansion (docs/backends.md 3.12).
+    // It is pure CPU - no game data, no device - so it runs before anything is
+    // initialised and exits with its verdict.
+    if ( CmdLine::HasArg( "-d3d12-meshconvtest" ) ) {
+        const bool bPassed = D3D12RunMeshConvertTest();
+        Watchdog::Shutdown();
+        Logger::Shutdown();
+        return bPassed ? 0 : 1;
+    }
+#endif
 
     TestDriveGameInstance instance;
     int32_t exitCode = 0;
@@ -267,16 +280,25 @@ bool TestDriveGameInstance::initialize() {
         // window, no device - so it runs as soon as the file system can list
         // Euro/Shaders, and the run ends there (InitAndRun reads the verdict).
         // -d3d12-edentest (section 3.8) needs the same data plus a device of its
-        // own, which it creates here; both end the bootstrap.
+        // own, and -d3d12-pipetest (section 3.10) a device and Euro/Shaders;
+        // both create theirs here. All three end the bootstrap.
         const bool bShaderTest = CmdLine::HasArg( "-d3d12-shadertest" );
         const bool bEdenTest = CmdLine::HasArg( "-d3d12-edentest" );
-        if ( pService == pFile.get() && ( bShaderTest || bEdenTest ) ) {
+        const bool bPipeTest = CmdLine::HasArg( "-d3d12-pipetest" );
+        if ( pService == pFile.get() && ( bShaderTest || bEdenTest || bPipeTest ) ) {
             bShaderTestOnly = true;
 #if defined( OTDU_D3D12 )
-            bShaderTestPassed = bShaderTest ? D3D12RunShaderTest() : D3D12RunEdenTest();
+            if ( bShaderTest ) {
+                bShaderTestPassed = D3D12RunShaderTest();
+            } else if ( bEdenTest ) {
+                bShaderTestPassed = D3D12RunEdenTest();
+            } else {
+                bShaderTestPassed = D3D12RunPipelineTest();
+            }
 #else
             OTDU_LOG_ERROR( "%s needs the Direct3D 12 backend (OTDU_ENABLE_D3D12=OFF)\n",
-                            bShaderTest ? "-d3d12-shadertest" : "-d3d12-edentest" );
+                            bShaderTest ? "-d3d12-shadertest"
+                                        : ( bEdenTest ? "-d3d12-edentest" : "-d3d12-pipetest" ) );
             bShaderTestPassed = false;
 #endif
             return true;

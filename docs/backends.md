@@ -34,6 +34,8 @@ with no shippable step in between. The backends are therefore added
 | **An original `.sob` shader draws** (`-d3d12-edentest`) | `EdenRenderer` | **done for one material** (section 3.8) | - | - |
 | **Vertex/pixel interface** (a `.sob` shader may skip a varying register) | locations, which match by construction | **done** (`compilePair`, section 3.9) | - | - |
 | Every Eden shader stage compiled (`-d3d12-shadertest`) | n/a | **done** (section 3.5) | - | - |
+| **Catalogue-wide pipeline tally** (`-d3d12-pipetest`: every library's VS/PS pair → a real PSO) | n/a | **done** (section 3.10) | - | - |
+| **Multi-stream meshes** (up to 3 vertex buffers, the shape of a `.3DG` node) | mesh streams | **done** (section 3.11, byte-identical frame) | - | - |
 | ImGui overlay / build watermark | done | **done, opt-in** `-d3d12-ui` (driver stall, section 6) | - | - |
 | Scene (eden), 3D game modes | done | not yet (phase 3b step 2) | - | - |
 
@@ -67,6 +69,9 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-d3d12-constest` | with the self test: the per stage constant buffers b0..b3 and the D3D9 blend state, two quads and a blend pass, read back and measured (section 3.7) |
 | `-d3d12-edentest [<text>]` | the first *original* TDU2 shader on D3D12: loads Euro/Shaders, picks a simple permutation of a real library, fills the constants with the shared filler and draws a quad (section 3.8; needs `-game`). `<text>` keeps only libraries whose name contains it (section 3.9) |
 | `-d3d12-shadertest [<text>]` | in the game bootstrap (`-game`): every `.sob` stage through the scene shader path, with a tally; `<text>` keeps only libraries whose name contains it (section 3.5) |
+| `-d3d12-pipetest [<text>]` | in the game bootstrap (`-game`): every library's VS/PS pair compiles, links and creates a real PSO, with a tally; `<text>` keeps only libraries whose name contains it (section 3.10) |
+| `-d3d12-splitstreams` | with `-d3d12-scenetest`: upload the cube as two vertex streams - the frame must be byte-identical (section 3.11) |
+| `-d3d12-meshconvtest` | no game data, no device: the `.3DG` stream expansion (SNORM / UScaled -> floats), exit 0/1 (section 3.12) |
 | `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
 | `-renderer-shot <path.ppm>` | with the self test: write the last frame |
 | `-renderer-window` | with the self test: show the window instead of hiding it |
@@ -605,6 +610,207 @@ a pair and names both lists rather than inventing a pad. How often that happens
 in the catalogue is exactly what the next measurement - a *pipeline* tally
 (compile every library's pairs and create a PSO for each) - will say.
 
+### 3.10 The catalogue-wide pipeline tally (`-d3d12-pipetest`)
+
+Section 3.9 ended on a measurement it could not make: how often a pair's
+interfaces cannot be lined up *in the catalogue*. That is the number that
+decides whether `EdenRenderer` can be pointed at the backend, so the tally walks
+every library the way the libraries themselves encode their permutations - each
+pixel item paired with the vertex item that carries the same hashcode - and for
+each pair:
+
+1. `D3D12ShaderCompiler::compilePair` (SPIR-V -> HLSL -> DXBC, then the varying
+   link of section 3.9),
+2. `D3D12BuildVertexLayout` from the vertex shader's dcl list (section 3.11),
+3. `D3D12Scene::getPipeline` - a real `CreateGraphicsPipelineState` on a real
+   device.
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-pipetest [<text>] `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx `
+    -log E:\Cline\_pipe.log      # -verbose: a line per pair, which is how a slow library names itself
+```
+
+It draws nothing and binds nothing: blend, cull, depth and the write mask cannot
+make the device refuse a PSO, so every pair is built with the opaque D3D9 state,
+and textures / samplers / constants are not part of a PSO at all. A *permutation*
+is a spec switch set, not a program: the bytecode a pair compiles to is a
+function of its two attrib blocks, so each distinct (VS attrib, PS attrib) is
+measured once and the repeats are counted - `TD_Building`'s 11376 permutations
+collapse to 4429 programs, `TD_Bones`' 48 to 1, `TD_CarMat_NM`'s 2560 to 1680.
+The cache is flushed every 512 creations (`releasePipelines`) so
+the tally never holds the catalogue's compiled state, and the watchdog beats
+once per pair - a library takes minutes.
+
+`-d3d12-pipetest TD_Lamp` on its own, the smoke test that the harness works:
+
+```
+D3D12 pipetest: TD_Lamp                         24 pair(s),    16 repeat(s):    8 pipeline(s),   0 refused,   0 link,   0 compile,   0 unpaired,   0 screen-space
+D3D12 pipetest: 1 libraries (0 one-sided), 24 pair(s) (16 repeat(s) collapsed to distinct programs): 8 pipeline(s) accepted, 0 refused by the device, 0 link failure(s), 0 compile failure(s), 0 unpaired pixel item(s) in 0.5 s
+D3D12 pipetest: 0 screen-space pair(s) (empty input layout), 0 format(s) that need a converted stream (A2B10G10R10 SNORM / UBYTE4 USCALED)
+D3D12 pipetest: PASSED (8 of 8 distinct program(s) created a pipeline)
+```
+
+The whole catalogue, one run (build `227 (a0cbfca+dirty) - cline`, RTX 5070 Ti):
+
+```
+D3D12 pipetest: TD_Building                  11376 pair(s),  6947 repeat(s): 4429 pipeline(s),   0 refused,   0 link,   0 compile,   0 unpaired,   0 screen-space
+D3D12 pipetest: TD_Bones                        48 pair(s),    47 repeat(s):    1 pipeline(s),   0 refused,   0 link,   0 compile,   0 unpaired,   0 screen-space
+D3D12 pipetest: TD_CarMat_NM                  2560 pair(s),   880 repeat(s): 1680 pipeline(s),   0 refused,   0 link,   0 compile,   0 unpaired,   0 screen-space
+... 113 more lines ...
+D3D12 pipetest: 116 libraries (0 one-sided), 31470 pair(s) (15365 repeat(s) collapsed to distinct
+  programs): 16105 pipeline(s) accepted, 0 refused by the device, 0 link failure(s), 0 compile
+  failure(s), 0 unpaired pixel item(s) in 2986.9 s
+D3D12 pipetest: 0 screen-space pair(s) (empty input layout), 0 format(s) that need a converted
+  stream (A2B10G10R10 SNORM / UBYTE4 USCALED)
+D3D12 pipetest: PASSED (16105 of 16105 distinct program(s) created a pipeline)
+```
+
+**Every distinct program TDU2 ships compiles, links and creates a pipeline**:
+16105 of 16105, no refusal, no unlinked pair, no stage that failed to compile -
+in 49.8 minutes on one run, because a PSO per program is real driver work. Two
+notes on that line: the `0 format(s)` is the *declaration-only* layout's count
+(the storage formats are a property of the mesh, section 3.12), and every padded
+pair still logs its relink line (4704 of them), which is the evidence section 3.9
+rests on and the reason the log is 1.4 MB.
+
+**Defect 1 - the pixel stage may stop early, but its SV_Position may not.** The
+first full run refused **32 of TD_Accessories2's 64 pairs and all 16 of
+TD_Avatar's** with `E_INVALIDARG`, and the reflected lists looked aligned:
+
+```
+CreateGraphicsPipelineState failed (0x80070057); vs outputs [TEXCOORD0@0 TEXCOORD1@1
+  TEXCOORD2@2 TEXCOORD3@3 TEXCOORD4@4 TEXCOORD5@5 TEXCOORD6@6 TEXCOORD7@7 TEXCOORD8@8
+  TEXCOORD10@9 TEXCOORD11@10], ps inputs [TEXCOORD0@0 ... TEXCOORD8@8]
+D3D12 debug (client): CreateGraphicsPipelineState: Vertex Shader - Pixel Shader linkage
+  error: ... Semantic 'SV_Position' is defined for mismatched hardware registers ...
+```
+
+Every generic semantic matched - the pixel stage simply read 9 of the 11
+varyings. But D3D12 compares the **hardware register** of every parameter, and a
+system value takes the one after the generics: SPIRV-Cross emits
+`gl_Position : SV_Position` *last* in the vertex stage's output struct (measured:
+`_dx_probe\pad\pipeline1_vs.hlsl`), so the vertex stage's SV_Position is register
+11 while a pixel stage that stops at TEXCOORD8 puts its own in register 9. The
+old `VaryingsLineUp` accepted a pixel list that was a *prefix* of the vertex
+list, so no pads were emitted. It now requires the same length, and
+`LinkVaryings` pads - `TD_Accessories2` 64/64 and `TD_Avatar` 16/16 after the
+fix.
+
+That change alone regressed `TD_Bones` (48/48 -> 0/48, "the shader interface
+could not be reflected"): its pixel stage reads *no* varying (a flat colour), so
+the padding path treated an empty pixel interface as a failed reflection. A
+pixel stage with an empty `struct SPIRV_Cross_Input` is legitimate and gets pads
+like any other; one that takes *no parameter at all* (not even SV_Position) has
+no register to align and needs none. `TD_Bones` is 48/48 again.
+
+**Defect 2 - the pipeline key identified stages by address.** `MakePipelineKey`
+appended the address of each stage's `Bytecode` vector (the Vulkan cache's
+lifetime rule), which is stable only while the stage outlives the pipeline. The
+tally compiles thousands of pairs into locals that reuse their stack addresses,
+so two different programs would have hashed to one key and the second would have
+silently reused the first one's PSO - a false "accepted". The key is now an
+FNV-1a hash of both blobs plus their sizes; `-d3d12-scenetest`'s frame is
+unchanged by it (`SHA256 E505B37F...C3F778CEB`, section 3.11).
+
+### 3.11 Multi-stream meshes (`-d3d12-splitstreams`)
+
+A `.3DG` node's vertices are not one interleaved buffer: the engine splits them
+over up to three streams (position / normal / colour, texture coordinates /
+weights, per-vertex bone data), each with its own stride, and every dcl says
+which stream it reads. `D3D12Scene::Mesh` therefore carries
+`kMaxStreams = 3` vertex buffers and `draw` binds them with a single
+`IASetVertexBuffers`, and `D3D12BuildVertexLayout`
+(`source/render/d3d12/d3d12_vertex_layout.*`) turns a vertex shader's dcl list
+plus a mesh's own declaration into the pipeline's input layout:
+
+| source | what it supplies |
+|---|---|
+| the vertex shader's `TranslatedShader::Inputs` (the `.sob` dcl) | which semantics the stage reads, and the SPIR-V location that becomes the semantic index |
+| the mesh's `RawVertexAttribute` list (the `.3DG`) | the stream, the storage format (`VAF_*` -> DXGI) and the byte offset |
+| a dcl the mesh does not carry | one `float4` in stream 3 at the usage's offset (COLOR 16, NORMAL 32, TANGENT / BINORMAL 48, else 0) - Direct3D 12 reads an unbound stream as zero, where Vulkan leaves it undefined |
+
+The A/B is the scene test's own cube, uploaded twice - once interleaved (stride
+40) and once split into two streams (stride 40 and 8):
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-scenetest `
+    -renderer-selftest 30 -renderer-shot E:\Cline\_st_stream1.ppm
+build-cline\bin\opentdu2-cline.exe -renderer d3d12 -d3d12-scenetest -d3d12-splitstreams `
+    -renderer-selftest 30 -renderer-shot E:\Cline\_st_stream2.ppm
+```
+
+Both frames are `SHA256 E505B37F0063C7750BF39A9DC4579FD4E97937722B5DC825B7C1470C3F778CEB`
+- the hash every earlier scene-test build produced - so the two-stream draw is
+the *same* draw, and the pipeline-key change of section 3.10 did not move a
+pixel. The log names the mode (`two vertex streams (stride 40 and 8)`), and the
+pipeline line says `2 stream(s)`.
+
+Three measured facts about the layout, all visible in the logs:
+
+- **A wrong format is a warning, not a refusal.** With the declaration-only
+  layout (the tally, where no mesh exists) a `BLENDINDICES` dcl is guessed as
+  `R8G8B8A8_UINT` while the HLSL reads a float; the debug layer prints
+  *"...specifies mismatched format: 'R8G8B8A8_UINT'. This is not an error,
+  since behavior is well defined..."* and the PSO is created. The element
+  format only decides the conversion; the *semantic* decides the linkage.
+- **A dcl the mesh lacks still needs an element** - `CreateGraphicsPipelineState`
+  refuses a layout that does not cover every vertex-shader input ("Input
+  signature is not compatible with the input layout"), which is why the
+  fallback stream exists rather than a shorter layout.
+- **Two storage formats have no DXGI equivalent** and must be converted when
+  the mesh is uploaded (counted by the tally's last line, step 2b's work):
+  `A2B10G10R10 SNORM` (`VAF_NORMAL_/TANGENT_A2B10G10R10_SNORM_PACK32`) is mapped
+  to `R10G10B10A2_UNORM`, which loses the sign, and
+  `VAF_BONEINDEX_R8G8B8A8_USCALED` to `R8G8B8A8_UINT`, which the D3D9 shader
+  reads as a float. Both need a float4 expansion at upload, not a different
+  pipeline.
+
+### 3.12 The `.3DG` mesh streams (`-d3d12-meshconvtest`)
+
+`D3D12BuildVertexLayout` reads a declaration, but the declaration a `.3DG`
+primitive carries is written in the engine's storage formats, and three of them
+have no DXGI equivalent at all:
+
+| `.3DG` format | Vulkan | Direct3D 12 |
+|---|---|---|
+| `A2B10G10R10 SNORM` (normal, tangent) | `VK_FORMAT_A2B10G10R10_SNORM_PACK32` | no such format - `R10G10B10A2_UNORM` would drop the sign |
+| `UBYTE4 USCALED` (bone index) | `R8G8B8A8_USCALED` - the byte arrives as a float | no UScaled either; `R8G8B8A8_UINT` arrives as a `uint`, which the D3D9 shader reads as a float |
+
+`D3D12PrepareMesh` (`source/render/d3d12/d3d12_mesh_builder.*`) turns one
+`GeometryPrimitive` into upload-ready data. When no attribute needs an
+expansion it passes the engine's own bytes through (the common case, and the
+cheap one); when one does, the primitive is rebuilt into **one** interleaved
+stream where the packed SNORM is decoded to four floats (10-bit signed values
+over 511, the 2-bit alpha over 1) and the bone index to its byte value, and the
+other attributes keep their bytes. The declaration is rewritten with it, so the
+layout builder sees ordinary float formats.
+
+The probe needs no device and no game data - it is arithmetic, so it runs in the
+bootstrap and exits with the verdict:
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -d3d12-meshconvtest -nolog
+```
+
+```
+D3D12 mesh convert test: PASSED (stride 52, 2 expanded attribute(s), SNORM -1 -> -1.0, UScaled 255 -> 255.0)
+```
+
+It packs `(-1, 0, 0.5)` and an alpha of `-1` into a SNORM normal, a
+`(1,2,3,4)` and a `255` bone index, plus a float3 position and a float2 uv, and
+checks the decoded values: `-1` must come out as `-1.0` (not `0.5`, which is
+what the UNORM rounding of a wrong mapping gives, and not `0`), a 10-bit `0.5`
+within one quantum (`1/511`), the 2-bit alpha as `-1`, and `255` as `255.0`
+(UScaled) rather than `1.0` (UNORM). It also checks the layout arithmetic
+(12 + 16 + 8 + 16, 4-byte aligned = stride 52) and the pass-through case: a
+primitive without a packed format keeps its two streams and its bytes.
+
+Writing the probe paid for itself: the first run failed on every SNORM value
+because the decoder added the attribute's byte offset a second time (the caller
+had already applied it), so it read past the vertex - the kind of mistake that
+would have shown up much later as "the normals look wrong in the game".
+
 ## 4. The shader path
 
 The scene cannot be ported until the shaders can be consumed per backend. Both
@@ -749,8 +955,16 @@ own `discard`.
    that dropped every error, and `D3D12ShaderCompiler::compilePair` now pads the
    pixel stage's input struct to the vertex stage's outputs. `TD_LightBeam
    vs2/ps1` binds and draws (110224 px, the same exact quad), `TD_Lamp`'s numbers
-   are unchanged, and every other probe is byte-identical. **Step 2b, the Eden
-   scene itself** is what remains:
+   are unchanged, and every other probe is byte-identical. Step 2a3, 2026-11-18:
+   **the catalogue-wide pipeline tally** (`-d3d12-pipetest`, section 3.10) - every
+   library's VS/PS pair from its hashcodes, `compilePair`, a real
+   `CreateGraphicsPipelineState` for each, with the PSO cache batched. It found
+   two backend defects (the pixel stage's SV_Position register drifting when it
+   stops early, and a pipeline key that identified stages by address); both are
+   fixed and the refusals they caused are gone. Step 2b, in progress: **the Eden
+   scene itself** - `D3D12Scene` now carries multi-stream meshes (section 3.11)
+   and the vertex layout from a `.3DG` declaration plus the shader's dcl list,
+   which is the interface `EdenRenderer` needs:
    `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
    `EdenProgram` -> pipeline cache via `compilePair`, `FillEdenConstants` into the
    b0 CBV and the b13 push constants, the sampler heap and texture table it
@@ -870,6 +1084,19 @@ run before `EdenRenderer` is pointed at the backend.
   `-verbose`, and it remembers the descriptions it has already printed (the
   per-frame flush otherwise repeats one misuse once a frame). Corollary: "the
   debug layer is silent" is a claim to re-check after touching that filter.
+- **A pixel stage may stop early, but its SV_Position may not.** D3D12 links the
+  stages by *hardware register*, and a system value takes the register after the
+  generics - SPIRV-Cross emits `gl_Position : SV_Position` last in the vertex
+  stage's output struct. A vertex stage with 11 varyings therefore has
+  SV_Position in register 11, and a pixel stage that reads only 9 puts its own in
+  register 9: the pair is refused with *"Semantic 'SV_Position' is defined for
+  mismatched hardware registers"* although every generic semantic matches, and
+  the log looks aligned because reflection reports *slots*, not registers. Pad
+  the pixel input struct to the vertex stage's length (sections 3.9, 3.10).
+  Corollary: an empty pixel interface is not a failed reflection - `TD_Bones`'
+  flat-colour pixel shaders are exactly that - and a pixel stage that takes no
+  parameter at all needs no padding because it has no register to align.
+
 - **D3D12 links the vertex and pixel stages by varying *slot*, and HLSL slots are
   dense.** The k-th non-system-value output is compared with the k-th input;
   HLSL hands out those slots in declaration order, while DXSO's locations are

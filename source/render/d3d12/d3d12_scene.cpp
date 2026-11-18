@@ -5,6 +5,7 @@
 
 #include "render/d3d12/d3d12_device.h"
 #include "render/d3d12/d3d12_shader.h"
+#include "render/d3d12/d3d12_vertex_layout.h"
 #include "render/eden/eden_constants.h"
 #include "render/eden/eden_renderer.h"
 #include "render/eden/eden_shader_system.h"
@@ -24,6 +25,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <set>
 
 namespace {
 template <typename T> void SafeRelease( T *&pObject ) {
@@ -45,16 +47,32 @@ D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle( uint64_t value ) {
     return handle;
 }
 
-// The pipeline key: every field that changes the PSO. Bytecode identity is the
-// stage blob's address - the D3D12ShaderStage outlives the pipeline (its owner
-// keeps the cache), the same lifetime rule the Vulkan pipeline cache uses.
+// The pipeline key: every field that changes the PSO.
+//
+// The stages are identified by a hash of their DXBC, not by the address of the
+// D3D12ShaderStage that holds it. Address identity was the rule while a stage
+// outlived the pipeline (EdenRenderer's cache does keep them), but the tally
+// compiles thousands of pairs into locals that reuse their stack addresses -
+// two different stages then hash to one key and the second draw would silently
+// reuse the first one's PSO. Hashing 2-4 KB per pipeline creation is nothing
+// next to CreateGraphicsPipelineState.
+void AppendStageHash( std::string &key, const D3D12ShaderStage &stage ) {
+    uint64_t hash = 0xCBF29CE484222325ull; // FNV-1a 64
+    for ( const uint8_t byte : stage.Bytecode ) {
+        hash = ( hash ^ byte ) * 0x100000001B3ull;
+    }
+    key.append( reinterpret_cast<const char *>( &hash ), sizeof( hash ) );
+    const uint64_t size = stage.Bytecode.size();
+    key.append( reinterpret_cast<const char *>( &size ), sizeof( size ) );
+}
+
 std::string MakePipelineKey( const D3D12ShaderStage &vs,
                              const D3D12ShaderStage &ps,
                              const D3D12Scene::PipelineDesc &desc ) {
     std::string key;
-    key.reserve( 128 );
-    key.append( reinterpret_cast<const char *>( &vs.Bytecode ), sizeof( vs.Bytecode ) );
-    key.append( reinterpret_cast<const char *>( &ps.Bytecode ), sizeof( ps.Bytecode ) );
+    key.reserve( 256 );
+    AppendStageHash( key, vs );
+    AppendStageHash( key, ps );
     const char state[6] = { static_cast<char>( desc.Blend ), static_cast<char>( desc.Cull ),
                             static_cast<char>( desc.bDepthTest ), static_cast<char>( desc.bDepthWrite ),
                             static_cast<char>( desc.bFrontFaceCW ), static_cast<char>( desc.NumStreams ) };
@@ -490,9 +508,25 @@ void D3D12Scene::dumpShader( const char *pName, const D3D12ShaderStage &stage ) 
     dumpedShaders++;
 }
 
+void D3D12Scene::releasePipelines() {
+    for ( auto &entry : pipelines ) {
+        ID3D12PipelineState *pState = static_cast<ID3D12PipelineState *>( entry.second );
+        SafeRelease( pState );
+    }
+    pipelines.clear();
+}
+
 const void *D3D12Scene::getPipeline( const PipelineDesc &desc ) {
     if ( !isReady() || desc.pVS == nullptr || desc.pPS == nullptr || !desc.pVS->bReady ||
-         !desc.pPS->bReady || desc.NumStreams == 0 || desc.NumAttributes == 0 ) {
+         !desc.pPS->bReady ) {
+        return nullptr;
+    }
+    // A screen-space program (no dcl, no vertex buffer) gets an empty input
+    // layout - legal in Direct3D 12, and the form every full-screen pass takes.
+    // A layout that names attributes while declaring no stream is a caller bug.
+    if ( ( desc.NumAttributes == 0 ) != ( desc.NumStreams == 0 ) ) {
+        OTDU_LOG_ERROR( "D3D12 scene: pipeline with %u attribute(s) and %u stream(s)\n", desc.NumAttributes,
+                        desc.NumStreams );
         return nullptr;
     }
     const std::string key = MakePipelineKey( *desc.pVS, *desc.pPS, desc );
@@ -671,11 +705,13 @@ const void *D3D12Scene::getPipeline( const PipelineDesc &desc ) {
         dumpShader( ( base + "_vs" ).c_str(), *desc.pVS );
         dumpShader( ( base + "_ps" ).c_str(), *desc.pPS );
     }
-    OTDU_LOG_INFO( "D3D12 scene: pipeline %u (%u attributes, %u stream(s), %s, depth %s%s)\n",
-                   static_cast<uint32_t>( pipelines.size() ), desc.NumAttributes, desc.NumStreams,
-                   desc.pState != nullptr ? ( desc.pState->isBlended() ? "D3D9 blend" : "D3D9 opaque" )
-                                          : ( desc.Blend != eBlendMode::BM_Opaque ? "blend" : "opaque" ),
-                   desc.bDepthTest ? "test" : "off", desc.bDepthWrite ? "+write" : "" );
+    if ( !bQuietPipelines ) {
+        OTDU_LOG_INFO( "D3D12 scene: pipeline %u (%u attributes, %u stream(s), %s, depth %s%s)\n",
+                       static_cast<uint32_t>( pipelines.size() ), desc.NumAttributes, desc.NumStreams,
+                       desc.pState != nullptr ? ( desc.pState->isBlended() ? "D3D9 blend" : "D3D9 opaque" )
+                                              : ( desc.Blend != eBlendMode::BM_Opaque ? "blend" : "opaque" ),
+                       desc.bDepthTest ? "test" : "off", desc.bDepthWrite ? "+write" : "" );
+    }
     return pState;
 }
 
@@ -685,10 +721,28 @@ bool D3D12Scene::createMesh( const void *pVertexData,
                              const uint32_t *pIndices,
                              uint32_t numIndices,
                              Mesh &mesh ) {
+    const void *pStreams[1] = { pVertexData };
+    const uint32_t sizes[1] = { vertexBytes };
+    const uint32_t strides[1] = { vertexStride };
+    return createMeshStreams( pStreams, sizes, strides, 1, pIndices, numIndices, mesh );
+}
+
+bool D3D12Scene::createMeshStreams( const void *const *ppVertexData,
+                                    const uint32_t *pVertexBytes,
+                                    const uint32_t *pStrides,
+                                    uint32_t numStreams,
+                                    const uint32_t *pIndices,
+                                    uint32_t numIndices,
+                                    Mesh &mesh ) {
     mesh = Mesh();
-    if ( pDevice == nullptr || pVertexData == nullptr || vertexBytes == 0 || vertexStride == 0 ||
-         pIndices == nullptr || numIndices == 0 ) {
+    if ( pDevice == nullptr || ppVertexData == nullptr || pVertexBytes == nullptr || pStrides == nullptr ||
+         numStreams == 0 || numStreams > Mesh::kMaxStreams || pIndices == nullptr || numIndices == 0 ) {
         return false;
+    }
+    for ( uint32_t stream = 0; stream < numStreams; stream++ ) {
+        if ( ppVertexData[stream] == nullptr || pVertexBytes[stream] == 0 || pStrides[stream] == 0 ) {
+            return false;
+        }
     }
     ID3D12Device *pD3D12Device = pDevice->getDevice();
 
@@ -725,31 +779,49 @@ bool D3D12Scene::createMesh( const void *pVertexData,
         return true;
     };
 
-    ID3D12Resource *pVertexBuffer = nullptr;
     ID3D12Resource *pIndexBuffer = nullptr;
     const uint64_t indexBytes = static_cast<uint64_t>( numIndices ) * sizeof( uint32_t );
-    if ( !createBuffer( vertexBytes, pVertexData, pVertexBuffer ) ||
-         !createBuffer( indexBytes, pIndices, pIndexBuffer ) ) {
-        SafeRelease( pVertexBuffer );
+    for ( uint32_t stream = 0; stream < numStreams; stream++ ) {
+        ID3D12Resource *pVertexBuffer = nullptr;
+        if ( !createBuffer( pVertexBytes[stream], ppVertexData[stream], pVertexBuffer ) ) {
+            SafeRelease( pVertexBuffer );
+            for ( uint32_t created = 0; created < stream; created++ ) {
+                SafeRelease( reinterpret_cast<ID3D12Resource *&>( mesh.pVertexBuffers[created] ) );
+            }
+            SafeRelease( pIndexBuffer );
+            OTDU_LOG_WARN( "D3D12 scene: mesh upload failed (stream %u, %u bytes of vertices, %u indices)\n",
+                           stream, pVertexBytes[stream], numIndices );
+            mesh = Mesh();
+            return false;
+        }
+        mesh.pVertexBuffers[stream] = pVertexBuffer;
+        mesh.VertexBytes[stream] = pVertexBytes[stream];
+        mesh.Strides[stream] = pStrides[stream];
+    }
+    if ( !createBuffer( indexBytes, pIndices, pIndexBuffer ) ) {
+        for ( uint32_t stream = 0; stream < numStreams; stream++ ) {
+            SafeRelease( reinterpret_cast<ID3D12Resource *&>( mesh.pVertexBuffers[stream] ) );
+        }
         SafeRelease( pIndexBuffer );
-        OTDU_LOG_WARN( "D3D12 scene: mesh upload failed (%u bytes of vertices, %u indices)\n", vertexBytes,
-                       numIndices );
+        OTDU_LOG_WARN( "D3D12 scene: mesh upload failed (%u indices)\n", numIndices );
+        mesh = Mesh();
         return false;
     }
-    mesh.pVertexBuffer = pVertexBuffer;
+    mesh.NumStreams = numStreams;
     mesh.pIndexBuffer = pIndexBuffer;
     mesh.NumIndices = numIndices;
-    mesh.VertexStride = vertexStride;
-    mesh.VertexBytes = vertexBytes;
     return true;
 }
 
 void D3D12Scene::destroyMesh( Mesh &mesh ) {
-    SafeRelease( reinterpret_cast<ID3D12Resource *&>( mesh.pVertexBuffer ) );
+    for ( uint32_t stream = 0; stream < Mesh::kMaxStreams; stream++ ) {
+        SafeRelease( reinterpret_cast<ID3D12Resource *&>( mesh.pVertexBuffers[stream] ) );
+        mesh.VertexBytes[stream] = 0;
+        mesh.Strides[stream] = 0;
+    }
     SafeRelease( reinterpret_cast<ID3D12Resource *&>( mesh.pIndexBuffer ) );
+    mesh.NumStreams = 0;
     mesh.NumIndices = 0;
-    mesh.VertexStride = 0;
-    mesh.VertexBytes = 0;
 }
 
 
@@ -764,8 +836,8 @@ void D3D12Scene::draw( const void *pPipeline,
                        const StageConstants *pVSConstants,
                        const StageConstants *pPSConstants,
                        float blendFactor ) {
-    if ( pDevice == nullptr || pPipeline == nullptr || mesh.pVertexBuffer == nullptr ||
-         mesh.pIndexBuffer == nullptr || mesh.NumIndices == 0 ) {
+    if ( pDevice == nullptr || pPipeline == nullptr || mesh.NumStreams == 0 || mesh.pIndexBuffer == nullptr ||
+         mesh.NumIndices == 0 ) {
         return;
     }
     ID3D12GraphicsCommandList *pList = pDevice->getCommandList();
@@ -842,13 +914,21 @@ void D3D12Scene::draw( const void *pPipeline,
     }
     pList->SetPipelineState( static_cast<ID3D12PipelineState *>( const_cast<void *>( pPipeline ) ) );
 
-    ID3D12Resource *pVertex = static_cast<ID3D12Resource *>( mesh.pVertexBuffer );
+    // Every stream in one call: a .3DG mesh splits its attributes over up to
+    // three buffers and the input layout's InputSlot picks the one each element
+    // reads (D3D12 writes the same slots at IA time).
+    D3D12_VERTEX_BUFFER_VIEW vertexViews[Mesh::kMaxStreams] = {};
+    const uint32_t numStreams = Min( mesh.NumStreams, Mesh::kMaxStreams );
+    for ( uint32_t stream = 0; stream < numStreams; stream++ ) {
+        ID3D12Resource *pVertex = static_cast<ID3D12Resource *>( mesh.pVertexBuffers[stream] );
+        vertexViews[stream].BufferLocation = pVertex != nullptr ? pVertex->GetGPUVirtualAddress() : 0;
+        vertexViews[stream].SizeInBytes = mesh.streamSize( stream );
+        vertexViews[stream].StrideInBytes = mesh.Strides[stream];
+    }
+    if ( numStreams > 0 ) {
+        pList->IASetVertexBuffers( 0, numStreams, vertexViews );
+    }
     ID3D12Resource *pIndex = static_cast<ID3D12Resource *>( mesh.pIndexBuffer );
-    const D3D12_VERTEX_BUFFER_VIEW vertexView = { pVertex->GetGPUVirtualAddress(),
-                                                  mesh.VertexBytes != 0 ? mesh.VertexBytes
-                                                                        : mesh.VertexStride,
-                                                  static_cast<UINT>( mesh.VertexStride ) };
-    pList->IASetVertexBuffers( 0, 1, &vertexView );
     const D3D12_INDEX_BUFFER_VIEW indexView = { pIndex->GetGPUVirtualAddress(),
                                                 static_cast<UINT>( mesh.NumIndices * sizeof( uint32_t ) ),
                                                 DXGI_FORMAT_R32_UINT };
@@ -945,20 +1025,54 @@ bool D3D12RunSceneTest( D3D12Device &device, uint32_t frames, const ColorRGBA &c
                    static_cast<uint32_t>( vs.Bytecode.size() ), vs.RootConstants,
                    static_cast<uint32_t>( ps.Bytecode.size() ), ps.NumTextures, ps.NumSamplers );
 
+    // -d3d12-splitstreams: the same cube through two vertex streams - the shape
+    // every .3DG mesh has (position/normal/colour in one buffer, texture
+    // coordinates in another). The frame has to come out byte-identical to the
+    // single-stream one, which is what makes this an A/B and not a second test
+    // (docs/backends.md section 3.11).
+    const bool bSplitStreams = CmdLine::HasArg( "-d3d12-splitstreams" );
+    struct Stream0 {
+        float Position[3];
+        float Normal[3];
+        float Color[4];
+    };
+    struct Stream1 {
+        float Texcoord[2];
+    };
+    std::vector<Stream0> stream0;
+    std::vector<Stream1> stream1;
     D3D12Scene::Attribute attributes[4] = {
         { 0, 0, kDXGI_R32G32B32_FLOAT, 0 },
         { 1, 0, kDXGI_R32G32B32_FLOAT, 12 },
         { 2, 0, kDXGI_R32G32_FLOAT, 24 },
         { 3, 0, kDXGI_R32G32B32A32_FLOAT, 32 },
     };
-    const uint32_t stride = sizeof( Vertex );
+    uint32_t strides[2] = { static_cast<uint32_t>( sizeof( Vertex ) ), 0 };
+    uint32_t numStreams = 1;
+    if ( bSplitStreams ) {
+        stream0.resize( 24 );
+        stream1.resize( 24 );
+        for ( uint32_t i = 0; i < 24; i++ ) {
+            memcpy( stream0[i].Position, vertices[i].Position, sizeof( stream0[i].Position ) );
+            memcpy( stream0[i].Normal, vertices[i].Normal, sizeof( stream0[i].Normal ) );
+            memcpy( stream0[i].Color, vertices[i].Color, sizeof( stream0[i].Color ) );
+            memcpy( stream1[i].Texcoord, vertices[i].Texcoord, sizeof( stream1[i].Texcoord ) );
+        }
+        attributes[0] = { 0, 0, kDXGI_R32G32B32_FLOAT, 0 };
+        attributes[1] = { 1, 0, kDXGI_R32G32B32_FLOAT, 12 };
+        attributes[2] = { 2, 1, kDXGI_R32G32_FLOAT, 0 };
+        attributes[3] = { 3, 0, kDXGI_R32G32B32A32_FLOAT, 24 };
+        strides[0] = static_cast<uint32_t>( sizeof( Stream0 ) );
+        strides[1] = static_cast<uint32_t>( sizeof( Stream1 ) );
+        numStreams = 2;
+    }
     D3D12Scene::PipelineDesc pipelineDesc;
     pipelineDesc.pVS = &vs;
     pipelineDesc.pPS = &ps;
     pipelineDesc.pAttributes = attributes;
     pipelineDesc.NumAttributes = 4;
-    pipelineDesc.pStrides = &stride;
-    pipelineDesc.NumStreams = 1;
+    pipelineDesc.pStrides = strides;
+    pipelineDesc.NumStreams = numStreams;
     pipelineDesc.Blend = eBlendMode::BM_Opaque;
     // Both faces: the winding convention is settled when Eden's meshes are
     // ported (docs/backends.md section 6) and it must not be the reason this
@@ -973,7 +1087,17 @@ bool D3D12RunSceneTest( D3D12Device &device, uint32_t frames, const ColorRGBA &c
     }
 
     D3D12Scene::Mesh mesh;
-    if ( !scene.createMesh( vertices, sizeof( vertices ), stride, indices, 36, mesh ) ) {
+    if ( bSplitStreams ) {
+        const void *pStreams[2] = { stream0.data(), stream1.data() };
+        const uint32_t sizes[2] = { static_cast<uint32_t>( stream0.size() * sizeof( Stream0 ) ),
+                                    static_cast<uint32_t>( stream1.size() * sizeof( Stream1 ) ) };
+        if ( !scene.createMeshStreams( pStreams, sizes, strides, 2, indices, 36, mesh ) ) {
+            OTDU_LOG_ERROR( "D3D12 scene test: the two-stream cube could not be uploaded\n" );
+            return false;
+        }
+        OTDU_LOG_INFO( "D3D12 scene test: two vertex streams (stride %u and %u)\n", strides[0], strides[1] );
+    } else if ( !scene.createMesh( vertices, sizeof( vertices ), static_cast<uint32_t>( sizeof( Vertex ) ), indices,
+                                   36, mesh ) ) {
         OTDU_LOG_ERROR( "D3D12 scene test: the cube could not be uploaded\n" );
         return false;
     }
@@ -2248,8 +2372,254 @@ bool D3D12RunShaderTest() {
                    maxTextures, numOverTextureTable, D3D12Scene::kTextureTableSize, maxPushConstants,
                    ( maxPushConstants + 3 ) / 4, numDumped > 0 ? ", HLSL dumped" : "" );
     const bool bPassed = numStages > 0 && numTranslateFailures == 0 && numCompileFailures == 0;
+
     OTDU_LOG_INFO( "D3D12 shadertest: %s (%u of %u stages translated)\n",
                    bPassed ? "PASSED" : "FAILED", numTranslated, numStages );
+    shaderSystem.destroy();
+    return bPassed;
+}
+
+// -d3d12-pipetest (docs/backends.md section 3.10): the breadth measurement
+// between "every stage compiles" (section 3.5) and pointing EdenRenderer at the
+// backend (section 5). A stage compiling says nothing about the pair: D3D12
+// links the two by varying slot, the device validates the whole descriptor on
+// CreateGraphicsPipelineState, and a program is only usable when both accept
+// it. So every .sob library's permutations are walked as the libraries encode
+// them - a pixel item and the vertex item that share its hashcode - the pair
+// goes through D3D12ShaderCompiler::compilePair, its vertex input layout is
+// built from the vertex shader's dcl list (D3D12BuildVertexLayout), and
+// D3D12Scene::getPipeline creates a real PSO on a real device.
+//
+// What it does not measure: the material state. A permutation's PSO also
+// carries blend / cull / depth from its .2DM, none of which can make the device
+// refuse a pipeline, so the tally uses the opaque D3D9 state for every pair.
+// Textures, samplers and constants are not bound to a PSO either.
+bool D3D12RunPipelineTest() {
+    if ( gpFile == nullptr ) {
+        OTDU_LOG_ERROR( "D3D12 pipetest: the game file system is not up\n" );
+        return false;
+    }
+    EdenShaderSystem shaderSystem;
+    if ( !shaderSystem.initialize() ) {
+        OTDU_LOG_ERROR( "D3D12 pipetest: no shader library under %s\n", gpFile->getShaderFolder().c_str() );
+        return false;
+    }
+    // "-d3d12-pipetest <text>": only libraries whose name contains <text>, so one
+    // family can be iterated on without the whole catalogue. A bare flag leaves
+    // the next token to another switch (see -d3d12-shadertest).
+    const char *pFilterArg = CmdLine::GetArgValue( "-d3d12-pipetest" );
+    const char *pFilter = ( pFilterArg != nullptr && pFilterArg[0] != '-' ) ? pFilterArg : nullptr;
+    const char *pDumpDir = CmdLine::GetArgValue( "-d3d12-dump-shaders" );
+
+    bool bAbort = false;
+    SDL_Window *pWindow = nullptr;
+    if ( SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
+        pWindow = SDL_CreateWindow( "OpenTDU2 - D3D12 pipeline tally", 1280, 720, SDL_WINDOW_HIDDEN );
+    }
+    if ( pWindow == nullptr ) {
+        OTDU_LOG_ERROR( "D3D12 pipetest: no window: %s\n", SDL_GetError() );
+        bAbort = true;
+    }
+    D3D12Device device;
+    if ( !bAbort && !device.create( pWindow, /*bVSync=*/false, CmdLine::HasArg( "-d3d12-debug" ) ) ) {
+        OTDU_LOG_ERROR( "D3D12 pipetest: the device could not be created\n" );
+        bAbort = true;
+    }
+    D3D12Scene scene;
+    if ( !bAbort && !scene.initialize( &device ) ) {
+        OTDU_LOG_ERROR( "D3D12 pipetest: the scene could not be initialized\n" );
+        bAbort = true;
+    }
+    // A PSO per permutation: one INFO line each would bury the totals, and
+    // keeping them all would hold the whole catalogue's compiled state. The
+    // creation result is what is measured, so the cache is flushed in batches
+    // (a refusal still logs - that is the finding).
+    scene.setQuietPipelines( true );
+    scene.setShaderDumpDir( pDumpDir );
+    constexpr uint32_t kPipelineBatch = 512;
+
+    D3D12Scene::D3D9State state; // opaque, depth test + write: EdenMaterial's default
+    uint32_t numLibraries = 0;
+    uint32_t numOneSided = 0;
+    uint32_t numPairs = 0;
+    uint32_t numRepeated = 0;
+    uint32_t numUnpaired = 0;
+    uint32_t numCompileFailures = 0;
+    uint32_t numLinkFailures = 0;
+    uint32_t numPipelines = 0;
+    uint32_t numRefused = 0;
+    uint32_t numScreenSpace = 0;
+    uint32_t numExpandedFormats = 0;
+    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
+    for ( const std::unique_ptr<ShaderLibrary> &pLibrary : shaderSystem.getLibraries() ) {
+        const std::string &libraryName = pLibrary->getName();
+        if ( pFilter != nullptr && pFilter[0] != '\0' &&
+             ToLower( libraryName ).find( ToLower( pFilter ) ) == std::string::npos ) {
+            continue;
+        }
+        const ShaderLibrary::Profile *pVSProfile = pLibrary->getProfile( ShaderLibrary::SP_VertexShader );
+        const ShaderLibrary::Profile *pPSProfile = pLibrary->getProfile( ShaderLibrary::SP_PixelShader );
+        if ( pVSProfile == nullptr || pPSProfile == nullptr ) {
+            // A pixel-only or vertex-only library (a screen effect, a helper):
+            // not a pair, and not a failure.
+            numOneSided++;
+            OTDU_LOG_INFO( "D3D12 pipetest: %-28s one-sided (%s profile only)\n", libraryName.c_str(),
+                           pVSProfile != nullptr ? "vertex" : "pixel" );
+            continue;
+        }
+        numLibraries++;
+        uint32_t libraryPairs = 0;
+        uint32_t libraryRepeated = 0;
+        uint32_t libraryPipelines = 0;
+        uint32_t libraryRefused = 0;
+        uint32_t libraryUnpaired = 0;
+        uint32_t libraryCompile = 0;
+        uint32_t libraryLink = 0;
+        uint32_t libraryScreen = 0;
+        // A permutation is a *spec switch set*; the bytecode a pair compiles to is
+        // a function of its two attrib blocks, so many permutations name the same
+        // program (TD_Building: 11376 permutations, 664 x 664 attrib blocks). Each
+        // distinct (VS attrib, PS attrib) is measured once - that is what a
+        // pipeline is made of - and the repeats are counted, not compiled.
+        std::set<uint64_t> measuredPairs;
+        for ( const ShaderLibrary::Item &psItem : pPSProfile->Items ) {
+            const ShaderLibrary::Item *pVSItem = nullptr;
+            for ( const ShaderLibrary::Item &vsItem : pVSProfile->Items ) {
+                if ( vsItem.Hashcode == psItem.Hashcode ) {
+                    pVSItem = &vsItem;
+                    break;
+                }
+            }
+            if ( pVSItem == nullptr ) {
+                // A pixel permutation whose hashcode the vertex profile does not
+                // have: the library encodes the pairing, so this one is not a
+                // drawable program. Counted, not failed.
+                libraryUnpaired++;
+                numUnpaired++;
+                continue;
+            }
+            libraryPairs++;
+            numPairs++;
+            const uint64_t pairKey =
+                ( static_cast<uint64_t>( pVSItem->AttribIndex ) << 32 ) | psItem.AttribIndex;
+            if ( !measuredPairs.insert( pairKey ).second ) {
+                libraryRepeated++;
+                numRepeated++;
+                continue;
+            }
+            // Compiling a catalogue blocks the boot for minutes: the watchdog
+            // must see the thread alive.
+            Watchdog::Beat( "pipetest", numPairs );
+
+            const char *pName = libraryName.c_str();
+            const uint32_t vsAttrib = pVSItem->AttribIndex;
+            const uint32_t psAttrib = psItem.AttribIndex;
+            // The translated stages, not EdenShaderSystem::getProgram: the tally
+            // needs the two bytecodes and nothing else, and a program object per
+            // permutation would keep every constant table of the catalogue alive.
+            const TranslatedShader *pVS = pLibrary->getTranslatedShader( ShaderLibrary::SP_VertexShader, vsAttrib );
+            const TranslatedShader *pPS = pLibrary->getTranslatedShader( ShaderLibrary::SP_PixelShader, psAttrib );
+            if ( pVS == nullptr || pPS == nullptr || pVS->SPIRV.empty() || pPS->SPIRV.empty() ) {
+                libraryCompile++;
+                numCompileFailures++;
+                OTDU_LOG_WARN( "D3D12 pipetest: %s vs%u/ps%u: DXSO -> SPIR-V failed\n", pName, vsAttrib, psAttrib );
+                continue;
+            }
+
+            D3D12ShaderStage vs;
+            D3D12ShaderStage ps;
+            // -verbose: one line per pair, so a library whose shader makes the
+            // compiler or the driver take minutes names itself in the log.
+            OTDU_LOG_DEBUG( "D3D12 pipetest: compiling %s vs%u/ps%u (pair %u)\n", pName, vsAttrib, psAttrib,
+                            numPairs );
+            if ( !D3D12ShaderCompiler::compilePair( *pVS, *pPS, vs, ps, pName ) ) {
+                // A stage DXSO/SPIRV-Cross/FXC would not compile is one class;
+                // a pair whose interfaces cannot line up is another (the pixel
+                // stage reads a register the vertex stage never writes -
+                // compilePair's own refusal, section 3.9).
+                if ( !vs.Error.empty() ) {
+                    libraryCompile++;
+                    numCompileFailures++;
+                    OTDU_LOG_WARN( "D3D12 pipetest: %s vs%u/ps%u: %s\n", pName, vsAttrib, psAttrib,
+                                   vs.Error.c_str() );
+                } else {
+                    libraryLink++;
+                    numLinkFailures++;
+                    OTDU_LOG_WARN( "D3D12 pipetest: %s vs%u/ps%u: %s\n", pName, vsAttrib, psAttrib,
+                                   ps.Error.c_str() );
+                }
+                continue;
+            }
+
+            // The input layout: the vertex stage's dcl list, declaration order
+            // (the game's own meshes carry exactly these semantics; a mesh that
+            // lacks one falls back to the float4 stream). The storage *formats*
+            // are a property of the mesh, so a declaration-only layout cannot
+            // report the ones that need a converted stream - that is
+            // -d3d12-meshconvtest's job (section 3.12).
+            D3D12VertexLayout layout;
+            if ( !D3D12BuildVertexLayout( *pVS, nullptr, 0, nullptr, 0, layout ) ) {
+                libraryScreen++;
+                numScreenSpace++;
+            }
+            // Always 0 for a declaration-only layout: the storage formats are a
+            // property of the mesh (section 3.12 measures them).
+            numExpandedFormats += layout.NumExpandedFormats;
+
+            D3D12Scene::PipelineDesc desc;
+            desc.pVS = &vs;
+            desc.pPS = &ps;
+            desc.NumAttributes = static_cast<uint32_t>( layout.Attributes.size() );
+            desc.pAttributes = desc.NumAttributes > 0 ? layout.Attributes.data() : nullptr;
+            desc.NumStreams = layout.NumStreams;
+            desc.pStrides = desc.NumStreams > 0 ? layout.Strides.data() : nullptr;
+            desc.pState = &state;
+            if ( scene.getPipeline( desc ) != nullptr ) {
+                libraryPipelines++;
+                numPipelines++;
+            } else {
+                libraryRefused++;
+                numRefused++;
+                // getPipeline's own error names the two varying lists; this line
+                // names the pair, which is what a triage needs.
+                OTDU_LOG_WARN( "D3D12 pipetest: %s vs%u/ps%u: the device refused the pipeline\n", pName, vsAttrib,
+                               psAttrib );
+            }
+            if ( ( numPipelines + numRefused ) % kPipelineBatch == 0 ) {
+                scene.releasePipelines();
+            }
+        }
+        OTDU_LOG_INFO( "D3D12 pipetest: %-28s %5u pair(s), %5u repeat(s): %4u pipeline(s), %3u refused, %3u "
+                       "link, %3u compile, %3u unpaired, %3u screen-space\n",
+                       libraryName.c_str(), libraryPairs, libraryRepeated, libraryPipelines, libraryRefused,
+                       libraryLink, libraryCompile, libraryUnpaired, libraryScreen );
+    }
+
+    const double seconds =
+        std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+    const uint32_t numMeasured = numPairs - numRepeated;
+    OTDU_LOG_INFO( "D3D12 pipetest: %u libraries (%u one-sided), %u pair(s) (%u repeat(s) collapsed to distinct "
+                   "programs): %u pipeline(s) accepted, %u refused by the device, %u link failure(s), %u compile "
+                   "failure(s), %u unpaired pixel item(s) in %.1f s\n",
+                   numLibraries, numOneSided, numPairs, numRepeated, numPipelines, numRefused, numLinkFailures,
+                   numCompileFailures, numUnpaired, seconds );
+    OTDU_LOG_INFO( "D3D12 pipetest: %u screen-space pair(s) (empty input layout), %u format(s) that need a "
+                   "converted stream (A2B10G10R10 SNORM / UBYTE4 USCALED)%s\n",
+                   numScreenSpace, numExpandedFormats, pDumpDir != nullptr ? ", HLSL dumped" : "" );
+    const bool bPassed = !bAbort && numMeasured > 0 && numPipelines > 0 && numRefused == 0 &&
+                         numLinkFailures == 0 && numCompileFailures == 0;
+    OTDU_LOG_INFO( "D3D12 pipetest: %s (%u of %u distinct program(s) created a pipeline)\n",
+                   bPassed ? "PASSED" : "FAILED", numPipelines, numMeasured );
+
+    scene.destroy();
+    device.destroy();
+    if ( pWindow != nullptr ) {
+        SDL_DestroyWindow( pWindow );
+    }
+    if ( SDL_WasInit( SDL_INIT_VIDEO ) ) {
+        SDL_QuitSubSystem( SDL_INIT_VIDEO );
+    }
     shaderSystem.destroy();
     return bPassed;
 }
