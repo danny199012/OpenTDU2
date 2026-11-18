@@ -290,6 +290,8 @@ public:
     void addTracePoint( float x, float z );
     void endTrace();
     void drawSavingLogo( Renderer2D &renderer );
+    // The dash sat-nav screen: the HUD minimap's content into a width x height canvas (the dash render target).
+    void drawDashSatnav( Renderer2D &renderer, const VehicleWorldCollision *pCollision, float width, float height );
     void setVisible( bool bVisible ) { bShown = bVisible; }
     // The near-car spec card (a traffic car stopped next to / a showroom
     // display car walked up to): the compact retail panel - name, price and
@@ -477,6 +479,8 @@ private:
     // quad the retail engine draws its map into; hidden here, the movie's
     // bezel / band / status icons draw over the map).
     void drawMinimap( Renderer2D &renderer, const VehicleWorldCollision *pCollision );
+    struct MinimapCache;
+    void buildMinimapVertices( std::vector<Vertex2D> &vertices, const VehicleWorldCollision *pCollision, MinimapCache &cache );
     // The map surface rect in canvas px: the mmap_lure box mapped through the
     // stage's screen-ratio rect (the same mapping beginStage draws with).
     bool computeMapRect();

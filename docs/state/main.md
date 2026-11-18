@@ -536,11 +536,11 @@ Owner: "add the cockpit view lighting for dash and the satnav for cars with satn
 
 ### What changed
 - `source/game/freeride/gm_freeride.cpp` - `-gps` now defaults to 1 (`-gps 0` = off). The session-49 "invisible quad" was not a shader problem: [CODE] TD_GPS.sob's VS (dumped with `otdu2_sob_tool`) is a plain WorldViewProj, `uv * UVOffset.xy`, colour = lerp(ambient, diffuse, N.L) * vertex colour. The quad is a 13 x 7 cm screen at car-local (0, 0.65, 0.14) on the centre stack, below the default cockpit view.
-- `source/game/cinematic/gps_screen.cpp` - the render target now fills the road triangles (the old widened long edge only traced outlines), dims the island map, orange route (GamePC.cpr [HudMap] 255/102/0), bigger amber car arrow.
+- OWNER CORRECTION ("it's not accurate, it normally renders pretty much 1:1 as the original satnav"): the dash target no longer draws its own map. `FreeRideHud::buildMinimapVertices` (extracted from `drawMinimap`) is shared; `FreeRideHud::drawDashSatnav` draws the HUD minimap's exact content (road graph by discovery - grey / cyan / blue / dirt yellow, off-road trace, orange route, heading-up, car at 62 %) into the `GpsScreen` target at the HUD map-rect scale (190 x 95 logical px, 512x256 target). `GpsScreen::render` takes a draw callback; redraw every 5 frames. Pointer is our own (the HUD's is a movie clip).
 - `source/game/cinematic/cinematic_car.cpp` - `-loggps` prints the GPS items (node, bounds, index count).
 
 ### Verified
-- `-gm FREERIDE -skipcine -nopad -fixedtimestep -tp 21796.3,24188.1 -snaproad 150 -gpsdrive "24500,25300,20" -autoplay "100:press=camera;130:press=camera;200:look=0.35,0.7;380:shot=..."` : map on the California's screen, `docs/images/dash_satnav_california.png`.
+- `-gm FREERIDE -skipcine -nopad -fixedtimestep -tp 21796.3,24188.1 -snaproad 150 -gpsdrive "24500,25300,20" -autoplay "100:press=camera;130:press=camera;200:look=0.35,0.7;380:shot=..."` : the HUD's satnav content on the California's screen, `docs/images/dash_satnav_california.png`.
 - Dash backlight (already wired via `setDashboardLit` / HEADLIGHTSINTENSITY): `-carlights 1` vs `0` cockpit shots differ by 34k pixels, gauges lit blue, `docs/images/dash_backlight_night.png`.
 
 ### Not done / next

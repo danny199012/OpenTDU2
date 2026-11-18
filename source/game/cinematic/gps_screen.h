@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <vector>
 
 struct Vector3f;
@@ -30,10 +31,11 @@ public:
     // True when render() should run: rate limited by frame count, the car
     // movement and route changes (deltaTime is not plumbed into draw).
     bool needsRedraw( float carX, float carZ, size_t routeSize );
-    // Redraws the map into the target (call outside any render pass, e.g.
-    // from GMFreeRide::drawOffscreen like GMAssetViewer::drawOffscreen).
-    void render( float carX, float carZ, float headingX, float headingZ, const VehicleWorldCollision *pCollision,
-                 const std::vector<Vector3f> *pRoute, GPUTexture *pIslandTexture, float extentX, float extentZ );
+    // Redraws the screen into the target (call outside any render pass, e.g.
+    // from GMFreeRide::drawOffscreen like GMAssetViewer::drawOffscreen). The
+    // callback draws the content on a kLogicalWidth x kLogicalHeight canvas
+    // (the HUD minimap's own scale, FreeRideHud::drawDashSatnav).
+    void render( const std::function<void( Renderer2D &, float, float )> &draw );
 
 private:
     void destroy();

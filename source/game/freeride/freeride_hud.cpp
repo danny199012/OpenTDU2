@@ -2439,6 +2439,229 @@ void FreeRideHud::drawGauge( Renderer2D &renderer ) {
     renderer.drawText( pFont, text, 1102.0f, 663.0f, 19.0f, Rgba( 240, 240, 240 ), eTextAlign::TA_Center, 2.0f );
 }
 
+// The satnav's map content (the retail HudMap look): the road graph by
+// discovery, the off-road trace and the GPS route, heading-up with the car at
+// 62 % of the map height. Shared by the HUD minimap and the dash screen.
+void FreeRideHud::buildMinimapVertices( std::vector<Vertex2D> &vertices, const VehicleWorldCollision *pCollision,
+                                        MinimapCache &cache ) {
+    const float x0 = mapRectX, y0 = mapRectY, x1 = mapRectX + mapRectW, y1 = mapRectY + mapRectH;
+    const size_t triangleCount = pCollision != nullptr ? pCollision->getNumTriangles() : 0;
+    vertices.clear();
+    PushQuad( vertices, { x0, y0 }, { x1, y0 }, { x1, y1 }, { x0, y1 }, Rgba( 12, 14, 18, 255 ) );
+    const Vector2f center( 0.5f * ( x0 + x1 ), y0 + 0.62f * mapRectH );
+    const Vector3f forward( state.HeadingX, 0.0f, state.HeadingZ );
+    const Vector3f right( -forward.z, 0.0f, forward.x );
+    auto toMap = [&]( const Vector3f &p ) {
+        const Vector3f d( p.x - state.CarX, 0.0f, p.z - state.CarZ );
+        return Vector2f( center.x + d.dot( right ) / mapMetersPerPixel(), center.y - d.dot( forward ) / mapMetersPerPixel() );
+    };
+    if ( pRoadMap_ != nullptr && !pRoadMap_->getRoadShapes().empty() ) {
+        // The road graph, the retail satnav way [DATA: GamePC.cpr [HudMap]]:
+        // a driven road in its class colour (blue for tarmac, yellow for
+        // dirt), an undiscovered one grey 140/140/140. Same class -> colour
+        // table as the world map (MapScreen::drawIsland). The grey goes down
+        // first so a driven road is never hidden by a neighbour's grey.
+        const auto &shapes = pRoadMap_->getRoadShapes();
+        const auto &boxes = pRoadMap_->getRoadBoxes();
+        const auto &classes = pRoadMap_->getRoadClasses();
+        const uint8_t dirtClass = 255; // dirt is per driven segment (MapScreen::isSegmentDirt)
+        const float reach = mapRectW * mapMetersPerPixel() + 30.0f;
+        for ( int32_t pass = 0; pass < 2; pass++ ) {
+            for ( size_t e = 0; e < shapes.size(); e++ ) {
+                if ( pass == 1 && !pRoadMap_->isRoadExplored( static_cast<int32_t>( e ) ) ) {
+                    continue; // nothing of this link is driven
+                }
+                if ( e < boxes.size() && ( boxes[e][2] < state.CarX - reach || boxes[e][0] > state.CarX + reach ||
+                                           boxes[e][3] < state.CarZ - reach || boxes[e][1] > state.CarZ + reach ) ) {
+                    continue;
+                }
+                const uint8_t cls = e < classes.size() ? classes[e] : 0;
+                uint32_t colour = Rgba( 140, 140, 140, 255 );
+                float widthPx = 3.0f;
+                if ( pass == 1 ) {
+                    if ( cls == dirtClass ) {
+                        colour = Rgba( 243, 196, 6, 255 );
+                    } else if ( cls == 2 ) {
+                        colour = Rgba( 29, 180, 215, 255 );
+                        widthPx = 4.0f;
+                    } else {
+                        colour = Rgba( 0, 255, 255, 255 );
+                    }
+                }
+                const float half = 0.5f * widthPx;
+                const std::vector<Vector3f> &shape = shapes[e];
+                for ( size_t k = 0; k + 1 < shape.size(); k++ ) {
+                    // Per section: the grey pass draws the segments not driven yet, the
+                    // colour pass the driven ones.
+                    if ( pRoadMap_->isSegmentExplored( e, k ) != ( pass == 1 ) ) {
+                        continue;
+                    }
+                    if ( std::fabs( shape[k].x - state.CarX ) > reach || std::fabs( shape[k].z - state.CarZ ) > reach ) {
+                        continue;
+                    }
+                    const Vector2f a = toMap( shape[k] ), b = toMap( shape[k + 1] );
+                    const float dx = b.x - a.x, dy = b.y - a.y;
+                    const float length = std::sqrt( dx * dx + dy * dy );
+                    if ( length < 0.01f ) {
+                        continue;
+                    }
+                    // A dirt track segment (bare terrain under it when it was driven): the retail offroad yellow.
+                    const bool bDirtSegment = pass == 1 && pRoadMap_->isSegmentDirt( e, k );
+                    const uint32_t segColour = bDirtSegment ? Rgba( 243, 196, 6, 255 ) : colour;
+                    const float segHalf = bDirtSegment ? 1.5f : half;
+                    const float ux = dx / length, uy = dy / length;
+                    const float nx = -uy * segHalf, ny = ux * segHalf;
+                    // Extended by half a width at each end so the joints
+                    // between two segments leave no notch.
+                    PushQuad( vertices, { a.x - ux * segHalf + nx, a.y - uy * segHalf + ny },
+                              { b.x + ux * segHalf + nx, b.y + uy * segHalf + ny }, { b.x + ux * segHalf - nx, b.y + uy * segHalf - ny },
+                              { a.x - ux * segHalf - nx, a.y - uy * segHalf - ny }, segColour );
+                }
+            }
+        }
+    } else if ( pCollision != nullptr ) {
+        // GamePC.cpr [HudMap]: AIRL_ROAD unlocked colour 0 255 255 (the
+        // reference shows white roads at this stage [INF]). Unclipped: the
+        // scissor above trims them to the map surface.
+        const uint32_t roadColor = Rgba( 235, 235, 235, 255 );
+        const float radius = mapRectW * mapMetersPerPixel();
+        constexpr float kQueryMargin = 150.0f;
+        const float dx = state.CarX - cache.QueryX, dz = state.CarZ - cache.QueryZ;
+        if ( cache.pQueryCollision != pCollision || cache.QueryTriangleCount != triangleCount ||
+             radius + kQueryMargin * 0.5f > cache.QueryRadius ||
+             dx * dx + dz * dz > kQueryMargin * kQueryMargin * 0.25f ) {
+            cache.RoadTriangles.clear();
+            cache.QueryX = state.CarX;
+            cache.QueryZ = state.CarZ;
+            cache.QueryRadius = radius + kQueryMargin;
+            cache.QueryTriangleCount = triangleCount;
+            cache.pQueryCollision = pCollision;
+            pCollision->forEachRoadTriangle( Vector3f( state.CarX, 0.0f, state.CarZ ), cache.QueryRadius,
+                                             [&]( const Vector3f &a, const Vector3f &b, const Vector3f &c ) {
+                                                 cache.RoadTriangles.push_back( a );
+                                                 cache.RoadTriangles.push_back( b );
+                                                 cache.RoadTriangles.push_back( c );
+                                             } );
+        }
+        // Only what can reach the map square (the query cells cover the
+        // square of `radius` around the car; the scissor trims the rest).
+        const float reach = radius + 30.0f;
+        for ( size_t t = 0; t + 2 < cache.RoadTriangles.size(); t += 3 ) {
+            const Vector3f &a = cache.RoadTriangles[t];
+            if ( std::fabs( a.x - state.CarX ) > reach || std::fabs( a.z - state.CarZ ) > reach ) {
+                continue;
+            }
+            const Vector2f pa = toMap( a ), pb = toMap( cache.RoadTriangles[t + 1] ),
+                           pc = toMap( cache.RoadTriangles[t + 2] );
+            PushTriangle( vertices, pa.x, pa.y, pb.x, pb.y, pc.x, pc.y, roadColor );
+        }
+    }
+    // The off-road trace: where the car left the road graph, drawn over the roads.
+    {
+        const float reach = mapRectW * mapMetersPerPixel() + 30.0f;
+        const float half = 1.0f;
+        for ( const std::vector<Vector2f> &segment : traceSegments_ ) {
+            for ( size_t k = 0; k + 1 < segment.size(); k++ ) {
+                if ( std::fabs( segment[k].x - state.CarX ) > reach || std::fabs( segment[k].y - state.CarZ ) > reach ) {
+                    continue;
+                }
+                const Vector2f a = toMap( Vector3f( segment[k].x, 0.0f, segment[k].y ) );
+                const Vector2f b = toMap( Vector3f( segment[k + 1].x, 0.0f, segment[k + 1].y ) );
+                const float dx = b.x - a.x, dy = b.y - a.y;
+                const float length = std::sqrt( dx * dx + dy * dy );
+                if ( length < 0.01f ) {
+                    continue;
+                }
+                const float ux = dx / length, uy = dy / length;
+                const float nx = -uy * half, ny = ux * half;
+                PushQuad( vertices, { a.x - ux * half + nx, a.y - uy * half + ny },
+                          { b.x + ux * half + nx, b.y + uy * half + ny }, { b.x + ux * half - nx, b.y + uy * half - ny },
+                          { a.x - ux * half - nx, a.y - uy * half - ny }, Rgba( 254, 216, 197, 200 ) );
+            }
+        }
+    }
+    // GPS route: a red line along the route within the minimap radius.
+    if ( pRoute_ != nullptr && pRoute_->size() > 1 ) {
+        const float radius = mapRectW * mapMetersPerPixel();
+        auto clipSegment = [&]( Vector2f &a, Vector2f &b ) {
+            // Liang-Barsky against the minimap rectangle.
+            float t0 = 0.0f, t1 = 1.0f;
+            const float dx = b.x - a.x, dy = b.y - a.y;
+            const float p[4] = { -dx, dx, -dy, dy };
+            const float q[4] = { a.x - x0, x1 - a.x, a.y - y0, y1 - a.y };
+            for ( int32_t i = 0; i < 4; i++ ) {
+                if ( p[i] == 0.0f ) {
+                    if ( q[i] < 0.0f ) {
+                        return false;
+                    }
+                } else {
+                    const float r = q[i] / p[i];
+                    if ( p[i] < 0.0f ) {
+                        t0 = Max( t0, r );
+                    } else {
+                        t1 = Min( t1, r );
+                    }
+                    if ( t0 > t1 ) {
+                        return false;
+                    }
+                }
+            }
+            const Vector2f start( a.x + t0 * dx, a.y + t0 * dy ), end( a.x + t1 * dx, a.y + t1 * dy );
+            a = start;
+            b = end;
+            return true;
+        };
+        const uint32_t routeColor = Rgba( 255, 102, 0, 255 ); // GamePC.cpr [HudMap] GPS path
+        for ( size_t i = 0; i + 1 < pRoute_->size(); i++ ) {
+            const Vector3f &p0 = ( *pRoute_ )[i];
+            const Vector3f &p1 = ( *pRoute_ )[i + 1];
+            if ( std::fabs( p0.x - state.CarX ) > radius && std::fabs( p1.x - state.CarX ) > radius ) {
+                continue;
+            }
+            Vector2f a = toMap( p0 ), b = toMap( p1 );
+            if ( !clipSegment( a, b ) ) {
+                continue;
+            }
+            const float dx = b.x - a.x, dy = b.y - a.y;
+            const float length = std::sqrt( dx * dx + dy * dy );
+            if ( length < 0.01f ) {
+                continue;
+            }
+            const float nx = -dy / length * 2.0f, ny = dx / length * 2.0f;
+            PushQuad( vertices, { a.x + nx, a.y + ny }, { b.x + nx, b.y + ny }, { b.x - nx, b.y - ny }, { a.x - nx, a.y - ny },
+                      routeColor );
+        }
+    }
+}
+
+// The dash sat-nav screen: the same content as the HUD minimap, drawn into
+// the dash render target (GpsScreen) at the movie's own map-rect scale
+// (190 x 95 canvas px, the dash screen is 2:1) so it reads 1:1 with the HUD.
+void FreeRideHud::drawDashSatnav( Renderer2D &renderer, const VehicleWorldCollision *pCollision, float width,
+                                  float height ) {
+    const float saveX = mapRectX, saveY = mapRectY, saveW = mapRectW, saveH = mapRectH;
+    mapRectX = 0.0f;
+    mapRectY = 0.0f;
+    mapRectW = width;
+    mapRectH = height;
+    MinimapCache cache;
+    std::vector<Vertex2D> vertices;
+    buildMinimapVertices( vertices, pCollision, cache );
+    renderer.setClipRect( Rect2D( 0.0f, 0.0f, width, height ) );
+    renderer.drawTriangles( nullptr, vertices.data(), static_cast<uint32_t>( vertices.size() ) );
+    renderer.clearClipRect();
+    // The player marker (the HUD's is the movie's cursor clip): a pointer at the map centre.
+    const float cx = 0.5f * width, cy = 0.62f * height;
+    std::vector<Vertex2D> arrow;
+    PushTriangle( arrow, cx, cy - 8.0f, cx - 5.0f, cy + 5.0f, cx + 5.0f, cy + 5.0f, Rgba( 255, 255, 255, 255 ) );
+    PushTriangle( arrow, cx, cy - 3.0f, cx - 2.5f, cy + 3.0f, cx + 2.5f, cy + 3.0f, Rgba( 29, 120, 215, 255 ) );
+    renderer.drawTriangles( nullptr, arrow.data(), static_cast<uint32_t>( arrow.size() ) );
+    mapRectX = saveX;
+    mapRectY = saveY;
+    mapRectW = saveW;
+    mapRectH = saveH;
+}
+
 void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision *pCollision ) {
     // The map surface: the movie's own map quad (computeMapRect), drawn under
     // the HUD movie so its bezel / bottom band / status icons overlay the map
@@ -2501,192 +2724,7 @@ void FreeRideHud::drawMinimap( Renderer2D &renderer, const VehicleWorldCollision
         cache.ExploredLength = pRoadMap_ != nullptr ? pRoadMap_->getExploredLength() : -1.0f;
         cache.RouteLength = routeLength_;
         cache.RouteSize = pRoute_ != nullptr ? pRoute_->size() : 0;
-        vertices.clear();
-        PushQuad( vertices, { x0, y0 }, { x1, y0 }, { x1, y1 }, { x0, y1 }, Rgba( 12, 14, 18, 255 ) );
-        const Vector2f center( 0.5f * ( x0 + x1 ), y0 + 0.62f * mapRectH );
-        const Vector3f forward( state.HeadingX, 0.0f, state.HeadingZ );
-        const Vector3f right( -forward.z, 0.0f, forward.x );
-        auto toMap = [&]( const Vector3f &p ) {
-            const Vector3f d( p.x - state.CarX, 0.0f, p.z - state.CarZ );
-            return Vector2f( center.x + d.dot( right ) / mapMetersPerPixel(), center.y - d.dot( forward ) / mapMetersPerPixel() );
-        };
-        if ( pRoadMap_ != nullptr && !pRoadMap_->getRoadShapes().empty() ) {
-            // The road graph, the retail satnav way [DATA: GamePC.cpr [HudMap]]:
-            // a driven road in its class colour (blue for tarmac, yellow for
-            // dirt), an undiscovered one grey 140/140/140. Same class -> colour
-            // table as the world map (MapScreen::drawIsland). The grey goes down
-            // first so a driven road is never hidden by a neighbour's grey.
-            const auto &shapes = pRoadMap_->getRoadShapes();
-            const auto &boxes = pRoadMap_->getRoadBoxes();
-            const auto &classes = pRoadMap_->getRoadClasses();
-            const uint8_t dirtClass = 255; // dirt is per driven segment (MapScreen::isSegmentDirt)
-            const float reach = mapRectW * mapMetersPerPixel() + 30.0f;
-            for ( int32_t pass = 0; pass < 2; pass++ ) {
-                for ( size_t e = 0; e < shapes.size(); e++ ) {
-                    if ( pass == 1 && !pRoadMap_->isRoadExplored( static_cast<int32_t>( e ) ) ) {
-                        continue; // nothing of this link is driven
-                    }
-                    if ( e < boxes.size() && ( boxes[e][2] < state.CarX - reach || boxes[e][0] > state.CarX + reach ||
-                                               boxes[e][3] < state.CarZ - reach || boxes[e][1] > state.CarZ + reach ) ) {
-                        continue;
-                    }
-                    const uint8_t cls = e < classes.size() ? classes[e] : 0;
-                    uint32_t colour = Rgba( 140, 140, 140, 255 );
-                    float widthPx = 3.0f;
-                    if ( pass == 1 ) {
-                        if ( cls == dirtClass ) {
-                            colour = Rgba( 243, 196, 6, 255 );
-                        } else if ( cls == 2 ) {
-                            colour = Rgba( 29, 180, 215, 255 );
-                            widthPx = 4.0f;
-                        } else {
-                            colour = Rgba( 0, 255, 255, 255 );
-                        }
-                    }
-                    const float half = 0.5f * widthPx;
-                    const std::vector<Vector3f> &shape = shapes[e];
-                    for ( size_t k = 0; k + 1 < shape.size(); k++ ) {
-                        // Per section: the grey pass draws the segments not driven yet, the
-                        // colour pass the driven ones.
-                        if ( pRoadMap_->isSegmentExplored( e, k ) != ( pass == 1 ) ) {
-                            continue;
-                        }
-                        if ( std::fabs( shape[k].x - state.CarX ) > reach || std::fabs( shape[k].z - state.CarZ ) > reach ) {
-                            continue;
-                        }
-                        const Vector2f a = toMap( shape[k] ), b = toMap( shape[k + 1] );
-                        const float dx = b.x - a.x, dy = b.y - a.y;
-                        const float length = std::sqrt( dx * dx + dy * dy );
-                        if ( length < 0.01f ) {
-                            continue;
-                        }
-                        // A dirt track segment (bare terrain under it when it was driven): the retail offroad yellow.
-                        const bool bDirtSegment = pass == 1 && pRoadMap_->isSegmentDirt( e, k );
-                        const uint32_t segColour = bDirtSegment ? Rgba( 243, 196, 6, 255 ) : colour;
-                        const float segHalf = bDirtSegment ? 1.5f : half;
-                        const float ux = dx / length, uy = dy / length;
-                        const float nx = -uy * segHalf, ny = ux * segHalf;
-                        // Extended by half a width at each end so the joints
-                        // between two segments leave no notch.
-                        PushQuad( vertices, { a.x - ux * segHalf + nx, a.y - uy * segHalf + ny },
-                                  { b.x + ux * segHalf + nx, b.y + uy * segHalf + ny }, { b.x + ux * segHalf - nx, b.y + uy * segHalf - ny },
-                                  { a.x - ux * segHalf - nx, a.y - uy * segHalf - ny }, segColour );
-                    }
-                }
-            }
-        } else if ( pCollision != nullptr ) {
-            // GamePC.cpr [HudMap]: AIRL_ROAD unlocked colour 0 255 255 (the
-            // reference shows white roads at this stage [INF]). Unclipped: the
-            // scissor above trims them to the map surface.
-            const uint32_t roadColor = Rgba( 235, 235, 235, 255 );
-            const float radius = mapRectW * mapMetersPerPixel();
-            constexpr float kQueryMargin = 150.0f;
-            const float dx = state.CarX - cache.QueryX, dz = state.CarZ - cache.QueryZ;
-            if ( cache.pQueryCollision != pCollision || cache.QueryTriangleCount != triangleCount ||
-                 radius + kQueryMargin * 0.5f > cache.QueryRadius ||
-                 dx * dx + dz * dz > kQueryMargin * kQueryMargin * 0.25f ) {
-                cache.RoadTriangles.clear();
-                cache.QueryX = state.CarX;
-                cache.QueryZ = state.CarZ;
-                cache.QueryRadius = radius + kQueryMargin;
-                cache.QueryTriangleCount = triangleCount;
-                cache.pQueryCollision = pCollision;
-                pCollision->forEachRoadTriangle( Vector3f( state.CarX, 0.0f, state.CarZ ), cache.QueryRadius,
-                                                 [&]( const Vector3f &a, const Vector3f &b, const Vector3f &c ) {
-                                                     cache.RoadTriangles.push_back( a );
-                                                     cache.RoadTriangles.push_back( b );
-                                                     cache.RoadTriangles.push_back( c );
-                                                 } );
-            }
-            // Only what can reach the map square (the query cells cover the
-            // square of `radius` around the car; the scissor trims the rest).
-            const float reach = radius + 30.0f;
-            for ( size_t t = 0; t + 2 < cache.RoadTriangles.size(); t += 3 ) {
-                const Vector3f &a = cache.RoadTriangles[t];
-                if ( std::fabs( a.x - state.CarX ) > reach || std::fabs( a.z - state.CarZ ) > reach ) {
-                    continue;
-                }
-                const Vector2f pa = toMap( a ), pb = toMap( cache.RoadTriangles[t + 1] ),
-                               pc = toMap( cache.RoadTriangles[t + 2] );
-                PushTriangle( vertices, pa.x, pa.y, pb.x, pb.y, pc.x, pc.y, roadColor );
-            }
-        }
-        // The off-road trace: where the car left the road graph, drawn over the roads.
-        {
-            const float reach = mapRectW * mapMetersPerPixel() + 30.0f;
-            const float half = 1.0f;
-            for ( const std::vector<Vector2f> &segment : traceSegments_ ) {
-                for ( size_t k = 0; k + 1 < segment.size(); k++ ) {
-                    if ( std::fabs( segment[k].x - state.CarX ) > reach || std::fabs( segment[k].y - state.CarZ ) > reach ) {
-                        continue;
-                    }
-                    const Vector2f a = toMap( Vector3f( segment[k].x, 0.0f, segment[k].y ) );
-                    const Vector2f b = toMap( Vector3f( segment[k + 1].x, 0.0f, segment[k + 1].y ) );
-                    const float dx = b.x - a.x, dy = b.y - a.y;
-                    const float length = std::sqrt( dx * dx + dy * dy );
-                    if ( length < 0.01f ) {
-                        continue;
-                    }
-                    const float ux = dx / length, uy = dy / length;
-                    const float nx = -uy * half, ny = ux * half;
-                    PushQuad( vertices, { a.x - ux * half + nx, a.y - uy * half + ny },
-                              { b.x + ux * half + nx, b.y + uy * half + ny }, { b.x + ux * half - nx, b.y + uy * half - ny },
-                              { a.x - ux * half - nx, a.y - uy * half - ny }, Rgba( 254, 216, 197, 200 ) );
-                }
-            }
-        }
-        // GPS route: a red line along the route within the minimap radius.
-        if ( pRoute_ != nullptr && pRoute_->size() > 1 ) {
-            const float radius = mapRectW * mapMetersPerPixel();
-            auto clipSegment = [&]( Vector2f &a, Vector2f &b ) {
-                // Liang-Barsky against the minimap rectangle.
-                float t0 = 0.0f, t1 = 1.0f;
-                const float dx = b.x - a.x, dy = b.y - a.y;
-                const float p[4] = { -dx, dx, -dy, dy };
-                const float q[4] = { a.x - x0, x1 - a.x, a.y - y0, y1 - a.y };
-                for ( int32_t i = 0; i < 4; i++ ) {
-                    if ( p[i] == 0.0f ) {
-                        if ( q[i] < 0.0f ) {
-                            return false;
-                        }
-                    } else {
-                        const float r = q[i] / p[i];
-                        if ( p[i] < 0.0f ) {
-                            t0 = Max( t0, r );
-                        } else {
-                            t1 = Min( t1, r );
-                        }
-                        if ( t0 > t1 ) {
-                            return false;
-                        }
-                    }
-                }
-                const Vector2f start( a.x + t0 * dx, a.y + t0 * dy ), end( a.x + t1 * dx, a.y + t1 * dy );
-                a = start;
-                b = end;
-                return true;
-            };
-            const uint32_t routeColor = Rgba( 255, 102, 0, 255 ); // GamePC.cpr [HudMap] GPS path
-            for ( size_t i = 0; i + 1 < pRoute_->size(); i++ ) {
-                const Vector3f &p0 = ( *pRoute_ )[i];
-                const Vector3f &p1 = ( *pRoute_ )[i + 1];
-                if ( std::fabs( p0.x - state.CarX ) > radius && std::fabs( p1.x - state.CarX ) > radius ) {
-                    continue;
-                }
-                Vector2f a = toMap( p0 ), b = toMap( p1 );
-                if ( !clipSegment( a, b ) ) {
-                    continue;
-                }
-                const float dx = b.x - a.x, dy = b.y - a.y;
-                const float length = std::sqrt( dx * dx + dy * dy );
-                if ( length < 0.01f ) {
-                    continue;
-                }
-                const float nx = -dy / length * 2.0f, ny = dx / length * 2.0f;
-                PushQuad( vertices, { a.x + nx, a.y + ny }, { b.x + nx, b.y + ny }, { b.x - nx, b.y - ny }, { a.x - nx, a.y - ny },
-                          routeColor );
-            }
-        }
+        buildMinimapVertices( vertices, pCollision, cache );
         // The player marker is the movie's own /HUD/minimap/cursor clip, parked on
         // the map centre at load — no arrow of our own over the movie art.
         renderer.drawTriangles( nullptr, vertices.data(), static_cast<uint32_t>( vertices.size() ) );

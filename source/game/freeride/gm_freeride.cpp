@@ -9010,18 +9010,14 @@ void GMFreeRide::drawOffscreen() {
         return uv;
     }();
     if ( bGpsScreen && !interior.isActive() && car.isLoaded() && car.hasGps() ) {
-        if ( GPUTexture *pIsland = view.getWorld().getIslandColorMap() ) {
-            if ( gpsScreen.ensureTarget( gpRender->getDevice() ) ) {
-                const Vector3f carPos = carWorld.getTranslation();
-                const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
-                const std::vector<Vector3f> &route = mapScreen.getRoutePoints();
-                if ( !car.isGpsBound() || gpsScreen.needsRedraw( carPos.x, carPos.z, route.size() ) ) {
-                    gpsScreen.render( carPos.x, carPos.z, forward.x, forward.z, &collision, &route, pIsland,
-                                      mapScreen.getExtentX(), mapScreen.getExtentZ() );
-                }
-                if ( !car.isGpsBound() ) {
-                    car.setGpsTexture( *pRenderer, gpsScreen.getTexture(), gpsUv );
-                }
+        if ( gpsScreen.ensureTarget( gpRender->getDevice() ) ) {
+            if ( !car.isGpsBound() || gpsScreen.needsRedraw( 0.0f, 0.0f, 0 ) ) {
+                gpsScreen.render( [&]( Renderer2D &gpsRenderer, float w, float h ) {
+                    hud.drawDashSatnav( gpsRenderer, &collision, w, h );
+                } );
+            }
+            if ( !car.isGpsBound() ) {
+                car.setGpsTexture( *pRenderer, gpsScreen.getTexture(), gpsUv );
             }
         }
     }
