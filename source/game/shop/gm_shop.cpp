@@ -1252,14 +1252,23 @@ void GMShop::paintBuySwatches( int32_t option ) {
             // The _interior_color_<n> ids ('R8_V10_Int_Rouge_01' ...) are materials of the CAR's own colour
             // library (<car>_color.2dm), not of colors.2dm [DATA]. The retail square (owner's capture) is the
             // seat colour (_interior_color_1) with the couture colour (_interior_color_3) as a diagonal
-            // corner when it differs; the corner is not drawn yet (one tint per clip) - a mixed square
-            // takes the seat colour. Neutral grey when the id is in no library.
+            // corner when it differs (drawn over the tinted square, FlashPlayer::setClipCorner).
+            // Neutral grey when the id is in no library.
             float rgb[3] = { 0.32f, 0.32f, 0.32f };
             const bool bFound = row.isValid() && car.ShowCar >= 0 &&
                                 scene.getShowCar( static_cast<size_t>( car.ShowCar ) ).getLibrarySwatch( row["_interior_color_1"].asString(), rgb );
-            if ( ui.setClipColor( "/buy/window_buy/colors/color" + std::to_string( i + 1 ), rgb[0], rgb[1], rgb[2] ) &&
-                 bFound ) {
+            const std::string clip = "/buy/window_buy/colors/color" + std::to_string( i + 1 );
+            if ( ui.setClipColor( clip, rgb[0], rgb[1], rgb[2] ) && bFound ) {
                 painted++;
+            }
+            // The couture colour (_interior_color_3) as the square's lower-right corner when it differs from the
+            // seat colour [DATA: the owner's capture of the retail squares].
+            float couture[3];
+            if ( row.isValid() && row["_interior_color_3"].asString() != row["_interior_color_1"].asString() && car.ShowCar >= 0 &&
+                 scene.getShowCar( static_cast<size_t>( car.ShowCar ) ).getLibrarySwatch( row["_interior_color_3"].asString(), couture ) ) {
+                ui.setClipCorner( clip, couture[0], couture[1], couture[2] );
+            } else {
+                ui.clearClipCorner( clip );
             }
         }
     }

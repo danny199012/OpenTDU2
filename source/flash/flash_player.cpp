@@ -1657,6 +1657,25 @@ bool FlashPlayer::setClipColor( const std::string &clipPath, float r, float g, f
     return true;
 }
 
+bool FlashPlayer::setClipCorner( const std::string &clipPath, float r, float g, float b ) {
+    Clip *pClip = findClip( clipPath );
+    if ( pClip == nullptr || pClip->pInstance == nullptr ) {
+        return false;
+    }
+    const auto byte = []( float v ) { return static_cast<uint32_t>( Clamp( v, 0.0f, 1.0f ) * 255.0f + 0.5f ); };
+    pClip->pInstance->CornerColor = byte( r ) | ( byte( g ) << 8 ) | ( byte( b ) << 16 ) | ( 0xffu << 24 );
+    return true;
+}
+
+bool FlashPlayer::clearClipCorner( const std::string &clipPath ) {
+    Clip *pClip = findClip( clipPath );
+    if ( pClip == nullptr || pClip->pInstance == nullptr ) {
+        return false;
+    }
+    pClip->pInstance->CornerColor = 0;
+    return true;
+}
+
 bool FlashPlayer::setClipAlpha( const std::string &clipPath, float alpha ) {
     Clip *pClip = findClip( clipPath );
     if ( pClip == nullptr || pClip->pInstance == nullptr ) {
@@ -2974,6 +2993,27 @@ void FlashPlayer::drawInstance( Renderer2D &renderer, const Instance &instance, 
     case eFlashCharacterType::CT_Sprite:
         if ( instance.pClip != nullptr ) {
             drawClip( renderer, *instance.pClip, matrix, colorTransform, stageToCanvas );
+            if ( ( instance.CornerColor >> 24 ) != 0 ) {
+                // The corner: the lower-right half of the first shape child, over the tinted square.
+                for ( const auto &child : instance.pClip->DisplayList ) {
+                    const FlashShape *pShape = definitions.getShape( child.second->CharacterId );
+                    if ( pShape == nullptr ) {
+                        continue;
+                    }
+                    const FlashMatrix toCanvas = stageToCanvas * ( matrix * child.second->Matrix );
+                    const float alpha = Clamp( colorTransform.Mul[3] + colorTransform.Add[3] / 255.0f, 0.0f, 1.0f );
+                    const uint32_t color = ( instance.CornerColor & 0x00ffffffu ) | ( static_cast<uint32_t>( alpha * 255.0f + 0.5f ) << 24 );
+                    const float corners[3][2] = { { pShape->XMax, pShape->YMin }, { pShape->XMax, pShape->YMax }, { pShape->XMin, pShape->YMax } };
+                    Vertex2D vertices[3];
+                    for ( int i = 0; i < 3; i++ ) {
+                        toCanvas.transform( corners[i][0], corners[i][1], vertices[i].X, vertices[i].Y );
+                        vertices[i].U = vertices[i].V = 0.0f;
+                        vertices[i].Color = color;
+                    }
+                    renderer.drawTriangles( nullptr, vertices, 3 );
+                    break;
+                }
+            }
         }
         break;
     case eFlashCharacterType::CT_EditText:

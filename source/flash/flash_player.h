@@ -124,6 +124,9 @@ public:
         // timeline's later moves keep the transform (the Flash rule; Ruffle's
         // transformed_by_script). MAIN.vmf openMenuH lays the squares out so.
         bool bTransformedByScript = false;
+        // A solid triangle over the lower-right half of the instance's first shape (the buy window's interior
+        // colour squares: the couture colour as a diagonal corner). RGBA8 like Vertex2D, alpha 0 = none.
+        uint32_t CornerColor = 0;
         std::unique_ptr<Clip> pClip; // sprite instances
     };
 
@@ -276,6 +279,9 @@ public:
     // which the retail exe paints from native code. Kept against the
     // timeline's later moves like a scripted transform. True when it exists.
     bool setClipColor( const std::string &clipPath, float r, float g, float b );
+    // The lower-right corner triangle of a clip's shape in a second colour (0..1 RGB); clear removes it.
+    bool setClipCorner( const std::string &clipPath, float r, float g, float b );
+    bool clearClipCorner( const std::string &clipPath );
     // The clip's alpha multiplier from the game side (0..1), kept against the
     // timeline like a scripted transform (the buy window's preview lure sits at 0).
     bool setClipAlpha( const std::string &clipPath, float alpha );
