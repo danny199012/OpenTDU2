@@ -499,9 +499,9 @@ bool IntroCinematic::playMain( const std::string &name, bool bStopPrevious, floa
         Quaternionf logRot;
         float logFov = 0.8f;
         const bool bHasCam = pDef->Cin.getCamera( pDef->Scenes, 0.0f, logPos, logRot, logFov );
-        OTDU_LOG_INFO( "IntroCinematic: main '%s' CinProps 0x%x noCamera %d camera@0 %d (%.2f, %.2f, %.2f)\n", name.c_str(),
+        OTDU_LOG_INFO( "IntroCinematic: main '%s' CinProps 0x%x noCamera %d camera@0 %d (%.2f, %.2f, %.2f) fov %.3f\n", name.c_str(),
                        static_cast<unsigned>( pDef->CinProps ), ( pDef->CinProps & kCinPropNoCamera ) != 0 ? 1 : 0, bHasCam ? 1 : 0,
-                       logPos.x, logPos.y, logPos.z );
+                       logPos.x, logPos.y, logPos.z, logFov );
         for ( const CinematicScene &logScene : pDef->Scenes ) {
             for ( const CinematicScene::Object &object : logScene.getObjects() ) {
                 OTDU_LOG_INFO( "IntroCinematic:   '%s' object '%s' camera %d\n", name.c_str(), object.Name.c_str(), object.isCamera() ? 1 : 0 );
@@ -1775,8 +1775,18 @@ void IntroCinematic::updateView() {
             head = ( player.World * player.WorldBones[static_cast<size_t>( headBone )] ).getTranslation();
         }
         const Vector3f pivot = head;
+        static const bool bLogOrbit = CmdLine::HasArg( "-logorbit" );
+        static int32_t orbitLogs = 0;
+        if ( bLogOrbit && orbitLogs++ % 60 == 0 ) {
+            OTDU_LOG_INFO( "IntroCinematic: head orbit distance %.3f m, head (%.2f, %.2f, %.2f)\n", ( camera.Position - head ).length(), head.x,
+                           head.y, head.z );
+        }
         const Quaternionf swing = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), headOrbitYaw );
-        camera.Position = pivot + swing.rotate( camera.Position - pivot );
+        Vector3f offset = camera.Position - pivot;
+        if ( headOrbitDistance > 0.0f && offset.length() > 0.01f ) {
+            offset = offset * ( headOrbitDistance / offset.length() );
+        }
+        camera.Position = pivot + swing.rotate( offset );
         camera.Rotation = camera.Rotation * Conjugate( swing );
     }
     view.setCamera( camera );

@@ -161,6 +161,7 @@ private:
     std::string walkCamera; // the door camera of a room swap (startWalk)
 
     void startWalk( const char *pPreferredCamera = nullptr );
+    void playHeadView( float distance = 0.0f );
     void applyTestAim(); // -walkaim
     // The emote key / slots / auto return (the FIRST_WM law, shared).
     void updateEmotes( float deltaTime );

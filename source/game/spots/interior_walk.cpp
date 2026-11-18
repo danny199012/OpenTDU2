@@ -1045,6 +1045,27 @@ void InteriorWalk::draw() {
     }
 }
 
+// The avatar shops' head view (surgeon / hairdresser): the bank's own C_HEAD cinematic - the avatar in the chair and
+// its close camera - plays under the menu, and the right stick / mouse swing the camera round the head
+// [DATA: isur_a / ihd_b cinematics; C_HEAD has CinProps NoCamera but a camera track; INF: it is the preview shot].
+void InteriorWalk::playHeadView( float distance ) {
+    if ( CmdLine::HasArg( "-nosurgeryview" ) || !scene.hasCinematic( "C_HEAD" ) ) {
+        return;
+    }
+    const bool bPlayed = scene.playMain( "C_HEAD" );
+    EdenSceneView::Camera headShot;
+    if ( const char *pCam = CmdLine::GetArgValue( "-surgcam" ); pCam != nullptr && scene.getEntityCamera( pCam, headShot ) ) {
+        headShot.Near = 0.05f;
+        scene.setCameraOverride( &headShot );
+    } else {
+        scene.setCameraOverride( nullptr );
+        scene.clearMirrorPlayer(); // the walk body is mirror-only; C_HEAD's "Avatar" actor takes over
+        scene.setHeadOrbit( true, distance );
+        scene.useMainCamera();
+    }
+    OTDU_LOG_INFO( "InteriorWalk: head view C_HEAD -> %d\n", bPlayed ? 1 : 0 );
+}
+
 void InteriorWalk::onUiCommand( const std::string &command, const std::string &args ) {
     OTDU_LOG_INFO( "InteriorWalk: FSCommand %s %s (page '%s')\n", command.c_str(), args.c_str(), homePage.c_str() );
     if ( bStickUi || bAvatarUi || bTuneUi ) {
@@ -1067,22 +1088,7 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             // calls the movie's openMenuSurgeon [DATA: surgeon_stop's script]; the
             // cinematic is not played yet, the menu opens straight away [INF].
             bWalkInput = false;
-            // The operating-room view of the head: the bank's own C_HEAD cinematic (the avatar in the chair, the
-            // close camera) plays under the menu [DATA: isur_a.bnk cinematics; INF: C_HEAD is the preview shot].
-            if ( !CmdLine::HasArg( "-nosurgeryview" ) && scene.hasCinematic( "C_HEAD" ) ) {
-                const bool bPlayed = scene.playMain( "C_HEAD" );
-                EdenSceneView::Camera headShot;
-                if ( const char *pCam = CmdLine::GetArgValue( "-surgcam" ); pCam != nullptr && scene.getEntityCamera( pCam, headShot ) ) {
-                    headShot.Near = 0.05f;
-                    scene.setCameraOverride( &headShot );
-                } else {
-                    scene.setCameraOverride( nullptr ); // the cinematic's own camera replaces the walk one
-                    scene.clearMirrorPlayer();          // the walk body is mirror-only; C_HEAD's "Avatar" actor takes over
-                    scene.setHeadOrbit( true );
-                    scene.useMainCamera();            // C_HEAD carries a camera track but its CinProps say NoCamera [DATA]
-                }
-                OTDU_LOG_INFO( "InteriorWalk: surgeon view C_HEAD -> %d\n", bPlayed ? 1 : 0 );
-            }
+            playHeadView();
             if ( commandSink ) {
                 commandSink( command, args ); // bind first: the invoke below sends surg:edit:open at once
             }
@@ -1092,6 +1098,7 @@ void InteriorWalk::onUiCommand( const std::string &command, const std::string &a
             // The hairdresser's A: the movie waits for openMenuHairDresser (retail
             // plays C_BUY_HAIR first - not played yet [INF]).
             bWalkInput = false;
+            playHeadView( 1.4f ); // the retail chair view is closer than the cinematic's own (~2.6 m) [INF: the 360 frame]
             if ( commandSink ) {
                 commandSink( command, args );
             }

@@ -9,6 +9,22 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+
+## Session 2026-11-18 (`main`): the hairdresser uses the same head-orbit camera
+
+Owner: "make the hairdresser use the same head orbit camera ... avatar sat in a chair, pan to the front and the back, not all the way round" (360 frame: profile, portrait wall behind, the barber leaning in).
+
+### What changed
+- `interior_walk.cpp` `playHeadView( distance )`: the surgeon's C_HEAD + orbit code moved into one helper; `hadr:open` calls it too (`ihd_b.bnk` has its own C_HEAD with an `Avatar` actor). The orbit (right stick / mouse, +-166 deg) already runs for any room whose main cinematic is C_HEAD.
+- `IntroCinematic::setHeadOrbit( on, distance )`: optional camera-to-head distance. The hairdresser's C_HEAD camera sits 2.6 m from the head (the clinic's 0.8 m), the 360 frame needs about 1.3 m (head ~51% of the frame height, fov 0.384 rad), so the hairdresser orbits at 1.4 m [INF]. `-logorbit` prints the distance; `-logmain` now prints the fov.
+
+### Verified
+- `-interior EHD_B -autoplay "400:press=validate;470:shot=..."` + `look=1,0` / `look=-1,0`: profile view like the 360 frame, then the front, then behind the head (`docs/images/hairdresser_head_view.webp`).
+- Ruled out: `cam_haidresser` is the reception desk camera, not the chair view.
+
+### Not done / next
+- The hairdresser's haircut pages do not yet redraw the hair live in this view (`HairUi` is not wired to `setPlayerFaceEdit`-style updates); the barber's idle pose differs from the retail frame.
+
 ## Session 2026-11-18 (`main`): surgery sliders redraw the face live + the head camera swings round (owner video)
 
 Owner: "make the sliders redraw the face live. You sit on the bench and can pan the camera left and right in a semi circle" (video `2026-11-18 12-46-15.mp4`: profile -> front orbit of the head, black tee, sliders change the face as they move).

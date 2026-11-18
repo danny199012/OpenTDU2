@@ -120,7 +120,12 @@ public:
     // The main cinematic's own camera track drives the view even when CinProps says NoCamera (the clinic's C_HEAD).
     void useMainCamera() { main.bNoCamera = false; }
     // The clinic's head view: the main camera swings around the head (yaw in radians, clamped to a half circle).
-    void setHeadOrbit( bool bOn ) { bHeadOrbit = bOn; headOrbitYaw = 0.0f; }
+    // distance: the camera-to-head metres to orbit at (0: the cinematic's own).
+    void setHeadOrbit( bool bOn, float distance = 0.0f ) {
+        bHeadOrbit = bOn;
+        headOrbitYaw = 0.0f;
+        headOrbitDistance = distance;
+    }
     void addHeadOrbit( float delta );
     // The surgeon's live edit of the player's face (see EdenAvatar::setFaceEdit).
     void setPlayerFaceEdit( const int8_t *pParams, float age, float freckle ) {
@@ -771,6 +776,7 @@ private:
     // The walk-mode emote / self-view state (playPlayerEmote).
     bool bHeadOrbit = false;
     float headOrbitYaw = 0.0f;
+    float headOrbitDistance = 0.0f;
     bool bPlayerEmote = false;      // avatar posed at the emote place
     int32_t playerEmoteIndex = -1;  // -1: self-view idle (no clip)
     float playerEmoteTime = 0.0f;
