@@ -354,6 +354,10 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     // hairdresser / clothes_shop root labels [DATA]); -nosurgeryui keeps the
     // native SurgeryMenu (the A/B).
     // ESUR clinics -> "surgeon", EHD hairdressers -> "hairdresser", EAS clothes shops -> "clothes_shop".
+    // The tuning shops (ETUN_*) run SHOPSCAR.vmf's car_tuner page (label
+    // after_mkt -> tuner_stop; the seller's A is ItemType('valid') -> OpenTuner)
+    // [DATA]; -notuneui keeps the native TuningMenu (the A/B).
+    bTuneUi = !bHouse && _strnicmp( houseSpotName.c_str(), "ETUN", 4 ) == 0 && !CmdLine::HasArg( "-notuneui" );
     avatarLabel.clear();
     if ( !bHouse && !bStickUi && !CmdLine::HasArg( "-nosurgeryui" ) ) {
         if ( _strnicmp( houseSpotName.c_str(), "ESUR", 4 ) == 0 ) {
@@ -368,7 +372,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     bAvatarUi = !avatarLabel.empty();
     bWalkInput = true;
     bLeaveRequested = false;
-    if ( bStickUi ) {
+    if ( bStickUi || bTuneUi ) {
         setup.UiMovie = "shopscar";
     } else if ( bAvatarUi ) {
         setup.UiMovie = "shopsavatar";
@@ -455,7 +459,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     }
     spotBank = houseSpotName.empty() ? path : houseSpotName;
     bActive = true;
-    if ( bStickUi || bAvatarUi ) {
+    if ( bStickUi || bAvatarUi || bTuneUi ) {
         // The sticker pages poll their loading flag from an onEnterFrame.
         scene.getUi().setEnterFrameHandlers( true );
     }
@@ -675,6 +679,7 @@ void InteriorWalk::exit() {
     bHouse = false;
     bInGarage = false;
     bStickUi = false;
+    bTuneUi = false;
     bAvatarUi = false;
     bWalkInput = true;
     bLeaveRequested = false;
@@ -725,6 +730,13 @@ void InteriorWalk::startWalk( const char *pPreferredCamera ) {
         bWalkInput = true;
         scene.getUi().setVariableNumber( "/:IsBike", 0.0 );
         scene.getUi().gotoLabel( "/", "st_open", true );
+    } else if ( bTuneUi ) {
+        // SHOPSCAR's tuner page: after_mkt sets WhatPage "car_tuner", sends afmk and
+        // opens the title bar and the cursor, then tuner_stop (the walk waits for the
+        // tuner's A) [DATA].
+        bWalkInput = true;
+        scene.getUi().setVariableNumber( "/:IsBike", 0.0 );
+        scene.getUi().gotoLabel( "/", "after_mkt", true );
     } else if ( bAvatarUi ) {
         // SHOPSAVATAR's surgeon page: the title bar and the cursor, then
         // surgeon_stop (the walk waits for the surgeon's A) [DATA].
@@ -856,7 +868,7 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         }
         return eResult::None;
     }
-    if ( ( bStickUi || bAvatarUi ) && !bWalkInput ) {
+    if ( ( bStickUi || bAvatarUi || bTuneUi ) && !bWalkInput ) {
         // One of the movie's own pages is up (wmof): the pad drives it, the
         // walk and the exit are the movie's to give back (wmon).
         routeHomeInput();
@@ -880,9 +892,12 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     if ( bConsumed ) {
         return eResult::None;
     }
-    if ( bStickUi && gpInput->wasPressed( eInputAction::IA_MenuBack ) && !walk.isInSelfView() ) {
+    if ( ( bStickUi || bTuneUi ) && gpInput->wasPressed( eInputAction::IA_MenuBack ) && !walk.isInSelfView() ) {
         // The movie's own B (the "Exit the shop?" question, st_quit) [DATA].
-        scene.getUi().invokeMethod( "/:Clip", "B", {} );
+        if ( !scene.getUi().invokeMethod( "/:Clip", "B", {} ) ) {
+            // The tuner's page defines B() on the root timeline (tuner_stop) before any page sets /:Clip.
+            scene.getUi().invoke( "/", "B", {} );
+        }
         return eResult::None;
     }
     if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) ) {
@@ -926,6 +941,11 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
             // The seller: the movie's own A (ItemType valid -> StickersMenu).
             // ItemType('valid') is the page's A on the selected item (the
             // st_stop buttons only carry the selection keys) [DATA].
+            scene.getUi().invoke( "/", "ItemType", { "valid" } );
+            return eResult::None;
+        }
+        if ( bTuneUi && strcmp( pType, "npc_tuner" ) == 0 ) {
+            // The tuner: the movie's own A (ItemType valid -> camn + OpenTuner) [DATA].
             scene.getUi().invoke( "/", "ItemType", { "valid" } );
             return eResult::None;
         }
@@ -989,6 +1009,10 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     return eResult::None;
 }
 
+FlashPlayer *InteriorWalk::getTuneUi() {
+    return bActive && bTuneUi ? &scene.getUi() : nullptr;
+}
+
 FlashPlayer *InteriorWalk::getAvatarUi() {
     return bActive && bAvatarUi ? &scene.getUi() : nullptr;
 }
@@ -1014,7 +1038,7 @@ void InteriorWalk::draw() {
 
 void InteriorWalk::onUiCommand( const std::string &command, const std::string &args ) {
     OTDU_LOG_INFO( "InteriorWalk: FSCommand %s %s (page '%s')\n", command.c_str(), args.c_str(), homePage.c_str() );
-    if ( bStickUi || bAvatarUi ) {
+    if ( bStickUi || bAvatarUi || bTuneUi ) {
         FlashPlayer &ui = scene.getUi();
         if ( command == "wmof" || command == "camn" ) {
             // wmof FUN_0094fb30: walk off; camn FUN_00952300: the selected
@@ -1285,7 +1309,7 @@ void InteriorWalk::routeHomeInput() {
     if ( gpInput->wasPressed( eInputAction::IA_MenuRight ) ) {
         ui.sendKey( 2 );
     }
-    if ( ( bStickUi || bAvatarUi ) && gpInput->wasMouseClicked() ) {
+    if ( ( bStickUi || bAvatarUi || bTuneUi ) && gpInput->wasMouseClicked() ) {
         ui.sendMouseRelease( gpInput->getMouseX(), gpInput->getMouseY() );
     }
     if ( bStickUi ) {

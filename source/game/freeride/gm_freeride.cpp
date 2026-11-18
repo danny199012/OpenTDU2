@@ -27,6 +27,7 @@
 #include "game/freeride/tuner.h"
 #include "game/freeride/tuner_menu.h"
 #include "game/freeride/tuner_parts.h"
+#include "game/freeride/tune_ui.h"
 #include "game/world_clock.h"
 #include "input/gs_input.h"
 #include "physics/havok_collision.h"
@@ -717,7 +718,11 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( command == "hadr:open" && interior.getAvatarUi() != nullptr ) {
             hairUi.bind( interior.getAvatarUi() );
         }
-        if ( !surgeryUi.onCommand( command ) && !hairUi.onCommand( command ) ) {
+        if ( command == "afmk" && interior.getTuneUi() != nullptr ) {
+            // The tuning shop's page opened: this visit's car is the one you drove in with.
+            tuneUi.bind( interior.getTuneUi(), car.getIdCar(), FindCarDisplayName( car.getIdCar() ) );
+        }
+        if ( !surgeryUi.onCommand( command ) && !hairUi.onCommand( command ) && !tuneUi.onCommand( command ) ) {
             stickerShop.onCommand( command );
         }
     } );
@@ -5882,6 +5887,10 @@ void GMFreeRide::tick( float deltaTime ) {
             OTDU_LOG_WARN( "FREERIDE: -enterhouse '%s': no such house\n", pForcedHouse );
         }
         pForcedHouse = nullptr;
+    }
+    // Out of a tuning shop room: the movie goes with it.
+    if ( tuneUi.isBound() && !interior.isTuneUi() ) {
+        tuneUi.unbind();
     }
     // Out of a sticker shop room: an unpaid layout goes back on the car.
     if ( stickerShop.isBound() && !interior.isActive() ) {

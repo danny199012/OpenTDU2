@@ -37,6 +37,7 @@
 #include "game/freeride/paint_menu.h"
 #include "game/freeride/sticker_shop_ui.h"
 #include "game/freeride/tuning_menu.h"
+#include "game/freeride/tune_ui.h"
 #include "game/freeride/tuner_menu.h"
 #include "game/freeride/discovery_points.h"
 #include "game/freeride/race_events.h"
@@ -261,6 +262,7 @@ private:
     ClothesMenu clothesMenu;
     HairUi hairUi;           // SHOPSAVATAR.vmf's hairdresser page
     SurgeryUi surgeryUi;     // SHOPSAVATAR.vmf's surgeon page (the retail screen)
+    TuneUi tuneUi;           // SHOPSCAR.vmf's car_tuner page (the retail tuning shop screen)
     SurgeryMenu surgeryMenu; // the cosmetic clinic (ESUR_*), surgery_spec.md
     // The realtor (ERE_*), the tuning shops (ETUN_*) and the sticker /
     // paint shops (ESTICK_*): the menus of the spots that have stock

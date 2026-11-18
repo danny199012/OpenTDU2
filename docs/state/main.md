@@ -6,6 +6,21 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 59): the tuning shop runs the RETAIL SHOPSCAR car_tuner screen (default; `-notuneui` = native)
+
+The owner: *"please work on the tuning shop menu ui"*. ETUN_* rooms load `shopscar.vmf` at its `after_mkt` label; `TuneUi`
+(`freeride/tune_ui.*`) answers the page: car sheet + gauges, money, the squares, the four level lines (prices, lock states),
+the Wheels page (`/:option_name`, `/:cur_op_price`), buy (`kiva`) and rims (`tune:rims:vali`). Protocol in `docs/re/tuning_ui_spec.md`.
+
+### Verified
+- `-gm FREERIDE -skipcine -nopad -fixedtimestep -interior ETUN_A -walkaim npc_tuner -logtune -autoplay ...` (needs the 3D pass, no `-no3d`):
+  `TuneUi: car 387 accel -> level 1 for $12000 (money now $81450)`, `braking -> level 1`, `rims 21" for $8000`; saved to the profile;
+  B -> "Exit Shop?" -> A -> `gofr` -> `FREERIDE: back in the car`. `docs/images/tuning_retail_ui.webp`.
+- Controls: D-pad up/down/left/right (arrow keys) pick squares / lines / rims, A (Enter) buys, B (Esc) backs out.
+
+### Not done / next
+- Wheels preview picture, the part cinematic, the car on the lift, 4th level (see the spec section 4). Hawai tuning shops not walked.
+
 ## Session 2026-11-18 (`main`, 58): clothes shop buy works on the retail movie (default; `-noclothesui` = native)
 
 The A refusal = missing `Solded` / `DLC_Locked` / `IsEnoughMoney` (set per item in `updateClosetItem`), then `buit` buys + wears. See `avatar_shops_spec.md` s3.
