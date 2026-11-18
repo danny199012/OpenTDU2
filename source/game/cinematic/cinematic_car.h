@@ -264,6 +264,9 @@ public:
     // window paints its colour squares with it [INF: the retail swatch render
     // callback FUN_009ee3c0 reads a per-row colour pair it computed elsewhere].
     bool getDatabasePaintSwatch( int32_t paintIndex, float outRgb[3] );
+    // The swatch of a colour id (a DBInterior `_interior_color_n`): the car's own colour library first, then
+    // colors.2dm. The interior palette squares of the buy window.
+    bool getLibrarySwatch( const std::string &colorId, float outRgb[3] );
     // The same for a colour library material by name (the DBInterior
     // _interior_color_<n> ids 'C_N_02' ...): false when no library has it.
     static bool FindLibrarySwatch( const std::string &materialName, float outRgb[3] );

@@ -1005,11 +1005,11 @@ void GMShop::playPageCamera( int32_t option ) {
         insetFov = 0.6f;
         break;
     case 4:
-        // Retail (360 capture, owner): the driver's door is open and the camera stands in the door gap, so the
-        // cabin and the rest of the car are in view [INF].
-        eyeLocal = Vector3f( 1.6f, 1.25f, -0.2f );
-        targetLocal = Vector3f( 0.1f, 0.8f, 0.35f );
-        fov = 0.95f;
+        // Retail (owner's capture of the same R8): the main view sits in the driver's seat looking at the wheel and
+        // sways left-right (applyPageCameraPose); the panel shows the cabin from the open door, still [INF].
+        eyeLocal = Vector3f( 0.36f, 0.98f, -0.25f );
+        targetLocal = Vector3f( 0.36f, 0.80f, 0.5f );
+        fov = 1.0f;
         insetEyeLocal = Vector3f( 1.7f, 1.4f, 0.5f );
         insetTargetLocal = Vector3f( 0.45f, 1.0f, 0.35f );
         insetFov = 0.7f;
@@ -1048,13 +1048,13 @@ void GMShop::applyPageCameraPose( float deltaTime ) {
     }
     pageTime += deltaTime;
     Vector3f eyeLocal = pageEyeLocal;
-    if ( pageOption == 3 ) {
-        // The retail paint view draws a box around the car: it holds at each
+    if ( pageOption == 2 || pageOption == 3 ) {
+        // The retail wheels / paint view draws a box around the car: it holds at each
         // corner, then pans smoothly to the next [owner, 360 capture; the
         // timings are INF]. Corners in the car frame (+X left, +Z forward).
         static const Vector3f corners[4] = { Vector3f( 2.9f, 1.25f, 4.9f ), Vector3f( -2.9f, 1.25f, 4.9f ),
                                              Vector3f( -2.9f, 1.25f, -4.9f ), Vector3f( 2.9f, 1.25f, -4.9f ) };
-        const float hold = 1.8f, move = 2.2f, period = hold + move;
+        const float hold = 4.0f, move = 1.3f, period = hold + move; // [DATA: the owner's capture, a move every ~5.3 s]
         const float t = std::fmod( pageTime, period * 4.0f );
         const int32_t index = static_cast<int32_t>( t / period );
         const float local = t - static_cast<float>( index ) * period;
@@ -1078,8 +1078,16 @@ void GMShop::applyPageCameraPose( float deltaTime ) {
         pageDoor = Min( 1.0f, pageDoor + deltaTime / 0.8f );
         scene.getShowCar( static_cast<size_t>( pageDoorCar ) ).setDoorAngle( 0, -0.95f * pageDoor * pageDoor * ( 3.0f - 2.0f * pageDoor ) );
     }
+    Vector3f targetLocal = pageTargetLocal;
+    if ( pageOption == 4 ) {
+        // The seat view sways left-right about the wheel (period ~7.3 s, +-4 deg) [DATA: the capture's pan].
+        const float sway = std::sin( pageTime * 0.86f ) * 0.07f;
+        const Vector3f arm = targetLocal - eyeLocal;
+        const float cs = std::cos( sway ), sn = std::sin( sway );
+        targetLocal = eyeLocal + Vector3f( arm.x * cs + arm.z * sn, arm.y, -arm.x * sn + arm.z * cs );
+    }
     const Vector3f eye = pageCameraCarWorld.transformPoint( eyeLocal );
-    const Vector3f direction = ( pageCameraCarWorld.transformPoint( pageTargetLocal ) - eye ).normalized();
+    const Vector3f direction = ( pageCameraCarWorld.transformPoint( targetLocal ) - eye ).normalized();
     // Eden convention: forward = R(q*) (0, 0, 1), q* = Ry(yaw) Rx(-pitch)
     // (the garage cockpit camera, GMFirstWalkMode::updateCockpitCamera).
     const float yaw = std::atan2( direction.x, direction.z );
@@ -1241,11 +1249,14 @@ void GMShop::paintBuySwatches( int32_t option ) {
         const std::vector<uint64_t> interiors = ColorInteriors( car.ColorRow );
         for ( size_t i = 0; i < interiors.size(); i++ ) {
             XmbValue row = FindRow( "DBInterior", "_hashcode", static_cast<int64_t>( interiors[i] ) );
-            // The _interior_color_<n> ids ('C_N_02', 'C_G_01' ...) are not
-            // materials of colors.2dm: a neutral grey then, so the squares do
-            // not keep the paint page's colours [INF].
+            // The _interior_color_<n> ids ('R8_V10_Int_Rouge_01' ...) are materials of the CAR's own colour
+            // library (<car>_color.2dm), not of colors.2dm [DATA]. The retail square (owner's capture) is the
+            // seat colour (_interior_color_1) with the couture colour (_interior_color_3) as a diagonal
+            // corner when it differs; the corner is not drawn yet (one tint per clip) - a mixed square
+            // takes the seat colour. Neutral grey when the id is in no library.
             float rgb[3] = { 0.32f, 0.32f, 0.32f };
-            const bool bFound = row.isValid() && CinematicCar::FindLibrarySwatch( row["_interior_color_1"].asString(), rgb );
+            const bool bFound = row.isValid() && car.ShowCar >= 0 &&
+                                scene.getShowCar( static_cast<size_t>( car.ShowCar ) ).getLibrarySwatch( row["_interior_color_1"].asString(), rgb );
             if ( ui.setClipColor( "/buy/window_buy/colors/color" + std::to_string( i + 1 ), rgb[0], rgb[1], rgb[2] ) &&
                  bFound ) {
                 painted++;
@@ -2052,7 +2063,7 @@ void GMShop::renderPageInset() {
     // persists in between), at once on a page change.
     static int32_t insetFrame = 0, insetPage = -1;
     // Wheels / interior sweep left-right-left and paint orbits the car (the 360 panel loops): animated, so every frame.
-    const bool bSweep = pageOption == 2 || pageOption == 3 || pageOption == 4;
+    const bool bSweep = pageOption == 2 || pageOption == 3;
     const bool bRefresh = bSweep || pageOption != insetPage || !bInsetBound || ( insetFrame++ % 3 ) == 0 || CmdLine::HasArg( "-insetevery" );
     insetPage = pageOption;
     if ( !bRefresh ) {
@@ -2063,13 +2074,16 @@ void GMShop::renderPageInset() {
     if ( bSweep && !CmdLine::HasArg( "-noinsetsweep" ) ) {
         if ( pageOption == 3 ) {
             // Paint: the camera goes round the whole car (period ~22 s) [INF: the owner's reading of the 360 panel].
-            targetLocal = Vector3f( 0.0f, 0.6f, 0.0f );
-            const float angle = 0.6f + pageTime * 0.28f;
-            eyeLocal = targetLocal + Vector3f( std::sin( angle ) * 4.3f, 0.6f, std::cos( angle ) * 4.3f );
-            fovNow = 0.6f;
+            // Retail's panel hugs the body: it slides round the car ~1.3 m off the paint, wheel -> lamp -> grille ->
+            // ... -> tail (a lap in ~21 s) [DATA: the owner's capture].
+            const float angle = 2.6f + pageTime * 0.30f;
+            const float sa = std::sin( angle ), ca = std::cos( angle );
+            targetLocal = Vector3f( sa * 0.8f, 0.55f, ca * 1.9f );
+            eyeLocal = Vector3f( sa * 2.3f, 0.75f, ca * 3.5f );
+            fovNow = 0.8f;
         } else {
             // Wheels / interior: the eye swings +-0.4 rad about the target's vertical axis (period ~7 s).
-            const float swing = std::sin( pageTime * 0.9f ) * 0.40f;
+            const float swing = std::sin( pageTime * 0.785f ) * 0.40f; // period 8 s [DATA: the capture's panel]
             const float cs = std::cos( swing ), sn = std::sin( swing );
             const Vector3f arm = eyeLocal - targetLocal;
             eyeLocal = targetLocal + Vector3f( arm.x * cs + arm.z * sn, arm.y, -arm.x * sn + arm.z * cs );

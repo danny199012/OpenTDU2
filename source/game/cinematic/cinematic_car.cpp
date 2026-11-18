@@ -2322,6 +2322,17 @@ bool CinematicCar::FindLibrarySwatch( const std::string &materialName, float out
     return pMaterial != nullptr && SwatchOf( *pMaterial, outRgb );
 }
 
+bool CinematicCar::getLibrarySwatch( const std::string &colorId, float outRgb[3] ) {
+    Render2DM carLibrary;
+    const BankEntry *pCarColors = carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
+    const bool bCarLibrary = pCarColors != nullptr && carLibrary.parse( pCarColors->pData, pCarColors->Size );
+    const MaterialDesc *pMaterial = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, colorId );
+    if ( pMaterial == nullptr ) {
+        pMaterial = FindNamedMaterial( SharedColorLibrary(), colorId );
+    }
+    return pMaterial != nullptr && SwatchOf( *pMaterial, outRgb );
+}
+
 bool CinematicCar::getDatabasePaintSwatch( int32_t paintIndex, float outRgb[3] ) {
     const std::vector<XmbValue> rows = PaintRows( getIdCar() );
     if ( paintIndex < 0 || paintIndex >= static_cast<int32_t>( rows.size() ) ) {
@@ -2712,6 +2723,9 @@ bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
     }
     static const uint64_t kRampClr1 = GetIdentifier64bit( "RAMPCLR1" );
     static const uint64_t kRampClr2 = GetIdentifier64bit( "RAMPCLR2" );
+    Render2DM carLibrary;
+    const BankEntry *pCarColors = carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
+    const bool bCarLibrary = pCarColors != nullptr && carLibrary.parse( pCarColors->pData, pCarColors->Size );
     const auto swatch = [&]( const char *pId ) {
         float rgb[3] = { 0.32f, 0.32f, 0.32f };
         // The car's own colour library first (the interior ids 'R8_V10_Int_Rouge_01' live in <car>_color.2dm next to
@@ -2723,20 +2737,45 @@ bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
         }
         const Vector4f colour( rgb[0], rgb[1], rgb[2], 1.0f );
         return Vector4f( colour.x + ( 1.0f - colour.x ) * 0.2f, colour.y + ( 1.0f - colour.y ) * 0.2f,
-    Render2DM carLibrary;
-    const BankEntry *pCarColors = carBank.findEntry( ( ToLower( fileName ) + "_color" ).c_str(), "2dm" );
-    const bool bCarLibrary = pCarColors != nullptr && carLibrary.parse( pCarColors->pData, pCarColors->Size );
                          colour.z + ( 1.0f - colour.z ) * 0.2f, 1.0f );
     };
+    if ( CmdLine::HasArg( "-loginterior" ) ) {
+        // Every field of the DBInterior row (the schema names the colour slots).
+        if ( const XmbType *pType = row.getType() ) {
+            for ( const XmbType::Field &field : pType->Fields ) {
+                OTDU_LOG_INFO( "CinematicCar: DBInterior.%s = '%s' (%lld)\n", field.Name.c_str(),
+                               row[field.Name.c_str()].asString().c_str(),
+                               static_cast<long long>( row[field.Name.c_str()].asInt() ) );
+            }
+        }
+    }
+    if ( CmdLine::HasArg( "-loginterior" ) ) {
+        for ( const char *pField : { "_material", "_interior_color_1", "_interior_color_3" } ) {
+            const std::string id = row[pField].asString();
+            const MaterialDesc *pLib = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, id );
+            if ( pLib == nullptr ) {
+                OTDU_LOG_INFO( "CinematicCar: lib '%s' (%s): not in the car library\n", id.c_str(), pField );
+                continue;
+            }
+            OTDU_LOG_INFO( "CinematicCar: lib '%s' (%s): shader 0x%llx diffuse %.2f %.2f %.2f, %zu texture(s), %zu param(s)\n", id.c_str(),
+                           pField, static_cast<unsigned long long>( pLib->ShaderSetGUID ), pLib->DiffuseColor.x, pLib->DiffuseColor.y,
+                           pLib->DiffuseColor.z, pLib->Textures.size(), pLib->Parameters.size() );
+            for ( const MaterialTextureSlot &slot : pLib->Textures ) {
+                OTDU_LOG_INFO( "CinematicCar:   tex slotType 0x%llx hash 0x%llx\n", static_cast<unsigned long long>( slot.SlotType ),
+                               static_cast<unsigned long long>( slot.TextureHashcode ) );
+            }
+            for ( const auto &param : pLib->Parameters ) {
+                OTDU_LOG_INFO( "CinematicCar:   param 0x%llx = %.3f %.3f %.3f %.3f\n", static_cast<unsigned long long>( param.first ),
+                               param.second.x, param.second.y, param.second.z, param.second.w );
+            }
+        }
+    }
     const Vector4f colour1 = swatch( row["_interior_color_1"].asString().c_str() );
     const Vector4f colour2 = swatch( row["_interior_color_2"].asString().c_str() );
+    const Vector4f colour3 = swatch( row["_interior_color_3"].asString().c_str() );
+    const MaterialDesc *pTrim = FindNamedMaterial( bCarLibrary ? &carLibrary : nullptr, row["_material"].asString() );
     int32_t painted = 0;
     for ( EdenMaterial &material : interior.getMaterials() ) {
-        Vector4f colour;
-        if ( material.Name.compare( 0, 3, "C1_" ) == 0 ) {
-            colour = colour1;
-        } else if ( material.Name.compare( 0, 3, "C2_" ) == 0 ) {
-            colour = colour2;
         if ( CmdLine::HasArg( "-loginterior" ) ) {
             OTDU_LOG_INFO( "CinematicCar: interior material '%s'\n", material.Name.c_str() );
             for ( int32_t t = 0; t < 16; t++ ) {
@@ -2744,10 +2783,61 @@ bool CinematicCar::applyInterior( uint64_t interiorHashcode ) {
                     OTDU_LOG_INFO( "CinematicCar:   slot %d '%s'\n", t, material.pTextures[t]->Name.c_str() );
                 }
             }
+            if ( material.Name.find( "C1_" ) != std::string::npos || material.Name.find( "C2_" ) != std::string::npos ||
+                 material.Name.find( "C3_" ) != std::string::npos || material.Name == "MAT_1" ) {
+                OTDU_LOG_INFO( "CinematicCar:   shader 0x%llx diffuse %.2f %.2f %.2f\n", static_cast<unsigned long long>( material.ShaderSetGUID ),
+                               material.Diffuse.x, material.Diffuse.y, material.Diffuse.z );
+                for ( const auto &param : material.Parameters ) {
+                    OTDU_LOG_INFO( "CinematicCar:   mparam 0x%llx = %.3f %.3f %.3f %.3f\n", static_cast<unsigned long long>( param.first ), param.second.x,
+                                   param.second.y, param.second.z, param.second.w );
+                }
+            }
         }
+        // The trim material slot ('MAT_1' of the Audi interiors, shader TD_CarPaint2-like): the row's `_material`
+        // ('R8_V10_Mat_Gris_01' = brushed alu ramps, 'R8_V10_Mat_Carbon_01' = the carbon weave) of the car's colour
+        // library [DATA: the library entry carries RAMPCLR1/2 + a DETAIL texture, or none for the alu].
+        if ( material.Name == "MAT_1" && pTrim != nullptr ) {
+            for ( const char *pParam : { "RAMPCLR1", "RAMPCLR2", "MATPARAM", "SPECPARM" } ) {
+                Vector4f value;
+                if ( pTrim->getParameter( pParam, value ) ) {
+                    material.Parameters[GetIdentifier64bit( pParam )] = value;
+                }
+            }
+            material.Diffuse = Vector4f( pTrim->DiffuseColor.x, pTrim->DiffuseColor.y, pTrim->DiffuseColor.z, material.Diffuse.w );
+            const uint64_t detail = pTrim->findTexture( "DETAIL" );
+            GPUTexture *pDetail = detail != 0 ? gpRender->getTextureCache().find( textureOwnerName( interiorBank ).c_str(), detail ) : nullptr;
+            if ( pDetail == nullptr ) {
+                pDetail = gpRender->getTextureCache().getWhiteTexture(); // the alu: no weave
+            }
+            material.pTextures[0] = pDetail;
+            material.TextureHashes[0] = detail != 0 ? detail : GetIdentifier64bit( "white" );
+            if ( gpRender->getEdenRenderer() != nullptr ) {
+                gpRender->getEdenRenderer()->updateProgram( material );
+            }
+            painted++;
+            continue;
+        }
+        // 'C1_*' / 'A_C1_*' = the seat leather (colour 1), 'C2_*' = colour 2, 'A_C3_*' = the couture (colour 3);
+        // the alu 'A_C2_al' keeps its own metal.
+        Vector4f colour;
+        const size_t cn = material.Name.find( "C" );
+        const bool bPrefixed = material.Name.compare( 0, 2, "A_" ) == 0;
+        const size_t at = bPrefixed ? 2 : 0;
+        if ( material.Name.size() > at + 2 && material.Name[at] == 'C' && material.Name[at + 2] == '_' ) {
+            const char number = material.Name[at + 1];
+            if ( number == '1' ) {
+                colour = colour1;
+            } else if ( number == '2' && !bPrefixed ) {
+                colour = colour2;
+            } else if ( number == '3' ) {
+                colour = colour3;
+            } else {
+                continue;
+            }
         } else {
             continue;
         }
+        (void)cn;
         material.Parameters[kRampClr2] = colour;
         material.Parameters[kRampClr1] = colour; // the leather's two ramps take the trim colour
         material.Diffuse = Vector4f( colour.x, colour.y, colour.z, material.Diffuse.w );
