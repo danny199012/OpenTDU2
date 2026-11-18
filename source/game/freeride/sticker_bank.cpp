@@ -10,6 +10,13 @@
 #include "render/texture_cache.h"
 #include "render/vulkan/render_device.h"
 #include "render/2dm.h"
+#include "render/image_file.h"
+#include "core/path_utf8.h"
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <map>
 
 // The canvas resolution: the sticker art ships 512², so 1024 keeps a placed
 // sticker sharp while the whole body UV space stays one target.
@@ -157,6 +164,141 @@ void StickerBankCatalog::load() {
         }
         banks.push_back( std::move( info ) );
     }
+    scanModPacks();
+    loaded.resize( banks.size() );
+}
+
+namespace {
+std::string Trim( const std::string &s ) {
+    const size_t a = s.find_first_not_of( " \t\r\n" );
+    if ( a == std::string::npos ) {
+        return std::string();
+    }
+    return s.substr( a, s.find_last_not_of( " \t\r\n" ) - a + 1 );
+}
+
+// pack.ini: 'key = value' lines, '#' / ';' comments. Keys: name, price,
+// mono (0/1), vinyl (0/1), cars (comma list of _id_car).
+struct PackIni {
+    std::map<std::string, std::string> values;
+};
+
+PackIni ReadPackIni( const std::filesystem::path &path ) {
+    PackIni ini;
+    std::ifstream in( path );
+    std::string line;
+    while ( std::getline( in, line ) ) {
+        line = Trim( line );
+        if ( line.empty() || line[0] == '#' || line[0] == ';' ) {
+            continue;
+        }
+        const size_t eq = line.find( '=' );
+        if ( eq == std::string::npos ) {
+            continue;
+        }
+        const std::string key = ToLower( Trim( line.substr( 0, eq ) ) ), value = Trim( line.substr( eq + 1 ) );
+        if ( key == "name" || key == "price" || key == "mono" || key == "vinyl" || key == "cars" ) {
+            ini.values[key] = value;
+        }
+    }
+    return ini;
+}
+} // namespace
+
+// <mods>/stickers/<id>/pack.ini + *.png -> extra banks after the retail rows
+// (BankFile 'mod_<id>', type 1, valid). Sticker packs and full-car vinyl
+// packs share the format; the shop UI sees them as ordinary banks.
+void StickerBankCatalog::scanModPacks() {
+    if ( gpFile == nullptr || CmdLine::HasArg( "-nomodstickers" ) ) {
+        return;
+    }
+    const std::filesystem::path root = gpFile->getModsRoot() / "stickers";
+    std::error_code error;
+    if ( !std::filesystem::is_directory( root, error ) ) {
+        return;
+    }
+    std::vector<std::filesystem::path> folders;
+    for ( const auto &item : std::filesystem::directory_iterator( root, error ) ) {
+        if ( item.is_directory( error ) && std::filesystem::is_regular_file( item.path() / "pack.ini", error ) ) {
+            folders.push_back( item.path() );
+        }
+    }
+    std::sort( folders.begin(), folders.end() );
+    for ( const std::filesystem::path &folder : folders ) {
+        const PackIni ini = ReadPackIni( folder / "pack.ini" );
+        StickerBankInfo info;
+        const std::string id = PathToUtf8( folder.filename() );
+        info.BankFile = "mod_" + ToLower( id );
+        auto get = [&]( const char *key, const char *fallback ) {
+            const auto it = ini.values.find( key );
+            return it != ini.values.end() ? it->second : std::string( fallback );
+        };
+        info.Name = get( "name", id.c_str() );
+        info.Price = std::atoi( get( "price", "0" ).c_str() );
+        info.bMonochrome = get( "mono", "0" ) == "1";
+        info.bVinyl = get( "vinyl", "0" ) == "1";
+        for ( size_t start = 0, n = 0; start < get( "cars", "" ).size(); start = n + 1 ) {
+            const std::string list = get( "cars", "" );
+            n = list.find( ',', start );
+            if ( n == std::string::npos ) {
+                n = list.size();
+            }
+            const std::string token = Trim( list.substr( start, n - start ) );
+            if ( !token.empty() ) {
+                info.Cars.push_back( std::atoi( token.c_str() ) );
+            }
+        }
+        info.Type = 1;
+        info.bValid = true;
+        info.bMod = true;
+        info.ModFolder = PathToUtf8( folder );
+        OTDU_LOG_INFO( "Stickers: mod pack '%s' (%s) '%s' price %d%s\n", info.BankFile.c_str(), id.c_str(),
+                       info.Name.c_str(), info.Price, info.bVinyl ? " [vinyl]" : "" );
+        banks.push_back( std::move( info ) );
+    }
+}
+
+bool StickerBankCatalog::bankFitsCar( size_t index, int32_t carId ) const {
+    if ( index >= banks.size() || banks[index].Cars.empty() ) {
+        return true;
+    }
+    return std::find( banks[index].Cars.begin(), banks[index].Cars.end(), carId ) != banks[index].Cars.end();
+}
+
+const std::vector<StickerEntry> *StickerBankCatalog::openModBank( size_t index ) {
+    LoadedBank &bank = loaded[index];
+    const StickerBankInfo &info = banks[index];
+    const std::filesystem::path folder = PathFromUtf8( info.ModFolder );
+    std::vector<std::filesystem::path> files;
+    std::error_code error;
+    for ( const auto &item : std::filesystem::directory_iterator( folder, error ) ) {
+        if ( item.is_regular_file( error ) && ToLower( PathToUtf8( item.path().extension() ) ) == ".png" ) {
+            files.push_back( item.path() );
+        }
+    }
+    std::sort( files.begin(), files.end() ); // file order = sticker order (stable placements)
+    for ( const std::filesystem::path &file : files ) {
+        std::vector<uint8_t> pixels;
+        uint32_t width = 0, height = 0;
+        if ( !LoadImageFileRGBA( file, pixels, width, height ) || width == 0 || height == 0 ) {
+            OTDU_LOG_WARN( "Stickers: '%s' not loaded\n", PathToUtf8( file ).c_str() );
+            continue;
+        }
+        StickerEntry entry;
+        entry.Name = PathToUtf8( file.stem() );
+        entry.pArt =
+            gpRender->getTextureCache().createFromRGBA( width, height, pixels.data(), PathToUtf8( file ).c_str() );
+        if ( entry.pArt == nullptr ) {
+            continue;
+        }
+        bank.ownedTextures.push_back( entry.pArt );
+        entry.Width = static_cast<int32_t>( width );
+        entry.Height = static_cast<int32_t>( height );
+        bank.entries.push_back( std::move( entry ) );
+    }
+    bank.bModLoaded = true;
+    OTDU_LOG_INFO( "Stickers: mod pack '%s': %zu image(s)\n", info.BankFile.c_str(), bank.entries.size() );
+    return &bank.entries;
 }
 
 const std::vector<StickerEntry> *StickerBankCatalog::openBank( size_t index ) {
@@ -166,6 +308,9 @@ const std::vector<StickerEntry> *StickerBankCatalog::openBank( size_t index ) {
     LoadedBank &bank = loaded[index];
     if ( bank.bFailed ) {
         return nullptr;
+    }
+    if ( banks[index].bMod ) {
+        return bank.bModLoaded ? &bank.entries : openModBank( index );
     }
     if ( bank.pBank != nullptr ) {
         return &bank.entries;
@@ -235,6 +380,13 @@ void StickerBankCatalog::shutdown() {
         }
     }
     for ( LoadedBank &bank : loaded ) {
+        if ( gpRender != nullptr ) {
+            for ( GPUTexture *pTexture : bank.ownedTextures ) {
+                gpRender->getDevice().destroyTexture( pTexture );
+            }
+        }
+        bank.ownedTextures.clear();
+        bank.bModLoaded = false;
         delete bank.pBank;
         bank.pBank = nullptr;
         bank.entries.clear();

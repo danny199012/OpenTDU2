@@ -14,6 +14,21 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-18 (`main`, 48): mod sticker packs + full-car vinyl packs
+
+The owner: "make custom menus using the real UI ... more stickers in the packs ... a unique Vinyl pack ... full car like nfsu2 ... a sticker marketplace ... a tool for pure custom vinyl/sticker creations" - started with (a) mod sticker packs and (b) full-car vinyl packs.
+
+### What changed
+- `source/game/freeride/sticker_bank.{h,cpp}` - `<mods>/stickers/<id>/pack.ini` + PNGs become extra catalog banks (`mod_<id>`); `name/price/mono/vinyl/cars` keys; textures owned and destroyed by the catalog; `-nomodstickers`. `docs/re/sticker_mod_packs.md` is the spec.
+- `source/game/freeride/sticker_shop_ui.cpp` - vinyl entries place at Scale 1 / aspect-corrected to cover the canvas; packs with a `cars` list are hidden for other cars (`bankFitsCar`).
+
+### Verified
+- Build 276 clean. `-stickertest mod_testlivery,0` with a 1024^2 stripe vinyl: log `mod pack ... [vinyl]`, `1 image(s)`, canvas bound on 2 paint materials; `docs/images/sticker_mod_vinyl_test.webp` shows the stripe + tint on the California.
+
+### Not done / next
+- Not driven through the SHOPSCAR sticker shop UI (grid / buy) - run `-atspot` sticker shop with a pack in `<userdata>/mods/stickers` and check the grid shows it. Only 15 entries per pack show (`kGridSquares`).
+- Vinyl UV templates (`car_obj_export` is the starting point), a packaged/hashed pack archive (marketplace), then the tuner UI and auctions.
+
 ## Session 2026-11-18 (`main`, 47): tuner mod - six spoilers, four exhaust-tip sets, exhaust pops
 
 Owner: "the tuner mod, can you add more content to it, more spoilers, exhaust tips, and work on the enhanced audio if we can for exhaust pops etc."

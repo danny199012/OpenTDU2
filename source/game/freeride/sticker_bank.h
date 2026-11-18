@@ -28,6 +28,16 @@ struct StickerBankInfo {
     int32_t Price = 0;
     bool bMonochrome = false;
     bool bValid = false;
+    // A mod pack (<mods>/stickers/<id>/pack.ini, docs/re/sticker_mod_packs.md):
+    // the art is loose PNGs, not a retail .bnk. bVinyl = a full-car livery
+    // pack: each entry is a whole-canvas texture authored to a car's UV0 layout.
+    bool bMod = false;
+    bool bVinyl = false;
+    std::string ModFolder;
+    // pack.ini 'cars = 12, 340' (DBCarPhysicsData._id_car): the pack is only
+    // offered for those cars; empty = every car. A livery is authored to one
+    // car's UV layout, so vinyl packs normally name their car.
+    std::vector<int32_t> Cars;
 };
 
 struct StickerEntry {
@@ -102,6 +112,8 @@ public:
     // A bank whose _isvalid is 0 is listed but never loaded/sold; the type 4
     // (casino) / 5 (chase) specials no shop sells either.
     bool isBankSold( size_t index ) const;
+    // True when the pack is offered for the car (see StickerBankInfo::Cars).
+    bool bankFitsCar( size_t index, int32_t carId ) const;
 
     // The art + icon textures of one bank, loaded once into the TextureCache
     // (owner "stickers/<bankfile>", released by shutdown()). Null when the
@@ -117,8 +129,13 @@ public:
 private:
     StickerBankCatalog() = default;
 
+    void scanModPacks();
+    const std::vector<StickerEntry> *openModBank( size_t index );
+
     std::vector<StickerBankInfo> banks;
     struct LoadedBank {
+        std::vector<GPUTexture *> ownedTextures; // mod packs: created here, destroyed at shutdown
+        bool bModLoaded = false;
         Bank *pBank = nullptr; // released at shutdown (TextureCache borrow)
         std::vector<StickerEntry> entries;
         bool bFailed = false;

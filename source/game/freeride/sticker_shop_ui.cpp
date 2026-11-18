@@ -205,7 +205,7 @@ void StickerShopUi::buildCategories() {
     StickerBankCatalog &catalog = StickerBankCatalog::get();
     catalog.load();
     for ( size_t i = 0; i < catalog.getBankCount(); i++ ) {
-        if ( catalog.isBankSold( i ) ) {
+        if ( catalog.isBankSold( i ) && catalog.bankFitsCar( i, carId ) ) {
             categories.push_back( i );
         }
     }
@@ -407,6 +407,17 @@ void StickerShopUi::beginEdit( int32_t stickerIndex ) {
     placement.Bank = info.BankFile;
     placement.Index = stickerIndex;
     placement.Scale = kDefaultScale;
+    if ( info.bVinyl ) {
+        // A full-car livery covers the whole canvas (authored to the car's UV0 layout).
+        placement.Scale = 1.0f;
+        if ( const std::vector<StickerEntry> *pEntries = catalog.openBank( categories[static_cast<size_t>( category )] ) ) {
+            if ( stickerIndex >= 0 && stickerIndex < static_cast<int32_t>( pEntries->size() ) &&
+                 ( *pEntries )[static_cast<size_t>( stickerIndex )].Width > 0 ) {
+                const StickerEntry &e = ( *pEntries )[static_cast<size_t>( stickerIndex )];
+                placement.YStretch = static_cast<float>( e.Width ) / static_cast<float>( e.Height );
+            }
+        }
+    }
     editIndex = static_cast<int32_t>( working.size() );
     working.push_back( placement );
     tool = eTool::Move;
