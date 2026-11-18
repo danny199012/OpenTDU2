@@ -407,6 +407,16 @@ bool D3D12Scene::createConstantRing() {
 // Copies one stage's blocks into the frame slot's ring. The ring is reset when a
 // new frame starts (beginFrame has waited the slot's fence) and every block is
 // 256 byte aligned, which is what a root CBV requires of its location.
+// How much of the current frame slot's constant ring the last frame used (the
+// probe's report, docs/backends.md 3.14): see uploadConstants, which advances
+// the cursor.
+uint64_t D3D12Scene::getFrameConstantBytes() const {
+    if ( pDevice == nullptr ) {
+        return 0;
+    }
+    return constantRingCursor[pDevice->getFrameSlot() % kFrameSlots];
+}
+
 void D3D12Scene::uploadConstants( const StageConstants *pStage, uint64_t *outGpu ) {
     for ( uint32_t i = 0; i < kMaxConstantBuffers; i++ ) {
         outGpu[i] = zeroConstantsGpu;

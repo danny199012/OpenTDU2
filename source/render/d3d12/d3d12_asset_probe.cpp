@@ -7,6 +7,7 @@
 #include "render/3dd.h"
 #include "render/3dg.h"
 #include "render/d3d12/d3d12_device.h"
+#include "render/d3d12/d3d12_eden.h"
 #include "render/d3d12/d3d12_mesh_builder.h"
 #include "render/d3d12/d3d12_scene.h"
 #include "render/d3d12/d3d12_shader.h"
@@ -33,18 +34,11 @@
 
 namespace {
 
-// D3DDECLUSAGE names, for the "the mesh does not carry X" line.
-const char *const kUsageNames[] = { "POSITION",   "BLENDWEIGHT", "BLENDINDICES", "NORMAL",  "PSIZE",
-                                    "TEXCOORD",   "TANGENT",     "BINORMAL",     "TESSFACTOR",
-                                    "POSITIONT",  "COLOR" };
-
 // A frame's worth of draws, bounded so the table heap cannot run out: every
 // draw binds a 16 entry SRV table and D3D12Scene::kTableDescriptors is 4096 per
 // frame slot, so 96 draws (1536 descriptors) leave room for the 2D layer.
 constexpr uint32_t kMaxProbeDraws = 96;
 constexpr uint32_t kProbeFrames = 30;
-// b0..b3 of each stage; the widest .sob stage measured declares three.
-constexpr uint32_t kMaxBlocks = D3D12Scene::kMaxConstantBuffers;
 
 // The 2DM slot address byte -> 0 wrap, 1 mirror, 2 clamp: the rule of
 // EdenRenderer::AddressIndex (eden_renderer.cpp), repeated here because the
@@ -161,22 +155,14 @@ std::vector<uint32_t> MapRegistersToSlots( const std::string &hlsl, uint32_t &ou
     return registers;
 }
 
-// One draw: the uploaded mesh, the pipeline state object, the cbuffer blocks
-// and the texture table. Everything is prepared before the frame loop, because
-// a draw recorded inside beginFrame/endFrame must not compile, allocate or
-// stall.
+// One draw: the uploaded mesh, the material it draws with and where the
+// instance stands. The pipeline, the constant files and the texture table are
+// D3D12Eden's - the same code `EdenRenderer::draw` will call - so this probe
+// measures the production path and not a copy of it.
 struct ProbeDraw {
-    D3D12Scene::Mesh Mesh;
+    D3D12EdenMesh Mesh;
+    const EdenMaterial *pMaterial = nullptr;
     Matrix4x4f World = Matrix4x4f::Identity();
-    const void *pPipeline = nullptr;
-    uint64_t Srvs[D3D12Scene::kTextureTableSize] = {};
-    uint8_t Push[128] = {};
-    std::vector<uint8_t> VSBlock;
-    std::vector<uint8_t> PSBlock;
-    D3D12Scene::StageConstants VSConstants;
-    D3D12Scene::StageConstants PSConstants;
-    float BlendFactor = 1.0f;
-    uint32_t IndexCount = 0;
     uint32_t NumVertices = 0;
 };
 
@@ -213,44 +199,6 @@ struct PreparedModel {
     Vector3f Center;
     float Radius = 1.0f;
 };
-
-// The cbuffers of one stage, by what they are rather than by their number:
-// SPIRV-Cross hands back the *instance* names DXSO emitted (`c`, `spec_state`,
-// `clip_info`, `D3D9SharedPS`), so anything naming the specialization state is
-// the spec block, the clip/shared blocks stay the zero block (the Vulkan
-// renderer binds a zero buffer there too) and everything else is the stage's
-// constant file. A returned string names the binding, for the log.
-std::string AssignStageBlocks( const D3D12ShaderStage &stage,
-                               D3D12Scene::StageConstants &out,
-                               const void *pFile,
-                               uint32_t fileBytes,
-                               const void *pSpec,
-                               uint32_t specBytes ) {
-    std::string bound;
-    const uint32_t count =
-        Min<uint32_t>( static_cast<uint32_t>( stage.ConstantBufferNames.size() ), kMaxBlocks );
-    for ( uint32_t i = 0; i < count; i++ ) {
-        const std::string name = ToUpper( stage.ConstantBufferNames[i] );
-        const char *pWhat = nullptr;
-        if ( name.find( "SPEC" ) != std::string::npos ) {
-            out.pData[i] = pSpec;
-            out.Sizes[i] = specBytes;
-            pWhat = "spec";
-        } else if ( name.find( "CLIP" ) == std::string::npos && name.find( "SHARED" ) == std::string::npos ) {
-            out.pData[i] = pFile;
-            out.Sizes[i] = fileBytes;
-            pWhat = "file";
-        }
-        if ( pWhat == nullptr ) {
-            pWhat = "zero";
-        }
-        if ( !bound.empty() ) {
-            bound += ", ";
-        }
-        bound += "b" + std::to_string( i ) + "=" + pWhat;
-    }
-    return bound;
-}
 
 // Builds the runtime material of one .2DM entry exactly the way
 // EdenRenderer::setupMaterial does - the same states, the same slot addressing,
@@ -335,6 +283,13 @@ bool CompileMaterial( const MaterialDesc &desc,
     // permutation - which draws, but not what the game draws.
     out.Bucket = ApplyEdenMaterialHandler( material );
     EdenRenderer::applyRenderStates( material );
+    // -d3d12-nocull: the A/B for a model whose winding does not match the
+    // material's cull mode (a building's interior faces still fill the frame, an
+    // inside-out model does not).
+    static const bool bNoCull = CmdLine::HasArg( "-d3d12-nocull" );
+    if ( bNoCull ) {
+        material.CullMode = 1;
+    }
     return true;
 }
 
@@ -398,10 +353,9 @@ bool BuildDraws( const Render3DD &sceneDesc,
                  const Render3DG &geometry,
                  const std::unordered_map<uint64_t, const MaterialDesc *> &materialIndex,
                  const char *pOwner,
-                 const EdenSceneParams &sceneParams,
                  EdenShaderSystem &shaderSystem,
                  TextureCache &textureCache,
-                 D3D12Scene &sceneRenderer,
+                 D3D12Eden &eden,
                  PreparedModel &out ) {
     GPUTexture *pWhite = textureCache.getWhiteTexture();
     if ( pWhite == nullptr || pWhite->D3D12SrvStorageCpu == 0 ) {
@@ -410,7 +364,6 @@ bool BuildDraws( const Render3DD &sceneDesc,
     }
     out.NumNodes = static_cast<uint32_t>( sceneDesc.getNodes().size() );
     uint32_t warningBudget = 8;
-    uint32_t reportedFallbacks = 0;
     uint32_t loggedMaterials = 0;
     const Matrix4x4f toOrigin = Matrix4x4f::Translation(
         Vector3f( -out.Center.x, -out.Center.y, -out.Center.z ) );
@@ -424,7 +377,6 @@ bool BuildDraws( const Render3DD &sceneDesc,
     orient.m[0][2] = -std::sin( kYaw );
     orient.m[2][2] = std::cos( kYaw );
     const Matrix4x4f toOriginAndTurn = toOrigin * orient;
-    const Matrix4x4f viewProjection = sceneParams.Projection.mulPrecise( sceneParams.View );
 
     for ( const SceneNode &node : sceneDesc.getNodes() ) {
         const Geometry *pGeometry = geometry.find( node.ObjectHashcode );
@@ -500,21 +452,16 @@ bool BuildDraws( const Render3DD &sceneDesc,
                 continue;
             }
 
-            D3D12MeshData meshData;
-            if ( !D3D12PrepareMesh( primitive, meshData ) || meshData.NumStreams == 0 || meshData.Indices.empty() ) {
+            // The mesh: D3D12PrepareMesh + createMeshStreams, behind the same
+            // class `EdenRenderer::draw` will call (docs/backends.md 3.12/3.14).
+            auto pDraw = std::make_unique<ProbeDraw>();
+            if ( !eden.createMesh( primitive, pDraw->Mesh ) ) {
                 out.NumPrimitivesSkipped++;
                 if ( warningBudget-- > 0 ) {
                     OTDU_LOG_WARN( "D3D12 3dgtest: a primitive of node '%s' (%u vertex(es), %zu index(es)) did not "
                                    "convert\n",
                                    node.Name.c_str(), primitive.NumRawVertex, primitive.Indices.size() );
                 }
-                continue;
-            }
-            D3D12VertexLayout layout;
-            if ( !D3D12BuildVertexLayout( *pCompiled->pProgram->pVS, meshData.Attributes.data(),
-                                          static_cast<uint32_t>( meshData.Attributes.size() ), meshData.Strides,
-                                          meshData.NumStreams, layout ) ) {
-                out.NumPrimitivesNoLayout++;
                 continue;
             }
             // OPEN (docs/backends.md 3.13): the "the mesh does not carry
@@ -528,126 +475,31 @@ bool BuildDraws( const Render3DD &sceneDesc,
             // uninitialized read whose value the extra code perturbs, or a GPU
             // race the extra work masks. Chase it with a GPU capture before the
             // Eden port copies this pattern.
-            (void)reportedFallbacks;
-            (void)kUsageNames;
 
             // The node's own place in the model, recentred and turned for the
             // camera. Row-vector convention, the one EdenModel::draw composes
             // with (`world * nodeTransforms[..]`): the node transform first.
             const Matrix4x4f world = node.World * toOriginAndTurn;
 
-            D3D12Scene::D3D9State state;
-            state.SrcBlend = pCompiled->Material.SrcBlend;
-            state.DstBlend = pCompiled->Material.DstBlend;
-            state.BlendOp = pCompiled->Material.BlendOp;
-            state.DepthFunc = pCompiled->Material.DepthFunc;
-            state.ColorWriteMask = pCompiled->Material.ColorWriteMask;
-            // -d3d12-nocull: the A/B for a model whose winding does not match the
-            // material's cull mode (a building's interior faces still fill the
-            // frame, an inside-out model does not).
-            static const bool bNoCull = CmdLine::HasArg( "-d3d12-nocull" );
-            state.CullMode = bNoCull ? 1 : pCompiled->Material.CullMode;
-            // A mirrored instance swaps the cull faces (EdenRenderer::draw passes
-            // (determinant < 0) != scene.bMirroredView; the probe's camera is the
-            // normal one, so the determinant is the whole answer).
-            state.bMirrored = Determinant3x3( world ) < 0.0f;
-
-            D3D12Scene::PipelineDesc pipelineDesc;
-            pipelineDesc.pVS = &pCompiled->VS;
-            pipelineDesc.pPS = &pCompiled->PS;
-            pipelineDesc.pAttributes = layout.Attributes.data();
-            pipelineDesc.NumAttributes = static_cast<uint32_t>( layout.Attributes.size() );
-            pipelineDesc.pStrides = layout.Strides.data();
-            pipelineDesc.NumStreams = layout.NumStreams;
-            pipelineDesc.pState = &state;
-            pipelineDesc.bDepthTest = pCompiled->Material.bDepthTest;
-            pipelineDesc.bDepthWrite = pCompiled->Material.bDepthWrite;
-            const void *pPipeline = sceneRenderer.getPipeline( pipelineDesc );
-            if ( pPipeline == nullptr ) {
+            // The permutation's pair (compiled once per library by D3D12Eden)
+            // and the pipeline: created here, not inside the frame loop, so a
+            // refusal is a counted draw rather than one that silently
+            // disappears.
+            const D3D12EdenProgram *pProgram = eden.getProgram( pCompiled->pProgram );
+            if ( pProgram == nullptr ) {
+                out.NumPrimitivesNoProgram++;
+                eden.destroyMesh( pDraw->Mesh );
+                continue;
+            }
+            if ( eden.getPipeline( *pProgram, pDraw->Mesh, pCompiled->Material,
+                                   Determinant3x3( world ) < 0.0f ) == nullptr ) {
                 out.NumPrimitivesNoPipeline++;
+                eden.destroyMesh( pDraw->Mesh );
                 continue;
             }
-
-            auto pDraw = std::make_unique<ProbeDraw>();
+            pDraw->pMaterial = &pCompiled->Material;
             pDraw->World = world;
-            pDraw->pPipeline = pPipeline;
-            pDraw->IndexCount = static_cast<uint32_t>( meshData.Indices.size() );
             pDraw->NumVertices = primitive.NumRawVertex;
-            pDraw->BlendFactor = pCompiled->Material.BlendFactor;
-
-            // The cbuffer blocks, filled by the same code the Vulkan renderer
-            // runs: a register the filler has no value for keeps the 1.0
-            // stand-in, exactly like EdenRenderer.
-            pDraw->VSBlock.assign( kEdenVSConstantsSize, 0 );
-            pDraw->PSBlock.assign( kEdenPSConstantsSize, 0 );
-            float *pVSRegisters = reinterpret_cast<float *>( pDraw->VSBlock.data() + kEdenIntRegistersSize );
-            float *pPSRegisters = reinterpret_cast<float *>( pDraw->PSBlock.data() + kEdenIntRegistersSize );
-            for ( uint32_t i = 0; i < kEdenVSFloatRegisters * 4; i++ ) {
-                pVSRegisters[i] = 1.0f;
-            }
-            for ( uint32_t i = 0; i < kEdenPSFloatRegisters * 4; i++ ) {
-                pPSRegisters[i] = 1.0f;
-            }
-            std::unordered_set<std::string> warnedParameters;
-            EdenConstantsContext context;
-            context.pScene = &sceneParams;
-            context.pViewProjection = &viewProjection;
-            context.SceneEpoch = 1;
-            context.pWarned = &warnedParameters;
-            FillEdenConstants( context, pCompiled->pProgram->VSMembers, pVSRegisters, kEdenVSFloatRegisters,
-                               pCompiled->Material, world, nullptr, pCompiled->pProgram->Name.c_str(), false );
-            FillEdenConstants( context, pCompiled->pProgram->PSMembers, pPSRegisters, kEdenPSFloatRegisters,
-                               pCompiled->Material, world, nullptr, pCompiled->pProgram->Name.c_str(), true );
-            uint32_t specDwords[kEdenSpecDwords] = {};
-            FillEdenSpecConstants( specDwords, pCompiled->Material.bAlphaTest );
-            AssignStageBlocks( pCompiled->VS, pDraw->VSConstants, pDraw->VSBlock.data(),
-                               static_cast<uint32_t>( pDraw->VSBlock.size() ), specDwords, sizeof( specDwords ) );
-            AssignStageBlocks( pCompiled->PS, pDraw->PSConstants, pDraw->PSBlock.data(),
-                               static_cast<uint32_t>( pDraw->PSBlock.size() ), specDwords, sizeof( specDwords ) );
-
-            // The push block (b13 space1): the alpha reference and the sixteen
-            // sampler heap indices, at the byte offsets EdenRenderer writes
-            // (kPushAlphaRefOffset / kPushSamplerOffset).
-            const uint32_t alphaRef = pCompiled->Material.AlphaRef;
-            memcpy( pDraw->Push + 24, &alphaRef, sizeof( alphaRef ) );
-            for ( uint32_t i = 0; i < 16; i++ ) {
-                const uint16_t samplerIndex = pCompiled->Material.SamplerIndex[i];
-                memcpy( pDraw->Push + 64 + i * 2, &samplerIndex, sizeof( samplerIndex ) );
-            }
-
-            // The material's sixteen texture slots, bound where the *shader* reads
-            // them: register i takes the slot its variable name carries, and an
-            // unresolved slot binds the white texture rather than an unfilled
-            // descriptor, because a shader that samples garbage may fault the GPU
-            // instead of painting something wrong (the rule the Vulkan path's
-            // white 2D texture follows).
-            for ( uint32_t i = 0; i < D3D12Scene::kTextureTableSize; i++ ) {
-                const uint32_t slot = pCompiled->PSRegisters[i] != 0xFFFFFFFFu ? pCompiled->PSRegisters[i]
-                                                                               : pCompiled->VSRegisters[i];
-                GPUTexture *pTexture = slot != 0xFFFFFFFFu && slot < pCompiled->Material.NumSlots
-                                           ? pCompiled->Material.pTextures[slot]
-                                           : nullptr;
-                pDraw->Srvs[i] = pTexture != nullptr && pTexture->D3D12SrvStorageCpu != 0
-                                     ? pTexture->D3D12SrvStorageCpu
-                                     : pWhite->D3D12SrvStorageCpu;
-            }
-
-            const void *pStreams[D3D12Scene::Mesh::kMaxStreams] = {};
-            uint32_t streamBytes[D3D12Scene::Mesh::kMaxStreams] = {};
-            for ( uint32_t stream = 0; stream < meshData.NumStreams; stream++ ) {
-                pStreams[stream] = meshData.Streams[stream].data();
-                streamBytes[stream] = static_cast<uint32_t>( meshData.Streams[stream].size() );
-            }
-            if ( !sceneRenderer.createMeshStreams( pStreams, streamBytes, meshData.Strides, meshData.NumStreams,
-                                                   meshData.Indices.data(),
-                                                   static_cast<uint32_t>( meshData.Indices.size() ), pDraw->Mesh ) ) {
-                out.NumPrimitivesSkipped++;
-                if ( warningBudget-- > 0 ) {
-                    OTDU_LOG_WARN( "D3D12 3dgtest: the mesh of node '%s' could not be uploaded\n",
-                                   node.Name.c_str() );
-                }
-                continue;
-            }
 
             out.Programs.insert( pCompiled->pProgram->Name );
             out.Draws.push_back( std::move( pDraw ) );
@@ -839,17 +691,43 @@ struct Measurement {
     uint32_t Covered = 0;
     uint32_t DistinctColors = 0;
     float Mean[3] = {};
+    uint64_t Draws = 0;
+    uint64_t ConstantBytes = 0;
+    uint64_t RingBytes = 0;     // what the ring actually holds (256-byte blocks)
+    double RecordMs = 0.0;      // CPU time the draw loop took, per frame
 };
 
-// Draws every prepared draw for kProbeFrames frames, reads the last one back and
-// measures it. The backdrop is magenta, so any pixel the model painted is
-// unambiguous (the same trick -d3d12-edentest uses).
-bool DrawAndMeasure( D3D12Device &device, D3D12Scene &sceneRenderer, const PreparedModel &model,
-                     Measurement &out ) {
+// Draws every prepared draw 'instances' times for kProbeFrames frames, reads the
+// last one back and measures it. The backdrop is magenta, so any pixel the model
+// painted is unambiguous (the same trick -d3d12-edentest uses).
+//
+// The instances are a grid in the camera's own plane (world * T(offset), the
+// row-vector convention: the offset applies after the instance's own transform),
+// spaced two model radii apart and depth tested against each other. One instance
+// is the single-model evidence of section 3.13; hundreds answer the question a
+// world asks instead - what a frame of thousands of draws costs in ring bytes,
+// descriptor tables and CPU time (docs/backends.md 3.14).
+bool DrawAndMeasure( D3D12Device &device, D3D12Scene &sceneRenderer, D3D12Eden &eden, const PreparedModel &model,
+                     const EdenSceneParams &scene, uint32_t instances, Measurement &out ) {
     const ColorRGBA clearColor( 1.0f, 0.0f, 1.0f, 1.0f );
     if ( const char *pShot = CmdLine::GetArgValue( "-renderer-shot" ) ) {
         device.requestScreenshot( pShot );
     }
+    // The instance transforms: a centered grid, so the frame stays symmetric and
+    // the camera's fit covers it.
+    const uint32_t grid = Max<uint32_t>( 1, static_cast<uint32_t>(
+                                                std::ceil( std::sqrt( static_cast<double>( instances ) ) ) ) );
+    const float spacing = model.Radius * 2.6f;
+    std::vector<Matrix4x4f> transforms;
+    transforms.reserve( instances );
+    for ( uint32_t i = 0; i < instances; i++ ) {
+        const float column = static_cast<float>( i % grid ) - static_cast<float>( grid - 1 ) * 0.5f;
+        const float row = static_cast<float>( i / grid ) - static_cast<float>( grid - 1 ) * 0.5f;
+        transforms.push_back( Matrix4x4f::Translation(
+            Vector3f( column * spacing, -row * spacing, 0.0f ) ) );
+    }
+
+    eden.beginScene( scene );
     uint32_t presented = 0;
     for ( uint32_t frame = 0; frame < kProbeFrames; frame++ ) {
         SDL_Event event;
@@ -861,14 +739,22 @@ bool DrawAndMeasure( D3D12Device &device, D3D12Scene &sceneRenderer, const Prepa
         if ( !device.beginFrame( clearColor ) ) {
             break;
         }
-        for ( const std::unique_ptr<ProbeDraw> &pDraw : model.Draws ) {
-            if ( pDraw->pPipeline == nullptr ) {
-                continue;
+        const uint64_t start = SDL_GetPerformanceCounter();
+        for ( const Matrix4x4f &transform : transforms ) {
+            for ( const std::unique_ptr<ProbeDraw> &pDraw : model.Draws ) {
+                eden.draw( pDraw->Mesh, *pDraw->pMaterial, pDraw->World * transform );
             }
-            sceneRenderer.draw( pDraw->pPipeline, pDraw->Mesh, pDraw->Push, sizeof( pDraw->Push ), pDraw->Srvs,
-                                D3D12Scene::kTextureTableSize, &pDraw->VSConstants, &pDraw->PSConstants,
-                                pDraw->BlendFactor );
         }
+        const double recordMs = static_cast<double>( SDL_GetPerformanceCounter() - start ) /
+                                static_cast<double>( SDL_GetPerformanceFrequency() ) * 1000.0;
+        if ( frame + 1 == kProbeFrames ) {
+            out.Draws = eden.getDraws();
+            out.ConstantBytes = eden.getConstantBytes();
+            out.RingBytes = sceneRenderer.getFrameConstantBytes();
+            out.RecordMs = recordMs;
+            device.requestReadback();
+        }
+        eden.resetCounters();
         if ( frame + 1 == kProbeFrames ) {
             device.requestReadback();
         }
@@ -1044,6 +930,16 @@ bool D3D12RunMeshAssetTest() {
             sceneRenderer.setShaderDumpDir( pDump );
         }
     }
+    // The production draw path (render/d3d12/d3d12_eden.h): the same object
+    // `EdenRenderer` will own, so this probe measures it and not a copy.
+    D3D12Eden eden;
+    if ( !bAbort && !eden.initialize( &device, &sceneRenderer, &textureCache, &shaderSystem ) ) {
+        OTDU_LOG_ERROR( "D3D12 3dgtest: the eden draw path could not be initialised\n" );
+        bAbort = true;
+    }
+    // -instances N: the same model drawn N times (docs/backends.md 3.14).
+    const uint32_t instances =
+        Max<uint32_t>( 1, static_cast<uint32_t>( CmdLine::GetArgInt( "-instances", 1 ) ) );
 
     bool bPassed = false;
     for ( const std::string &bankPath : banks ) {
@@ -1069,9 +965,13 @@ bool D3D12RunMeshAssetTest() {
         // for a car the two are close, for a 40 m spot building the tangent form
         // put the camera inside the model. The horizontal half-angle is wider
         // than the vertical one at every aspect this runs at, so the vertical one
-        // decides.
-        const float distance = model.Radius / std::sin( fovY * 0.5f ) * 1.15f;
-        const float zFar = Max( 10.0f, distance + model.Radius * 4.0f );
+        // decides. -instances spreads a grid of models across the camera's plane,
+        // so the camera steps back by the grid's half span on top of that.
+        const uint32_t grid =
+            Max<uint32_t>( 1, static_cast<uint32_t>( std::ceil( std::sqrt( static_cast<double>( instances ) ) ) ) );
+        const float span = model.Radius * 2.6f * static_cast<float>( grid - 1 ) * 0.5f;
+        const float distance = model.Radius / std::sin( fovY * 0.5f ) * 1.15f + span * 1.5f;
+        const float zFar = Max( 10.0f, distance + model.Radius * 4.0f + span * 2.0f );
         const float cotangent = 1.0f / std::tan( fovY * 0.5f );
 
         EdenSceneParams scene;
@@ -1091,14 +991,14 @@ bool D3D12RunMeshAssetTest() {
         scene.Height = device.getBackbufferHeight();
         scene.Time = 0.0f;
 
-        if ( !BuildDraws( model.SceneDesc, model.Geometry, model.MaterialIndex, model.BankPath.c_str(), scene,
-                          shaderSystem, textureCache, sceneRenderer, model ) ) {
+        if ( !BuildDraws( model.SceneDesc, model.Geometry, model.MaterialIndex, model.BankPath.c_str(),
+                          shaderSystem, textureCache, eden, model ) ) {
             OTDU_LOG_WARN( "D3D12 3dgtest: '%s' produced no drawable primitive\n", model.BankPath.c_str() );
             continue;
         }
 
         Measurement measured;
-        if ( !DrawAndMeasure( device, sceneRenderer, model, measured ) ) {
+        if ( !DrawAndMeasure( device, sceneRenderer, eden, model, scene, instances, measured ) ) {
             continue;
         }
         const float percent = measured.Total > 0 ? 100.0f * static_cast<float>( measured.Covered ) /
@@ -1118,7 +1018,7 @@ bool D3D12RunMeshAssetTest() {
                            measured.DistinctColors );
         }
         OTDU_LOG_INFO( "D3D12 3dgtest: %ux%u; %u px covered (%.2f %%), %u distinct colour(s), mean %.1f/%.1f/%.1f "
-                       "on '%s' (%zu draw(s), %zu program(s); texture tables %llu hit(s) / %llu miss(es), %u "
+                       "on '%s' (%zu draw(s) prepared, %zu program(s); texture tables %llu hit(s) / %llu miss(es), %u "
                        "resident)\n",
                        device.getBackbufferWidth(), device.getBackbufferHeight(), measured.Covered, percent,
                        measured.DistinctColors, measured.Mean[0], measured.Mean[1], measured.Mean[2],
@@ -1126,14 +1026,39 @@ bool D3D12RunMeshAssetTest() {
                        static_cast<unsigned long long>( sceneRenderer.getTextureTableHits() ),
                        static_cast<unsigned long long>( sceneRenderer.getTextureTableMisses() ),
                        sceneRenderer.getTextureTableCount() );
+        // The frame's cost, which is what -instances exists to measure
+        // (docs/backends.md 3.14): the bytes the draws copied into the constant
+        // ring, how much of the ring that is, and the CPU time the recording
+        // took. A frame over 100 % loses draws to the zero block (the ring
+        // overflow is logged once by D3D12Scene), so the percentage is a pass
+        // criterion for the draw count, not a decoration.
+        const double ringPercent = 100.0 * static_cast<double>( measured.RingBytes ) /
+                                   static_cast<double>( D3D12Scene::kConstantRingBytes );
+        const unsigned long long ringMb = static_cast<unsigned long long>( D3D12Scene::kConstantRingBytes /
+                                                                          ( 1024ull * 1024ull ) );
+        OTDU_LOG_INFO( "D3D12 3dgtest: %u instance(s), %llu draw(s)/frame, %llu constant byte(s) copied, %llu in the "
+                       "ring (%.1f %% of %llu MB), %.2f ms to record on the CPU, %u program(s), %u pipeline(s)\n",
+                       instances, static_cast<unsigned long long>( measured.Draws ),
+                       static_cast<unsigned long long>( measured.ConstantBytes ),
+                       static_cast<unsigned long long>( measured.RingBytes ), ringPercent, ringMb,
+                       measured.RecordMs, eden.getProgramCount(), eden.getPipelineCount() );
+        if ( measured.Draws < model.Draws.size() * static_cast<size_t>( instances ) ) {
+            OTDU_LOG_WARN( "D3D12 3dgtest: %llu of the %zu draw(s) were refused (%llu had no program, %llu no "
+                           "pipeline)\n",
+                           static_cast<unsigned long long>( measured.Draws ),
+                           model.Draws.size() * static_cast<size_t>( instances ),
+                           static_cast<unsigned long long>( eden.getDrawsWithoutProgram() ),
+                           static_cast<unsigned long long>( eden.getDrawsWithoutPipeline() ) );
+        }
         OTDU_LOG_INFO( "D3D12 3dgtest: %s (%s)\n", bPassed ? "PASSED" : "FAILED",
                        bPassed ? "the model reached the frame through its own material, pipeline and textures"
                                : "the model is not on the frame" );
         for ( const std::unique_ptr<ProbeDraw> &pDraw : model.Draws ) {
-            sceneRenderer.destroyMesh( pDraw->Mesh );
+            eden.destroyMesh( pDraw->Mesh );
         }
     }
 
+    eden.destroy();
     sceneRenderer.destroy();
     textureCache.destroy();
     device.destroy();

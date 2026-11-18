@@ -33,6 +33,8 @@ with no shippable step in between. The backends are therefore added
 | Constant buffers b0..b3 per stage + D3D9 material state | descriptor sets + push constants | **done** (`-d3d12-constest`, section 3.7) | - | - |
 | **An original `.sob` shader draws** (`-d3d12-edentest`) | `EdenRenderer` | **done for one material** (section 3.8) | - | - |
 | **A real `.3DG` model draws** (`-d3d12-3dgtest`: scene + geometry + materials + textures, every node) | `EdenWorld`/`EdenSceneView` | **done** (section 3.13) | - | - |
+| **The Eden draw path as a class** (`D3D12Eden`: program pair, mesh, pipeline cache, constants, texture table, draw) | `EdenRenderer::draw` | **done** (`-d3d12-3dgtest -instances N`, section 3.14) | - | - |
+| **A world-scale frame** (25,600 draws: constant ring, table cache, CPU record) | n/a | **measured** (section 3.14; the ring is 256 MB/frame slot) | - | - |
 | **Vertex/pixel interface** (a `.sob` shader may skip a varying register) | locations, which match by construction | **done** (`compilePair`, section 3.9) | - | - |
 | Every Eden shader stage compiled (`-d3d12-shadertest`) | n/a | **done** (section 3.5) | - | - |
 | **Catalogue-wide pipeline tally** (`-d3d12-pipetest`: every library's VS/PS pair → a real PSO) | n/a | **done** (section 3.10) | - | - |
@@ -71,7 +73,8 @@ rectangles and the stencil masks - is drawn by the D3D12 device itself.
 | `-d3d12-edentest [<text>]` | the first *original* TDU2 shader on D3D12: loads Euro/Shaders, picks a simple permutation of a real library, fills the constants with the shared filler and draws a quad (section 3.8; needs `-game`). `<text>` keeps only libraries whose name contains it (section 3.9) |
 | `-d3d12-shadertest [<text>]` | in the game bootstrap (`-game`): every `.sob` stage through the scene shader path, with a tally; `<text>` keeps only libraries whose name contains it (section 3.5) |
 | `-d3d12-pipetest [<text>]` | in the game bootstrap (`-game`): every library's VS/PS pair compiles, links and creates a real PSO, with a tally; `<text>` keeps only libraries whose name contains it (section 3.10) |
-| `-d3d12-3dgtest [<bank>]` | in the game bootstrap (`-game`): a bank's `.3DD` + `.3DG` + `.2DM` + `.2DB` drawn as a model - every node, its own `.sob` permutation, its own textures - and the frame measured (section 3.13); `<bank>` is a path relative to the game root, or a fragment of `4x4` / `300_c_srt8` / `2cv` |
+| `-d3d12-3dgtest [<bank>]` | in the game bootstrap (`-game`): a bank's `.3DD` + `.3DG` + `.2DM` + `.2DB` drawn as a model - every node, its own `.sob` permutation, its own textures - through the production draw class (`D3D12Eden`), and the frame measured (sections 3.13/3.14); `<bank>` is a path relative to the game root, or a fragment of `4x4` / `300_c_srt8` / `2cv` |
+| `-instances N` | with `-d3d12-3dgtest`: draw the model N times across a grid (a world frame's shape) and report the constant ring, the descriptor tables and the CPU record time (section 3.14) |
 | `-d3d12-splitstreams` | with `-d3d12-scenetest`: upload the cube as two vertex streams - the frame must be byte-identical (section 3.11) |
 | `-d3d12-meshconvtest` | no game data, no device: the `.3DG` stream expansion (SNORM / UScaled -> floats), exit 0/1 (section 3.12) |
 | `-d3d12-dump-shaders <dir>` | write the HLSL of every pipeline the scene builds (one `.hlsl` per stage) |
@@ -226,11 +229,107 @@ print('distinct', len(set(px)), 'diff %.2f%%' % (100.0 * sum(1 for p in px if p 
 `pipeline1_vs.hlsl` is how the first "black frame" was diagnosed as a
 `SizeInBytes` mistake rather than a shader problem (section 6).
 
-### 3.4 What is still not drawn
+### 3.14 The Eden draw path, at world scale (`-d3d12-3dgtest -instances N`)
 
-The scene path above is the *mechanism*, not the game: `EdenRenderer` still talks
-to the Vulkan device, so `canDrawScene()` is false on D3D12 and the 3D modes stay
-refused. Wiring Eden onto `D3D12Scene` is phase 3b step 2 (section 5).
+`source/render/d3d12/d3d12_eden.{h,cpp}` is the class `EdenRenderer::draw` will
+call: `D3D12Eden` compiles a permutation's pair once (`compilePair`), uploads a
+primitive once (`D3D12PrepareMesh` + `createMeshStreams`), caches a pipeline per
+(program, mesh declaration, material state, cull), and records a draw with the
+*shared* constant filler (`FillEdenConstants`) and the material's textures bound
+where the shader reads them (the register map of 3.13). The `.2DM` →
+`EdenMaterial` half stays in `EdenRenderer::setupMaterial`, which is backend
+independent.
+
+`-d3d12-3dgtest` now goes through it - its per-primitive pipeline / constant /
+texture code is gone - and `-instances N` draws the same bank N times across a
+grid in the camera's plane (`world * T(offset)`, the row-vector order: after the
+instance's own transform), depth tested against each other. That is the shape a
+world frame has (one material, thousands of draws) and it answers the question
+3.13 left open: how many draws a frame can hold.
+
+```powershell
+build-cline\bin\opentdu2-cline.exe -d3d12-3dgtest -instances 512 `
+    -game C:\TDU2-Gamedata\TestDrive2 -userdata E:\Cline\_ud-dx `
+    -renderer-shot E:\Cline\_3dg_i512.ppm -log E:\Cline\_3dg_i512.log
+```
+
+Measured (RTX 5070 Ti, build 232, 1280x720, the 4x4 bank - 25 draws per
+instance):
+
+| instances | draws/frame | constant bytes copied | in the ring | texture tables | CPU record |
+|---|---|---|---|---|---|
+| 1 | 25 | 205,600 | 230,400 (0.1 %) | 570 hit / 180 miss, 6 resident | 0.10 ms |
+| 64 | 1,600 | 13,158,400 | 14,745,600 (5.5 %) | 47,820 / 180, 6 resident | 4.47 ms |
+| 256 | 6,400 | 52,633,600 | 58,982,400 (22.0 %) | 191,820 / 180, 6 resident | 11.99 ms |
+| 512 | 12,800 | 105,267,200 | 117,964,800 (43.9 %) | 383,820 / 180, 6 resident | 23.17 ms |
+| 1024 | 25,600 | 210,534,400 | 235,929,600 (87.9 %) | 767,820 / 180, 6 resident | 53.04 ms |
+
+The one-instance frame is **byte-for-byte the 3.13 result** (57,442 px, mean
+219.6, 570/180 tables) - the module changed the code, not the pixels - and the
+other two banks reproduce their numbers too (SRT8 43,844 px / 22 draws, the
+beach playhouse 26,359 px / 33 draws / 32 resident tables).
+
+What this measured, and what it changed:
+
+- **A draw costs 9,216 bytes of the constant ring** (8,224 copied: the VS file
+  4,368 bytes - 16 int4 registers + 256 float4 + the bool bitmask - and the PS
+  file 3,856; plus the 64-byte specialization block, which *both* stages bind,
+  and every block rounded up to the 256-byte alignment a root CBV needs). The
+  files cannot be shortened to what a program happens to name: the shader's
+  `cbuffer_t` declares those offsets, and the bitmask sits at the *end*. The
+  number is therefore a budget: the ring's original 64 MB (an estimate of
+  "~7,600 draws") held **7,281** draws, and the 512-instance run (12,800 draws)
+  needed **118 MB, 176 % of it** - it logged `the per frame constant ring (64 MB)
+  is full` once per frame and lost its last ~40 % of draws to the zero block,
+  while its coverage test still *passed*. A probe that only looks at pixels
+  cannot see this, which is why the ring's own number is printed. The ring is now
+  **256 MB per frame slot** (~29,000 draws): a world's main pass is ~7,600 draws
+  and the Z pre-pass draws the same geometry again, and the Vulkan renderer's
+  per-frame transient buffer is 512 MB for the same reason (two D3D12 slots now
+  cost what one Vulkan buffer did).
+- **The descriptor-table cache holds at world scale.** 25,600 draws bind 6
+  tables, not 25,600: 767,820 hits and 180 misses. The 180 misses are one per
+  distinct set per frame slot over 30 frames - the cache is rebuilt once per
+  frame, as designed (3.13), and a material's set is stable within a frame.
+- **~2 us per draw, single-threaded** (1.8-2.8 us across these runs; the machine
+  was also running the probe's own readback). 25,600 draws took 53 ms of CPU to
+  record, so a 7,600-draw world pass is ~15-21 ms - more than the frame budget.
+  The Vulkan renderer records in parallel (`EdenRenderer::ParallelRecord`), so
+  the D3D12 draw path needs the same before the scene is usable - the next
+  performance item, and the reason this section reports the CPU time at all.
+- **A bank probe's pipelines are per primitive** (25 pipelines for 25 draws,
+  32 for the playhouse): each primitive is its own mesh, and the pipeline key
+  includes the mesh declaration. In a world, primitives of one program share a
+  declaration and the count is per material - which is what the cache is for.
+- **A material with a unique texture set pays full price** (the playhouse: 30
+  hits / 960 misses, 32 resident tables for 33 draws). The table cache only
+  wins where draws repeat a set - cars, instanced props, a world's repeated
+  materials. That is the right trade (a table per draw would not fit in the 4,096
+  descriptor slot at all), but a *scene* of one-off materials will allocate a
+  table per draw and must stay inside the slot's budget.
+
+### 3.15 What is still not drawn
+
+The Eden *draw* is now a Direct3D 12 class (`D3D12Eden`, section 3.14), but
+`EdenRenderer` itself still talks to the Vulkan device, so `canDrawScene()` is
+false on D3D12 and the 3D modes stay refused. Three things stand between the
+module and a game frame, in the order they unblock each other:
+
+1. **A D3D12 mesh source in `EdenModel`.** A model packs all its primitives into
+   two buffers (`eden_model.cpp`) and hands each item a (buffer, offset, count) -
+   Vulkan buffers today. `D3D12PrepareMesh` + `D3D12Eden::createMesh` are the
+   per-primitive form; the packed form needs `D3D12Scene::Mesh` to take a vertex
+   / index *offset* (D3D12's `BaseVertexLocation` / `StartIndexLocation`), or one
+   upload per item.
+2. **Render targets.** `D3D12Scene` records into the swapchain's back buffer and
+   the device's depth-stencil only. The Eden scene renders the shadow atlas, the
+   reflection maps and the HDR colour target and then samples them - an offscreen
+   target plus a depth-as-texture SRV is the missing mechanism, and it is what
+   the shadow / reflection / post passes of section 5 need.
+3. **A parallel record.** ~2 us per draw on one thread (3.14) is more than a
+   world frame's budget; `EdenRenderer::ParallelRecord` is the Vulkan answer and
+   the D3D12 path needs its equivalent (PPO command lists, or a cheaper constant
+   fill).
 
 ### 3.5 The shader tally (`-d3d12-shadertest`)
 
@@ -1108,8 +1207,17 @@ own `discard`.
    runs *before* the permutation lookup (`Paint` is `TD_CarMat_NM`, not
    `TD_HardwareInstance`), a car's textures live in a sibling bank the lookup has
    to borrow from, and an unresolved slot must bind the white texture instead of
-   an unfilled descriptor. Step 2b, in progress: **the Eden scene itself** -
-   `D3D12Scene` now carries multi-stream meshes (section 3.11)
+   an unfilled descriptor. Step 2b2, 2026-11-18: **the Eden draw path as a
+   module** (`D3D12Eden`, section 3.14) - program pair, mesh upload, pipeline
+   cache, the shared constant filler, the register-mapped texture table and the
+   recorded draw in one class, its parameters exactly `EdenRenderer::draw`'s;
+   `-d3d12-3dgtest` now goes through it (its three banks draw the identical
+   pixels), and `-instances N` measured the question 3.13 left open - a draw
+   costs 9,216 ring bytes, so the 64 MB ring overflowed at 7,281 draws and
+   is now 256 MB (~29,000 draws, a main pass plus its Z pre-pass). Still open in
+   3.15: `EdenModel`'s mesh upload, offscreen render targets, and a parallel
+   record (~2 us per draw single-threaded). Step 2b, in progress: **the Eden
+   scene itself** - `D3D12Scene` now carries multi-stream meshes (section 3.11)
    and the vertex layout from a `.3DG` declaration plus the shader's dcl list,
    which is the interface `EdenRenderer` needs:
    `EdenRenderer`/`EdenWorld`/`EdenSceneView` pointed at `D3D12Scene` (the
@@ -1122,23 +1230,22 @@ own `discard`.
 6. **D3D9**: the original bytecode path (a near pass-through), with SM 3.0 limits documented
    where the engine's own shaders cannot follow.
 
-Next step, precisely: `source/render/eden/eden_renderer.cpp` - `createProgram`'s
-`PipelineDesc` handed to `D3D12Scene::getPipeline` and `recordPacket`'s push constants
-handed to `D3D12Scene::draw`, with `EdenProgram`'s `pVS`/`pPS` (`TranslatedShader`)
-going through `D3D12ShaderCompiler::compilePair` (section 3.9 - the pair, not the
-two stages, because the interface is a property of the pair). The questions that
-came before it are all answered now: the shaders compile (3.5), the sampler heap
-they index draws with the right state (3.6), the constant buffers and the D3D9
-material state arrive (3.7), one real permutation draws end to end with the
-renderer's own constants (3.8), the stages link for a shader that skips a varying
-register (3.9), every distinct program in the game creates a PSO (3.10), and a
-whole real model - scene, geometry, materials, textures, 25 primitives - draws
-with the exact permutations the game would pick (3.13). The two mechanics the
-port itself still has to solve are measured there too: `EdenMesh` must upload
-into `D3D12Scene::Mesh` instead of Vulkan buffers (`D3D12PrepareMesh` +
-`createMeshStreams` are the pieces), and the per-draw texture table has a
-4096-descriptor budget per frame slot that a ~7600-draw scene does not fit - a
-per-material cache of table bases is the likely answer.
+Next step, precisely: **where the bytes come from** - `source/render/eden/eden_model.cpp`
+and the D3D12 mesh source. `D3D12Eden` already answers the rest of a draw
+(program -> pipeline cache, `FillEdenConstants` into b0, the register-mapped
+texture table, the recorded command: section 3.14), so the Eden port is now
+`EdenMesh` carrying D3D12 buffers: a model packs its primitives into two buffers
+and hands each item a (buffer, offset, count), which needs either
+`D3D12Scene::Mesh` to take a base vertex / index offset (`BaseVertexLocation` /
+`StartIndexLocation`) or one upload per item. The questions that came before it
+are all answered: the shaders compile (3.5), the sampler heap they index draws
+with the right state (3.6), the constant buffers and the D3D9 material state
+arrive (3.7), one real permutation draws end to end with the renderer's own
+constants (3.8), the stages link for a shader that skips a varying register
+(3.9), every distinct program in the game creates a PSO (3.10), a whole real
+model draws (3.13), and a frame of 25,600 draws has its ring, table-cache and
+CPU cost measured (3.14). After the mesh source: offscreen targets, then a
+parallel record (3.15).
 
 ## 6. Known gaps and traps
 
@@ -1205,11 +1312,23 @@ per-material cache of table bases is the likely answer.
   rather than translated. The scene test culls nothing on purpose.
 - **A root CBV is a GPU virtual address, not bytes.** Per-draw constants have to
   be copied into a host-visible buffer before the draw - `D3D12Scene` keeps a
-  64 MB mapped UPLOAD ring per frame slot (`uploadConstants`), 256-byte aligned
+  256 MB mapped UPLOAD ring per frame slot (`uploadConstants`), 256-byte aligned
   because that is the alignment a root CBV requires. Passing a pointer to a
   stack block (the Vulkan habit with `vkCmdPushConstants`) is not an option here,
   and a draw does not know when the GPU reads a block, so the ring is what makes
   the *next* draw's overwrite harmless.
+- **An Eden draw costs 9,216 bytes of that ring, and the number cannot be
+  reduced by filling less.** The VS constant file is 4,368 bytes (16 int4
+  registers, 256 float4, the bool bitmask), the PS one 3,856, the spec block is
+  64 and every block rounds up to 256, so the ring holds 9,216 per draw
+  (8,224 is what is copied). A shader's `cbuffer_t` declares those offsets, with
+  the bitmask at the *end*, so shrinking the block to the registers a program
+  names would move it. The ring therefore bounds the frame's draw count (64 MB
+  held 7,281 draws and a 12,800-draw frame needed 176 % of it; it is 256 MB now,
+  ~29,000 draws - section 3.14 has the measurements). A frame that overflows
+  still *draws*: the extra draws read the zero block, which is why
+  `D3D12Scene::getFrameConstantBytes()` exists and why the probe prints the
+  percentage.
 - **D3D12's blend factor and alpha test are not pipeline state.** `SRC_ALPHA` /
   `INV_SRC_ALPHA` are, but `D3DBLENDFACTOR` / `D3DBLEND_INVBLENDFACTOR` read the
   *dynamic* constant - `OMSetBlendFactor` per draw, deliberately out of the

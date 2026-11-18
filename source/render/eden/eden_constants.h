@@ -22,6 +22,16 @@ inline constexpr uint32_t kEdenPSConstantsSize =
     kEdenIntRegistersSize + kEdenPSFloatRegisters * 16 + kEdenBoolBitmaskSize;
 inline constexpr uint32_t kEdenSpecDwords = 16;
 
+// Where the push constant block (b13 space1 on D3D12, `vkCmdPushConstants` on
+// Vulkan) carries what is not a constant file: the D3D9 alpha reference every
+// DXSO pixel stage tests against, and the sixteen sampler-heap indices the
+// material's slots name (`EdenMaterial::SamplerIndex`). Two backends writing
+// these at different offsets would sample with the wrong state and still look
+// plausible, so the offsets live here.
+inline constexpr uint32_t kEdenPushAlphaRefOffset = 24;
+inline constexpr uint32_t kEdenPushSamplerOffset = 64;
+
+
 struct EdenMaterial;
 struct EdenSceneParams;
 struct EdenDrawParams;

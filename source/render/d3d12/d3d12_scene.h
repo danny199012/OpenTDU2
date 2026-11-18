@@ -235,18 +235,35 @@ public:
     inline uint64_t getTextureTableMisses() const { return srvTableMisses; }
     inline uint32_t getTextureTableCount() const { return static_cast<uint32_t>( srvTables.size() ); }
 
+    // The per frame constant ring: its capacity, and how much of the frame
+    // slot's ring the last frame used. A draw copies its two D3D9 constant files
+    // (~8 KB) into it, so this is the number that decides how many draws a frame
+    // can hold (docs/backends.md 3.14).
+    //
+    // 256 MB per slot, i.e. ~29,000 draws - measured, not estimated: a draw
+    // puts 9,216 bytes in the ring (the VS file 4,368 and the PS file 3,856, the
+    // 64-byte spec block that both stages bind, and every block rounded up to
+    // 256 bytes), so the 64 MB this started at overflowed at 7,281 draws and a
+    // 12,800-draw frame lost its last 40 % to the zero block. A world's main
+    // pass is ~7,600 draws and the Z pre-pass draws the same geometry again, so
+    // the budget has to cover several passes; the Vulkan renderer's per frame
+    // transient buffer is 512 MB for exactly that reason. Host-visible memory:
+    // two slots cost 512 MB, the same as ONE of Vulkan's.
+    static constexpr uint64_t kConstantRingBytes = 256ull * 1024ull * 1024ull;
+    uint64_t getFrameConstantBytes() const;
+
 private:
     static constexpr uint32_t kMaxRootConstants = 32; // 128 bytes, the Vulkan budget
     // The table heap: a bump allocator over shader-visible SRV descriptors,
     // reset when the frame slot changes (the slot's fence has retired it).
     static constexpr uint32_t kTableDescriptors = 4096;
     // The constant ring, one upload buffer per frame slot: every draw copies its
-    // b0..b3 blocks into it and points the root CBVs at the copy. Sized for a
-    // full Eden frame - a VS + PS constant file pair is ~8 KB per draw once
-    // aligned, so 64 MB is ~7600 draws, and the ring resets when the slot's fence
-    // has passed. An overflow is logged once per frame and the draw keeps the
-    // zero block (a measurable frame is better than a corrupted ring).
-    static constexpr uint64_t kConstantRingBytes = 64ull * 1024ull * 1024ull;
+    // b0..b3 blocks into it and points the root CBVs at the copy. 256 MB per slot
+    // (kConstantRingBytes, public: the probe reports against it) - a draw puts
+    // 9,216 bytes in it, so that is ~29,000 draws, and the ring
+    // resets when the slot's fence has passed. An overflow is logged once per
+    // frame and the draw keeps the zero block (a measurable frame is better than
+    // a corrupted ring).
     // A root CBV cannot be null, and the alignment D3D12 requires for a constant
     // buffer view's offset.
     static constexpr uint64_t kConstantAlignment = 256;

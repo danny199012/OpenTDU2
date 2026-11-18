@@ -30,10 +30,12 @@ constexpr uint32_t kDefaultAttributeBinding = EdenMesh::kMaxStreams;
 
 // D3D9SpecializationInfo: dword 1 bits 21..23 = alpha compare op.
 constexpr uint32_t kSpecAlphaCompareOpShift = 21;
-// D3D9RenderStateInfo::alphaRef
-constexpr uint32_t kPushAlphaRefOffset = 24;
-// GetPushSamplerOffset(0) = MaxSharedPushDataSize
-constexpr uint32_t kPushSamplerOffset = 64;
+// D3D9RenderStateInfo::alphaRef and GetPushSamplerOffset(0) =
+// MaxSharedPushDataSize: the two places the push block carries something that
+// is not a constant file. Shared with the Direct3D 12 path (eden_constants.h)
+// so the two backends cannot write them at different offsets.
+constexpr uint32_t kPushAlphaRefOffset = kEdenPushAlphaRefOffset;
+constexpr uint32_t kPushSamplerOffset = kEdenPushSamplerOffset;
 
 // The sampler heap's entries (eSamplerHeapIndex, the 2DM address mapping) are
 // shared with the Direct3D 12 backend, so the two cannot drift: render/sampler_heap.h.

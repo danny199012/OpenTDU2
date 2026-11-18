@@ -16,7 +16,98 @@ sides of 32 of the last 38 merges).
 * Read order for a fresh agent: `CLAUDE.md` → this file → `docs/state/main.md` →
   `docs/state/glm.md` → `docs/STATE.md` for the deep history.
 
+## Session 2026-11-18 (one hundred and first, `cline`): the Eden draw path is a Direct3D 12 class, and 25,600 draws measured what one costs
+
+The owner: *"please continue with Direct X 12 support thanks but please don't
+stop after a few mins as I have had a few attempts and within 20mins you seem to
+stop sometimes way less than that"*. The "next" the previous entry named was
+pointing `EdenRenderer` at `D3D12Scene`, and the first thing that has to exist
+for that is the draw itself - so this session made the draw a class the renderer
+can call, then used it to answer the question 3.13 left open (how many draws a
+frame holds). Working time here was spent on the module, its proof and its
+numbers, not on a refactor that draws nothing.
+
+### What changed
+
+- `source/render/d3d12/d3d12_eden.{h,cpp}` (new) - **`D3D12Eden`**, the Eden
+  draw on Direct3D 12, with `EdenRenderer::draw`'s own parameters
+  (`EdenMesh`-shaped mesh + `EdenMaterial` + world + `EdenDrawParams`):
+  - a **program** compiles once per permutation through
+    `D3D12ShaderCompiler::compilePair` (the pair, because the VS->PS interface
+    is a property of the pair) and keeps the register -> D3D9-slot map
+    (`D3D12EdenMapTextureRegisters`, extracted from the probe);
+  - a **mesh** uploads once per primitive (`D3D12PrepareMesh` +
+    `createMeshStreams`) and keeps its declaration for the pipeline;
+  - a **pipeline** is cached per (program, mesh declaration, material state,
+    cull/depth flags) - `D3D12Scene::getPipeline` still builds the PSO;
+  - a **draw** fills the two constant files with the *shared* filler
+    (`FillEdenConstants` / `FillEdenSpecConstants`), binds the spec block and
+    the alpha reference + sampler indices at the offsets both backends now take
+    from `render/eden/eden_constants.h` (`kEdenPushAlphaRefOffset`,
+    `kEdenPushSamplerOffset` - `EdenRenderer` uses the same two constants), and
+    binds the material's textures where the shader reads them, with the white
+    texture in every unresolved register.
+- `source/render/d3d12/d3d12_asset_probe.cpp` - `-d3d12-3dgtest` now goes
+  through `D3D12Eden`: its per-primitive pipeline, constant-block, push-constant
+  and texture-table code is deleted (with `AssignStageBlocks`, `kUsageNames` and
+  the `-d3d12-nocull` state hook, which moved into the material compile). New
+  **`-instances N`**: the bank drawn N times across a grid in the camera's plane
+  (`world * T(offset)`), depth tested against each other, with the ring bytes,
+  the table cache and the CPU record time reported per frame.
+- `source/render/d3d12/d3d12_scene.{h,cpp}` - `kConstantRingBytes` is public and
+  **64 MB -> 256 MB per frame slot**, and `getFrameConstantBytes()` reports what
+  the last frame used (the probe's ring percentage).
+- `source/render/eden/eden_constants.h` - the two push-block offsets are shared
+  constants now, not a file-static in `eden_renderer.cpp`.
+- `docs/backends.md` - **section 3.14** (the class, the commands, the table of
+  runs, the four rules), section 3.15 rewritten (the three things between the
+  module and a game frame), status table, flag table, section 5's step 2b2 and
+  the "next step" paragraph, and a section 6 trap for the 8,224-byte budget.
+
+### Measured
+
+- **The refactor changed nothing on screen.** All three banks of 3.13 draw the
+  identical frames through `D3D12Eden`: the 4x4 **57,442 px, mean 219.6**, 570
+  table hits / 180 misses, 6 resident; the SRT8 **43,844 px** (4.76 %); the
+  beach playhouse **26,359 px** (2.86 %, 4 colours). `-d3d12-scenetest` is still
+  `SHA256 E505B37F...C3F778CEB`, `-d3d12-meshconvtest` passes (stride 52, SNORM
+  -1 -> -1.0, UScaled 255 -> 255.0) and `-renderer-selftest` exits 0.
+- **A draw puts 9,216 bytes in the constant ring** (8,224 copied: the VS file
+  4,368 - 16 int4 + 256 float4 + the bool bitmask - and the PS file 3,856, plus
+  the 64-byte spec block both stages bind, everything rounded to 256). The
+  shader's `cbuffer_t` declares those offsets and puts the bitmask at the *end*,
+  so the block cannot be shortened to the registers a program names.
+- The 64 MB ring therefore held **7,281 draws**: the 512-instance run
+  (12,800 draws) needed **118 MB, 176 % of it**, logged `the per frame constant
+  ring (64 MB) is full` once per frame and lost its last ~40 % of draws to the
+  zero block - while its coverage test still *passed*. The ring is **256 MB per
+  frame slot** now (~29,000 draws, the host memory of one Vulkan transient
+  buffer), and at 1,024 instances (25,600 draws) it is 87.9 % full.
+- **The descriptor cache holds at scale**: 25,600 draws bind **6 tables**
+  (767,820 hits / 180 misses) - the misses are one per distinct set per frame
+  slot over 30 frames, as designed.
+- **~2 us per draw, single-threaded** (1.8-2.8 across the runs): 25,600 draws
+  took 53 ms of CPU to record, so a 7,600-draw world pass is ~15-21 ms - more
+  than a frame's budget. The Vulkan renderer records in parallel
+  (`EdenRenderer::ParallelRecord`).
+
+### Next
+
+- **`EdenModel`'s D3D12 mesh source.** A model packs its primitives into two
+  buffers and gives each item a (buffer, offset, count); `D3D12Scene::Mesh`
+  needs a base-vertex / start-index offset (`BaseVertexLocation` /
+  `StartIndexLocation`) or one upload per item. `D3D12Eden::createMesh` is the
+  per-primitive form already.
+- **Offscreen render targets** (colour + depth as an SRV): the shadow atlas,
+  the reflection maps and the HDR target are what sections 5's passes need, and
+  `D3D12Scene` renders to the swapchain only.
+- **A parallel record**, or a cheaper constant fill, before a world frame.
+- `EdenRenderer::initializeD3D12` (owning a `D3D12Eden`) is a ~40-line addition
+  *after* the mesh source exists - there is no point wiring a renderer whose
+  models have no D3D12 buffers.
+
 ## Session 2026-11-18 (one hundredth, `cline`): a real `.3DG` model draws on Direct3D 12 - geometry, materials, textures and the game's own permutations
+
 
 The owner: *"please continue with Direct X 12 support thanks but please don't
 stop after a few mins as I have had a few attempts and within 20mins you seem to
