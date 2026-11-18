@@ -905,12 +905,18 @@ degrees off the camera axis:
   can fault the GPU rather than paint a wrong colour. The probe always passes a
   full 16-entry table with the white texture in the unresolved slots, which is
   also the rule the Eden port will need.
-- **Sixteen descriptors per draw is the budget to watch.** The table heap holds
-  4096 descriptors per frame slot (`D3D12Scene::kTableDescriptors`) and resets
-  when the slot changes, so 96 draws x 16 entries (the probe's cap) fit a frame;
-  a real scene's ~7600 draws will need either a per-material cache of table bases
-  or a bigger heap. Recorded here because it is the first thing the Eden port
-  will hit.
+- **A table per distinct texture set, not per draw - now implemented.** The
+  table heap holds 4096 descriptors per frame slot (`D3D12Scene::kTableDescriptors`),
+  and a world records thousands of draws, so the probe's first version (16
+  descriptors copied per draw) could not fit a real scene's frame.
+  `D3D12Scene::draw` now hashes the set's SRV handles, keeps a table index per
+  *distinct* set for the frame slot, and clears the cache when the slot changes
+  (its fence has retired the tables). Measured on the 4x4: **570 hits / 180
+  misses over 30 frames = 6 resident tables** (one per material) instead of 750
+  allocations, 96 descriptors per frame instead of 400 - and the frame is
+  byte-identical (57422 px, mean 219.6), as is the scene test's PPM
+  (`E505B37F...C3F778CEB`). `getTextureTableHits/Misses/Count` are public so a
+  probe can print them.
 - **The vertex layout comes from the pair, not from the shader alone.**
   `D3D12BuildVertexLayout` reads the vertex stage's dcl list and the primitive's
   own `.3DG` declaration; `MatBlack`'s primitive wanted four streams (the

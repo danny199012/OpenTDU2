@@ -108,9 +108,11 @@ would have hit (docs/backends.md 3.13).
 - Point `EdenRenderer` at `D3D12Scene` (phase 3b step 2). The two mechanics are
   now measured rather than guessed: `EdenMesh` has to upload into
   `D3D12Scene::Mesh` (`D3D12PrepareMesh` + `createMeshStreams` are the pieces,
-  and a real car's 22-25 primitives already do it), and the per-draw texture
-  table needs the 4096-descriptor-per-slot budget respected (~7600 draws do not
-  fit - a per-material cache of table bases is the likely answer).
+  and a real car's 22-25 primitives already do it), and the texture-table budget
+  was solved in this session - `D3D12Scene::draw` keeps one table per *distinct*
+  SRV set per frame slot (570 hits / 180 misses, 6 resident tables on the 4x4,
+  frame byte-identical), so a thousands-of-draws scene no longer needs 16
+  descriptors per draw.
 - The paint colour: a bank cannot know it; it comes from the instance's colour
   table (`.pmi` / catalogue). The SRT8's black paint is its `.2DM`'s own, so the
   material path is right - the *instance* data is simply not in a bank.

@@ -47,6 +47,22 @@ D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle( uint64_t value ) {
     return handle;
 }
 
+// A hash of one draw's texture set, for the per-frame table cache. The table
+// heap is 4096 descriptors and a real scene records thousands of draws, so a
+// table per draw does not fit; a table per *distinct set of descriptors* does
+// (a material's set does not change between draws).
+uint64_t HashTextureSet( const uint64_t *pSrvs, uint32_t count ) {
+    uint64_t hash = 0xCBF29CE484222325ull; // FNV-1a 64
+    for ( uint32_t i = 0; i < count; i++ ) {
+        uint64_t value = pSrvs[i];
+        for ( uint32_t byte = 0; byte < 8; byte++ ) {
+            hash ^= ( value >> ( byte * 8 ) ) & 0xFFu;
+            hash *= 0x100000001b3ull;
+        }
+    }
+    return hash;
+}
+
 // The pipeline key: every field that changes the PSO.
 //
 // The stages are identified by a hash of their DXBC, not by the address of the
@@ -467,6 +483,9 @@ void D3D12Scene::destroy() {
     srvTableGpuStart = 0;
     srvCursor = 0;
     srvFrameSlot = 0xFFFFFFFFu;
+    srvTables.clear();
+    srvTablesByKey.clear();
+    srvTableSlot = 0xFFFFFFFFu;
     pDevice = nullptr;
 }
 
@@ -885,18 +904,62 @@ void D3D12Scene::draw( const void *pPipeline,
     // contiguous. The copies come from the shader-opaque mirror of those
     // descriptors (a shader-visible heap is not a legal copy source).
     if ( numTextures > 0 && pTextureSrvs != nullptr && pSrvTable != nullptr ) {
+        // One table per *distinct set*: a per-draw table cannot fit a scene's
+        // draws (the heap is 4096 descriptors per frame slot, a world records
+        // thousands), while a material's set does not change between its draws
+        // (docs/backends.md 3.13).
         const uint32_t count = Min( numTextures, kTextureTableSize );
-        const uint32_t index = allocateTable( count );
-        if ( index == 0xFFFFFFFFu ) {
-            return;
+        const uint32_t frameSlot = pDevice->getFrameSlot();
+        if ( frameSlot != srvTableSlot ) {
+            // The slot's fence has retired whatever it referenced.
+            srvTableSlot = frameSlot;
+            srvTables.clear();
+            srvTablesByKey.clear();
         }
-        ID3D12Device *pD3D12Device = pDevice->getDevice();
-        const D3D12_CPU_DESCRIPTOR_HANDLE base = CpuHandle( srvTableCpuStart + index * srvDescriptorSize );
-        for ( uint32_t i = 0; i < count; i++ ) {
-            const D3D12_CPU_DESCRIPTOR_HANDLE source = CpuHandle( pTextureSrvs[i] );
-            const D3D12_CPU_DESCRIPTOR_HANDLE destination =
-                CpuHandle( base.ptr + static_cast<SIZE_T>( i ) * srvDescriptorSize );
-            pD3D12Device->CopyDescriptorsSimple( 1, destination, source, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
+        const uint64_t key = HashTextureSet( pTextureSrvs, count );
+        uint32_t index = 0xFFFFFFFFu;
+        const auto cached = srvTablesByKey.find( key );
+        if ( cached != srvTablesByKey.end() ) {
+            for ( uint32_t candidate : cached->second ) {
+                const SrvTable &table = srvTables[candidate];
+                if ( table.Count != count ) {
+                    continue;
+                }
+                bool bSame = true;
+                for ( uint32_t i = 0; i < count; i++ ) {
+                    if ( table.Handles[i] != pTextureSrvs[i] ) {
+                        bSame = false;
+                        break;
+                    }
+                }
+                if ( bSame ) {
+                    index = table.Index;
+                    srvTableHits++;
+                    break;
+                }
+            }
+        }
+        if ( index == 0xFFFFFFFFu ) {
+            index = allocateTable( count );
+            if ( index == 0xFFFFFFFFu ) {
+                return;
+            }
+            ID3D12Device *pD3D12Device = pDevice->getDevice();
+            const D3D12_CPU_DESCRIPTOR_HANDLE base = CpuHandle( srvTableCpuStart + index * srvDescriptorSize );
+            for ( uint32_t i = 0; i < count; i++ ) {
+                const D3D12_CPU_DESCRIPTOR_HANDLE source = CpuHandle( pTextureSrvs[i] );
+                const D3D12_CPU_DESCRIPTOR_HANDLE destination =
+                    CpuHandle( base.ptr + static_cast<SIZE_T>( i ) * srvDescriptorSize );
+                pD3D12Device->CopyDescriptorsSimple( 1, destination, source, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV );
+            }
+            SrvTable table;
+            table.Key = key;
+            table.Count = count;
+            table.Index = index;
+            table.Handles.assign( pTextureSrvs, pTextureSrvs + count );
+            srvTablesByKey[key].push_back( static_cast<uint32_t>( srvTables.size() ) );
+            srvTables.push_back( std::move( table ) );
+            srvTableMisses++;
         }
         pList->SetGraphicsRootDescriptorTable( kMaxConstantBuffers * 2 + 1,
                                                GpuHandle( srvTableGpuStart + index * srvDescriptorSize ) );

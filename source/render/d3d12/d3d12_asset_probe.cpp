@@ -1118,10 +1118,14 @@ bool D3D12RunMeshAssetTest() {
                            measured.DistinctColors );
         }
         OTDU_LOG_INFO( "D3D12 3dgtest: %ux%u; %u px covered (%.2f %%), %u distinct colour(s), mean %.1f/%.1f/%.1f "
-                       "on '%s' (%zu draw(s), %zu program(s))\n",
+                       "on '%s' (%zu draw(s), %zu program(s); texture tables %llu hit(s) / %llu miss(es), %u "
+                       "resident)\n",
                        device.getBackbufferWidth(), device.getBackbufferHeight(), measured.Covered, percent,
                        measured.DistinctColors, measured.Mean[0], measured.Mean[1], measured.Mean[2],
-                       device.getDeviceName(), model.Draws.size(), model.Programs.size() );
+                       device.getDeviceName(), model.Draws.size(), model.Programs.size(),
+                       static_cast<unsigned long long>( sceneRenderer.getTextureTableHits() ),
+                       static_cast<unsigned long long>( sceneRenderer.getTextureTableMisses() ),
+                       sceneRenderer.getTextureTableCount() );
         OTDU_LOG_INFO( "D3D12 3dgtest: %s (%s)\n", bPassed ? "PASSED" : "FAILED",
                        bPassed ? "the model reached the frame through its own material, pipeline and textures"
                                : "the model is not on the frame" );

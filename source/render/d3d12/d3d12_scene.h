@@ -226,6 +226,15 @@ public:
     // .sob permutation and keeps none of them.
     void releasePipelines();
 
+    // The per-frame SRV table cache (docs/backends.md 3.13): one descriptor table
+    // per *distinct texture set*, not per draw. The heap holds 4096 descriptors
+    // per frame slot, and a scene records thousands of draws with the same
+    // material's set over and over, so a table per draw cannot fit while a table
+    // per material does. Cumulative counts, for a probe's log.
+    inline uint64_t getTextureTableHits() const { return srvTableHits; }
+    inline uint64_t getTextureTableMisses() const { return srvTableMisses; }
+    inline uint32_t getTextureTableCount() const { return static_cast<uint32_t>( srvTables.size() ); }
+
 private:
     static constexpr uint32_t kMaxRootConstants = 32; // 128 bytes, the Vulkan budget
     // The table heap: a bump allocator over shader-visible SRV descriptors,
@@ -278,6 +287,21 @@ private:
     std::string shaderDumpDir;
     uint32_t dumpedShaders = 0;
     bool bQuietPipelines = false;
+
+    // The SRV table cache, reset when the frame slot changes: one entry per
+    // distinct (count, handles) set, its handles kept for a collision-safe hit
+    // test.
+    struct SrvTable {
+        uint64_t Key = 0;
+        uint32_t Count = 0;
+        uint32_t Index = 0;
+        std::vector<uint64_t> Handles;
+    };
+    std::vector<SrvTable> srvTables;
+    std::unordered_map<uint64_t, std::vector<uint32_t>> srvTablesByKey;
+    uint32_t srvTableSlot = 0xFFFFFFFFu;
+    uint64_t srvTableHits = 0;
+    uint64_t srvTableMisses = 0;
 
     bool createRootSignature();
     bool createSamplerHeap();
