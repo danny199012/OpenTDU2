@@ -50,3 +50,14 @@ build-main\bin\opentdu2-main.exe ... -gm worldviewer -island hongkong -nopanel -
 * Spawn / HUD: the zone label says "Ibiza Area 1"; the map screen needs `worldconfig` map-centre tuning for an 18 km island.
 * The 61 pure-sea sectors are absent by design; the area mesh (24 m) shows there.
 * Sea floor outside the data is a diffused fill; the sector terrain at the data's edge may show a seam underwater.
+
+## Spawn / HUD / map tuning (session 62)
+
+* **Start point**: `-island hongkong` with no `-tp` / `-home` / save now starts at the Central quay `(5632, 3, 7936)`, heading 0 (`gm_freeride.cpp`, log `FREERIDE: hongkong start point`).
+  The mod has no spots / airport; y must be a real height (y 0 is inside terrain). `-tp x,y,z` still overrides.
+* **Zone badge**: with no `cruisingzones.bin` the HUD showed the hardcoded "Ibiza Area 1"; an island that is not ibiza / hawai / casino now names itself
+  (`hongkong` -> "Hong Kong Island", others -> the capitalised folder name) (`freeride_hud.cpp`, the `findNearest` fallback).
+* **Map screen** (`-autoplay "400:press=map"`): opens without errors and draws the island from the island colour map (the shaded elevation palette), the whole 18 km island fills the frame and the car marker
+  `MapScreen: car at (5632, 7936)` lands on the west bay. The centre cursor shows the red "not allowed" marker (no road edges / spots on the island). No road, spot or bookmark data exists, so the
+  map has no overlays; the zone, travel and licence code paths still assume ibiza / hawai (`map_screen.cpp` `roadIsland == "hawai"` tests), so travel to / from Hong Kong is not wired.
+* Minimap is black (it draws road edges, which this island does not have).

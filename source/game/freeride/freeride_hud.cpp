@@ -2044,7 +2044,17 @@ void FreeRideHud::tick( float deltaTime, const State &newState ) {
             zoneName = zones.getName( nearest );
         } else {
             zoneIndex = 1;
-            zoneName = LocStr( 3336, "Ibiza Area 1" );
+            // An island mod without a cruisingzones.bin (Hong Kong, Eden) names itself; the hardcoded
+            // Ibiza Area 1 stays only for the original islands.
+            const std::string &modIsland = zones.getIsland();
+            if ( modIsland == "hongkong" ) {
+                zoneName = "Hong Kong Island";
+            } else if ( !modIsland.empty() && modIsland != "ibiza" && modIsland != "hawai" && modIsland != "casino" ) {
+                zoneName = modIsland;
+                zoneName[0] = static_cast<char>( toupper( static_cast<unsigned char>( zoneName[0] ) ) );
+            } else {
+                zoneName = LocStr( 3336, "Ibiza Area 1" );
+            }
         }
     }
 }

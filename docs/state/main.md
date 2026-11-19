@@ -14,6 +14,13 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 62c (`win`): Hong Kong spawn / zone badge / map tuned
+
+Task: "Tune spawn/HUD/map". `-island hongkong` starts at the Central quay (5632, 3, 7936); the zone badge reads "Hong Kong Island" (no more "Ibiza Area 1");
+the map screen opens and draws the island with the car marker. Verified headless (`-gm freeride -island hongkong -newdrive -autoplay "400:press=map;700:shot=..."`).
+Not done: road / spot overlays on the map, island travel to / from Hong Kong, a real minimap (all need a road graph, see `docs/re/tdusc_pws_format.md` 2d-2l).
+Files: `source/game/freeride/gm_freeride.cpp`, `freeride_hud.cpp`, `docs/re/hongkong_island_mod.md`.
+
 ## Session 62b (`win`): Hong Kong roads found in the PKG level meshes (decoder partial)
 
 Task: continue the Hong Kong mod. The data after the PWS heightfield is not roads; roads are `ROADBUILDSTEP` P3D meshlet meshes per tile in the PKG.

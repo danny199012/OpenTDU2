@@ -470,6 +470,14 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             tpYaw = static_cast<float>( atof( pHeading ) ) * 0.0174532925f;
         }
     }
+    // Island mods have no spots / airport: without -tp the car starts at the island's built-in start point
+    // (Hong Kong: the Central quay, 0.3 m above the pier deck; y matters, y 0 puts the car inside terrain).
+    if ( !bTp && !bFromHandoff && islandName == "hongkong" ) {
+        tpPosition = Vector3f( 5632.0f, 3.0f, 7936.0f );
+        tpYaw = 0.0f;
+        bTp = true;
+        OTDU_LOG_INFO( "FREERIDE: hongkong start point (%.0f, %.0f, %.0f)\n", tpPosition.x, tpPosition.y, tpPosition.z );
+    }
     // -home: spawn at the home house (profile HomeHouse, the DBHouse spot's
     // entrance point). The story wake-up flow stays on the runs without it.
     if ( CmdLine::HasArg( "-home" ) ) {
