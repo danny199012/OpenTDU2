@@ -43,6 +43,18 @@ Each decoded stream = **256-byte header, 1 pad byte, then float32 data at offset
 * Multi-tile streams (tiles >= 2): the decoded size is `65536 * (tiles - 1) + last`, and the stream ends at `8 + 4*tiles + offs[-1] + offs[0]`.
   A script that cut the stream at `offs[0]` alone hung the decoder - use `pws_scan.candidates` + that end.
 
+## 2c. Tile placement and the whole island (session 62) [DATA]
+
+* **Placement - fitted on 5 tiles (X62/63/64 x Y38..46), also consistent with X27_Y38:** `TILE_X<i>_Y<j>` has its SW corner at world
+  **x = 256*i - 11008, y = 256*j - 11008** (m), is 512 m square. X pitch and Y pitch are both 256 m; a column only uses every 4th Y (odd columns offset by 2), so the tiles form a
+  staggered brick pattern. 589 tiles -> x -9472..8960, y -8448..5376 (an 18 x 14 km box).
+* `tools/tdusc/pws_island.py` decodes all 589 tiles in parallel (16 jobs, **30 min**, 16 GB read) into per-tile 1024x1024 float32 maps (2.4 GB). Stitched at 4 m
+  (`C:/temp/hk_island_4m.npy`): z -39..552 m, and the outline is **recognisably Hong Kong** (Lantau in the west, the harbour gap, Kowloon side east).
+* **Coverage problem:** only the 16 m "leaf" cells are decoded = 16.7 km2 of the ~154 km2 of tile area (11 %). Full 32x32 leaf grids exist in some tiles (X63_Y42: 941 of 1024),
+  but most tiles are sparse. The other cells are **different stream kinds**: sizes 20-70 KB decoded, half extents 20-66 m, centres at 32 m / 64 m cell centres.
+  Their first 1,089 floats are NOT a clean coarser heightfield: compositing them as 32/64/128 m cells gave a blocky, discontinuous map with large flat 4.0 m patches
+  (X27_Y38, coverage 83 % but wrong) - so they are probably water / road / other meshes, or a different sample layout. **Ruled out:** "bigger OBB = same 33x33 grid on a bigger cell".
+
 ## 3. Tool
 
 `tools/tdusc/pws_scan.py <file.PWS> [--out DIR] [--max-bytes N]` lists and decodes every embedded stream (pure Python, ~minutes for a 3 MB tile; a C++ loader would port
@@ -50,8 +62,8 @@ Each decoded stream = **256-byte header, 1 pad byte, then float32 data at offset
 
 ## 4. Not known yet / next
 
-* Tile placement: `TILE_X63_Y42` = x 5120..5632, y -256..256; the mapping from the tile name to world x/y is not known (not 512 * index). Decode a second land tile's centres to fit it
-  (`X57_Y58`, `X75_Y26` gave no non-zero centres in my first 400 leaf slots - check which slots are leaves there).
+* Tile placement: solved, s.2c.
+* **The non-16 m stream kinds (the real blocker for a full island):** work out what the 20-70 KB streams hold (dump the floats after offset 257 of a 46 KB one, `X27_Y38` @ `0x20cba0`, 29,524 B compressed). Without them most land is missing.
 * The ~60 missing cells per tile and the 50-70 KB parent streams (do they hold different detail, roads, water?).
 * The float data after the heightfield (vertices of the static meshes?) and the `0xbf0c0..` index sections.
 * Where roads / nav / buildings live; whether the PWS carries them at all.
