@@ -14,6 +14,13 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-19 (61e, `main`): TDUSC wheels placed + the 'paint variants' were the tricolore stripe
+
+`tools/tdusc/car_assemble.py` (new): HR body + 4 wheels (mesh = right wheel, left = mirror) at the LR `Fork_*` anchors, lathe tyre added (the P3Ds have none),
+-> `<stem>_assembled.obj/.mtl` + `_wheels.json`. Correction to 61d: Body parts `C1_PAINT_RED/WHITE/GREEN` are the side stripe, not alternatives - no selection needed.
+`[INF]`: tyre size and hub height z = tyre radius (R 0.285 front fits the arch top 0.53-0.59). Not checked in Blender / game lighting; spin axis = X.
+Next: use the assembled pack in a carswap (`docs/state/main.md` s58 format: body / glass / wheels split), `vtan`, dirt-mask format, wheel designs 02-06.
+
 ## Session 2026-11-19 (61d, `main`): TDUSC PMA parameters decoded - paint colour, metalness, gloss in the MTL
 
 PMA record = `u32 nameLen, name, u32 type (5 float / 8 RGBA / 2 texture), value`; colours are linear (C1_PAINT = green, `_RED` = red). `psi_mtl.parse_params` +

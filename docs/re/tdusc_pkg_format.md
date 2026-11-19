@@ -161,9 +161,19 @@ The binary part of a PMA is a flat list of records `u32 nameLen, name, u32 type,
 `FlakeColor`, `DamageColor`, lamp colours; floats `Gloss1/2`, `Metalness`, `ClearCoat`, `FlakeIntensity/Scale/Opacity`, `Occlusion`, `Opacity`, `Tinted`...
 **Colours are linear**: `C1_PAINT` ExternalColor = (0.042, 0.292, 0.002) -> sRGB (0.23, 0.58, 0.02) = the car's green; `C1_PAINT_RED` = (1.0, 0.0015, 0.0015).
 `psi_mtl.py` writes `Kd` (ExternalColor / DiffuseColor / GlassColor, sRGB, only when there is no diffuse texture), `Pm` = Metalness, `Pr` = 1 - Gloss1, `d 0.35`
-for glass. The body parts 0 / 2 / 3 / 4 are the **alternative paint variants** (`C1_PAINT`, `_RED`, `_WHITE`, `_GREEN`), all exported. Verified: a
+for glass. Body parts 2 / 3 / 4 (`C1_PAINT_RED` / `_WHITE` / `_GREEN`, 42 / 16 / 32 triangles, a thin strip at y = -0.95..-0.89) are **not paint variants: they are the tricolore stripe** on the Performante's sides (and the door strips); nothing to select. Verified: a
 colour-only render of HR is a green Performante with the tricolore side stripe, black wing / bumpers / mirrors (local render `tdusc_huracan_hr_painted.png`).
 Not used: flakes, clear-coat, dirt / damage, `StructureColor` (the `_IOR` sheet tint).
+
+### 7.6 Wheels (session 61e) [DATA + INF]
+
+`W_F_nn` / `W_R_nn` (six designs, `HURACAN_LP640_PERFORMANTE_W_*`, note no `_4_`): axle = **X**, centred, 3 meshes (`Disc` brake disc, the rim `..._W_01` with its
+barrel / centre / caliper parts, `Stir` = caliper), rim radius 0.212 m, x -0.133..+0.131, **disc at +X** -> the mesh is the **right-hand wheel** (disc inboard);
+the left wheel is the mirror in X. Anchors: the LR file's `Fork_FL` (0.819, -1.310) and `Fork_RL` (0.819, +1.310) give half-track and axle y (wheelbase
+2.62 m); the rim's outer face then sits at |x| = 0.952, the body's half width 0.97. **There is no tyre mesh** in the P3Ds; hub height is not stored in the
+files read (the `Fork_*` z 0.194 is a suspension pivot, not the hub). `[INF]`: `tools/tdusc/car_assemble.py` adds a lathe tyre (245/30R20 front, 305/30R20 rear on the
+rim radius -> R = 0.285 / 0.303) and puts the hub at z = R; tyre top 0.57 then matches the arch opening (z 0.53-0.59). Output: `<stem>_assembled.obj` + `.mtl`
+(body + 4 wheels + tyres) and `<stem>_wheels.json` (hubs, tyre sizes). Local render `tdusc_huracan_assembled.png`: wheels sit in the arches, correct sides.
 
 ### 7.2 The scene graph (session 61) [DATA, Huracan HR / LR]
 
