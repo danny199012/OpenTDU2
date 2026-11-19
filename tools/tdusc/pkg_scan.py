@@ -28,8 +28,9 @@ import sys
 PAGE = 4096
 
 
-def lz4_block(src):
-    out = bytearray()
+def lz4_block(src, prefix=b''):
+    """prefix = the previous output (LZ4 frames with linked blocks, FLG bit 5 clear, may match into it); only the new bytes are returned."""
+    out = bytearray(prefix)
     i = 0
     n = len(src)
     while i < n:
@@ -61,7 +62,7 @@ def lz4_block(src):
         st = len(out) - off
         for k in range(ml):
             out.append(out[st + k])
-    return bytes(out)
+    return bytes(out[len(prefix):])
 
 
 def lz4_frame(buf, pos):
@@ -85,7 +86,7 @@ def lz4_frame(buf, pos):
         p += bs
         if flg & 0x10:
             p += 4
-        out += blk if raw else lz4_block(blk)
+        out += blk if raw else lz4_block(blk, bytes(out[-65536:]) if not (flg & 0x20) else b'')
     if flg & 0x04:
         p += 4
     return bytes(out), p

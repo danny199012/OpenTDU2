@@ -139,3 +139,20 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * `GRAPH/WORLDMAP/HONGKONG` is **one mesh** (`HONGKONG_WORLDMAP.P3D`, 77 KB) plus 14 district `GP_*.PMA` materials, no image.
 * Remaining places for a road graph / centre-lines: the PWS sections after the quadtree (`0xbf0c0..`, `0xcc5f0..`, 598 KB tail in X63_Y42, not decoded), the `.PLM` / `.PACLOG` per tile, and the
   `PROCEDURALROAD` volumes themselves. **Buildings are a better next target**: `PARCELBUILDSTEP_*.P3D` (2,184 files), `IMPOSTER_*_BUILDING.P3D` (224) and `GRAPH/BUILDINGS/HONGKONG` (1,266) are ordinary meshes.
+
+### 2j. Buildings (session 62, first pass) [DATA]
+
+* **Where**: `GRAPH/LEVELS/HOUDINI/HONGKONG/TILE_Xi_Yj/PARCELBUILDSTEP_<hash>.P3D` (+ `.PSI`) - **5,250 files** (the earlier count of 2,184 missed these), 0.3-1.3 MB each, only some tiles
+  (the road tiles are `LEVELS/HONGKONG/TILE_Xi/TILE_Xi_Yj/`; parcels sit under `GRAPH/LEVELS/HOUDINI`). Also `GRAPH/BUILDINGS/HONGKONG` (1,266), `IMPOSTERS/.../IMPOSTER_*_BUILDING|GENERIC|ROAD|TERRAIN.P3D`.
+* **A parcel P3D** is the same `SCENE___` family but its header word at 0x34 is NOT the blob offset (`level_mesh.decode` fails on it): the first GDeflate stream (`04 fb`) after the plain head is the vertex +
+  index blob, two more small streams follow. Example `TILE_X19_Y38/PARCELBUILDSTEP_2889716754.P3D`: **28 `MESHLETMESH` entries, 115 parts** in the same `COLONORMPOS_UV0_UV1_` format
+  (named meshes: `0b 00 00 00 "MESHLETMESH"`, bbox min/max +/- 11-14 m, parts = materials/LODs), **5 `Building_<n>` nodes** (`Building_3/4/6/12/13`) with 4x4 matrices whose translations are **parcel-local**
+  (-32..+8 m), identity rotation. The PSI maps `Building_n` to `GRAPH/HOUDINI_MODULES/MAT/PMA/{FILLERS,CONCRETE,GLASS,INTERIOR_MAPPING}/...` materials (facade modules).
+* **The parcel's own world placement is not in the P3D** (bbox is local, no translation). It must be in the level scene: `HONGKONG.PLM` (5.7 MB) / `TILE_*.PLM`.
+* **`.PLM`** = `PLMB`, a scene-entity dump: a string table of class / property names (`PlayAll::GameServices::Mesh`, `ResourceID`, `Visible`, `MaxVisibleDistance`, ...), then entity records.
+  The tile PLM lists only the road build-step actors (`RoadBuildS_0_1_73730Actor`, `IntersectionBuildStep`, `SplineMeshSkinnerBuildStep`, `SplineSpawnerBuildStep` + `DATA:/LEVELS/.../*.PSI` ResourceIDs). The island PLM holds the
+  Houdini inputs: **1,205 `Parcel_REGIONS/ R_<DISTRICT>_<n>` polygons, 724 `..._ManualBuildingPoly` (building footprints), `_exclusion`, `_exclusion_sidewalk`** - each as
+  `u32 nameLen, name, u32 nPts, u32 pointId[nPts], c0 85 47 9b ...`. The point table the ids refer to (`0x41f1`, `0x495a`, ...) was **not located** (a plain-float scan finds no point array; ids recur as object ids).
+* `pkg_scan.lz4_frame` now handles **linked-block LZ4 frames** (FLG bit 5 clear; blocks match into the previous output): the `.PLM` / `.PSVO` reads that raised `IndexError` work.
+* **Next**: (1) decode the PLM entity records (object id -> class, name, transform), which gives parcel placement and the footprint points; (2) then place `PARCELBUILDSTEP` buildings
+  (mesh decode as in `level_mesh.py` with the first-stream blob), or extrude `ManualBuildingPoly` footprints to boxes as a fallback; (3) convert the facade PMA/PTX modules to Eden materials.
