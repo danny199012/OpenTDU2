@@ -25,7 +25,7 @@ sys.path.insert(0, HERE)
 import make_hongkong_island as mh  # noqa: E402
 
 CELL = 512.0
-LIKE = re.compile(r'(BUILDING|TOWER|RESIDENCE|SCHOOL|OFFICE|HOTEL|MALL|HOSPITAL|COMMERCIAL)', re.I)
+LIKE = re.compile(r'(BUILDING|TOWER|RESIDENCE|SCHOOL|OFFICE|HOTEL|MALL|HOSPITAL|COMMERCIAL|CARDEALER|GASSTATION)', re.I)
 
 
 def area2(p):
@@ -78,6 +78,8 @@ def building_height(name, area, seed):
     u = name.upper()
     if 'TOWER' in u:
         h = 110.0
+    elif 'CARDEALER' in u or 'GASSTATION' in u:
+        h = 12.0
     elif 'TOP' in u:
         h = 30.0
     elif 'SCHOOL' in u:
@@ -140,7 +142,8 @@ def main():
     mtl = 'hk_buildings.mtl'
     from PIL import Image, ImageDraw
     tints = (('hk_wall', (150, 154, 160), (60, 80, 100)), ('hk_wall2', (120, 140, 160), (40, 60, 85)),
-             ('hk_wall3', (170, 160, 145), (70, 70, 80)), ('hk_roof', (90, 92, 96), (90, 92, 96)))
+             ('hk_wall3', (170, 160, 145), (70, 70, 80)), ('hk_roof', (90, 92, 96), (90, 92, 96)),
+             ('hk_dealer', (200, 40, 40), (230, 230, 240)))
     with open(os.path.join(pdir, mtl), 'w') as f:
         for n, wall, win in tints:
             im = Image.new('RGB', (64, 64), wall)
@@ -160,7 +163,7 @@ def main():
         name = 'hk_b_%d_%d' % (ci, cj)
         v = []
         vts = []
-        faces = {'hk_wall': [], 'hk_wall2': [], 'hk_wall3': [], 'hk_roof': []}
+        faces = {'hk_wall': [], 'hk_wall2': [], 'hk_wall3': [], 'hk_roof': [], 'hk_dealer': []}
 
         def vert(px, py, y, u=0.0, vv=0.0):
             ex = px - mh.HK_X0
@@ -170,7 +173,7 @@ def main():
             return len(v)
 
         for nm, p, y0, y1, seed in bl:
-            mat = ('hk_wall', 'hk_wall2', 'hk_wall3')[seed % 3]
+            mat = 'hk_dealer' if 'CARDEALER' in nm.upper() else ('hk_wall', 'hk_wall2', 'hk_wall3')[seed % 3]
             top = [vert(q[0], q[1], y1) for q in p]
             n = len(p)
             rows = max(1.0, (y1 - y0 - 3.0) / 3.5)

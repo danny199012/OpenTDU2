@@ -212,3 +212,18 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * The PWS tail after the quadtree (X63_Y42, from `0xcc5f0`) is **high entropy** (no float / int structure in 256-byte windows): compressed or encrypted, not a plain road table.
 * Conclusion unchanged: **roads only exist as shader-side ribbons over the road pad meshes (2f-2h) plus baked heightfield ridges**. Options left: (a) decode the PLM decal transforms; (b) trace ridges; (c) author a road
   graph by hand / from OSM for Hong Kong (the `docs/re/eden_island_spec.md` item 3 route: `EDON`/`DAOR`/`ATED` nodes are accepted from generated files).
+
+### 2o. Tile PLM entity records, road "ways", z runs (session 62d) [DATA]
+
+* **Tile PLM entity transform [DATA, verified]**: 52-byte records, each holding an id `0x8000xxxx` (ids 0x300..0xfff in `TILE_X56_Y36`, region `0x2e1d0..0x57a70`, 2,452 records). Around the id word: **tile-local x = float at id+16, y = float at id-20, z = float at id-4**
+  (tile-local metres 0..512; the default / unplaced value is x -3328, y 1792 = minus the tile origin). Checked: z vs the decoded heightfield r = 0.79, median |dz| 2.3 m over 2,101 records. The remaining floats are a scaled rotation (columns of norm ~4.2 on a 4.2-scale prop).
+* **Entity name table [DATA]**: 12-byte entries `(nameOffset, 0, entityId)` at `0x15008..0x24410` (3,076 entries; nameOffset is relative to file offset 0x80, e.g. `Middle` x752 = group node, `Plant`, `Banana`, `NATURE_ROCK_L_*`, `Building_R0_S_*`,
+  `KIOSKROOF_*`, `HK_CONVCEN_POT_*`). A second table (`0xe438..0x24890`, 4,452 entries) carries the `RDA_InsideLane_*` decal names. **Unresolved**: how table entity ids map to the 52-byte transform records
+  (id = 0x300 + table index + ~1140 gave 70 % of lane decals inside the road-pad mask vs a 5 % base rate, but the offset is not sharp and the points cluster in small groups, not ribbons, so lane decals are not a road centre-line source).
+  So **tile props (lamps, signs, traffic lights) have positions but cannot be named yet**.
+* **Island PLM road data**: `way_<n>_Applicator` / `way_<n>` (4,952 entries, OSM-style ways) followed by decimal strings (Houdini 64-bit attribute ids, not coordinates), `Cross_Graph_nn`, `IA_TRAFFIC_<DISTRICT>` (traffic
+  influence-area polygons, resolved by 2m) and `HK_Spline_MeetPoint_*`. No coordinate list found for the ways. The 685 constant-z runs of the point table (3,748 points, mostly 4-point runs at z 4.0 / 4.1) are **footprint polygons
+  with a height / elevation attribute, not splines**.
+* **Dealerships / gas stations (footprints)** [DATA] (Eden coordinates): Causeway Bay West car dealer (9847, 3360), Repulse Bay car dealers (10237, 9092) and (10273, 9066), "next car dealer" exclusion (11719, 2974), next gas station (11900, 3179).
+  Other levels referenced by the island PLM (`DATA:/LEVELS/HONGKONG/CAR_DEALER_PROPS`, `CAR_DEALER_CAMERAS`, `ONBOARDING_CAR_DEALER`, `GARAGE_INTERIOR`, `HS_MAISON_*_GARAGE`, `ICONIC_RACE_*`, `PROTO_MEETPOINTPARKING`) are separate PLM levels: the way to interiors.
+* **Ridge / smoothness road detector** (tile X63_Y42, local roughness + slope + opening): picks quarries and terraces, not roads - not usable.

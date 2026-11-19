@@ -89,3 +89,5 @@ Result: **1,742 buildings, 87 props (one OBJ per 512 m cell, 27k triangles)** in
   `VehicleWorldCollision::addStaticTriangles`, called from `GMFreeRide::ensureModPropsLoaded`). Two-sided, friction 0.7, not road. `make_hongkong_buildings.py` writes `solid` on every building.
 * Verified: log `VehicleWorldCollision: 32 / 98 / 19 ... static prop triangles added` (one line per prop), and `-gm freeride -island hongkong -tp 3192,46,3380 -logdrive` leaves the car resting at
   y = 40.98 on a roof at 40.87 instead of falling to the ground. Walls were not driven into (not tested).
+
+* Dealerships: footprints named `*CARDEALER*` / `*GASSTATION*` are built as red 12 m buildings (`hk_dealer` material) so they can be found in the world (list in `tdusc_pws_format.md` 2o). No dealership spot / interior yet.
