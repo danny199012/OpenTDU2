@@ -72,3 +72,13 @@ build-main\bin\opentdu2-main.exe ... -gm worldviewer -island hongkong -nopanel -
   `-autoplay "300:press=map;500:key=F7"` logs `map island trip (F7) ibiza -> hongkong` / `hongkong -> ibiza`. No pad button (the retail pop-up has one slot).
 * **Not wired** (retail pop-up): the map's airport pop-up button (`isld`) still toggles the original Ibiza / Hawai pair (the pop-up exists only on the airport spots, which Hong Kong has none of), so there is no
   map-screen button for Hong Kong yet. The trip back to Hong Kong from the map would need the pop-up's label (`m_gotohawai` / `m_gotoibiza`) extended to a third island.
+
+## Box buildings (session 62d)
+
+`python tools/tdusc/plm_footprints.py ...` then `python tools/mod/make_hongkong_buildings.py --userdata C:/temp/otdu2-win-userdata --tiles C:/temp/hk_tiles` extrudes the PLM footprints
+(`docs/re/tdusc_pws_format.md` 2m) into box buildings: 724 `ManualBuildingPoly` + the building-like `exclusion` polygons, 25..8000 m2, on land (ground >= 0.5 m on the island's own height raster).
+Result: **1,742 buildings, 87 props (one OBJ per 512 m cell, 27k triangles)** in `<userdata>/mods/props/hk_b_<i>_<j>.obj` + `props.txt` lines (`hongkong hk_b_i_j x 0 z 0`; the script replaces only its own lines).
+* Heights are **[INF]** (the data has none): tower 110 m, `TOP` 30 m, school 18 m, else by area (9 / 22 / 45 m), +-25 % jitter. Base is sunk 3 m. Facade = generated 64 px window texture (3 tints) with UVs (6 m x 3.5 m per window).
+* **Trap:** the props shader's no-texture path is flat white whatever `Kd` says (`obj_mesh.cpp`); a `map_Kd` texture is needed for colour.
+* Visual only: props have no collision. Verified headless: `-gm worldviewer -island hongkong -campos 8280,120,5200 -camyaw 180 -campitch -8 -weather 12` shows the Central skyline (screenshot kept locally, TDUSC-derived).
+* Not done: collision, real heights / parcel meshes, interiors, roads.

@@ -14,6 +14,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 62d (`win`): Hong Kong footprints decoded, box buildings placed as props
+
+Task: "roads and buildings from TDUSC". PLM point ids are direct indices into a float3 table at 0x452e59 (`tools/tdusc/plm_footprints.py`; 97.9 % of 4-point polygons are rectangles).
+`tools/mod/make_hongkong_buildings.py` extrudes 1,742 footprints into box buildings (87 props, window texture, heights inferred) - verified in the world viewer over Central.
+Trap: props shader ignores `Kd` without `map_Kd`. Not done: collision, real parcel meshes (placement unknown), interiors, roads (no source found). Details: `docs/re/tdusc_pws_format.md` 2m, `hongkong_island_mod.md`.
+
 ## Session 62c (`win`): Hong Kong spawn / zone badge / map tuned
 
 Task: "Tune spawn/HUD/map". `-island hongkong` starts at the Central quay (5632, 3, 7936); the zone badge reads "Hong Kong Island" (no more "Ibiza Area 1");
