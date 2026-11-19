@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- The in-app updater downloads releases from GitHub (phase 2) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- All-Files-Access: the unpacked TDU2 tree (Euro/Bnk/...) is copied to
          shared storage once over USB; the launcher's Game Data page points at
          it. Sideload-only app, so the Settings toggle is acceptable. -->
@@ -26,6 +27,12 @@
         android:enableOnBackInvokedCallback="false"
         android:hardwareAccelerated="true"
         android:theme="@style/AppTheme">
+
+        <provider
+            android:name=".ApkProvider"
+            android:authorities="${applicationId}.apkprovider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
         <activity
             android:name=".MainActivity"

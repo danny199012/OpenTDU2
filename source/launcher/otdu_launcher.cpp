@@ -1,5 +1,7 @@
 #include "shared.h"
 #include "launcher/otdu_launcher.h"
+#include "launcher/otdu_launcher_data.h"
+#include "system/cmd_line.h"
 
 #include "core/logger.h"
 #include "core/watchdog.h"
@@ -53,7 +55,11 @@ float S( float value ) { return value * gUiScale; }
 
 // --- Launcher state ----------------------------------------------------------
 
-enum class Page { Play, GameData, Settings };
+enum class Page { Play, Profiles, Mods, GameData, Updates, Online, Settings };
+enum class UpdateStage { Idle, Checking, Available, Downloading, Downloaded, UpToDate, Failed };
+
+// GitHub repository the Android updater reads releases from (the owner's fork).
+constexpr const char *kRepoSlug = "danny199012/Open-TestDrive-Unlimited-2-";
 
 struct LauncherState {
     Page page = Page::Play;
@@ -65,6 +71,29 @@ struct LauncherState {
     bool bBrowseDirty = true;     // re-scan browserDir next time the page draws
     std::vector<std::string> browseDirs;
     std::string browseError;
+
+    // user data + profiles + mods
+    std::string userData;
+    std::string profileId; // selected profile ("*main*" = the legacy main save)
+    std::vector<OTDULauncher::ProfileInfo> profiles;
+    bool bProfilesDirty = true;
+    std::string profileMessage;
+    std::string renameTarget, removeTarget;
+    char renameBuffer[64] = {};
+    char newNameBuffer[64] = {};
+    std::vector<OTDULauncher::ModInfo> mods;
+    bool bModsDirty = true;
+
+    // launch options + online (saved, passed to the game)
+    bool bSkipIntro = true;
+    bool bWatermark = true;
+    char onlineUser[64] = {};
+    char onlineServer[128] = {};
+
+    // updates
+    UpdateStage updateStage = UpdateStage::Idle;
+    std::string updateMessage, updateUrl, updateAsset;
+    int updateBuild = 0;
 };
 
 // <root>/Euro/Bnk exists (case-insensitive; mirrors GSFile::HasBankFolder).
@@ -147,11 +176,129 @@ void SetLandscapeOnly( bool bLandscapeOnly ) {
     }
     pEnv->DeleteLocalRef( cls );
 }
+
+// --- Java helpers for the Updates page and the user data folder ---------------
+static jobject ActivityObj() { return reinterpret_cast<jobject>( SDL_GetAndroidActivity() ); }
+static JNIEnv *Env() { return reinterpret_cast<JNIEnv *>( SDL_GetAndroidJNIEnv() ); }
+
+int JavaIntCall( const char *pName, const char *pSig ) {
+    JNIEnv *pEnv = Env();
+    jobject activity = ActivityObj();
+    if ( pEnv == nullptr || activity == nullptr ) {
+        return 0;
+    }
+    jclass cls = pEnv->GetObjectClass( activity );
+    jmethodID mid = pEnv->GetMethodID( cls, pName, pSig );
+    jint value = 0;
+    if ( mid != nullptr ) {
+        value = pEnv->CallIntMethod( activity, mid );
+    }
+    pEnv->DeleteLocalRef( cls );
+    return value;
+}
+long long JavaLongCall( const char *pName ) {
+    JNIEnv *pEnv = Env();
+    jobject activity = ActivityObj();
+    if ( pEnv == nullptr || activity == nullptr ) {
+        return 0;
+    }
+    jclass cls = pEnv->GetObjectClass( activity );
+    jmethodID mid = pEnv->GetMethodID( cls, pName, "()J" );
+    jlong value = 0;
+    if ( mid != nullptr ) {
+        value = pEnv->CallLongMethod( activity, mid );
+    }
+    pEnv->DeleteLocalRef( cls );
+    return value;
+}
+std::string JavaStringCall( const char *pName ) {
+    JNIEnv *pEnv = Env();
+    jobject activity = ActivityObj();
+    std::string out;
+    if ( pEnv == nullptr || activity == nullptr ) {
+        return out;
+    }
+    jclass cls = pEnv->GetObjectClass( activity );
+    jmethodID mid = pEnv->GetMethodID( cls, pName, "()Ljava/lang/String;" );
+    if ( mid != nullptr ) {
+        jstring text = static_cast<jstring>( pEnv->CallObjectMethod( activity, mid ) );
+        if ( text != nullptr ) {
+            const char *pChars = pEnv->GetStringUTFChars( text, nullptr );
+            if ( pChars != nullptr ) {
+                out = pChars;
+                pEnv->ReleaseStringUTFChars( text, pChars );
+            }
+            pEnv->DeleteLocalRef( text );
+        }
+    }
+    pEnv->DeleteLocalRef( cls );
+    return out;
+}
+void JavaStringArgCall( const char *pName, const std::string &arg ) {
+    JNIEnv *pEnv = Env();
+    jobject activity = ActivityObj();
+    if ( pEnv == nullptr || activity == nullptr ) {
+        return;
+    }
+    jclass cls = pEnv->GetObjectClass( activity );
+    jmethodID mid = pEnv->GetMethodID( cls, pName, "(Ljava/lang/String;)V" );
+    if ( mid != nullptr ) {
+        jstring text = pEnv->NewStringUTF( arg.c_str() );
+        pEnv->CallVoidMethod( activity, mid, text );
+        pEnv->DeleteLocalRef( text );
+    }
+    pEnv->DeleteLocalRef( cls );
+}
+int JavaHttpState() { return JavaIntCall( "getHttpState", "()I" ); }
+std::string JavaHttpResult() { return JavaStringCall( "getHttpResult" ); }
+long long JavaHttpDone() { return JavaLongCall( "getHttpDone" ); }
+long long JavaHttpTotal() { return JavaLongCall( "getHttpTotal" ); }
+void JavaStartGet( const std::string &url ) { JavaStringArgCall( "startHttpGet", url ); }
+void JavaStartDownload( const std::string &url ) { JavaStringArgCall( "startDownload", url ); }
+bool JavaInstallApk() {
+    JNIEnv *pEnv = Env();
+    jobject activity = ActivityObj();
+    if ( pEnv == nullptr || activity == nullptr ) {
+        return false;
+    }
+    jclass cls = pEnv->GetObjectClass( activity );
+    jmethodID mid = pEnv->GetMethodID( cls, "installDownloadedApk", "()Z" );
+    const bool bOk = mid != nullptr && pEnv->CallBooleanMethod( activity, mid );
+    pEnv->DeleteLocalRef( cls );
+    return bOk;
+}
+std::string PlatformUserData() { return JavaStringCall( "getExternalFilesPath" ); }
 #else
 bool HasAllFilesAccess() { return true; }
 void RequestAllFilesAccess() {}
 void SetLandscapeOnly( bool ) {}
+int JavaHttpState() { return 0; }
+std::string JavaHttpResult() { return std::string(); }
+long long JavaHttpDone() { return 0; }
+long long JavaHttpTotal() { return 0; }
+void JavaStartGet( const std::string & ) {}
+void JavaStartDownload( const std::string & ) {}
+bool JavaInstallApk() { return false; }
+std::string PlatformUserData() { return std::string(); }
 #endif
+
+// The user data folder (saves, profiles, mods, backups): the app's external
+// files folder on Android (reachable over USB, no permission), the SDL pref
+// path on desktop. Always ends without a separator.
+std::string UserDataDir() {
+    std::string dir = PlatformUserData();
+    if ( dir.empty() ) {
+        char *pPref = SDL_GetPrefPath( "OpenTDU2", "OpenTDU2" );
+        if ( pPref != nullptr ) {
+            dir = pPref;
+            SDL_free( pPref );
+        }
+    }
+    while ( !dir.empty() && ( dir.back() == '/' || dir.back() == '\\' ) ) {
+        dir.pop_back();
+    }
+    return dir;
+}
 
 // --- Settings (a tiny INI under SDL_GetPrefPath) -----------------------------
 
@@ -202,6 +349,15 @@ void LoadSettings( LauncherState &state ) {
     fclose( pFile );
 
     state.gameDir = IniValue( content, "game_folder" );
+    state.profileId = IniValue( content, "profile" );
+    if ( !IniValue( content, "skip_intro" ).empty() ) {
+        state.bSkipIntro = IniValue( content, "skip_intro" ) == "1";
+    }
+    if ( !IniValue( content, "watermark" ).empty() ) {
+        state.bWatermark = IniValue( content, "watermark" ) == "1";
+    }
+    snprintf( state.onlineUser, sizeof( state.onlineUser ), "%s", IniValue( content, "online_user" ).c_str() );
+    snprintf( state.onlineServer, sizeof( state.onlineServer ), "%s", IniValue( content, "online_server" ).c_str() );
     state.browserDir = IniValue( content, "browser_dir" );
     const std::string scale = IniValue( content, "ui_scale" );
     if ( !scale.empty() ) {
@@ -244,6 +400,11 @@ void SaveSettings( const LauncherState &state ) {
     fprintf( pFile, "game_folder=%s\n", state.gameDir.c_str() );
     fprintf( pFile, "browser_dir=%s\n", state.browserDir.c_str() );
     fprintf( pFile, "ui_scale=%f\n", state.uiScaleOverride );
+    fprintf( pFile, "profile=%s\n", state.profileId.c_str() );
+    fprintf( pFile, "skip_intro=%d\n", state.bSkipIntro ? 1 : 0 );
+    fprintf( pFile, "watermark=%d\n", state.bWatermark ? 1 : 0 );
+    fprintf( pFile, "online_user=%s\n", state.onlineUser );
+    fprintf( pFile, "online_server=%s\n", state.onlineServer );
     fclose( pFile );
 }
 
@@ -476,6 +637,8 @@ void RefreshBrowse( LauncherState &state ) {
     state.bBrowseDirty = false;
 }
 
+const OTDULauncher::ProfileInfo *ActiveProfile( LauncherState &state );
+
 void DrawPlayPage( LauncherState &state, bool *pbPlay ) {
     const bool bReady = !state.gameDir.empty();
     ImGui::Spacing();
@@ -504,6 +667,28 @@ void DrawPlayPage( LauncherState &state, bool *pbPlay ) {
     }
     CardEnd();
 
+    ImGui::Spacing();
+    const OTDULauncher::ProfileInfo *pProfile = ActiveProfile( state );
+    if ( CardBegin( "##play_profile", ImVec2( 0, 0 ) ) ) {
+        ImGui::TextColored( kDim, "PLAYING AS" );
+        if ( pProfile != nullptr ) {
+            ImGui::TextColored( kText, "%s", pProfile->Name.c_str() );
+            if ( pProfile->bHasSave ) {
+                ImGui::PushFont( ImGui::GetIO().FontDefault, 13.0f );
+                ImGui::TextColored( kDim, "%s - $%lld", OTDULauncher::StoryStepLabel( pProfile->StoryStep ).c_str(),
+                                    static_cast<long long>( pProfile->Money ) );
+                ImGui::PopFont();
+            }
+        } else {
+            ImGui::TextColored( kDim, "No profile yet - a new game starts" );
+        }
+        if ( ImGui::Button( "Manage profiles", ImVec2( 0, S( 40.0f ) ) ) ) {
+            state.page = Page::Profiles;
+        }
+        ImGui::Checkbox( "Skip the intro cinematic", &state.bSkipIntro );
+        ImGui::Checkbox( "Show my name in the in-game watermark", &state.bWatermark );
+    }
+    CardEnd();
     ImGui::Spacing();
     if ( PlayButton( "PLAY", bReady, S( 260.0f ), S( 62.0f ) ) ) {
         *pbPlay = true;
@@ -661,6 +846,427 @@ void DrawSettingsPage( LauncherState &state ) {
     CardEnd();
 }
 
+// The newest release that carries an APK named ...-b<number>.apk; compares the
+// number with this build's. GitHub's JSON is scanned as text (no parser needed).
+void ParseRelease( LauncherState &state, const std::string &json ) {
+    const std::string key = "\"browser_download_url\"";
+    size_t pos = 0;
+    int bestBuild = -1;
+    std::string bestUrl, bestName;
+    while ( ( pos = json.find( key, pos ) ) != std::string::npos ) {
+        const size_t q1 = json.find( '"', json.find( ':', pos ) );
+        const size_t q2 = q1 == std::string::npos ? q1 : json.find( '"', q1 + 1 );
+        if ( q2 == std::string::npos ) {
+            break;
+        }
+        const std::string url = json.substr( q1 + 1, q2 - q1 - 1 );
+        pos = q2;
+        if ( url.size() < 5 || url.compare( url.size() - 4, 4, ".apk" ) != 0 ) {
+            continue;
+        }
+        const size_t slash = url.rfind( '/' );
+        const std::string name = slash == std::string::npos ? url : url.substr( slash + 1 );
+        const size_t b = name.rfind( "-b" );
+        const int build = b == std::string::npos ? 0 : atoi( name.c_str() + b + 2 );
+        if ( build > bestBuild ) {
+            bestBuild = build;
+            bestUrl = url;
+            bestName = name;
+        }
+    }
+    const int current = atoi( OTDU_BUILD_NUMBER );
+    if ( bestBuild < 0 ) {
+        state.updateStage = UpdateStage::UpToDate;
+        state.updateMessage = "No Android build has been published yet.";
+    } else if ( bestBuild > current ) {
+        state.updateStage = UpdateStage::Available;
+        state.updateBuild = bestBuild;
+        state.updateUrl = bestUrl;
+        state.updateAsset = bestName;
+    } else {
+        state.updateStage = UpdateStage::UpToDate;
+        state.updateMessage = "You are up to date (build " + std::to_string( current ) + ").";
+    }
+}
+
+// --- Profiles / Mods / Updates / Online pages ----------------------------------
+
+namespace Data = OTDULauncher;
+
+void RefreshProfiles( LauncherState &state ) {
+    state.profiles = Data::ScanProfiles( state.userData );
+    state.bProfilesDirty = false;
+}
+
+// The profile the PLAY button uses: the selected id, else the first one.
+const Data::ProfileInfo *ActiveProfile( LauncherState &state ) {
+    if ( state.bProfilesDirty ) {
+        RefreshProfiles( state );
+    }
+    for ( const Data::ProfileInfo &profile : state.profiles ) {
+        if ( profile.bMain ? state.profileId == "*main*" : profile.Id == state.profileId ) {
+            return &profile;
+        }
+    }
+    return state.profiles.empty() ? nullptr : &state.profiles.front();
+}
+
+void SelectProfile( LauncherState &state, const Data::ProfileInfo &profile ) {
+    state.profileId = profile.bMain ? "*main*" : profile.Id;
+}
+
+void DrawProfilesPage( LauncherState &state ) {
+    if ( state.bProfilesDirty ) {
+        RefreshProfiles( state );
+    }
+    ImGui::Spacing();
+    ImGui::TextColored( kText, "Who is playing" );
+    ImGui::PushFont( ImGui::GetIO().FontDefault, 13.0f );
+    ImGui::TextColored( kDim, "One save per profile, in %s/profiles", state.userData.c_str() );
+    ImGui::PopFont();
+    ImGui::Spacing();
+
+    const Data::ProfileInfo *pActive = ActiveProfile( state );
+    std::string action; // set by a button; applied after the loop (the list may change)
+    int actionIndex = -1;
+    for ( size_t i = 0; i < state.profiles.size(); i++ ) {
+        const Data::ProfileInfo &p = state.profiles[i];
+        const bool bActive = pActive == &p;
+        ImGui::PushID( static_cast<int>( i ) );
+        if ( CardBegin( "##profile", ImVec2( 0, 0 ) ) ) {
+            ImGui::TextColored( bActive ? kAccent : kText, "%s%s", p.Name.c_str(), p.bMain ? "  (main save)" : "" );
+            ImGui::PushFont( ImGui::GetIO().FontDefault, 13.0f );
+            if ( p.bHasSave ) {
+                ImGui::TextColored( kDim, "%s%s%s - $%lld - %d cars", p.Avatar.c_str(), p.Avatar.empty() ? "" : " - ",
+                                    Data::StoryStepLabel( p.StoryStep ).c_str(), static_cast<long long>( p.Money ), p.Cars );
+                const std::string played = Data::FormatLastPlayed( p.LastPlayed );
+                if ( !played.empty() ) {
+                    ImGui::TextColored( kDim, "Played %s", played.c_str() );
+                }
+            } else {
+                ImGui::TextColored( kDim, "New - no progress yet" );
+            }
+            ImGui::PopFont();
+            if ( bActive ) {
+                ImGui::TextColored( kGreen, "ACTIVE" );
+            } else if ( ImGui::Button( "Use this profile", ImVec2( 0, S( 42.0f ) ) ) ) {
+                action = "use";
+                actionIndex = static_cast<int>( i );
+            }
+            if ( p.bHasSave ) {
+                if ( ImGui::Button( "Back up", ImVec2( 0, S( 36.0f ) ) ) ) {
+                    action = "backup";
+                    actionIndex = static_cast<int>( i );
+                }
+                ImGui::SameLine();
+            }
+            if ( ImGui::Button( "Duplicate", ImVec2( 0, S( 36.0f ) ) ) ) {
+                action = "dup";
+                actionIndex = static_cast<int>( i );
+            }
+            if ( !p.bMain ) {
+                ImGui::SameLine();
+                if ( ImGui::Button( "Rename", ImVec2( 0, S( 36.0f ) ) ) ) {
+                    action = "rename";
+                    actionIndex = static_cast<int>( i );
+                }
+                ImGui::SameLine();
+                if ( ImGui::Button( "Remove", ImVec2( 0, S( 36.0f ) ) ) ) {
+                    action = "remove";
+                    actionIndex = static_cast<int>( i );
+                }
+            }
+            const std::vector<Data::BackupInfo> backups = Data::ListBackups( state.userData, p );
+            if ( !backups.empty() ) {
+                ImGui::PushFont( ImGui::GetIO().FontDefault, 12.0f );
+                ImGui::TextColored( kDim, "%d backup%s, newest %s", static_cast<int>( backups.size() ),
+                                    backups.size() == 1 ? "" : "s", backups.front().Label.c_str() );
+                ImGui::PopFont();
+                if ( ImGui::Button( "Restore newest backup", ImVec2( 0, S( 36.0f ) ) ) ) {
+                    action = "restore";
+                    actionIndex = static_cast<int>( i );
+                }
+            }
+        }
+        CardEnd();
+        ImGui::PopID();
+        ImGui::Spacing();
+    }
+
+    if ( actionIndex >= 0 ) {
+        const Data::ProfileInfo p = state.profiles[actionIndex];
+        std::string newId, error;
+        bool bOk = true;
+        if ( action == "use" ) {
+            SelectProfile( state, p );
+        } else if ( action == "backup" ) {
+            state.profileMessage = Data::BackupProfile( state.userData, p ) ? "Backed up." : "Nothing new to back up.";
+        } else if ( action == "dup" ) {
+            bOk = Data::DuplicateProfile( state.userData, p, newId, error );
+            state.profileMessage = bOk ? "Duplicated as \"" + newId + "\"." : error;
+        } else if ( action == "rename" ) {
+            state.renameTarget = p.Id;
+            snprintf( state.renameBuffer, sizeof( state.renameBuffer ), "%s", p.Id.c_str() );
+        } else if ( action == "remove" ) {
+            state.removeTarget = p.Id;
+        } else if ( action == "restore" ) {
+            const std::vector<Data::BackupInfo> backups = Data::ListBackups( state.userData, p );
+            if ( !backups.empty() ) {
+                bOk = Data::RestoreBackup( state.userData, p, backups.front(), error );
+                state.profileMessage = bOk ? "Restored the backup from " + backups.front().Label + "." : error;
+            }
+        }
+        state.bProfilesDirty = true;
+    }
+
+    if ( !state.renameTarget.empty() ) {
+        if ( CardBegin( "##rename", ImVec2( 0, 0 ) ) ) {
+            ImGui::TextColored( kDim, "Rename \"%s\" to" , state.renameTarget.c_str() );
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::InputText( "##rename_in", state.renameBuffer, sizeof( state.renameBuffer ) );
+            if ( ImGui::Button( "Rename", ImVec2( 0, S( 42.0f ) ) ) ) {
+                for ( const Data::ProfileInfo &p : state.profiles ) {
+                    if ( !p.bMain && p.Id == state.renameTarget ) {
+                        std::string newId, error;
+                        if ( Data::RenameProfile( state.userData, p, state.renameBuffer, newId, error ) ) {
+                            if ( state.profileId == p.Id ) {
+                                state.profileId = newId;
+                            }
+                            state.profileMessage = "Renamed to \"" + newId + "\".";
+                        } else {
+                            state.profileMessage = error;
+                        }
+                    }
+                }
+                state.renameTarget.clear();
+                state.bProfilesDirty = true;
+            }
+            ImGui::SameLine();
+            if ( ImGui::Button( "Cancel", ImVec2( 0, S( 42.0f ) ) ) ) {
+                state.renameTarget.clear();
+            }
+        }
+        CardEnd();
+        ImGui::Spacing();
+    }
+    if ( !state.removeTarget.empty() ) {
+        if ( CardBegin( "##remove", ImVec2( 0, 0 ) ) ) {
+            ImGui::TextColored( kAmber, "Remove \"%s\"?", state.removeTarget.c_str() );
+            ImGui::PushFont( ImGui::GetIO().FontDefault, 13.0f );
+            ImGui::TextWrapped( "The folder moves to profiles/.trash, so it can still be recovered by hand." );
+            ImGui::PopFont();
+            if ( ImGui::Button( "Remove it", ImVec2( 0, S( 42.0f ) ) ) ) {
+                for ( const Data::ProfileInfo &p : state.profiles ) {
+                    if ( !p.bMain && p.Id == state.removeTarget ) {
+                        std::string error;
+                        state.profileMessage = Data::DeleteProfile( state.userData, p, error ) ? "Removed." : error;
+                    }
+                }
+                state.removeTarget.clear();
+                state.bProfilesDirty = true;
+            }
+            ImGui::SameLine();
+            if ( ImGui::Button( "Keep it", ImVec2( 0, S( 42.0f ) ) ) ) {
+                state.removeTarget.clear();
+            }
+        }
+        CardEnd();
+        ImGui::Spacing();
+    }
+
+    if ( CardBegin( "##newprofile", ImVec2( 0, 0 ) ) ) {
+        ImGui::TextColored( kDim, "New profile" );
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::InputTextWithHint( "##newname", "Nickname", state.newNameBuffer, sizeof( state.newNameBuffer ) );
+        if ( ImGui::Button( "Create profile", ImVec2( 0, S( 46.0f ) ) ) ) {
+            std::string newId, error;
+            if ( Data::CreateProfile( state.userData, state.newNameBuffer, newId, error ) ) {
+                state.profileId = newId;
+                state.newNameBuffer[0] = '\0';
+                state.profileMessage = "Created \"" + newId + "\" and selected it.";
+                state.bProfilesDirty = true;
+            } else {
+                state.profileMessage = error;
+            }
+        }
+    }
+    CardEnd();
+    if ( !state.profileMessage.empty() ) {
+        ImGui::Spacing();
+        ImGui::TextColored( kAmber, "%s", state.profileMessage.c_str() );
+    }
+}
+
+void DrawModsPage( LauncherState &state ) {
+    if ( state.bModsDirty ) {
+        state.mods = Data::ScanMods( state.userData );
+        state.bModsDirty = false;
+    }
+    ImGui::Spacing();
+    ImGui::TextColored( kText, "Mods" );
+    ImGui::PushFont( ImGui::GetIO().FontDefault, 13.0f );
+    ImGui::TextWrapped( "A mod is a folder in %s/mods/packages/<name>/ with a mod.json; tick it to enable it. Changes apply the next time you press PLAY.",
+                        state.userData.c_str() );
+    ImGui::PopFont();
+    ImGui::Spacing();
+    if ( state.mods.empty() ) {
+        if ( CardBegin( "##nomods", ImVec2( 0, 0 ) ) ) {
+            ImGui::TextColored( kDim, "No mods installed" );
+            ImGui::PushFont( ImGui::GetIO().FontDefault, 13.0f );
+            ImGui::TextWrapped( "Copy a mod folder to the phone (USB) into the packages folder above, then reopen this page." );
+            ImGui::PopFont();
+        }
+        CardEnd();
+    }
+    bool bChanged = false;
+    for ( size_t i = 0; i < state.mods.size(); i++ ) {
+        Data::ModInfo &mod = state.mods[i];
+        ImGui::PushID( static_cast<int>( i ) );
+        if ( CardBegin( "##mod", ImVec2( 0, 0 ) ) ) {
+            if ( mod.bNeedsImport ) {
+                ImGui::BeginDisabled();
+            }
+            if ( ImGui::Checkbox( mod.Name.c_str(), &mod.bEnabled ) ) {
+                bChanged = true;
+            }
+            if ( mod.bNeedsImport ) {
+                ImGui::EndDisabled();
+            }
+            ImGui::PushFont( ImGui::GetIO().FontDefault, 12.0f );
+            ImGui::TextColored( kDim, "%s%s%s%s%d file%s", mod.Version.c_str(), mod.Version.empty() ? "" : " - ",
+                                mod.Author.c_str(), mod.Author.empty() ? "" : " - ", mod.FileCount,
+                                mod.FileCount == 1 ? "" : "s" );
+            if ( !mod.Description.empty() ) {
+                ImGui::TextWrapped( "%s", mod.Description.c_str() );
+            }
+            if ( mod.bNeedsImport ) {
+                ImGui::TextColored( kAmber, "Needs files imported from your own game copy - use the PC launcher once." );
+            }
+            ImGui::PopFont();
+        }
+        CardEnd();
+        ImGui::PopID();
+        ImGui::Spacing();
+    }
+    if ( bChanged ) {
+        Data::SaveEnabledMods( state.userData, state.mods );
+        state.bModsDirty = true;
+    }
+}
+
+void DrawUpdatesPage( LauncherState &state ) {
+    ImGui::Spacing();
+    ImGui::TextColored( kText, "Updates" );
+    ImGui::PushFont( ImGui::GetIO().FontDefault, 13.0f );
+    ImGui::TextColored( kDim, "This build: %s", OTDU_BUILD_STRING );
+    ImGui::PopFont();
+    ImGui::Spacing();
+
+    // Poll the Java worker.
+    if ( state.updateStage == UpdateStage::Checking || state.updateStage == UpdateStage::Downloading ) {
+        const int http = JavaHttpState();
+        if ( http == 2 && state.updateStage == UpdateStage::Checking ) {
+            ParseRelease( state, JavaHttpResult() );
+        } else if ( http == 2 && state.updateStage == UpdateStage::Downloading ) {
+            state.updateStage = UpdateStage::Downloaded;
+            state.updateMessage = "Downloaded. Tap Install to continue.";
+        } else if ( http == 3 ) {
+            state.updateStage = UpdateStage::Failed;
+            state.updateMessage = "Failed: " + JavaHttpResult();
+        }
+    }
+
+    if ( CardBegin( "##update", ImVec2( 0, 0 ) ) ) {
+#if !defined( OTDU_ANDROID )
+        ImGui::TextColored( kDim, "In-app updates are an Android feature." );
+#else
+        switch ( state.updateStage ) {
+        case UpdateStage::Idle:
+        case UpdateStage::Failed:
+        case UpdateStage::UpToDate:
+            if ( !state.updateMessage.empty() ) {
+                ImGui::TextColored( state.updateStage == UpdateStage::Failed ? kRed : kGreen, "%s",
+                                    state.updateMessage.c_str() );
+            }
+            if ( ImGui::Button( "Check for updates", ImVec2( 0, S( 48.0f ) ) ) ) {
+                state.updateStage = UpdateStage::Checking;
+                state.updateMessage.clear();
+                JavaStartGet( std::string( "https://api.github.com/repos/" ) + kRepoSlug + "/releases?per_page=10" );
+            }
+            break;
+        case UpdateStage::Checking:
+            ImGui::TextColored( kDim, "Checking..." );
+            break;
+        case UpdateStage::Available:
+            ImGui::TextColored( kAccent, "Build %d is available (you have %d)", state.updateBuild, atoi( OTDU_BUILD_NUMBER ) );
+            ImGui::PushFont( ImGui::GetIO().FontDefault, 12.0f );
+            ImGui::TextColored( kDim, "%s", state.updateAsset.c_str() );
+            ImGui::PopFont();
+            if ( ImGui::Button( "Download", ImVec2( 0, S( 48.0f ) ) ) ) {
+                state.updateStage = UpdateStage::Downloading;
+                JavaStartDownload( state.updateUrl );
+            }
+            break;
+        case UpdateStage::Downloading: {
+            const long long done = JavaHttpDone(), total = JavaHttpTotal();
+            ImGui::TextColored( kDim, "Downloading... %lld / %lld MB", done >> 20, total >> 20 );
+            ImGui::ProgressBar( total > 0 ? static_cast<float>( done ) / static_cast<float>( total ) : 0.0f,
+                                ImVec2( -1.0f, S( 24.0f ) ) );
+            break;
+        }
+        case UpdateStage::Downloaded:
+            ImGui::TextColored( kGreen, "%s", state.updateMessage.c_str() );
+            if ( ImGui::Button( "Install", ImVec2( 0, S( 48.0f ) ) ) ) {
+                if ( !JavaInstallApk() ) {
+                    state.updateMessage = "Allow OpenTDU2 to install apps in the settings page that opened, then tap Install again.";
+                }
+            }
+            break;
+        }
+#endif
+    }
+    CardEnd();
+    ImGui::Spacing();
+    ImGui::PushFont( ImGui::GetIO().FontDefault, 12.0f );
+    ImGui::TextColored( kDim, "Builds come from the project's GitHub releases (an APK named ...-b<number>.apk). If none is published yet the check just says so." );
+    ImGui::PopFont();
+}
+
+void DrawOnlinePage( LauncherState &state ) {
+    ImGui::Spacing();
+    ImGui::TextColored( kText, "Online" );
+    ImGui::Spacing();
+    if ( CardBegin( "##online", ImVec2( 0, 0 ) ) ) {
+        ImGui::TextColored( kAmber, "Not available yet" );
+        ImGui::PushFont( ImGui::GetIO().FontDefault, 13.0f );
+        ImGui::TextWrapped( "The networking layer does not exist in the port yet. The fields are saved and passed to the game so they are ready, same as the PC launcher." );
+        ImGui::PopFont();
+        ImGui::Spacing();
+        ImGui::TextColored( kDim, "Username" );
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::InputText( "##onuser", state.onlineUser, sizeof( state.onlineUser ) );
+        ImGui::TextColored( kDim, "Server" );
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::InputText( "##onserver", state.onlineServer, sizeof( state.onlineServer ) );
+    }
+    CardEnd();
+}
+
+void DrawPage( LauncherState &state, bool *pbPlay ) {
+    switch ( state.page ) {
+    case Page::Play: DrawPlayPage( state, pbPlay ); break;
+    case Page::Profiles: DrawProfilesPage( state ); break;
+    case Page::Mods: DrawModsPage( state ); break;
+    case Page::GameData: DrawGameDataPage( state ); break;
+    case Page::Updates: DrawUpdatesPage( state ); break;
+    case Page::Online: DrawOnlinePage( state ); break;
+    case Page::Settings: DrawSettingsPage( state ); break;
+    }
+}
+
+const char *const kPageTitles[7] = { "PLAY", "PROFILES", "MODS", "GAME DATA", "UPDATES", "ONLINE", "SETTINGS" };
+const Page kPages[7] = { Page::Play, Page::Profiles, Page::Mods, Page::GameData, Page::Updates, Page::Online, Page::Settings };
+
 // --- Root window (sidebar + page + footer) -----------------------------------
 
 void DrawRoot( LauncherState &state, bool *pbPlay ) {
@@ -683,8 +1289,8 @@ void DrawRoot( LauncherState &state, bool *pbPlay ) {
     const float sidebarWidth = Min( S( 210.0f ), pViewport->Size.x * 0.3f );
 
     if ( bPortrait ) {
-        const char *titles[3] = { "PLAY", "GAME DATA", "SETTINGS" };
-        const Page pages[3] = { Page::Play, Page::GameData, Page::Settings };
+        const char *const *titles = kPageTitles;
+        const Page *pages = kPages;
         const float barH = S( 52.0f );
         // Top bar: the hamburger button (left) + the current page's name.
         ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.10f, 0.11f, 0.15f, 1.0f ) );
@@ -704,19 +1310,9 @@ void DrawRoot( LauncherState &state, bool *pbPlay ) {
         }
         ImGui::SameLine();
         ImGui::SetCursorPosY( ImGui::GetCursorPosY() + ( barH - ImGui::GetFontSize() ) * 0.5f );
-        ImGui::TextColored( kAccent, "%s", titles[static_cast<int>( state.page ) < 3 ? static_cast<int>( state.page ) : 0] );
+        ImGui::TextColored( kAccent, "%s", titles[static_cast<int>( state.page )] );
         ImGui::BeginChild( "##main", ImVec2( 0, 0 ) );
-        switch ( state.page ) {
-        case Page::Play:
-            DrawPlayPage( state, pbPlay );
-            break;
-        case Page::GameData:
-            DrawGameDataPage( state );
-            break;
-        case Page::Settings:
-            DrawSettingsPage( state );
-            break;
-        }
+        DrawPage( state, pbPlay );
         ImGui::EndChild();
         ImGui::End();
 
@@ -738,7 +1334,7 @@ void DrawRoot( LauncherState &state, bool *pbPlay ) {
             ImGui::TextColored( kAccent, "OpenTDU2" );
             ImGui::Separator();
             ImGui::Spacing();
-            for ( int i = 0; i < 3; i++ ) {
+            for ( int i = 0; i < 7; i++ ) {
                 if ( NavItem( titles[i], state.page == pages[i], S( 52.0f ) ) ) {
                     state.page = pages[i];
                     state.bDrawerOpen = false;
@@ -774,14 +1370,10 @@ void DrawRoot( LauncherState &state, bool *pbPlay ) {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
-    if ( NavItem( "PLAY", state.page == Page::Play, S( 44.0f ) ) ) {
-        state.page = Page::Play;
-    }
-    if ( NavItem( "GAME DATA", state.page == Page::GameData, S( 44.0f ) ) ) {
-        state.page = Page::GameData;
-    }
-    if ( NavItem( "SETTINGS", state.page == Page::Settings, S( 44.0f ) ) ) {
-        state.page = Page::Settings;
+    for ( int i = 0; i < 7; i++ ) {
+        if ( NavItem( kPageTitles[i], state.page == kPages[i], S( 44.0f ) ) ) {
+            state.page = kPages[i];
+        }
     }
     ImGui::SetCursorPosY( ImGui::GetCursorPosY() + S( 8.0f ) );
     ImGui::PushFont( ImGui::GetIO().FontDefault, 11.0f );
@@ -792,17 +1384,7 @@ void DrawRoot( LauncherState &state, bool *pbPlay ) {
 
     ImGui::SameLine();
     ImGui::BeginChild( "##main", ImVec2( 0, 0 ) );
-    switch ( state.page ) {
-    case Page::Play:
-        DrawPlayPage( state, pbPlay );
-        break;
-    case Page::GameData:
-        DrawGameDataPage( state );
-        break;
-    case Page::Settings:
-        DrawSettingsPage( state );
-        break;
-    }
+    DrawPage( state, pbPlay );
     ImGui::EndChild();
 
     ImGui::End();
@@ -815,6 +1397,7 @@ namespace OTDULauncher {
 bool Run( SDL_Window **ppOutWindow ) {
     LauncherState state;
     LoadSettings( state );
+    state.userData = UserDataDir();
 
     // SDL + Vulkan + the window. The engine's createWindow() repeats the SDL
     // init (harmless) but skips its window when we hand one over.
@@ -962,6 +1545,29 @@ bool Run( SDL_Window **ppOutWindow ) {
         OTDU_LOG_INFO( "Launcher: PLAY with game folder '%s'\n",
                        state.gameDir.c_str() );
         SDL_setenv_unsafe( "OTDU2_GAME_DIR", state.gameDir.c_str(), 1 );
+        // The Android build has no command line: hand the choices over as
+        // arguments (CmdLine::AddArg), the same flags the PC launcher passes.
+        if ( !state.userData.empty() ) {
+            CmdLine::AddArg( "-userdata", state.userData.c_str() );
+        }
+        if ( const OTDULauncher::ProfileInfo *pPlay = ActiveProfile( state ) ) {
+            if ( !pPlay->bMain ) {
+                CmdLine::AddArg( "-savefile", pPlay->SavePath.c_str() );
+            }
+            CmdLine::AddArg( "-playername", pPlay->Name.c_str() );
+            if ( state.bWatermark ) {
+                CmdLine::AddArg( "-tester", pPlay->Name.c_str() );
+            }
+        }
+        if ( state.bSkipIntro ) {
+            CmdLine::AddArg( "-skipintro", nullptr );
+        }
+        if ( state.onlineUser[0] != '\0' ) {
+            CmdLine::AddArg( "-onlineusername", state.onlineUser );
+        }
+        if ( state.onlineServer[0] != '\0' ) {
+            CmdLine::AddArg( "-onlineserver", state.onlineServer );
+        }
         SetLandscapeOnly( true ); // the game is landscape only
         *ppOutWindow = pWindow;
         return true;
