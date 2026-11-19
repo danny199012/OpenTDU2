@@ -106,3 +106,12 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
   procedural shader, **not** by the mesh, so the triangle mesh alone cannot give a road centre-line.
 * Consequence: a usable road layer needs either (a) the alpha / UV maps of the `.PTX` set decoded and rasterised per piece, or (b) a centre-line traced from the terrain heightfield and snapped to these pads
   (the pads say *where* a road is, to ~30 m, and their z gives its height).
+
+### 2g. Road mask traced from the terrain (session 62) [INF, LOW CONFIDENCE]
+
+`tools/tdusc/road_mask.py` rasterises each tile's road PADS (LOD0, actor translations from the PSI) with interpolated z and keeps the pixels where |pad z - decoded terrain z| < 0.4 m
+(388 tiles, 6 min, 8 jobs -> `C:/temp/hk_roadmask`, 0.5 m uint8). `make_hongkong_island.py --road-mask <dir>` paints it as asphalt into the colour maps (`RoadMask`, `shade_colour(road=)`).
+* Good: on X56_Y36 the mask gives parallel-edged ribbons ~12 m wide (a long diagonal road at the bottom, blocks of streets inland).
+* Bad: the total is **7.0 km2 = 7 % of the island** (a real road network is ~2-3 %: flat ground inside a pad passes too); the seafront strip never matches (pad z over sea floor); on X63_Y42 (hills) the mask is
+  empty although roads exist (the baked heightfield carries no road there). A drive at a mask spot showed sand, not asphalt (spot not on a road).
+* **Not enabled by default**; the shipped mod is built without `--road-mask`. Better inputs: the alpha textures of the road pads (route (a) above) or the PSVO voxel / `.PLM` files per tile (not examined).

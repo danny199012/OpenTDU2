@@ -30,6 +30,7 @@ import make_eden_island as me  # noqa: E402
 
 HK_X0 = -9472.0          # TDUSC world x of Eden x = 0
 HK_Y_NORTH = 6912.0      # TDUSC world y of Eden z = 0
+ROADS = None             # RoadMask when --road-mask is given
 HEIGHT_SHIFT = -1.8      # TDUSC sea level 0 -> the donor ocean plane
 SEA_FLOOR = -40.0
 COLS = ROWS = 3
@@ -127,6 +128,51 @@ class World:
         return self.height(gx, gz)
 
 
+
+class RoadMask:
+    """Per-tile 0.5 m road masks from tools/tdusc/road_mask.py (docs/re/tdusc_pws_format.md 2g); coverage 0..1 over an Eden grid."""
+
+    def __init__(self, folder):
+        self.folder = folder
+        self.cache = {}
+
+    def _tile(self, i, j):
+        k = (i, j)
+        if k not in self.cache:
+            f = os.path.join(self.folder, "TILE_X%d_Y%d.npy" % k)
+            self.cache[k] = np.load(f) if os.path.exists(f) else None
+        return self.cache[k]
+
+    def sample(self, hx, hy):
+        """HK metres (arrays) -> mask 0/1 (nearest 0.5 m)."""
+        out = np.zeros(np.shape(hx), np.float32)
+        ti = np.floor((hx + 11008) / 256).astype(int)
+        tj = np.floor((hy + 11008) / 256).astype(int)
+        for di in (-1, 0):
+            for dj in (-1, 0):
+                ci, cj = ti + di, tj + dj
+                for (i, j) in set(zip(ci.ravel().tolist(), cj.ravel().tolist())):
+                    m = self._tile(i, j)
+                    if m is None:
+                        continue
+                    sel = (ci == i) & (cj == j)
+                    px = np.clip(((hx[sel] - (256 * i - 11008)) * 2).astype(int), 0, 1023)
+                    py = np.clip(((hy[sel] - (256 * j - 11008)) * 2).astype(int), 0, 1023)
+                    out[sel] = np.maximum(out[sel], m[py, px])
+        return out
+
+    def coverage(self, ex0, ez0, step, n, sub=3):
+        """Mean mask over sub x sub samples per Eden cell -> (n, n) float, rows = z, cols = x."""
+        acc = np.zeros((n, n), np.float32)
+        for a in range(sub):
+            for b in range(sub):
+                xs = ex0 + (np.arange(n) + (a + 0.5) / sub) * step
+                zs = ez0 + (np.arange(n) + (b + 0.5) / sub) * step
+                gx, gz = np.meshgrid(xs, zs)
+                acc += self.sample(gx + HK_X0, HK_Y_NORTH - gz)
+        return acc / (sub * sub)
+
+
 # ------------------------------------------------------------------ normals / 3dg patching
 
 def normals_from_heights(h, step):
@@ -149,7 +195,7 @@ def patch_heightfield(data, heights, step):
 
 # ------------------------------------------------------------------ colour maps (DXT1 + mips, donor layout)
 
-def shade_colour(h, step, sea=HEIGHT_SHIFT):
+def shade_colour(h, step, sea=HEIGHT_SHIFT, road=None):
     """h: (n, n) Eden heights -> uint8 RGB (n, n, 3), elevation palette x hillshade. Rows = z (south), cols = x (east)."""
     dz, dx = np.gradient(h.astype(np.float64), step)
     nrm = np.stack([-dx, np.ones_like(dx), -dz], -1)
@@ -174,6 +220,9 @@ def shade_colour(h, step, sea=HEIGHT_SHIFT):
     beach = np.clip((above + 1.5) / 1.5, 0, 1)[..., None]               # a thin lighter rim at the waterline
     col = np.where((above > 0.1)[..., None], land * shade[..., None], sea_c * (0.9 + 0.1 * shade[..., None]))
     col = col * (1 - 0.0 * beach)
+    if road is not None:
+        asphalt = np.array((66, 66, 70), np.float64) * (0.75 + 0.25 * shade[..., None])
+        col = col * (1 - 0.85 * road[..., None]) + asphalt * (0.85 * road[..., None])
     return np.clip(col, 0, 255).astype(np.uint8)
 
 
@@ -281,7 +330,8 @@ def build_sector(world, donor_bank, donor_name, ax, ay, sx, sy, colour):
     empty = entry_named(entries, f"{name}-O.pmi")["data"]
     entry_named(entries, f"{name}-V.pmi")["data"] = empty           # no donor vegetation
     if colour:
-        sc = shade_colour(world.grid(corner_x, corner_z, 1.5, 512), 1.5)
+        sc = shade_colour(world.grid(corner_x, corner_z, 1.5, 512), 1.5,
+                          road=ROADS.coverage(corner_x, corner_z, 1.5, 512) if ROADS else None)
         ec = entry_named(entries, f"{name}-c.2db")
         ec["data"] = replace_2db(ec["data"], sc, f"{name}-c")
         es = entry_named(entries, f"{name}-s.2db")
@@ -301,9 +351,12 @@ def main():
     ap.add_argument("--donor-area", default="6-4")
     ap.add_argument("--donor-sector", default="6-7")
     ap.add_argument("--max-sectors", type=int, default=0, help="debug: stop after N sectors")
+    ap.add_argument("--road-mask", default="", help="folder of road_mask.py output: paints asphalt into the colour maps")
     ap.add_argument("--no-colour", action="store_true", help="keep the donor colour maps")
     ap.add_argument("--land-margin", type=float, default=384.0, help="ship sectors with land within this distance (m)")
     args = ap.parse_args()
+    global ROADS
+    ROADS = RoadMask(args.road_mask) if args.road_mask else None
     colour = not args.no_colour
 
     dax, day = (int(v) for v in args.donor_area.split("-"))
