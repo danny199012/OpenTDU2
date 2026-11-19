@@ -14,6 +14,13 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 62b (`win`): Hong Kong roads found in the PKG level meshes (decoder partial)
+
+Task: continue the Hong Kong mod. The data after the PWS heightfield is not roads; roads are `ROADBUILDSTEP` P3D meshlet meshes per tile in the PKG.
+`tools/tdusc/level_mesh.py` decodes them (u8 meshlet indices, unorm16 positions, Actor translation); verified on X63_Y42 against the heightfield.
+Ruled out: the PWS stream tail as a road/building store (mixed half blocks, not identified).
+Next: per-mesh Actor translation, then road mask into the colour map. See `docs/re/tdusc_pws_format.md` 2d.
+
 ## Session 2026-11-19 (62, `main`): TDUSC Hong Kong island mod - the terrain loads and drives (3 x 3 areas, 269 sectors)
 
 Owner: "With TDUSC can we try get hong kong island to be our 3rd map? as part of a mod?" Plan: PWS decode -> heightfield/meshes to OBJ -> terrain-only `islands/hongkong` -> objects/roads/minimap.

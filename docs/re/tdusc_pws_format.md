@@ -68,3 +68,16 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * Sea level and the water mask (z goes to -99 m: seabed is in the data).
 * Island mod: writing Eden's terrain (`.3dg` 257x257 heightfield primitives per island/area/sector, 384 m / 24 m / 3 m grids, plus materials / colour map) from `C:/temp/hk_island_4m.npy`-style
   data. Template: `tools/mod/make_eden_island.py`, `docs/re/eden_island_spec.md`. The island is 18 x 14 km = about 3 x 3 Eden areas (6 km each).
+
+## 2d. Roads are not in the PWS: they are level meshes in the PKG (session 62, `level_mesh.py`) [DATA]
+
+* The heightfield tail of each PWS stream (66 KB in a dense 16 m cell) is mixed data: half-float blocks, a 17-point footprint polygon in the 34 header floats, an `0xff` pad.
+  **Not decoded**; no road or building data was identified in it. [INF] it is per-cell detail / material layers.
+* **The PKG TOC lists, per tile, `LEVELS/HONGKONG/TILE_Xi/TILE_Xi_Yj/{ROADBUILDSTEP,INTERSECTIONBUILDSTEP,SPLINEMESHSKINNERBUILDSTEP,SPLINESPAWNERBUILDSTEP}/*.P3D` + `.PSI` + `.PMA`,
+  plus `IMPOSTERS/HONGKONG/...IMPOSTER_*_GENERIC|TERRAIN.P3D`** (384 road tiles, 589 `PSVO` voxel trees, 589 `.PLM`).
+* `ROADBUILDS_*.P3D` = the car `SCENE___` container with **named** MESH entries (`u32 len, "ROADMESHLET", 10 floats bbox, nparts`), format `COLONORMPOS_UV0_UV1_UVY_`:
+  `vpos` is **4 x unorm16 across the mesh bbox**, indices are **u8 in meshlets of <= 64 vertices** (each meshlet restarts at 0). Placement = tile origin + the `Actor_*` node translation.
+  Verified on X63_Y42: 1,494 vertices, 2,174 triangles, z 85.8..94.1 m against 87..93 m in the decoded heightfield.
+* **Open**: an island-wide raster of the decoded road triangles (273 tiles) is fragmentary and blocky: a P3D has several `Actor_*` nodes with their own translations
+  (only the first is applied), and meshes whose meshlet split does not sum to `vcount` are skipped. `SPLINEMESH_*` P3Ds have many actors and break `parse_nodes`.
+  Next: apply the translation per mesh (node -> mesh index), then rasterise into the terrain colour map / extract a centre-line graph. Tool: `tools/tdusc/level_mesh.py`.
