@@ -14,6 +14,14 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-19 (61f, `main`): TDUSC Huracan runs in the game as a car swap, straight from the install
+
+`tools/tdusc/swap_pack.py` (new): `car_assemble.py` output -> `<mods>/carswap/` (body / glass / rim+tyre per axle, `carswap.txt`, a PNG per material). Run:
+`build-mainin\opentdu2-main.exe -game C:\TDU2-Gamedata\TestDrive2 -mods C:	emp\otdu2-tdusc-mods2 -gm FREERIDE -island ibiza -skipcine -nopad -fixedtimestep -car 458_italia -tp 12640,10.5,16686`.
+Verified: 80 body draws + 9 + 9 wheel draws, offset (-0.002, 0.045, -0.122), all four wheels flipped; rear and side screenshots show the green Performante, tricolore stripe,
+calipers, wheels in the arches. Nothing from the rip FBX is used any more. Next: the `_I_` interior P3D, other wheel designs, other TDUSC cars (script is brand-generic apart from
+the `LP640_` wheel-name rule), driving check, lights.
+
 ## Session 2026-11-19 (61e, `main`): TDUSC wheels placed + the 'paint variants' were the tricolore stripe
 
 `tools/tdusc/car_assemble.py` (new): HR body + 4 wheels (mesh = right wheel, left = mirror) at the LR `Fork_*` anchors, lathe tyre added (the P3Ds have none),

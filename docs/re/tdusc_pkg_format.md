@@ -175,6 +175,17 @@ files read (the `Fork_*` z 0.194 is a suspension pivot, not the hub). `[INF]`: `
 rim radius -> R = 0.285 / 0.303) and puts the hub at z = R; tyre top 0.57 then matches the arch opening (z 0.53-0.59). Output: `<stem>_assembled.obj` + `.mtl`
 (body + 4 wheels + tyres) and `<stem>_wheels.json` (hubs, tyre sizes). Local render `tdusc_huracan_assembled.png`: wheels sit in the arches, correct sides.
 
+### 7.7 Car-swap pack (session 61f) [DATA + INF]
+
+`tools/tdusc/swap_pack.py` turns the decoded car into the pack `source/game/freeride/car_swap.h` reads (`carswap/carswap.txt` in the mods overlay): `tdusc_body`
+(all non-glass), `tdusc_glass`, `tdusc_rimF/R` + `tdusc_tireF/R` (centred, the LEFT wheel = engine-negative-x side), four `wheel_pos_*`. Axis map TDUSC (Z up, front -Y,
+left +X) -> file space (y up, +z forward, the loader mirrors X): `(x, y, z) -> (x, z, -y)`, a proper rotation; engine-space hub = `(-x, z, -y)`. The port's no-texture
+shader ignores `Kd`, so every material gets an opaque PNG beside the OBJ (PMA diffuse <= 1024 px, else a solid Kd colour; glass `d 0.35`).
+**Verified in the game** (build 294, `-mods C:	emp\otdu2-tdusc-mods2 -car 458_italia -island ibiza`): log `CarSwap: '458_italia' wears 80 body draw(s), 9 + 9 wheel draw(s)`,
+all four wheels `flipped`; screenshots: green Performante with the tricolore stripe, wing, plate, tail lamps, yellow calipers, wheels in the arches, drives as the 458 donor.
+(Local screenshots `tdusc_swap_game*.png`, kept outside the repo.) Not done: flakes / clear-coat / reflections, window tint is a flat translucent colour, interior is the HR
+exterior meshes only (the `_I_` P3D set is not exported), lights keep the donor's glow.
+
 ### 7.2 The scene graph (session 61) [DATA, Huracan HR / LR]
 
 After the `MESH` entries comes the string `DEFAULT`, then **two tables joined by one id space**: `nDummy` dummy nodes (the word right
