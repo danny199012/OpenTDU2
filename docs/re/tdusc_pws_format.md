@@ -248,3 +248,27 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
   still incomplete (the sign-extension runs of 1 bits in raw words suggest signed fields; the signed variants measured worse on median edge, so the layout is not just 16/14/14 signed). Raw words show long runs of 1s ending at bit 15 / 29 / 43.
   Edge test script pattern: decode with candidate (off, w, signed) per axis, normalise by observed min / max, report the median and 95th-percentile edge length / bbox diagonal (the 95th percentile must drop below ~0.1 for a correct decode).
   The vertex count check (`sum of meshlet vertex counts == vc`) passes for the couch, so the meshlet split is right; the remaining error is in the position words.
+
+### 2q. `vpos` SOLVED (session 62e) [DATA]
+
+The 64-bit `vpos` word is **three two's-complement fixed-point fields** (bits 0-15 x, 16-29 y, 30-43 z; bits 44-63 not used for position), and
+
+    position = bbox_centre + field * (2^-14, 2^-12, 2^-12) * 2^k          (bbox = the mesh's 10-float head, centre = (min+max)/2)
+
+with a per-mesh power-of-two exponent `k` (0 for the plant pot, 1-2 for pillars/ads, 4 for the glass and the road meshes, 5-6 for the 100 m ground slabs).
+Why the earlier attempts failed: the fields are *signed* (the "sign-extension" bits seen in 2p), the three axes have different widths so different units, and
+the range is a fixed ±2 * 2^k m, **not** normalised to the bbox, so min/max normalising skewed every axis differently.
+
+* `CARDEALER01_LITTLEPLANTPOT_01` (k = 0): the 48 vertices decode to a trapezoid planter with exactly the bbox (X ±2981/16384 = 0.1819 m, Y ±288/4096 = 0.0703 m,
+  Z ±150/4096 = 0.0366 m about the centre z = 0.037 m); every triangle's corners are coherent. The 4-vertex part is its soil quad.
+* The "29 % long edges" metric of 2p was a **false alarm**: low-poly faces (cushion tops, walls) legitimately have edges as long as the face. The
+  couch (k = 0) decodes to a 1.86 x 0.88 x 0.86 m sofa with three seat cushions; the counter (k = 2) to 6.6 x 1.6 x 1.2 m.
+* k evidence: 117 parts whose data touches the bbox on every axis all show an integer log2 ratio (0..7). 115 of them equal `ceil(log2(H+1)) - 1`, H = the
+  largest bbox half-extent over the file's meshes (thresholds 1, 3, 7, 15, 31, 63 m), e.g. glass meshes of one file (half extents 5.8-19.2 m) all k = 4.
+  The two exceptions and the spline meshes (kp 4 but data only fits k = 3) show the rule is not the real source; `level_mesh.mesh_exponent` therefore takes
+  the largest k that keeps the union of the mesh's parts inside its bbox (+6 %). **Where k is really stored is still unknown** (not in the 10 floats; the
+  per-part float after `ib` is a LOD distance-like value, not the scale; per-meshlet AABB records exist in the head tail: centre 3f + half-extent 3f).
+* **Roads**: `ROADBUILDS_*` of TILE_X63_Y42 now lie within **0.3 m** of the height raster (p5..p95 -0.7..+0.05 m; the old unorm decode was only good to ~3 m).
+  Tiles are 512 m wide (the PSI actor translation puts a piece anywhere in `[256*i-11008, +512)`).
+* `vnor` is NOT a per-vertex normal in the sense tried (the first six faces of the pot all carry `ff fd 07 00`): still undecoded.
+* Tools: `tools/tdusc/level_mesh.py` (`vpos_fields`, `VPOS_UNIT`, `mesh_exponent`, `decode`), `vpos_probe.py`, `mesh_preview.py`.

@@ -77,7 +77,7 @@ def parse_named_meshes(head):
                 q += 8
             ntri, ib = struct.unpack_from('<II', head, q)
             q += 12
-            parts.append(dict(fmt=fmt, vc=vc, st=st, ntri=ntri, ib=ib))
+            parts.append(dict(fmt=fmt, vc=vc, st=st, ntri=ntri, ib=ib, qf=struct.unpack_from('<f', head, q - 4)[0]))
         if ok:
             res.append(dict(name=name.decode('latin1')[:ln], bbox=bb, parts=parts))
     return res
@@ -97,6 +97,35 @@ def actor_translations(head):
 def psi_actors(psi):
     """The `.PSI` lists one `Actor_*` name per mesh PART, in the P3D's part order (X56_Y36: 97 names for 97 parts); each actor appears 3 times = 3 LODs."""
     return [n.decode() for n in re.findall(rb'Actor_\d+_\d+', psi)]
+
+
+
+def vpos_fields(blob, part):
+    """vpos u64 -> (n,3) float64 signed fixed-point fields (x: bits 0-15, y: 16-29, z: 30-43, two's complement), see tdusc_pws_format.md 2p."""
+    u = np.frombuffer(blob, '<u8', count=part['vc'], offset=part['st']['vpos']).astype(np.int64)
+
+    def sg(v, b):
+        return np.where((v >> (b - 1)) & 1, v - (1 << b), v)
+    return np.stack([sg(u & 0xFFFF, 16), sg((u >> 16) & 0x3FFF, 14), sg((u >> 30) & 0x3FFF, 14)], 1).astype(np.float64)
+
+
+VPOS_UNIT = np.array([2.0 ** -14, 2.0 ** -12, 2.0 ** -12])
+
+
+def mesh_exponent(blob, mesh):
+    """Per-mesh power-of-two scale exponent k: position = bbox centre + field * VPOS_UNIT * 2**k.  [DATA] 115 of 117 tight meshes (parts whose data fills the
+    bbox) show an integer k with k = ceil(log2(H+1)) - 1, H = largest bbox half extent of the file.  The exponent is not stored anywhere found yet, so it is
+    estimated as the largest k that keeps the union of the mesh's parts inside its bbox (the encoder fills the bbox to within one octave)."""
+    mn = np.array(mesh['bbox'][:3]); mx = np.array(mesh['bbox'][3:6]); h = (mx - mn) / 2
+    big = np.zeros(3)
+    for p in mesh['parts']:
+        if 'vpos' in p['st'] and p['vc']:
+            big = np.maximum(big, np.abs(vpos_fields(blob, p)).max(0) * VPOS_UNIT)
+    ok = big > 0
+    if not ok.any():
+        return 0
+    r = np.log2(h[ok] / big[ok] + 1e-12)
+    return int(max(0, np.floor(r.min() + 0.06)))
 
 
 def decode(d, origin=(0.0, 0.0), psi=None, lod0=True, attrs=None):
@@ -129,10 +158,7 @@ def decode(d, origin=(0.0, 0.0), psi=None, lod0=True, attrs=None):
         vc = p['vc']
         if 'vpos' not in p['st'] or vc == 0:
             continue
-        u = np.frombuffer(blob, '<u8', count=vc, offset=p['st']['vpos'])
-        loc = mn + np.stack([((u >> np.uint64(30)) & np.uint64(0x3FFF)).astype(np.float64) / 0x3FFF,
-                             ((u >> np.uint64(16)) & np.uint64(0x3FFF)).astype(np.float64) / 0x3FFF,
-                             (u & np.uint64(0xFFFF)).astype(np.float64) / 0xFFFF], 1) * (mx - mn)
+        loc = (mn + mx) / 2 + vpos_fields(blob, p) * VPOS_UNIT * 2.0 ** mesh_exponent(blob, mesh)
         idx = np.frombuffer(blob, 'u1', count=p['ntri'] * 3, offset=p['ib']).reshape(-1, 3).astype(np.int64)
         vb = 0
         tris = []
