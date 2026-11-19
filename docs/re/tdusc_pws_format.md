@@ -272,3 +272,11 @@ the range is a fixed ±2 * 2^k m, **not** normalised to the bbox, so min/max nor
   Tiles are 512 m wide (the PSI actor translation puts a piece anywhere in `[256*i-11008, +512)`).
 * `vnor` is NOT a per-vertex normal in the sense tried (the first six faces of the pot all carry `ff fd 07 00`): still undecoded.
 * Tools: `tools/tdusc/level_mesh.py` (`vpos_fields`, `VPOS_UNIT`, `mesh_exponent`, `decode`), `vpos_probe.py`, `mesh_preview.py`.
+
+### 2r. ROADBUILDSTEP is not the road; SPLINEMESHSKINNERBUILDSTEP draws road edges (session 62e) [DATA]
+
+* `make_hongkong_roads.py` exported the decoded ROADBUILDSTEP pads: plotted raw (X63_Y42) they are two irregular ~15 m patches, not ribbons. The pads are the shader's parallax / procedural-road volumes (2f/2h), **not shippable road geometry**.
+* With the solved vpos (2q), `SPLINEMESHSKINNERBUILDSTEP/SPLINEMESH_*.P3D` of X56_Y36 (6 files, ~156k triangles after k) plots as **thin dashed curves with rounded corners, in parallel pairs ~12 m apart, forming a recognisable street grid and a loop interchange**
+  (the earlier "slabs" in 2e were the wrong vpos). 508 of 156,673 triangles have an edge > 20 m (decode noise). [INF] these are kerbs / barriers / lane-line strips skinned along splines (PSI materials in the file seen:
+  `GRAPH/RAILCLONES/HONGKONG/LANDMARKS/...` e.g. HK_FLOWER_STONE_WALL), so they give the road **edges** and a centre-line by pairing, but not the surface. Gaps in the dashes: parts dropped where the meshlet split does not sum to vcount, and only LOD0 kept.
+* `INTERSECTIONBUILDSTEP` (7k verts) decodes in the same tile too. `level_mesh.py --all --kind SPLINEMESHSKINNERBUILDSTEP --out C:/temp/hk_spl` (a regex guard was added for TOC keys with no tile id).

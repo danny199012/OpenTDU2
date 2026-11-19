@@ -198,7 +198,7 @@ def main():
     t = Tdusc(a.pkg_dir, a.toc_dir)
     if a.all:
         tiles = sorted({tuple(int(x) for x in re.search(r'TILE_X(\d+)_Y(\d+)', k).groups()) for k in t.entries
-                        if (BS + a.kind + BS) in k.upper() and BS + 'LEVELS' + BS + 'HONGKONG' in k.upper()})
+                        if (BS + a.kind + BS) in k.upper() and BS + 'LEVELS' + BS + 'HONGKONG' in k.upper() and re.search(r'TILE_X(\d+)_Y(\d+)', k)})
         for ti, tj in tiles:
             run_tile(t, ti, tj, a)
         return
