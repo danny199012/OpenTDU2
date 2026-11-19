@@ -1,6 +1,7 @@
 package org.opentdu2.game;
 
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.Settings;
@@ -25,6 +26,21 @@ public class MainActivity extends SDLActivity {
         return new String[] {
             "opentdu2"
         };
+    }
+
+    /**
+     * Called from native (JNI): the launcher follows the device orientation
+     * (portrait or landscape, phone or tablet); the game itself is landscape.
+     */
+    public void setLandscapeOnly( final boolean landscapeOnly ) {
+        runOnUiThread( new Runnable() {
+            @Override
+            public void run() {
+                setRequestedOrientation( landscapeOnly
+                    ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    : ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR );
+            }
+        } );
     }
 
     /** Called from native (JNI): Environment.isExternalStorageManager(). */

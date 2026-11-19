@@ -130,9 +130,26 @@ void RequestAllFilesAccess() {
     }
     pEnv->DeleteLocalRef( cls );
 }
+
+// MainActivity.setLandscapeOnly(): the launcher rotates freely (phone or tablet,
+// portrait or landscape); PLAY pins the game to landscape.
+void SetLandscapeOnly( bool bLandscapeOnly ) {
+    JNIEnv *pEnv = reinterpret_cast<JNIEnv *>( SDL_GetAndroidJNIEnv() );
+    jobject activity = reinterpret_cast<jobject>( SDL_GetAndroidActivity() );
+    if ( pEnv == nullptr || activity == nullptr ) {
+        return;
+    }
+    jclass cls = pEnv->GetObjectClass( activity );
+    jmethodID mid = pEnv->GetMethodID( cls, "setLandscapeOnly", "(Z)V" );
+    if ( mid != nullptr ) {
+        pEnv->CallVoidMethod( activity, mid, static_cast<jboolean>( bLandscapeOnly ) );
+    }
+    pEnv->DeleteLocalRef( cls );
+}
 #else
 bool HasAllFilesAccess() { return true; }
 void RequestAllFilesAccess() {}
+void SetLandscapeOnly( bool ) {}
 #endif
 
 // --- Settings (a tiny INI under SDL_GetPrefPath) -----------------------------
@@ -653,7 +670,47 @@ void DrawRoot( LauncherState &state, bool *pbPlay ) {
                       ImGuiWindowFlags_NoNav );
     ImGui::PopStyleVar( 3 );
 
+    // Portrait (a phone held upright): the pages get the full width and the
+    // three entries become a tab row on top; landscape keeps the sidebar.
+    const bool bPortrait = pViewport->Size.x < pViewport->Size.y;
     const float sidebarWidth = Min( S( 210.0f ), pViewport->Size.x * 0.3f );
+
+    if ( bPortrait ) {
+        const float tabWidth = ( ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x ) / 3.0f;
+        const char *tabs[3] = { "PLAY", "GAME DATA", "SETTINGS" };
+        const Page pages[3] = { Page::Play, Page::GameData, Page::Settings };
+        ImGui::PushStyleColor( ImGuiCol_ChildBg, ImVec4( 0.06f, 0.07f, 0.095f, 1.00f ) );
+        for ( int i = 0; i < 3; i++ ) {
+            if ( i > 0 ) {
+                ImGui::SameLine();
+            }
+            ImGui::PushID( i );
+            ImGui::BeginChild( "##tab", ImVec2( tabWidth, S( 52.0f ) ), ImGuiChildFlags_None,
+                               ImGuiWindowFlags_NoScrollbar );
+            if ( NavItem( tabs[i], state.page == pages[i], S( 52.0f ) ) ) {
+                state.page = pages[i];
+            }
+            ImGui::EndChild();
+            ImGui::PopID();
+        }
+        ImGui::PopStyleColor();
+        ImGui::BeginChild( "##main", ImVec2( 0, 0 ) );
+        switch ( state.page ) {
+        case Page::Play:
+            DrawPlayPage( state, pbPlay );
+            break;
+        case Page::GameData:
+            DrawGameDataPage( state );
+            break;
+        case Page::Settings:
+            DrawSettingsPage( state );
+            break;
+        }
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+
 
     // Sidebar.
     ImGui::PushStyleColor( ImGuiCol_ChildBg, ImVec4( 0.06f, 0.07f, 0.095f, 1.00f ) );
@@ -730,6 +787,7 @@ bool Run( SDL_Window **ppOutWindow ) {
         return false;
     }
 
+    SetLandscapeOnly( false ); // the launcher follows the device orientation
     state.dpiScale = SDL_GetWindowDisplayScale( pWindow );
     if ( state.dpiScale <= 0.0f ) {
         state.dpiScale = 1.0f;
@@ -852,6 +910,7 @@ bool Run( SDL_Window **ppOutWindow ) {
         OTDU_LOG_INFO( "Launcher: PLAY with game folder '%s'\n",
                        state.gameDir.c_str() );
         SDL_setenv_unsafe( "OTDU2_GAME_DIR", state.gameDir.c_str(), 1 );
+        SetLandscapeOnly( true ); // the game is landscape only
         *ppOutWindow = pWindow;
         return true;
     }
