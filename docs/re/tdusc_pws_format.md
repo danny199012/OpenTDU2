@@ -227,3 +227,18 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * **Dealerships / gas stations (footprints)** [DATA] (Eden coordinates): Causeway Bay West car dealer (9847, 3360), Repulse Bay car dealers (10237, 9092) and (10273, 9066), "next car dealer" exclusion (11719, 2974), next gas station (11900, 3179).
   Other levels referenced by the island PLM (`DATA:/LEVELS/HONGKONG/CAR_DEALER_PROPS`, `CAR_DEALER_CAMERAS`, `ONBOARDING_CAR_DEALER`, `GARAGE_INTERIOR`, `HS_MAISON_*_GARAGE`, `ICONIC_RACE_*`, `PROTO_MEETPOINTPARKING`) are separate PLM levels: the way to interiors.
 * **Ridge / smoothness road detector** (tile X63_Y42, local roughness + slope + opening): picks quarries and terraces, not roads - not usable.
+
+### 2p. Dealership / garage interior kits and the `vpos` packing, part 2 (session 62d) [DATA]
+
+* **Where the interiors are**: the small levels are `LEVELS/HONGKONG/{GARAGE_INTERIOR (94 KB PLM), CAR_DEALER_PROPS, CAR_DEALER_CAMERAS, ONBOARDING_CAR_DEALER, GARAGE_PROPS, HS_MAISON_nn_GARAGE, ...}/*.PLM`. They place **modular kit pieces by `DATA:/` PSI path**:
+  garage = `GRAPH/INTERIOR/GARAGE/PHYSICALGARAGE_{FLOOR,WALLS,CEILING,PILLAR,BARRIERS,CARDOOR,LIGHTBOX,SPEAKER,SECURITYCAMERA,VENTILATION,WHEELSTOPPER,...}` (20 P3Ds, trimsheet + concrete textures),
+  dealership = `GRAPH/INTERIOR/CAR_DEALERS/MESH/CARDEALER*` (~100 P3Ds: ground, counters, couches, chairs, borne / kiosk, curvy walls, per-brand `FERRARI_*`, `AMERICANCAR_*`, `CLASSICCARS01_*`, `GERMANCARS_*`, `ITALIAN` variants) + `ZRR/PARKING/PROPS`. The geometry is **not in the level**: the PLMs are only
+  placement lists (entity records of 2o). All kit meshes are level-style `MESHLETMESH` (`NORMPOS_UV0_`), the same packed `vpos` as roads / parcels / imposters, so the **interiors are blocked on the same unknown**.
+* Mesh head layout (verified): after the name, 10 floats = **bbox min (3), bbox max (3), bounding-sphere centre (3), radius**; per part `ntri, ibOffset, float` (the float is 4.4 / 2.7 / 2.0: [INF] an LOD distance, not a scale).
+  Blob layout per part: `vnor` (4 B), `vpos` (8 B), `vuvs` (4 B), then the u8 indices, parts 4-byte aligned; no per-meshlet table in the blob.
+* **Per-bit probe** (`tools/tdusc/vpos_probe.py`, `mesh_preview.py`; couch, 1,495 vertices): over index edges the smooth (high-order) bits of `vpos` form **three groups with identical statistics in their top 2-3 bits**:
+  bits 14-15 (z, 16-bit field 0-15), bits 27-29 (y, field 16-29), bits 41-43 (x, field 30-43), bits 44-63 are noisy (0.8-1.0) except 57 and 59-62 (not coordinates). Identical top bits = **sign extension: the fields are two's-complement
+  signed values centred on 0** (couch x +-1760 of 14 bits, y +-1802, z +-15262 of 16), i.e. **offsets from a centre, not 0..1 across the bbox**. Decoding the unsigned fields over the bbox (the old `level_mesh.decode`) therefore gives slabs (previews: a couch and a kiosk come out as boxes).
+* Ruled out: 3 x 21 bits (no field spans the extremes); half-float lanes; per-mesh scale from the float after `ib`; the old bbox normalisation (spans only 0.2-0.9 of the range).
+* **Not found**: the offset / scale. Candidates: a per-meshlet centre + extent (the symmetric +- ranges are what per-meshlet local coordinates look like) stored in a table I have not located (not in the blob, not in the plain head after the part list); or the sphere centre + radius with a signed-14 scale.
+  Next: take a 64-vertex single-meshlet mesh with a known shape (`CARDEALER01_LITTLEPLANTPOT_01`, a pot with 4 / 100 vertices), fit `pos = c + s * signed` per axis by least squares against its bbox (min / max are attained), then test the fit on a two-meshlet mesh.
