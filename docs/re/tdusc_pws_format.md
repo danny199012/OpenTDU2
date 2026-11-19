@@ -127,3 +127,15 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
   (`EnableParallax`, `TrenchingColor`), so **the road outline is not in the mesh, the vertex colours or a mask texture**. The shipped road location data must be elsewhere (spline spawner
   P3D / `.PSVO` voxel trees / `.PLM` per tile, none examined).
 * Next for roads: read `SPLINESPAWNERBUILDSTEP/SPLINESPAW_*.P3D` (229 tiles) and `OCTREEVOXEL_0_0.PSVO` (589) - the spline spawner is the likeliest source of centre-lines.
+
+### 2i. Spline spawner, PSVO, imposters: no road data (session 62) [DATA]
+
+* `SPLINESPAWNERBUILDSTEP/SPLINESPAW_*.P3D` (229 tiles, 1,896 physics meshes in all): the `MESH` entries are **plain-float collision hulls** (`MESH`, `u32 0x10`, `u32 1`, `u32 6`, `u32 nVerts`, `u32 nTris`, `float3[nVerts]`, `u8 idx[nTris*3]`),
+  physical material `PHYSICALMATERIAL/CCAMCBLOCKMETAL.PMC` (metal blocks: barriers / posts), vertices in **HK world metres** (actor translation cancels the tile origin). Mapped over the island they are
+  **scattered small hulls (30-60 m)**, not continuous road lines: a barrier / prop spawner, not the road network. One mesh per file fits the terrain z (352 vs 351 m), another does not (z 17-21 m vs 294 m).
+* `OCTREEVOXEL_0_0.PSVO` (1.5 MB per tile, header floats = tile centre +/- 256 m, z centre): a sparse voxel octree (`PSVO-WIN`, `VX`), [INF] lighting / GI occupancy, not examined further.
+* `IMPOSTER_TILE_*_TERRAIN.PTX` is a **128 x 4** strip (a palette / LUT, not a top-down colour image); `IMPOSTERLIGHT_*.PTX` is a 31 x 31 x 9 volume (light probe grid). Neither carries terrain colour or roads.
+  (`ptx_to_dds.py` fails on both: their header has width / height / depth in a different place than the car textures.)
+* `GRAPH/WORLDMAP/HONGKONG` is **one mesh** (`HONGKONG_WORLDMAP.P3D`, 77 KB) plus 14 district `GP_*.PMA` materials, no image.
+* Remaining places for a road graph / centre-lines: the PWS sections after the quadtree (`0xbf0c0..`, `0xcc5f0..`, 598 KB tail in X63_Y42, not decoded), the `.PLM` / `.PACLOG` per tile, and the
+  `PROCEDURALROAD` volumes themselves. **Buildings are a better next target**: `PARCELBUILDSTEP_*.P3D` (2,184 files), `IMPOSTER_*_BUILDING.P3D` (224) and `GRAPH/BUILDINGS/HONGKONG` (1,266) are ordinary meshes.
