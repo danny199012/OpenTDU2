@@ -25,6 +25,12 @@ Owner: "yes go ahead with the road prop".
 - The props load and draw in `-gm worldviewer -island hongkong` (`-campos 14607,170,6600 -camyaw 0 -campitch -50`).
 - [DATA] but the source itself is scattered blobs, not ribbons: a plot of one raw tile (X63_Y42, 1660 triangles) is two irregular patches ~15 m across. The overview "dotted chains" are the same patches. So ROADBUILDSTEP is a set of road-build pads/junction patches, **not the road surface**; shipping it would put grey blobs on the terrain. I removed the generated props from the userdata overlay; the exporter stays.
 
+### Spline edges exported (late 62e)
+- `level_mesh.py --all --kind SPLINEMESHSKINNERBUILDSTEP --out C:/temp/hk_spl` finished: 387 tiles (6 files skipped: invalid GDeflate / vpos past the blob; `run_tile` now skips a bad file and resumes finished tiles).
+- `make_hongkong_roads.py --roads C:/temp/hk_spl --pattern "*SPLINEMESH*.npz" --prefix hk_e_ --grid 1.0 --max-edge 6 --colour 200,200,195` -> 426 cells, 3.3 M triangles, 130 MB. Grid 0.3 gives 16.3 M triangles / 618 MB (too heavy). Loads (513 props), 8 ms frames, no texture warnings.
+- [DATA] Result is **fragments, not continuous lines**: at 1 m the ~0.3 m strips collapse, and the decode itself is dashed (parts dropped, LOD0 only). Not a usable road layer yet. In-game map image (owner) shows the real network (cyan tarmac, yellow dirt) at ~17 m/px; a fit of it to the island using the spline points scored 0.077 vs 0.034 base - unconfirmed.
+- Next: find why parts drop (meshlet split vs vcount, per-part k) before more export tuning; or trace the map image once registered.
+
 ### Not done / next
 - Find the real road surface meshes: other mesh names in the tile SCENE files (list names per tile with `level_mesh.parse_named_meshes`, look for spline / lane / asphalt), or the PLM entity transforms that place kit pieces.
 - The k exponent source, `vnor`, dealership / garage kit assembly and traffic lights are still open.

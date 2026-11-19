@@ -217,7 +217,11 @@ def run_tile(t, i, j, a):
     for p in t.ls(pre):
         if not p.upper().endswith('.P3D'):
             continue
-        V, F = decode(t.read(p), (ox, oy), t.read(p[:-4] + '.PSI'))
+        try:
+            V, F = decode(t.read(p), (ox, oy), t.read(p[:-4] + '.PSI'))
+        except Exception as e:             # one bad file must not stop the island run
+            print(p.split(BS)[-1], 'SKIPPED', e)
+            continue
         print(p.split(BS)[-1], len(V), 'verts', len(F), 'tris')
         if len(V):
             allv.append(V); allf.append(F + base); base += len(V)
