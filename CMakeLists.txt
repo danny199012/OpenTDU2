@@ -42,14 +42,18 @@ add_library( otdu_engine STATIC ${OTDU_ENGINE_SRC} )
 target_include_directories( otdu_engine PUBLIC "${OTDU_SRC_FOLDER}" )
 # AMD FidelityFX API headers (FSR 3 plugin, source/render/upscalers)
 target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/fidelityfx-api" )
-# NVIDIA DLSS (NGX) SDK: local only; present -> the plugin is built and linked
-if( EXISTS "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/include/nvsdk_ngx_vk.h" AND EXISTS "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/lib/nvsdk_ngx_d.lib" )
-    target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/include" )
-    target_compile_definitions( otdu_engine PUBLIC OTDU_HAVE_DLSS=1 )
-    target_link_libraries( otdu_engine PUBLIC "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/lib/nvsdk_ngx_d.lib" )
+# NVIDIA DLSS (NGX) + Intel XeSS SDKs: local only, Windows plugins (the NGX
+# import lib and the loader DLLs do not exist on other platforms; the guards
+# keep a checked-out dlss-sdk/xess-sdk from breaking an Android configure).
+if( WIN32 )
+    if( EXISTS "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/include/nvsdk_ngx_vk.h" AND EXISTS "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/lib/nvsdk_ngx_d.lib" )
+        target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/include" )
+        target_compile_definitions( otdu_engine PUBLIC OTDU_HAVE_DLSS=1 )
+        target_link_libraries( otdu_engine PUBLIC "${OTDU_THIRDPARTY_FOLDER}/dlss-sdk/lib/nvsdk_ngx_d.lib" )
+    endif()
+    # Intel XeSS SDK headers: local only (not in the repository); without them the XeSS plugin compiles to a stub
+    target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/xess-sdk/inc" )
 endif()
-# Intel XeSS SDK headers: local only (not in the repository); without them the XeSS plugin compiles to a stub
-target_include_directories( otdu_engine PRIVATE "${OTDU_THIRDPARTY_FOLDER}/xess-sdk/inc" )
 target_link_libraries( otdu_engine PUBLIC
     otdu_dxso otdu_volk otdu_vma otdu_stb otdu_stb_vorbis otdu_drlibs otdu_opusfile otdu_earcut otdu_imgui
     otdu_vulkan_headers SDL3::SDL3-static Jolt )
@@ -83,7 +87,14 @@ else()
     target_compile_options( otdu_engine PRIVATE -Wall -Wno-unused-function -Wno-unused-variable -Wno-missing-braces )
 endif()
 
-add_executable( opentdu2 "${OTDU_SRC_FOLDER}/main.cpp" )
+if( ANDROID )
+    # Android: the game is a shared library loaded by SDL's Java activity
+    # (SDL_RunApp -> SDL_main, source/main.cpp includes SDL_main.h there). The
+    # host tools and the Win32 launcher do not exist on this platform.
+    add_library( opentdu2 SHARED "${OTDU_SRC_FOLDER}/main.cpp" )
+else()
+    add_executable( opentdu2 "${OTDU_SRC_FOLDER}/main.cpp" )
+endif()
 target_link_libraries( opentdu2 PRIVATE otdu_engine )
 # Per-workspace executable name (WORKSPACES.md): build-cline / build-glm pass
 # -DOTDU_EXE_SUFFIX=-cline / -glm, so each tree builds opentdu2-cline.exe /
@@ -107,4 +118,6 @@ endif()
 # title, Home page and updater) read it.
 include( cmake/BuildInfo.cmake )
 
-add_subdirectory( tools )
+if( NOT ANDROID )
+    add_subdirectory( tools )
+endif()

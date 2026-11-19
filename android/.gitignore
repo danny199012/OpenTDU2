@@ -1,0 +1,10 @@
+# Gradle
+.gradle/
+build/
+app/build/
+# Machine-specific SDK path (WINDOWS_SETUP-style local config)
+local.properties
+# Wrapper markers stay in git; only local caches are ignored
+captures/
+.externalNativeBuild/
+.cxx/

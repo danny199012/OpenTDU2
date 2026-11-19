@@ -93,6 +93,24 @@ target_include_directories( otdu_stb_vorbis PUBLIC "${stb_SOURCE_DIR}" )
 # plenty for a car radio.
 add_library( otdu_ogg STATIC "${ogg_SOURCE_DIR}/src/bitwise.c" "${ogg_SOURCE_DIR}/src/framing.c" )
 target_include_directories( otdu_ogg PUBLIC "${ogg_SOURCE_DIR}/include" )
+# MSVC paths of os_types.h typedef the ogg types inline; every other platform
+# includes the CMake-generated <ogg/config_types.h>. Generate it here (the
+# values for any 64-bit target; Android arm64 is the reason this exists).
+if( NOT MSVC )
+    set( INCLUDE_INTTYPES_H 0 )
+    set( INCLUDE_STDINT_H 1 )
+    set( INCLUDE_SYS_TYPES_H 1 )
+    set( SIZE16 int16_t )
+    set( USIZE16 uint16_t )
+    set( SIZE32 int32_t )
+    set( USIZE32 uint32_t )
+    set( SIZE64 int64_t )
+    set( USIZE64 uint64_t )
+    set( OGG_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated/ogg" )
+    configure_file( "${ogg_SOURCE_DIR}/include/ogg/config_types.h.in"
+                    "${OGG_GENERATED_DIR}/ogg/config_types.h" @ONLY )
+    target_include_directories( otdu_ogg PUBLIC "${OGG_GENERATED_DIR}" )
+endif()
 
 set( OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE )
 set( OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE )

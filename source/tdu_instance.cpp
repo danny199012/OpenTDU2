@@ -38,6 +38,8 @@
 #include "game/game_options.h"
 #include "game/player_profile.h"
 
+#include "launcher/otdu_launcher.h"
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
@@ -106,7 +108,29 @@ int32_t TestDrive::InitAndRun( const char **pCmdLineArgs,
         return bPassed ? 0 : 1;
     }
 
+    // The integrated launcher (Android): runs before any game data exists -
+    // its own window + Vulkan device + ImGui, PLAY hands the window over and
+    // sets OTDU2_GAME_DIR. -nolauncher boots straight into the engine (the
+    // data must then come from the command line / env). On the desktop the
+    // separate exe is the launcher; -launcher runs this screen for testing.
+#if defined( OTDU_ANDROID )
+    const bool bRunLauncher = !CmdLine::HasArg( "-nolauncher" );
+#else
+    const bool bRunLauncher = CmdLine::HasArg( "-launcher" );
+#endif
+    SDL_Window *pBootstrapWindow = nullptr;
+    if ( bRunLauncher ) {
+        if ( !OTDULauncher::Run( &pBootstrapWindow ) ) {
+            Watchdog::Shutdown();
+            Logger::Shutdown();
+            return 0;
+        }
+    }
+
     TestDriveGameInstance instance;
+    if ( pBootstrapWindow != nullptr ) {
+        instance.adoptBootstrapWindow( pBootstrapWindow );
+    }
     int32_t exitCode = 0;
     if ( instance.initialize() ) {
         instance.mainLoop();
@@ -254,9 +278,11 @@ bool TestDriveGameInstance::initialize() {
                        pService->getName() );
 
         // The window and the render device are created once the config is
-        // known (window size, vsync...).
+        // known (window size, vsync...) - unless the integrated launcher
+        // already made one (Android bootstrap / -launcher): its window is
+        // adopted and reused.
         if ( pService == pConfig.get() ) {
-            if ( !createWindow() ) {
+            if ( pWindow == nullptr && !createWindow() ) {
                 return false;
             }
         } else if ( pService == pRender.get() ) {

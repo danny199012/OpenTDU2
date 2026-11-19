@@ -48,6 +48,11 @@ public:
     void mainLoop();
     void terminate();
 
+    // The integrated launcher (source/launcher/otdu_launcher.h) created the
+    // window before any game data existed: hand it over instead of making
+    // createWindow() open a second one. Engine init keeps it for the session.
+    inline void adoptBootstrapWindow( SDL_Window *pBootstrapWindow ) { pWindow = pBootstrapWindow; }
+
     // The switch happens at the beginning of the next frame.
     void setNextGameMode( eGameMode nextGameMode );
 

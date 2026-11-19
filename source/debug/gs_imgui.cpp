@@ -37,6 +37,10 @@ const char *const kFontCandidates[] = {
 #elif defined( __APPLE__ )
     "/System/Library/Fonts/Supplemental/Arial.ttf",
     "/System/Library/Fonts/Helvetica.ttc",
+#elif defined( __ANDROID__ )
+    "/system/fonts/Roboto-Regular.ttf",
+    "/system/fonts/NotoSans-Regular.ttf",
+    "/system/fonts/DroidSans.ttf",
 #else
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/TTF/DejaVuSans.ttf",

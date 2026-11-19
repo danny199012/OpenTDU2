@@ -11,6 +11,18 @@
 #define OTDU_UNIX 1
 #endif
 
+#if defined( __ANDROID__ )
+#define OTDU_ANDROID 1
+#endif
+
+// MSVC CRT names some call sites use directly (StringCmpI wraps the portable
+// spellings, the rest of the code base does not): map them on the other
+// platforms. This also un-breaks the Linux build, which predates Android.
+#if !defined( _WIN32 )
+#define _stricmp strcasecmp
+#define _strnicmp strncasecmp
+#endif
+
 #if defined( __x86_64__ ) || defined( _WIN64 ) || defined( __aarch64__ ) ||  \
     defined( __arm64__ )
 #define OTDU_64_BITS 1

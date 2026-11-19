@@ -3,7 +3,10 @@
 
 #include "system/cmd_line.h"
 
-#if __has_include( "xess/xess_vk.h" )
+// The XeSS plugin DLLs and the loader are Windows-only today; keep the SDK
+// headers from leaking into non-Windows builds even when third_party/xess-sdk
+// is checked out locally.
+#if defined( _WIN32 ) && __has_include( "xess/xess_vk.h" )
 #define OTDU_HAVE_XESS 1
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

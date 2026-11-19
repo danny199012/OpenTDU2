@@ -2,6 +2,12 @@
 #include "render/upscalers/fsr3_upscaler.h"
 #include "system/cmd_line.h"
 
+// The plugin is a runtime DLL (amd_fidelityfx_loader_vk.dll): Windows only
+// today. Elsewhere (Linux/macOS/Android) it is compiled out — FSR1 stays
+// available as the shader-level spatial fallback. Android: AMD ships Android
+// FidelityFX binaries, so a dlopen-based loader can be added later.
+#if defined( _WIN32 )
+
 #include <filesystem>
 
 #define PLATFORM_WINDOWS 1
@@ -257,3 +263,17 @@ void Fsr3Upscaler::destroy() {
     contextRenderWidth = contextRenderHeight = contextOutputWidth = contextOutputHeight = 0;
     bFailed = false;
 }
+
+#else // not Windows: the plugin is compiled out
+
+bool Fsr3Upscaler::ensure( RenderDevice &, uint32_t, uint32_t, uint32_t, uint32_t ) {
+    static bool bLogged = false;
+    if ( !bLogged ) {
+        bLogged = true;
+        OTDU_LOG_WARN( "[fsr3] unavailable on this platform (FSR1 stays available)\n" );
+    }
+    return false;
+}
+bool Fsr3Upscaler::dispatch( RenderDevice &, const Inputs & ) { return false; }
+void Fsr3Upscaler::destroy() {}
+#endif

@@ -3,6 +3,69 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-19 (`main`): Android port — arm64 APK builds + the integrated launcher start screen
+
+Owner asked to start Android builds (test device: Honor Magic 8 Pro, SD 8 Elite Gen 5 / Adreno 840,
+Gamesir controller) with the launcher working for touch + controller.
+
+### What changed
+- **Build plumbing**: `android/` Gradle project (AGP 8.13.0 / Gradle 8.14.3 / NDK 28.2 / SDK cmake
+  3.31.1, `org.opentdu2.game`, minSdk 29, targetSdk 36, arm64-v8a only) driving the repo-root
+  CMakeLists through `externalNativeBuild`; `build_android.ps1` mirrors build.ps1 (deps cache
+  `C:\otdu2-deps`, `OTDU_RELEASE_TAG`). Root CMakeLists: `if( ANDROID )` builds `opentdu2` as a
+  **SHARED** lib (`libopentdu2.so`, SDL3-static inside — the Java side must NOT load "SDL3"),
+  skips `add_subdirectory(tools)`; DLSS/XeSS SDK checks now WIN32-guarded (a local dlss-sdk
+  checkout broke the Android configure). `android/local.properties` = `sdk.dir` (gitignored); SDK
+  installed to `C:\Android\Sdk` (cmdline-tools + platform-36 + build-tools 36 + NDK r28c), JAVA =
+  the Studio JBR 21 pinned in `android/gradle.properties`.
+- **Portability fixes** (also un-breaks the red Linux CI): `fsr3_upscaler.cpp` wrapped in
+  `#if defined( _WIN32 )` + a stub `#else` (the plugin DLL is Windows-only; FSR1 stays);
+  `xess_upscaler.cpp` guard `&& defined( _WIN32 )`; `shared.h` gains `OTDU_ANDROID` + maps
+  `_stricmp`/`_strnicmp` to the portable spellings (`interior_walk.cpp` etc. use the MSVC names
+  directly — Linux never compiled them); **ogg `config_types.h` is generated for non-MSVC** in
+  Dependencies.cmake (os_types.h includes it off-Windows; desktop MSVC typedefs inline, so this
+  only bit on Android); `d3d12_device_stubs.cpp` links the empty-on-Android D3D12 backend's 9
+  referenced symbols; `main.cpp` includes `<SDL3/SDL_main.h>` on Android; `gs_imgui.cpp` gains
+  `/system/fonts` font candidates.
+- **Integrated launcher screen** (`source/launcher/otdu_launcher.{h,cpp}`, the owner picked
+  "integrated start screen"): runs **before any game data** — its own SDL window + RenderDevice +
+  TextureCache + Renderer2D + ImGui (no GSConfig/GSFile) — Play / Game Data / Settings pages in
+  the desktop launcher's theme (dark navy + orange accent, cards, sidebar), density-scaled fonts
+  (`FontScaleMain`, PushFont sizes are logical px — do NOT wrap them in `S()`, it squares the
+  density), touch via SDL's touch→mouse, gamepad nav (`NavEnableGamepad` + focus rects). The Game
+  Data page is a real folder browser (std::filesystem over shared storage, `Euro/Bnk` validation
+  mirroring `GSFile::HasBankFolder`), All-Files-Access checked/requested over JNI
+  (`MainActivity.hasAllFilesAccess`/`requestAllFilesAccess`); settings persist to
+  `<SDL_GetPrefPath>/launcher_android.ini`. PLAY sets `OTDU2_GAME_DIR`, hands the window to the
+  engine (`adoptBootstrapWindow`, `createWindow()` skipped when one exists) and the normal init
+  runs → title screen. Desktop can test it with `-launcher` (Android runs it always,
+  `-nolauncher` skips).
+- SDL3 vendored Java (`org.libsdl.app`, pinned release-3.4.20 from the deps cache) +
+  `MainActivity` (`getLibraries()` returns only `"opentdu2"`).
+
+### Verified
+- `build_android.ps1` → `android/app/build/outputs/apk/debug/app-debug.apk` (31.5 MB
+  libopentdu2.so, ELF arm64, dex + manifest + icon) — the whole engine compiles under NDK clang
+  (SDL3, Jolt, volk, VMA, DXSO, opus/opusfile, imgui).
+- Desktop `build.ps1` clean (0 errors) + headless boot exit 0 with all services (the
+  `pWindow == nullptr` guard changes nothing for the normal path) + DLSS plugin loads.
+- Launcher screen renders on desktop (`-launcher`, screenshots `_bootlauncher_play.png`):
+  sidebar nav, hero, status card, disabled PLAY, folder button — correct at density 2.25 after
+  fixing the PushFont double-scale. Font/theme/scale numbers from `opentdu2.log`.
+
+### Not done / next
+- **On-device test is the open item** (adb is blocked in the agent harness): owner installs the
+  APK, copies `C:\TDU2-Gamedata\TestDrive2` to `/storage/emulated/0/TDU2`, grants
+  All-Files-Access, picks the folder in GAME DATA, PLAY → title screen; Gamesir must be in its
+  Android/S-mode for SDL3 to see it.
+- Phase 2 (owner asked for it): auto-updates like the Windows launcher — libcurl + the GitHub
+  releases API, APK download + install intent, a **committed release keystore** (needed so
+  updates install over each other), `android.yml` CI. Touch tuning of the launcher (hit targets,
+  the folder browser on a phone) happens with the owner's on-device feedback.
+- ImGui page-switch could not be driven headless (synthetic mouse/keyboard never reached the SDL
+  window through Windows DPI virtualization) — the two other pages are unverified by eye; they
+  share the widgets the Play page proved.
+
 
 
 
