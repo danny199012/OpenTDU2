@@ -81,3 +81,14 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * **Open**: an island-wide raster of the decoded road triangles (273 tiles) is fragmentary and blocky: a P3D has several `Actor_*` nodes with their own translations
   (only the first is applied), and meshes whose meshlet split does not sum to `vcount` are skipped. `SPLINEMESH_*` P3Ds have many actors and break `parse_nodes`.
   Next: apply the translation per mesh (node -> mesh index), then rasterise into the terrain colour map / extract a centre-line graph. Tool: `tools/tdusc/level_mesh.py`.
+
+### 2e. Road mesh decode, second pass (session 62) [DATA, UNRESOLVED]
+
+* Several `Actor_*` nodes per P3D carry distinct translations (X56_Y36: 31 actors, 4 distinct) and `parse_nodes` cannot read them. `level_mesh.decode` now scans the actor
+  records itself and picks, per mesh, the translation whose median |z - terrain| is smallest (`ground=` heightfield). On X56_Y36 most meshes fit at 0.1-0.4 m.
+* `vpos` is **not** 4 x unorm16 (that gave axis-aligned slabs). A brute-force search over contiguous bit fields of the u64 (minimising median triangle edge) found
+  **z = bits 0-15, y = bits 16-29, x = bits 30-43** (median edge 0.13-0.5 m on all six X63_Y42 meshes). **Not confirmed**: neighbouring vertices still differ in z by ~2 m
+  and 10 % of edges span the whole mesh box, so either the fields are wider/other or the meshlet-local indices need a remap. Raster of X56_Y36 still shows slabs.
+* `SPLINEMESH_*` (format `NORMPOS_UV0_`, no vcol) decodes to huge slabs with the same layout: its `vpos` packing is probably different. Not examined.
+* Next: read the 20 high bits (44-63) and the `vnor`/`vuvy` streams for a per-vertex or per-meshlet scale; compare against a P3D with a known shape (a car part, the
+  imposters) using the same packed format; the PS3/360 builds do not contain TDUSC so there is no twin to read.

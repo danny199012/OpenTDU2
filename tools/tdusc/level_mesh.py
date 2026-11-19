@@ -6,7 +6,7 @@
 Format [DATA, docs/re/tdusc_level_meshes.md]:
 * `LEVELS/HONGKONG/TILE_Xi/TILE_Xi_Yj/<STEP>/<name>.P3D` is the same `SCENE___` container as the cars (blob = GDeflate at header word 13), but
   each mesh is a *named* entry `u32 len, name ("ROADMESHLET"), 10 floats (bbox min xyz, max xyz, sphere), u32 nparts`, part = as cars.
-* vertex streams: `vcol` 4 B, `vnor` 4 B (packed), `vpos` **8 B = 4 x unorm16 across the mesh bbox** (xyz, w unused), `vuvs` 4 B, `vuvy` 8 B.
+* vertex streams: `vcol` 4 B, `vnor` 4 B (packed), `vpos` **one u64**: z = bits 0-15, y = bits 16-29, x = bits 30-43 (each unorm across the mesh bbox; bits 44-63 not decoded), `vuvs` 4 B, `vuvy` 8 B.
 * indices are **u8 triangle lists in MESHLETS of <= 64 vertices**: every meshlet re-starts its local indices at 0 (first-use order, so a
   meshlet's first triangle is 0,1,2) and its vertices follow the previous meshlet's in the vertex arrays.
 * the scene graph holds one `Actor_<id>_<n>` node per mesh with the translation that places it: tile-local -> tile origin
@@ -26,6 +26,7 @@ import p3d_to_obj as P  # noqa: E402
 from tdusc_read import Tdusc  # noqa: E402
 
 BS = chr(92)
+GROUND = None
 
 
 def split_meshlets(idx):
@@ -82,20 +83,24 @@ def parse_named_meshes(head):
     return res
 
 
-def decode(d):
-    """-> (V (n,3) float64 tile-local incl. node translation, F (m,3) int) for every mesh of the P3D."""
+def actor_translations(head):
+    """Every `Actor_<id>_<n>` node record: name, then 16 floats (4x4 row-major), translation = row 3. The node parser cannot read these files
+    (many actors, no mesh index in the record), so the translation of each mesh is picked by fitting it to the terrain (see decode)."""
+    out = []
+    for m in re.finditer(rb'Actor_\d+_\d+', head):
+        if m.end() + 64 <= len(head):
+            f = struct.unpack_from('<16f', head, m.end())
+            out.append(np.array(f[12:15], np.float64))
+    return out
+
+
+def decode(d, origin=(0.0, 0.0), ground=None):
+    """-> (V (n,3) float64 in WORLD metres (origin = tile SW corner added), F (m,3) int) for every mesh of the P3D.
+    ground = (array, x0, y0, step): a heightfield used to choose, per mesh, which actor translation fits (median |z - ground|)."""
     bo = struct.unpack_from('<I', d, 0x34)[0]
     head, blob = d[:bo], gdeflate.decompress(d[bo:])
     meshes = parse_named_meshes(head)
-    try:
-        nodes = P.parse_nodes(head)
-    except Exception:
-        nodes = []
-    tr = np.zeros(3)
-    for n in nodes:
-        if n['name'].startswith('Actor_'):
-            tr = np.array(n['world'][3, :3], np.float64)
-            break
+    trs = actor_translations(head) or [np.zeros(3)]
     Vs, Fs, base = [], [], 0
     for mesh in meshes:
         mn = np.array(mesh['bbox'][:3]); mx = np.array(mesh['bbox'][3:6])
@@ -103,8 +108,10 @@ def decode(d):
             vc = p['vc']
             if 'vpos' not in p['st'] or vc == 0:
                 continue
-            raw = np.frombuffer(blob, '<u2', count=vc * 4, offset=p['st']['vpos']).reshape(-1, 4)
-            pos = mn + raw[:, :3] / 65535.0 * (mx - mn) + tr
+            u = np.frombuffer(blob, '<u8', count=vc, offset=p['st']['vpos'])
+            loc = mn + np.stack([((u >> np.uint64(30)) & np.uint64(0x3FFF)).astype(np.float64) / 0x3FFF,
+                                 ((u >> np.uint64(16)) & np.uint64(0x3FFF)).astype(np.float64) / 0x3FFF,
+                                 (u & np.uint64(0xFFFF)).astype(np.float64) / 0xFFFF], 1) * (mx - mn)
             idx = np.frombuffer(blob, 'u1', count=p['ntri'] * 3, offset=p['ib']).reshape(-1, 3).astype(np.int64)
             vb = 0
             tris = []
@@ -114,12 +121,32 @@ def decode(d):
             F = np.vstack(tris)
             if vb != vc or F.max() >= vc:
                 continue                      # meshlet split did not add up: skip rather than emit garbage
-            Vs.append(pos)
+            tr = trs[0]
+            if ground is not None and len(trs) > 1:
+                G, gx0, gy0, gs = ground
+                best = None
+                sub = loc[::max(1, len(loc) // 64)]
+                for t in trs:
+                    w = sub + t
+                    c = ((origin[0] + w[:, 0] - gx0) / gs).astype(int)
+                    r = ((origin[1] + w[:, 1] - gy0) / gs).astype(int)
+                    if c.min() < 0 or r.min() < 0 or c.max() >= G.shape[1] or r.max() >= G.shape[0]:
+                        continue
+                    e = float(np.nanmedian(np.abs(G[r, c] - w[:, 2])))
+                    if best is None or e < best[0]:
+                        best = (e, t)
+                if best:
+                    tr = best[1]
+            Vs.append(loc + tr + [origin[0], origin[1], 0.0])
             Fs.append(F + base)
             base += vc
     if not Vs:
         return np.zeros((0, 3)), np.zeros((0, 3), np.int64)
     return np.vstack(Vs), np.vstack(Fs)
+
+
+def load_ground(path='C:/temp/hk_island_4m.npy'):
+    return (np.load(path), -9472, -8448, 4.0)
 
 
 def main():
@@ -131,6 +158,8 @@ def main():
     ap.add_argument('--kind', default='ROADBUILDSTEP')
     ap.add_argument('--out')
     a = ap.parse_args()
+    global GROUND
+    GROUND = load_ground()
     t = Tdusc(a.pkg_dir, a.toc_dir)
     if a.all:
         tiles = sorted({tuple(int(x) for x in re.search(r'TILE_X(\d+)_Y(\d+)', k).groups()) for k in t.entries
@@ -148,10 +177,10 @@ def run_tile(t, i, j, a):
     for p in t.ls(pre):
         if not p.upper().endswith('.P3D'):
             continue
-        V, F = decode(t.read(p))
+        V, F = decode(t.read(p), (ox, oy), GROUND)
         print(p.split(BS)[-1], len(V), 'verts', len(F), 'tris')
         if len(V):
-            allv.append(V + [ox, oy, 0]); allf.append(F + base); base += len(V)
+            allv.append(V); allf.append(F + base); base += len(V)
     if a.out and allv:
         os.makedirs(a.out, exist_ok=True)
         np.savez(os.path.join(a.out, 'TILE_X%d_Y%d_%s.npz' % (i, j, a.kind)), V=np.vstack(allv), F=np.vstack(allf))
