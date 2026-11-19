@@ -201,3 +201,14 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * Tool: `tools/tdusc/plm_footprints.py` -> JSON of `{name, kind, pts}` in HK metres (no TDUSC data in the repo).
 * **Next**: (1) fix the downtown terrain gap; (2) extrude footprints to boxes as mod props (`props.txt` route, `source/game/spots/mod_props.h`; one OBJ per ~512 m tile); (3) parcel meshes
   (`PARCELBUILDSTEP`, 2j) still have no world placement - try matching each parcel's `Building_n` bbox to a `manual` footprint of its tile; (4) roads: still no source (the `Taxi_n_Start/End` points are the only route-like data found).
+
+### 2n. Road hunt, session 62d [DATA, negative]
+
+* **Tile `.PLM`** (e.g. `TILE_X56_Y36.PLM`, 0.9 MB, 2,007 strings): the `RDA_InsideLane_nn_<float>` (203 in that tile) / `RDA_LeftBorder` / `RDA_RightBorder` names are **decal component names** (road-marking decals next to
+  `Oil_Spot`, `Dirt_*`, `TDU_DIRT_01.PSK`), not geometry. Entity records are packed **unaligned** (fields 1-3 bytes off 4-byte boundaries, scale 1,1,1 + ids + flags); no (x, y, z) triple was found near a lane
+  name in either HK-world or tile-local range, so decal transforms are not decoded. A decoded lane-decal position set would be the best remaining road centre-line source (203 per dense tile).
+* **No traffic / nav / GPS data in the PKGs**: a TOC search (`nav|gps|traffic|pathfind|roadnet|lane|route`) over all 154,623 names finds only textures and prop meshes. The install's `Common/` (Archetypes, FX, Settings, Tuning)
+  was not read.
+* The PWS tail after the quadtree (X63_Y42, from `0xcc5f0`) is **high entropy** (no float / int structure in 256-byte windows): compressed or encrypted, not a plain road table.
+* Conclusion unchanged: **roads only exist as shader-side ribbons over the road pad meshes (2f-2h) plus baked heightfield ridges**. Options left: (a) decode the PLM decal transforms; (b) trace ridges; (c) author a road
+  graph by hand / from OSM for Hong Kong (the `docs/re/eden_island_spec.md` item 3 route: `EDON`/`DAOR`/`ATED` nodes are accepted from generated files).
