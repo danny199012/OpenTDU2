@@ -68,5 +68,7 @@ build-main\bin\opentdu2-main.exe ... -gm worldviewer -island hongkong -nopanel -
   the island mod's built-in start (`ModIslandStart`, the Central quay) where there is no `EAIR` airport spot, then restarts the mode through the story handoff, exactly like Ibiza <-> Hawai.
 * **Test hook** `-travelto <island>`: fires once on the 200th frame of the run. Verified headless: `-island ibiza -travelto hongkong` logs `travel ibiza -> hongkong ... (5632.0, 3.0, 7936.0)`,
   then `island 'hongkong', spawn overridden`; `-island hongkong -travelto ibiza` arrives at the Ibiza airport (16731.5, 20.3, 27506.4) with the "Ibiza Area 2" badge.
-* **Not wired**: the map's airport pop-up button (`isld`) still toggles the original Ibiza / Hawai pair (the pop-up exists only on the airport spots, which Hong Kong has none of), so there is no
+* **Map button (F7)**: with the world map open, **F7** (keyboard) travels Ibiza / Hawai -> Hong Kong when the mod is installed, and Hong Kong -> Ibiza. Verified headless:
+  `-autoplay "300:press=map;500:key=F7"` logs `map island trip (F7) ibiza -> hongkong` / `hongkong -> ibiza`. No pad button (the retail pop-up has one slot).
+* **Not wired** (retail pop-up): the map's airport pop-up button (`isld`) still toggles the original Ibiza / Hawai pair (the pop-up exists only on the airport spots, which Hong Kong has none of), so there is no
   map-screen button for Hong Kong yet. The trip back to Hong Kong from the map would need the pop-up's label (`m_gotohawai` / `m_gotoibiza`) extended to a third island.

@@ -5068,6 +5068,20 @@ void GMFreeRide::drawUI() {
             OTDU_LOG_INFO( "FREERIDE: fast travel refused - that road has not been discovered\n" );
         }
     }
+    // Island mods from the map (F7): Ibiza / Hawai -> Hong Kong when its mod is installed, Hong Kong -> Ibiza.
+    // The retail pop-up button (`isld`) exists only on airport spots, which an island mod has none of.
+    if ( mapScreen.isOpen() && mapScreen.isUiShown() && gpInput->wasKeyPressed( SDL_SCANCODE_F7 ) ) {
+        const bool bOnMod = islandName == "hongkong";
+        const bool bInstalled =
+            gpFile->fileExists( ( gpFile->getBankFolder() + "islands/hongkong/level/worldconfig.cpr" ).c_str() );
+        if ( bOnMod || bInstalled ) {
+            OTDU_LOG_INFO( "FREERIDE: map island trip (F7) %s -> %s\n", islandName.c_str(), bOnMod ? "ibiza" : "hongkong" );
+            mapScreen.close();
+            travelToIsland( bOnMod ? "ibiza" : "hongkong" );
+            return;
+        }
+        OTDU_LOG_INFO( "FREERIDE: map island trip (F7): the Hong Kong mod is not installed\n" );
+    }
     cheats.drawUI( "FREERIDE" );
 
     // What the panel asked for.
