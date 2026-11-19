@@ -156,3 +156,21 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * `pkg_scan.lz4_frame` now handles **linked-block LZ4 frames** (FLG bit 5 clear; blocks match into the previous output): the `.PLM` / `.PSVO` reads that raised `IndexError` work.
 * **Next**: (1) decode the PLM entity records (object id -> class, name, transform), which gives parcel placement and the footprint points; (2) then place `PARCELBUILDSTEP` buildings
   (mesh decode as in `level_mesh.py` with the first-stream blob), or extrude `ManualBuildingPoly` footprints to boxes as a fallback; (3) convert the facade PMA/PTX modules to Eden materials.
+
+### 2k. PLM scene dump, second pass (session 62) [DATA, PARTLY UNRESOLVED]
+
+* **`HONGKONG.PLM` holds a global point table**: **56,850 packed `float3` (x, y, z) world metres** in one contiguous run, `0x453555 .. 0x4f9e2d` (4 mod 12 = unaligned, 1 mod 4: a 1-byte field precedes it), found by
+  walking plausible triples at stride 12 (`|x| < 10000, |y| < 9000, -200 < z < 700`). 53,102 of them have **z == 0** (2-D polygon points); the rest are runs with a constant z (e.g. 427.96, 22.76: spline / curve points).
+  Total extent x -7844..7368, y -6984..4433 (the island).
+* **Polygon records**: `u32 nameLen, name, u32 n, u32 pointId[n], u32 typeHash, u32 0, u32 hash, u32 1` (the 4-byte class hash after the ids is `c0 85 47 9b` for the first
+  parcel records, other values later, so do not match on it). Found **4,176** records: 724 `*_ManualBuildingPoly`, `_exclusion` (zones where the Houdini generator must not build),
+  `_exclusion_sidewalk`, `Parcel_REGIONS/ R_<DISTRICT>_<n>`, `LMK_*` landmarks, `*_BUILDING_*`, `*_TOWER_*`. Point ids run 16,849 .. 49,086.
+* **UNRESOLVED: point id -> coordinate.** Indexing the table with `id` directly (and +-3) gives self-intersecting polygons and the Aberdeen district polygons stretch across the whole island
+  (two clusters 10 km apart); 4-point polygons form rectangles no more often than chance (12-16 %); a per-polygon search for an index shift that makes the polygon compact (+-30,000 on 300 records)
+  finds **no common offset** (the most frequent shift occurs 3 times). So the table is not indexed by the polygon ids; [INF] either the ids are Houdini point numbers into a different (per-primitive) array,
+  or the polygon list stores several sub-polygons. Not examined: the section header at 0x30 (`aa e3 00 00 | 12 01 00 00 | 10 4d 00 00 | ...`) that probably holds section sizes / offsets,
+  and the records after each id list (`hash`, `1`, then the next name), which may carry a point-range base.
+* The tile `.PLM` (`TILE_X56_Y36.PLM`, 0.9 MB) has many 52-byte records `float(~40), u32 0x8000xxxx, 3 x float x2 ...` (spline control points with tangents, ids `0x8000031c ...`), not parcel placements.
+* Net: **building footprints and parcel placement are still not recoverable**; the parcel meshes (2j) are decodable but cannot be placed. Fallback that needs neither: place the PARCELBUILDSTEP buildings
+  by matching each parcel's local bbox against the terrain / the `exclusion` footprints once the id mapping is solved, or use the distant `IMPOSTER_*_BUILDING` meshes (224 tiles; in the Y-up
+  imposter frame, packing validated only on edge lengths, not on placement) as low-detail buildings.
