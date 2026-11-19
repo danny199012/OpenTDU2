@@ -419,6 +419,35 @@ void VehicleWorldCollision::addCollision( const HavokCollision &collision, const
     }
 }
 
+void VehicleWorldCollision::addStaticTriangles( const std::vector<Vector3f> &vertices,
+                                                const std::vector<uint32_t> &indices, float friction ) {
+    for ( size_t i = 0; i + 2 < indices.size(); i += 3 ) {
+        Triangle triangle;
+        triangle.A = vertices[indices[i]];
+        triangle.B = vertices[indices[i + 1]];
+        triangle.C = vertices[indices[i + 2]];
+        triangle.Normal = ( triangle.B - triangle.A ).cross( triangle.C - triangle.A ).normalized();
+        if ( triangle.Normal.length() < 0.5f ) {
+            continue; // degenerate
+        }
+        if ( triangle.Normal.y < 0.0f ) {
+            triangle.Normal = -triangle.Normal;
+        }
+        triangle.Friction = friction;
+        triangle.Material = 0;
+        triangle.bRoad = false;
+        const uint32_t index = static_cast<uint32_t>( triangles.size() );
+        triangles.push_back( triangle );
+        addCells( triangleCells,
+                  Vector3f( Min( triangle.A.x, Min( triangle.B.x, triangle.C.x ) ), 0.0f,
+                            Min( triangle.A.z, Min( triangle.B.z, triangle.C.z ) ) ),
+                  Vector3f( Max( triangle.A.x, Max( triangle.B.x, triangle.C.x ) ), 0.0f,
+                            Max( triangle.A.z, Max( triangle.B.z, triangle.C.z ) ) ),
+                  index );
+    }
+    OTDU_LOG_INFO( "VehicleWorldCollision: %zu static prop triangles added\n", indices.size() / 3 );
+}
+
 bool VehicleWorldCollision::raycast( const Vector3f &origin, const Vector3f &dir, float maxDistance,
                                      Hit &outHit ) const {
     if ( Ghost() ) {

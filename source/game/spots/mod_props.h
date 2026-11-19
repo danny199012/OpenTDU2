@@ -31,6 +31,11 @@ public:
         // The `fuel` column of props.txt: this prop is a gas station (the player
         // can fill the tank next to it, source/game/freeride/fuel_menu.*).
         bool bFuelStation = false;
+        // The `solid` column of props.txt: the prop's triangles are static collision for the car
+        // (VehicleWorldCollision::addStaticTriangles), world space, filled at load.
+        bool bSolid = false;
+        std::vector<Vector3f> SolidVertices;
+        std::vector<uint32_t> SolidIndices;
         Vector3f BoundsMin;
         Vector3f BoundsMax;
         std::vector<EdenMesh> Meshes;        // one per .mtl material

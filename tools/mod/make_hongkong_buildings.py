@@ -198,7 +198,7 @@ def main():
                     for t in fl:
                         f.write('f %d/%d %d/%d %d/%d\n' % (t[0], t[0], t[1], t[1], t[2], t[2]))
                         ntri += 1
-        lines.append('%s %s %.1f 0 %.1f 0' % (a.island, name, ex0, ez0))
+        lines.append('%s %s %.1f 0 %.1f 0 solid' % (a.island, name, ex0, ez0))
     pp = os.path.join(mods, 'props.txt')
     keep = []
     if os.path.exists(pp):

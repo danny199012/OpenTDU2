@@ -60,6 +60,7 @@ bool ModProps::load( EdenRenderer &renderer, const std::string &island ) {
         float scale = 1.0f;
         std::string shaderName = "TD_Gouraud";
         bool bFuelStation = false;
+        bool bSolid = false;
         {
             size_t cursor = 0;
             int column = 0;
@@ -82,6 +83,8 @@ bool ModProps::load( EdenRenderer &renderer, const std::string &island ) {
                         scale = static_cast<float>( number );
                     } else if ( StringCmpI( token.c_str(), "fuel" ) == 0 ) {
                         bFuelStation = true;
+                    } else if ( StringCmpI( token.c_str(), "solid" ) == 0 ) {
+                        bSolid = true;
                     } else {
                         shaderName = token;
                     }
@@ -109,6 +112,63 @@ bool ModProps::load( EdenRenderer &renderer, const std::string &island ) {
         prop.Heading = heading;
         prop.Scale = scale;
         prop.bFuelStation = bFuelStation;
+        prop.bSolid = bSolid;
+        if ( bSolid ) {
+            // OBJ triangles -> world space (the loader mirrors X; same transform as draw()).
+            std::vector<uint8_t> objBytes;
+            if ( gpFile->loadFile( objPath.c_str(), objBytes ) ) {
+                const float half = heading * 0.5f;
+                const Quaternionf rotation( 0.0f, std::sin( half ), 0.0f, std::cos( half ) );
+                const Matrix4x4f world = Matrix4x4f::Translation( prop.Position ) * EdenRotationFromQuaternion( rotation ) *
+                                         Matrix4x4f::Scale( Vector3f( scale, scale, scale ) );
+                const std::string obj( objBytes.begin(), objBytes.end() );
+                size_t p = 0;
+                while ( p < obj.size() ) {
+                    size_t e = obj.find( '\n', p );
+                    if ( e == std::string::npos ) {
+                        e = obj.size();
+                    }
+                    const char *line = obj.c_str() + p;
+                    if ( line[0] == 'v' && line[1] == ' ' ) {
+                        float vx = 0, vy = 0, vz = 0;
+                        if ( sscanf( line + 2, "%f %f %f", &vx, &vy, &vz ) == 3 ) {
+                            prop.SolidVertices.push_back( world.transformPoint( Vector3f( -vx, vy, vz ) ) );
+                        }
+                    } else if ( line[0] == 'f' && line[1] == ' ' ) {
+                        int idx[3] = { 0, 0, 0 };
+                        const char *c = line + 2;
+                        bool ok = true;
+                        for ( int k = 0; k < 3 && ok; k++ ) {
+                            while ( *c == ' ' ) {
+                                c++;
+                            }
+                            char *pEnd = nullptr;
+                            idx[k] = static_cast<int>( strtol( c, &pEnd, 10 ) );
+                            ok = pEnd != c;
+                            c = pEnd;
+                            while ( ok && *c != ' ' && *c != '\r' && *c != '\n' && *c != 0 ) {
+                                c++;
+                            }
+                        }
+                        if ( ok && idx[0] > 0 && idx[1] > 0 && idx[2] > 0 ) {
+                            prop.SolidIndices.push_back( static_cast<uint32_t>( idx[0] - 1 ) );
+                            prop.SolidIndices.push_back( static_cast<uint32_t>( idx[1] - 1 ) );
+                            prop.SolidIndices.push_back( static_cast<uint32_t>( idx[2] - 1 ) );
+                        }
+                    }
+                    p = e + 1;
+                }
+                // drop faces that point past the vertex list
+                for ( size_t i = 0; i + 2 < prop.SolidIndices.size(); ) {
+                    if ( prop.SolidIndices[i] >= prop.SolidVertices.size() || prop.SolidIndices[i + 1] >= prop.SolidVertices.size() ||
+                         prop.SolidIndices[i + 2] >= prop.SolidVertices.size() ) {
+                        prop.SolidIndices.erase( prop.SolidIndices.begin() + i, prop.SolidIndices.begin() + i + 3 );
+                    } else {
+                        i += 3;
+                    }
+                }
+            }
+        }
         prop.BoundsMin = boundsMin;
         prop.BoundsMax = boundsMax;
 

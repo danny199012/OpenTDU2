@@ -5885,6 +5885,11 @@ void GMFreeRide::ensureModPropsLoaded() {
     }
     bModPropsTried = true;
     modProps.load( *pEdenRenderer, islandName );
+    for ( const ModProps::Prop &prop : modProps.getProps() ) {
+        if ( prop.bSolid ) {
+            collision.addStaticTriangles( prop.SolidVertices, prop.SolidIndices );
+        }
+    }
     std::vector<Vector3f> stations;
     for ( const ModProps::Prop &prop : modProps.getProps() ) {
         if ( prop.bFuelStation && FuelModEnabled() ) {

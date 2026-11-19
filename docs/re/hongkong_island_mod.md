@@ -82,3 +82,10 @@ Result: **1,742 buildings, 87 props (one OBJ per 512 m cell, 27k triangles)** in
 * **Trap:** the props shader's no-texture path is flat white whatever `Kd` says (`obj_mesh.cpp`); a `map_Kd` texture is needed for colour.
 * Visual only: props have no collision. Verified headless: `-gm worldviewer -island hongkong -campos 8280,120,5200 -camyaw 180 -campitch -8 -weather 12` shows the Central skyline (screenshot kept locally, TDUSC-derived).
 * Not done: collision, real heights / parcel meshes, interiors, roads.
+
+### Building collision (session 62d)
+
+* `props.txt` gains a **`solid`** column: the prop's OBJ triangles (world space, X mirrored like the draw) become static car collision (`ModProps::Prop::SolidVertices/Indices`,
+  `VehicleWorldCollision::addStaticTriangles`, called from `GMFreeRide::ensureModPropsLoaded`). Two-sided, friction 0.7, not road. `make_hongkong_buildings.py` writes `solid` on every building.
+* Verified: log `VehicleWorldCollision: 32 / 98 / 19 ... static prop triangles added` (one line per prop), and `-gm freeride -island hongkong -tp 3192,46,3380 -logdrive` leaves the car resting at
+  y = 40.98 on a roof at 40.87 instead of falling to the ground. Walls were not driven into (not tested).
