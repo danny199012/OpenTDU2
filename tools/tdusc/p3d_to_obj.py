@@ -20,6 +20,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gdeflate  # noqa: E402
+import psi_mtl  # noqa: E402
 from tdusc_read import Tdusc  # noqa: E402
 
 
@@ -115,6 +116,7 @@ def main():
     ap.add_argument('--toc-dir', required=True)
     ap.add_argument('--out', required=True)
     ap.add_argument('--local', action='store_true', help='keep every mesh in its node-local space (old behaviour)')
+    ap.add_argument('--nomat', action='store_true', help='skip the PSI / PMA materials and textures')
     ap.add_argument('path')
     a = ap.parse_args()
     t = Tdusc(a.pkg_dir, a.toc_dir)
@@ -127,7 +129,8 @@ def main():
     inst = [(n['name'], n['mesh'], n['world']) for n in nodes if n['mesh'] is not None and n['mesh'] < len(meshes)]
     used = {i[1] for i in inst}
     inst += [('mesh%d' % mi, mi, np.eye(4)) for mi in range(len(meshes)) if mi not in used]
-    lines = []
+    pernode, mtl = ({}, None) if a.nomat else psi_mtl.build(t, a.path, a.out)
+    lines = ['mtllib ' + mtl] if mtl else []
     base = 1
     tris = 0
     for name, mi, w in inst:
@@ -148,6 +151,8 @@ def main():
             if flip:
                 idx = idx[:, ::-1]
             lines.append('o %s_part%d' % (name, pi))
+            if name in pernode and pi < len(pernode[name]):
+                lines.append('usemtl ' + pernode[name][pi])
             lines += ['v %.5f %.5f %.5f' % tuple(v) for v in pos]
             lines += ['vn %.4f %.4f %.4f' % tuple(v) for v in nor]
             lines += ['vt %.5f %.5f' % tuple(v) for v in uv]

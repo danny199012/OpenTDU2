@@ -140,6 +140,20 @@ top like the DDS). Scored by the median UV length of a triangle edge over HR par
 `p3d_to_obj.py` writes UV0 as `vt` (v flipped). Seen: LR body UVs sampling `BODY_LR` put the rear-lamp / diffuser detail on the rear
 (local render `tdusc_huracan_lr_uv_bodylr.png`). `vtan` (4 B) still undecoded; `PMA` (which texture each part uses) is the next step.
 
+### 7.4 PSI / PMA materials (session 61b) [DATA]
+
+* **`PSI`** (next to the `MESH` folder, `<x>.PSI`): after the `DATA:/.../MESH/<x>.P3D` string a flat list of (node name, `DATA:/.../PMA/<set>/<name>.PMA`)
+  pairs; **the k-th pair of a node name is part k of that node's mesh** (HR `Body` 14 pairs = 14 parts, `Door_L` 6 = 6, `Aero_Bumper_L` 1 = 1).
+  LR also lists `GIBLOCKER` / `GIPORTAL` (glass-only GI helpers) and `Convex_$PHYS_$CBLOCK_$CCAM_nn` -> `PHYSICALMATERIAL/CBLOCK.PMC` (the collision hulls).
+* **`PMA`** (LZ4 frame, RIFF `PA__`): shader `DATA:/EFFECTS/VEHICLECARPAINT.PFX` / `VEHICLECARMAT.PFX`, `Use ...` flags, then parameter names; each
+  **texture parameter is followed by its `DATA:/.../*.PTX` path**: `DiffuseMap` / `DiffuseMapTile`, `NormalMap` / `NormalMapTile`, `StructureMap(Tile)`
+  (the `_IOR` packed sheet), `OcclusionMap`, `DirtMask`, `ScratchMap`, `DamageNormalMap`. Colours and floats (`ExternalColor`, `Gloss1`, `Metalness`,
+  `FlakeIntensity` ...) are binary and **not decoded yet**: the paint / metal materials have no diffuse texture, only colour.
+* `tools/tdusc/psi_mtl.py` + `p3d_to_obj.py` write `usemtl` per part and a `.mtl` (`map_Kd`, `map_Bump`) with the textures converted to `tex/*.png` + `.dds`
+  next to the OBJ (`--nomat` skips it). HR: 34 materials, 19 with a diffuse texture.
+* **Verified** with a per-material textured render of HR: the EU licence plate sits on the rear plate, the tail-lamp roundels, the door label and the
+  window tint land where they belong (local render `tdusc_huracan_hr_materials.png`). Paint colour is the one thing missing (binary parameters).
+
 ### 7.2 The scene graph (session 61) [DATA, Huracan HR / LR]
 
 After the `MESH` entries comes the string `DEFAULT`, then **two tables joined by one id space**: `nDummy` dummy nodes (the word right

@@ -14,6 +14,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-19 (61c, `main`): TDUSC PSI / PMA parsed - the OBJ gets per-part materials and textures
+
+`tools/tdusc/psi_mtl.py` (new) + `p3d_to_obj.py`: PSI gives node name -> PMA per part (k-th pair = part k), PMA gives texture slots; the exporter writes
+`usemtl`, a `.mtl` and `tex/*.png|dds`. HR: 34 materials, 19 textured; the plate / tail lamps / door label render in the right places. Spec 7.4.
+Next: decode PMA's binary parameters (ExternalColor, Gloss, Metalness) for paint colour; wheels at the `Fork_*` anchors; `vtan`; the dirt-mask format.
+
 ## Session 2026-11-19 (61b, `main`): TDUSC UVs decoded - `vuvs` = unorm16 pairs, one per UV set
 
 `p3d_to_obj.py` now writes `vt` (UV0). Stride is `nUV * 4` B (the 'zeros' were a wrong stride on LR); unorm16 beats snorm / half on edge-length
