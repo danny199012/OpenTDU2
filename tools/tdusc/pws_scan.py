@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gdeflate
 
 def candidates(d):
+    cur_end = 0     # a header-looking byte pattern INSIDE a stream is not a stream (X57_Y46 had one: 1365 instead of 1364)
     for m in re.finditer(rb'\x04\xfb([\x01-\xff])\x00', d):
         o = m.start()
         tiles = d[o + 2]
@@ -23,6 +24,9 @@ def candidates(d):
             continue
         if any(offs[i] >= offs[i + 1] for i in range(1, tiles - 1)):
             continue
+        if o < cur_end:
+            continue
+        cur_end = o + 8 + 4 * tiles + (offs[-1] if tiles > 1 else 0) + offs[0]
         yield o, tiles, (word >> 2) & 0x3ffff, offs
 
 def main():

@@ -28,32 +28,32 @@ Header (tile `X75_Y26`, `X57_Y58` agree): `u32 0x00010017`, `u16 0`, then **thre
 * `0xbf0c0 .. 0xcc5f0` (13.8 KB): plain `u32` index arrays (`0x555`, runs of `1, n` pairs; `0x155, 0x2aa, 0x3ff` = 1/3, 2/3 of 1024 - a 32x32 lookup).
 * `0xcc5f0 .. end`: plain data, in the sea tile almost entirely repeated `1f 84 1f 84 00 00 00 00` (RGB565-looking `0x841f`). [INF]
 
-## 2b. The stream layout - DECODED, terrain heights confirmed (session 62) [DATA]
+## 2b. The stream layout and the quadtree - DECODED (session 62) [DATA]
 
-Each decoded stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (not 4-aligned; sizes are `4n+1`).
-* Header floats: `[0..8]` 3x3 rotation, `[9..11]` **centre x, y, z**, `[12..14]` half extents - i.e. an oriented bounding box - then the same again at `[15..29]`
-  (a second box); `[30..63]` 34 more floats (sample heights of the box).
-* **World frame: x, y horizontal, z UP, metres.** Tile `TILE_X63_Y42` spans x 5120..5632, y -256..256 (a 512 m square); z 58..282 m.
-* Floats at 257: **a 33x33 heightfield** (1,089 floats; read as `reshape(33,33).T`, then the first 32x32 are the cell), **16 m per cell, 0.5 m samples**.
-  Leaf cells sit on a 16 m grid (centres 5128, 5144, ...; y -248, -232, ...), 32x32 = 1,024 cells per tile, in Z-order in the file. ~960 of 1,024 are present (the rest:
-  other stream kinds, sea or neighbours' LOD). Larger streams (50-70 KB, multi-tile `04 fb 02 00`) are coarser parents with bigger boxes (half extents 23-66 m).
-* After the 1,089 floats: more float data (vertex-like, y values near -250 in the first leaf) - not decoded.
-* **Verified:** `tools/tdusc/pws_height.py` stitches 941 leaf cells of `X63_Y42` into a 1024x1024 map with **no seams between cells** (orientation and stride correct) and a smooth
-  hillside falling ~220 m across the tile: a local render, not committed (TDUSC art stays out of the repo; regenerate with `pws_height.py --png`) (hillshade version looks like real terrain, not noise).
-* Multi-tile streams (tiles >= 2): the decoded size is `65536 * (tiles - 1) + last`, and the stream ends at `8 + 4*tiles + offs[-1] + offs[0]`.
-  A script that cut the stream at `offs[0]` alone hung the decoder - use `pws_scan.candidates` + that end.
+**A tile is a quadtree of 1,364 GDeflate streams in depth-first pre-order**: 4 cells of 256 m (order (0,0) (1,0) (0,1) (1,1), x fast), each followed by its
+4 children, down to 16 m: 4 + 16 + 64 + 256 + 1,024 = 1,364. The k-th stream in file order is the k-th node, so **a stream's cell comes from its position, not from its box**.
+Verified on `X63_Y42`: all 1,280 streams with a box centre lie within 0.6 S of their node's cell centre (median error 0.5 m).
+
+Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (not 4-aligned; sizes are `4n+1`):
+* header floats: `[0..8]` 3x3 rotation, `[9..11]` centre xyz, `[12..14]` half extents (a tight oriented box, NOT the cell: do not use extents for the cell size), the same again at
+  `[15..29]` (box 2), `[30..63]` 34 more floats. Centre (0,0) = the node has no data.
+* **`[257..]`: a 33x33 float32 heightfield, 32 intervals per cell side (spacing S/32: 0.5 m at 16 m, 8 m at 256 m), rows stored TOP-DOWN in y** - flip the rows to get y up. Then
+  more data (not decoded; zeros after the grid in the streams checked).
+* **Verified:** every parent grid equals its children's grids decimated 2x - mean abs difference **0.0** at all four levels on `X63_Y42` (941/256/64/12 pairs). So the parents
+  are redundant where all four children exist, and are the only data where a child is missing.
+* World frame: x, y horizontal, z UP, metres.
+* Multi-tile streams (tiles >= 2): decoded size `65536 * (tiles - 1) + last`; the stream ends at `8 + 4*tiles + offs[-1] + offs[0]`.
+  `pws_scan.candidates` now skips a header-looking pattern that begins inside the previous stream (`X57_Y46` had one, giving 1,365).
 
 ## 2c. Tile placement and the whole island (session 62) [DATA]
 
-* **Placement - fitted on 5 tiles (X62/63/64 x Y38..46), also consistent with X27_Y38:** `TILE_X<i>_Y<j>` has its SW corner at world
-  **x = 256*i - 11008, y = 256*j - 11008** (m), is 512 m square. X pitch and Y pitch are both 256 m; a column only uses every 4th Y (odd columns offset by 2), so the tiles form a
-  staggered brick pattern. 589 tiles -> x -9472..8960, y -8448..5376 (an 18 x 14 km box).
-* `tools/tdusc/pws_island.py` decodes all 589 tiles in parallel (16 jobs, **30 min**, 16 GB read) into per-tile 1024x1024 float32 maps (2.4 GB). Stitched at 4 m
-  (`C:/temp/hk_island_4m.npy`): z -39..552 m, and the outline is **recognisably Hong Kong** (Lantau in the west, the harbour gap, Kowloon side east).
-* **Coverage problem:** only the 16 m "leaf" cells are decoded = 16.7 km2 of the ~154 km2 of tile area (11 %). Full 32x32 leaf grids exist in some tiles (X63_Y42: 941 of 1024),
-  but most tiles are sparse. The other cells are **different stream kinds**: sizes 20-70 KB decoded, half extents 20-66 m, centres at 32 m / 64 m cell centres.
-  Their first 1,089 floats are NOT a clean coarser heightfield: compositing them as 32/64/128 m cells gave a blocky, discontinuous map with large flat 4.0 m patches
-  (X27_Y38, coverage 83 % but wrong) - so they are probably water / road / other meshes, or a different sample layout. **Ruled out:** "bigger OBB = same 33x33 grid on a bigger cell".
+* **Placement - fitted on 5 tiles, also consistent with `X27_Y38`:** `TILE_X<i>_Y<j>` has its SW corner at world **x = 256*i - 11008, y = 256*j - 11008** (m) and is 512 m square.
+  X and Y pitch are both 256 m; a column only uses every 4th Y (odd columns offset by 2), so the tiles form a staggered brick pattern. 589 tiles -> x -9472..8960, y -8448..5376.
+* `tools/tdusc/pws_island.py` decodes **all 589 tiles** (18 jobs, **43 min**) into 1024x1024 float32 maps at 0.5 m (2.4 GB), composed coarse-to-fine from the quadtree.
+  Stitched at 4 m: **103 km2 covered, z -99..552 m, the island is unmistakably Hong Kong Island**: harbour coast on the north, the ridge system, the southern bays, Kowloon side, and the road
+  network visible as lines in the hillshade. `X75_Y26` / `X39_Y58` have no data (open sea).
+* **Retracted earlier claim:** "only 11 % covered, the 20-70 KB streams are another kind" was wrong. They are the coarser quadtree levels of the SAME heightfield; the blocky composite
+  came from a flipped row order and from guessing the cell size out of the box extents. Both are fixed.
 
 ## 3. Tool
 
@@ -62,11 +62,9 @@ Each decoded stream = **256-byte header, 1 pad byte, then float32 data at offset
 
 ## 4. Not known yet / next
 
-* Tile placement: solved, s.2c.
-* **The non-16 m stream kinds (the real blocker for a full island):** work out what the 20-70 KB streams hold (dump the floats after offset 257 of a 46 KB one, `X27_Y38` @ `0x20cba0`, 29,524 B compressed). Without them most land is missing.
-* The ~60 missing cells per tile and the 50-70 KB parent streams (do they hold different detail, roads, water?).
-* The float data after the heightfield (vertices of the static meshes?) and the `0xbf0c0..` index sections.
-* Where roads / nav / buildings live; whether the PWS carries them at all.
-* Speed: `gdeflate.py` is pure Python (a 24 MB tile = a few minutes; fine for a one-off converter).
-* Island mod plan: (1) done; (2) heightfield done for one tile -> all 589 tiles + meshes; (3) terrain-only `islands/hongkong`, template `tools/mod/make_eden_island.py` (needs the Eden
-  `.3dg` heightfield format, `docs/formats.md`); (4) objects, roads, minimap.
+* What follows the 33x33 grid in each stream (the data after float 1089: more floats / bytes; roads and props are visible in the hillshade, so surface detail is somewhere, maybe
+  baked into the heights only). The `0xbf0c0..` index sections and the plain `0xcc5f0..end` section of the file are not decoded.
+* Roads / nav graph / buildings / textures: not located. Roads exist in the heights as ridges; a real road graph for GPS would have to be traced from the heightfield or found elsewhere.
+* Sea level and the water mask (z goes to -99 m: seabed is in the data).
+* Island mod: writing Eden's terrain (`.3dg` 257x257 heightfield primitives per island/area/sector, 384 m / 24 m / 3 m grids, plus materials / colour map) from `C:/temp/hk_island_4m.npy`-style
+  data. Template: `tools/mod/make_eden_island.py`, `docs/re/eden_island_spec.md`. The island is 18 x 14 km = about 3 x 3 Eden areas (6 km each).
