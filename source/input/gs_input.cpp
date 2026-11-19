@@ -590,6 +590,22 @@ void GSInput::updateGamepad() {
         leftStick[0] = injectedLeftStick[0];
         leftStick[1] = injectedLeftStick[1];
     }
+    if ( pGamepad == nullptr && !CmdLine::HasArg( "-nopad" ) ) {
+        // A pad that was already connected before the engine started (the
+        // Android launcher initialises SDL first and consumes the added events)
+        // never sends SDL_EVENT_GAMEPAD_ADDED here: open it now. Its button
+        // events kept arriving through the launcher's own handle, which is why
+        // only the sticks / triggers (polled from pGamepad) were dead.
+        int32_t padCount = 0;
+        SDL_JoystickID *pPadIds = SDL_GetGamepads( &padCount );
+        if ( pPadIds != nullptr && padCount > 0 ) {
+            pGamepad = SDL_OpenGamepad( pPadIds[0] );
+            if ( pGamepad != nullptr ) {
+                OTDU_LOG_INFO( "Gamepad found at start: %s\n", SDL_GetGamepadName( pGamepad ) );
+            }
+        }
+        SDL_free( pPadIds );
+    }
     if ( pGamepad == nullptr ) {
         return;
     }

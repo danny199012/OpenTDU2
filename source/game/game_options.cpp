@@ -279,6 +279,14 @@ void LoadGameOptions() {
     if ( const char *pDistance = CmdLine::GetArgValue( "-drawdistance" ) ) {
         options.DrawDistance = Clamp( atoi( pDistance ), 50, 150 );
     }
+    // -renderscale <pct> / -fpslimit <n>: scene resolution and frame cap for this run (the
+    // Android launcher's quality choice passes them).
+    if ( const char *pScale = CmdLine::GetArgValue( "-renderscale" ) ) {
+        options.RenderScale = Clamp( atoi( pScale ), 50, 200 );
+    }
+    if ( const char *pLimit = CmdLine::GetArgValue( "-fpslimit" ) ) {
+        options.FpsLimit = Clamp( atoi( pLimit ), 0, 240 );
+    }
     if ( const char *pShadowDistance = CmdLine::GetArgValue( "-shadowdistance" ) ) {
         options.ShadowDistance = Clamp( atoi( pShadowDistance ), 50, 150 );
     }

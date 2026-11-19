@@ -4,6 +4,7 @@
 #include "debug/gs_imgui.h"
 #include "system/cmd_line.h"
 
+#include <SDL3/SDL_timer.h>
 #include "imgui.h"
 
 #include "build_info.h"
@@ -38,7 +39,14 @@ void Initialize() {
 
 void Draw() {
     if ( gbShowFps ) {
-        const float dt = ImGui::GetIO().DeltaTime;
+        // Real time between draws: the engine clamps its frame delta (0.1 s), which would
+        // show a slow frame as a flat 10 FPS.
+        static uint64_t lastCounter = 0;
+        const uint64_t counter = SDL_GetPerformanceCounter();
+        const float dt = lastCounter == 0 ? 0.016f
+                                          : static_cast<float>( static_cast<double>( counter - lastCounter ) /
+                                                                static_cast<double>( SDL_GetPerformanceFrequency() ) );
+        lastCounter = counter;
         gFpsAccum += dt;
         gFpsFrames++;
         gFpsWorst = dt > gFpsWorst ? dt : gFpsWorst;

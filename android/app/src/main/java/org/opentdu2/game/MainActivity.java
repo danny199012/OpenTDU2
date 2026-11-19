@@ -48,6 +48,29 @@ public class MainActivity extends SDLActivity {
         } );
     }
 
+    /** Hide the status and navigation bars (sticky immersive) so the game fills the screen. */
+    private void goImmersive() {
+        try {
+            getWindow().getDecorView().setSystemUiVisibility(
+                android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION );
+        } catch ( Exception e ) {
+            // cosmetic only
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged( boolean hasFocus ) {
+        super.onWindowFocusChanged( hasFocus );
+        if ( hasFocus ) {
+            goImmersive();
+        }
+    }
+
     /** Called from native (JNI): Environment.isExternalStorageManager(). */
     public boolean hasAllFilesAccess() {
         try {

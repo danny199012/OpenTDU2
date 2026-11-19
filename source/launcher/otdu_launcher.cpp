@@ -88,6 +88,7 @@ struct LauncherState {
     bool bSkipIntro = true;
     bool bWatermark = true;
     bool bShowFps = true;
+    int quality = 0; // 0 Phone, 1 Low, 2 Medium, 3 High
     char onlineUser[64] = {};
     char onlineServer[128] = {};
 
@@ -354,6 +355,9 @@ void LoadSettings( LauncherState &state ) {
     if ( !IniValue( content, "skip_intro" ).empty() ) {
         state.bSkipIntro = IniValue( content, "skip_intro" ) == "1";
     }
+    if ( !IniValue( content, "quality" ).empty() ) {
+        state.quality = std::max( 0, std::min( 3, atoi( IniValue( content, "quality" ).c_str() ) ) );
+    }
     if ( !IniValue( content, "show_fps" ).empty() ) {
         state.bShowFps = IniValue( content, "show_fps" ) == "1";
     }
@@ -407,6 +411,8 @@ void SaveSettings( const LauncherState &state ) {
     fprintf( pFile, "profile=%s\n", state.profileId.c_str() );
     fprintf( pFile, "skip_intro=%d\n", state.bSkipIntro ? 1 : 0 );
     fprintf( pFile, "watermark=%d\n", state.bWatermark ? 1 : 0 );
+    fprintf( pFile, "show_fps=%d\n", state.bShowFps ? 1 : 0 );
+    fprintf( pFile, "quality=%d\n", state.quality );
     fprintf( pFile, "online_user=%s\n", state.onlineUser );
     fprintf( pFile, "online_server=%s\n", state.onlineServer );
     fclose( pFile );
@@ -688,6 +694,13 @@ void DrawPlayPage( LauncherState &state, bool *pbPlay ) {
         }
         if ( ImGui::Button( "Manage profiles", ImVec2( 0, S( 40.0f ) ) ) ) {
             state.page = Page::Profiles;
+        }
+        ImGui::TextColored( kDim, "GRAPHICS" );
+        const char *kQuality[4] = { "Phone (fastest)", "Low", "Medium", "High (PC look)" };
+        for ( int q = 0; q < 4; q++ ) {
+            if ( ImGui::RadioButton( kQuality[q], state.quality == q ) ) {
+                state.quality = q;
+            }
         }
         ImGui::Checkbox( "Skip the intro cinematic", &state.bSkipIntro );
         ImGui::Checkbox( "Show my name in the in-game watermark", &state.bWatermark );
@@ -1659,6 +1672,23 @@ bool Run( SDL_Window **ppOutWindow ) {
         }
         if ( state.bShowFps ) {
             CmdLine::AddArg( "-showfps", nullptr );
+        }
+        switch ( state.quality ) {
+        case 0: // Phone: the Low profile at half scene resolution, near draw distance, 30 fps cap
+            CmdLine::AddArg( "-profile", "low" );
+            CmdLine::AddArg( "-renderscale", "50" );
+            CmdLine::AddArg( "-drawdistance", "50" );
+            CmdLine::AddArg( "-fpslimit", "30" );
+            break;
+        case 1:
+            CmdLine::AddArg( "-profile", "low" );
+            break;
+        case 2:
+            CmdLine::AddArg( "-profile", "medium" );
+            break;
+        default:
+            CmdLine::AddArg( "-profile", "high" );
+            break;
         }
         if ( state.onlineUser[0] != '\0' ) {
             CmdLine::AddArg( "-onlineusername", state.onlineUser );
