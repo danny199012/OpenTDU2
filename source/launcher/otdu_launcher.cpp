@@ -57,6 +57,7 @@ enum class Page { Play, GameData, Settings };
 
 struct LauncherState {
     Page page = Page::Play;
+    bool bDrawerOpen = false; // portrait: the slide-out menu
     std::string gameDir;    // selected + validated game folder ('' = none)
     std::string browserDir; // the folder browser's current directory
     float dpiScale = 1.0f;
@@ -507,9 +508,15 @@ void DrawPlayPage( LauncherState &state, bool *pbPlay ) {
     if ( PlayButton( "PLAY", bReady, S( 260.0f ), S( 62.0f ) ) ) {
         *pbPlay = true;
     }
-    ImGui::SameLine();
+    if ( ImGui::GetContentRegionAvail().x > S( 560.0f ) ) {
+        ImGui::SameLine();
+        if ( !bReady ) {
+            ImGui::SetCursorPosY( ImGui::GetCursorPosY() + S( 18.0f ) );
+        }
+    } else if ( !bReady ) {
+        ImGui::Spacing();
+    }
     if ( !bReady ) {
-        ImGui::SetCursorPosY( ImGui::GetCursorPosY() + S( 18.0f ) );
         if ( ImGui::Button( "Choose game folder >", ImVec2( 0, S( 46.0f ) ) ) ) {
             state.page = Page::GameData;
         }
@@ -676,24 +683,28 @@ void DrawRoot( LauncherState &state, bool *pbPlay ) {
     const float sidebarWidth = Min( S( 210.0f ), pViewport->Size.x * 0.3f );
 
     if ( bPortrait ) {
-        const float tabWidth = ( ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x ) / 3.0f;
-        const char *tabs[3] = { "PLAY", "GAME DATA", "SETTINGS" };
+        const char *titles[3] = { "PLAY", "GAME DATA", "SETTINGS" };
         const Page pages[3] = { Page::Play, Page::GameData, Page::Settings };
-        ImGui::PushStyleColor( ImGuiCol_ChildBg, ImVec4( 0.06f, 0.07f, 0.095f, 1.00f ) );
-        for ( int i = 0; i < 3; i++ ) {
-            if ( i > 0 ) {
-                ImGui::SameLine();
-            }
-            ImGui::PushID( i );
-            ImGui::BeginChild( "##tab", ImVec2( tabWidth, S( 52.0f ) ), ImGuiChildFlags_None,
-                               ImGuiWindowFlags_NoScrollbar );
-            if ( NavItem( tabs[i], state.page == pages[i], S( 52.0f ) ) ) {
-                state.page = pages[i];
-            }
-            ImGui::EndChild();
-            ImGui::PopID();
+        const float barH = S( 52.0f );
+        // Top bar: the hamburger button (left) + the current page's name.
+        ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.10f, 0.11f, 0.15f, 1.0f ) );
+        if ( ImGui::Button( "##burger", ImVec2( barH, barH ) ) ) {
+            state.bDrawerOpen = !state.bDrawerOpen;
         }
         ImGui::PopStyleColor();
+        {
+            const ImVec2 mn = ImGui::GetItemRectMin();
+            const float w = barH * 0.46f, x0 = mn.x + ( barH - w ) * 0.5f;
+            ImDrawList *pDraw = ImGui::GetWindowDrawList();
+            const ImU32 col = ImGui::ColorConvertFloat4ToU32( kText );
+            for ( int i = 0; i < 3; i++ ) {
+                const float y = mn.y + barH * 0.30f + i * barH * 0.20f;
+                pDraw->AddLine( ImVec2( x0, y ), ImVec2( x0 + w, y ), col, S( 3.0f ) );
+            }
+        }
+        ImGui::SameLine();
+        ImGui::SetCursorPosY( ImGui::GetCursorPosY() + ( barH - ImGui::GetFontSize() ) * 0.5f );
+        ImGui::TextColored( kAccent, "%s", titles[static_cast<int>( state.page ) < 3 ? static_cast<int>( state.page ) : 0] );
         ImGui::BeginChild( "##main", ImVec2( 0, 0 ) );
         switch ( state.page ) {
         case Page::Play:
@@ -708,9 +719,50 @@ void DrawRoot( LauncherState &state, bool *pbPlay ) {
         }
         ImGui::EndChild();
         ImGui::End();
+
+        // The drawer: the sidebar, sliding over the left of the page. A tap on
+        // the dimmed area (or the hamburger again) closes it.
+        if ( state.bDrawerOpen ) {
+            ImDrawList *pFg = ImGui::GetForegroundDrawList();
+            pFg->AddRectFilled( pViewport->Pos,
+                                ImVec2( pViewport->Pos.x + pViewport->Size.x, pViewport->Pos.y + pViewport->Size.y ),
+                                IM_COL32( 0, 0, 0, 120 ) );
+            const float drawerW = Min( S( 280.0f ), pViewport->Size.x * 0.8f );
+            ImGui::SetNextWindowPos( pViewport->Pos );
+            ImGui::SetNextWindowSize( ImVec2( drawerW, pViewport->Size.y ) );
+            ImGui::PushStyleColor( ImGuiCol_WindowBg, ImVec4( 0.06f, 0.07f, 0.095f, 1.0f ) );
+            ImGui::Begin( "##drawer", nullptr,
+                          ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                              ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav );
+            ImGui::PopStyleColor();
+            ImGui::TextColored( kAccent, "OpenTDU2" );
+            ImGui::Separator();
+            ImGui::Spacing();
+            for ( int i = 0; i < 3; i++ ) {
+                if ( NavItem( titles[i], state.page == pages[i], S( 52.0f ) ) ) {
+                    state.page = pages[i];
+                    state.bDrawerOpen = false;
+                }
+            }
+            ImGui::PushFont( ImGui::GetIO().FontDefault, 11.0f );
+            ImGui::TextWrapped( "%s", OTDU_BUILD_STRING );
+            ImGui::PopFont();
+            ImGui::End();
+            // Dimmed area beside the drawer: a tap closes it.
+            ImGui::SetNextWindowPos( ImVec2( pViewport->Pos.x + drawerW, pViewport->Pos.y ) );
+            ImGui::SetNextWindowSize( ImVec2( pViewport->Size.x - drawerW, pViewport->Size.y ) );
+            ImGui::PushStyleColor( ImGuiCol_WindowBg, ImVec4( 0, 0, 0, 0 ) );
+            ImGui::Begin( "##drawerscrim", nullptr,
+                          ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                              ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav );
+            ImGui::PopStyleColor();
+            if ( ImGui::InvisibleButton( "##scrim", ImGui::GetContentRegionAvail() ) ) {
+                state.bDrawerOpen = false;
+            }
+            ImGui::End();
+        }
         return;
     }
-
 
     // Sidebar.
     ImGui::PushStyleColor( ImGuiCol_ChildBg, ImVec4( 0.06f, 0.07f, 0.095f, 1.00f ) );

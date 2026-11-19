@@ -557,6 +557,38 @@ void TestDriveGameInstance::pumpEvents() {
         pImGui->processEvent( event );
         pInput->processEvent( event, pImGui->wantsKeyboard(),
                               pImGui->wantsMouse() );
+        // Controller paddles stand in for the keyboard-only developer keys (a
+        // phone has no F-keys): right paddle 1 = F4 (cheats + teleport panel),
+        // left paddle 1 = F2 (coordinates overlay / panels), right paddle 2 =
+        // F5 (fast travel from the map), left paddle 2 = F6 (wipers / write a
+        // coordinates mark). A synthetic key event keeps every F-key path
+        // (wasKeyPressed and the direct handlers below) working unchanged.
+        if ( event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN ) {
+            SDL_Scancode paddleKey = SDL_SCANCODE_UNKNOWN;
+            switch ( static_cast<SDL_GamepadButton>( event.gbutton.button ) ) {
+            case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1: paddleKey = SDL_SCANCODE_F4; break;
+            case SDL_GAMEPAD_BUTTON_LEFT_PADDLE1:  paddleKey = SDL_SCANCODE_F2; break;
+            case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2: paddleKey = SDL_SCANCODE_F5; break;
+            case SDL_GAMEPAD_BUTTON_LEFT_PADDLE2:  paddleKey = SDL_SCANCODE_F6; break;
+            default: break;
+            }
+            if ( event.gbutton.button >= SDL_GAMEPAD_BUTTON_MISC1 ) {
+                OTDU_LOG_INFO( "Pad: extra button %d pressed%s\n", static_cast<int>( event.gbutton.button ),
+                               paddleKey != SDL_SCANCODE_UNKNOWN ? " (mapped to a function key)" : "" );
+            }
+            if ( paddleKey != SDL_SCANCODE_UNKNOWN ) {
+                SDL_Event keyEvent = {};
+                keyEvent.type = SDL_EVENT_KEY_DOWN;
+                keyEvent.key.scancode = paddleKey;
+                keyEvent.key.key = SDL_GetKeyFromScancode( paddleKey, SDL_KMOD_NONE, false );
+                keyEvent.key.down = true;
+                keyEvent.key.repeat = false;
+                SDL_PushEvent( &keyEvent );
+                keyEvent.type = SDL_EVENT_KEY_UP;
+                keyEvent.key.down = false;
+                SDL_PushEvent( &keyEvent );
+            }
+        }
         switch ( event.type ) {
         case SDL_EVENT_QUIT:
         case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
