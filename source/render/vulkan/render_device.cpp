@@ -789,7 +789,18 @@ bool RenderDevice::createSwapchain() {
 
     int32_t pixelWidth = 0, pixelHeight = 0;
     SDL_GetWindowSizeInPixels( pWindow, &pixelWidth, &pixelHeight );
-    if ( capabilities.currentExtent.width != 0xffffffff ) {
+#if defined( OTDU_ANDROID )
+    // Android: currentExtent is in the panel's NATIVE orientation (portrait on a
+    // phone) and currentTransform is the rotation the compositor would expect
+    // the app to pre-apply. We do not pre-rotate, so render at SDL's logical
+    // window size and ask for the identity transform: the compositor rotates
+    // the finished image. (Using currentExtent here drew a portrait-shaped,
+    // sideways frame in landscape and broke touch coordinates.)
+    const bool bLogicalExtent = true;
+#else
+    const bool bLogicalExtent = false;
+#endif
+    if ( !bLogicalExtent && capabilities.currentExtent.width != 0xffffffff ) {
         swapchainExtent = capabilities.currentExtent;
     } else {
         swapchainExtent.width = Clamp<uint32_t>( static_cast<uint32_t>( pixelWidth ),
@@ -820,6 +831,11 @@ bool RenderDevice::createSwapchain() {
                             ( capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT );
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     createInfo.preTransform = capabilities.currentTransform;
+#if defined( OTDU_ANDROID )
+    if ( capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR ) {
+        createInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    }
+#endif
     createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     if ( !( capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR ) ) {
         createInfo.compositeAlpha = static_cast<VkCompositeAlphaFlagBitsKHR>(
