@@ -14,6 +14,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-19 (62, `main`): TDUSC Hong Kong island mod - stage 1, the PWS tile is a GDeflate container
+
+Owner: "With TDUSC can we try get hong kong island to be our 3rd map? as part of a mod?" Plan: PWS decode -> heightfield/meshes to OBJ -> terrain-only `islands/hongkong` -> objects/roads/minimap.
+Result: the PWS is not one opaque compressed body. It is plain sections plus **1,364 embedded GDeflate streams per tile** (84 x 21,053 B + 1,280 x 12,861 B), decoded with the existing `gdeflate.py`. `tools/tdusc/pws_scan.py` (new) decodes all of them: X75_Y26 and X57_Y58 -> `ok 1364 bad 0`. Spec: `docs/re/tdusc_pws_format.md`.
+Not done: the float layout of the blobs (they look like terrain height data, -28..-38 m seabed on the land tile), tile grid positions, roads/nav source, 24 MB tiles. Next: plot `X57_Y58` slot `0x30a10` as a heightfield.
+
 ## Session 2026-11-19 (61f, `main`): TDUSC Huracan runs in the game as a car swap, straight from the install
 
 `tools/tdusc/swap_pack.py` (new): `car_assemble.py` output -> `<mods>/carswap/` (body / glass / rim+tyre per axle, `carswap.txt`, a PNG per material). Run:
