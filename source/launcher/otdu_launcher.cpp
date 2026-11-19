@@ -59,7 +59,7 @@ enum class Page { Play, Profiles, Mods, GameData, Updates, Online, Settings };
 enum class UpdateStage { Idle, Checking, Available, Downloading, Downloaded, UpToDate, Failed };
 
 // GitHub repository the Android updater reads releases from (the owner's fork).
-constexpr const char *kRepoSlug = "danny199012/Open-TestDrive-Unlimited-2-";
+constexpr const char *kRepoSlug = "danny199012/OpenTDU2";
 
 struct LauncherState {
     Page page = Page::Play;
