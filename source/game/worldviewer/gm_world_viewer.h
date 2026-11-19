@@ -39,7 +39,7 @@ public:
     void exit() override;
     void drawUI() override;
 
-    static constexpr const char *kIslands[] = { "ibiza", "hawai", "casino", "eden" };
+    static constexpr const char *kIslands[] = { "ibiza", "hawai", "casino", "eden", "hongkong" };
 
 private:
     EdenSceneView view;

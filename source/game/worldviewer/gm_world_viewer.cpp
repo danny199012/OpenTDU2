@@ -34,6 +34,9 @@ const char *IslandLabel( const char *pIsland ) {
     if ( strcmp( pIsland, "eden" ) == 0 ) {
         return "Eden";
     }
+    if ( strcmp( pIsland, "hongkong" ) == 0 ) {
+        return "Hong Kong";
+    }
     return "Casino";
 }
 
@@ -72,7 +75,7 @@ bool GMWorldViewer::enter( TestDriveGameInstance *pInstance ) {
         name = "hawai";
     }
     if ( !IsKnownIsland( name ) ) {
-        OTDU_LOG_WARN( "WORLD_VIEWER: unknown island '%s' (ibiza, hawai, casino, eden), using ibiza\n", name.c_str() );
+        OTDU_LOG_WARN( "WORLD_VIEWER: unknown island '%s' (ibiza, hawai, casino, eden, hongkong), using ibiza\n", name.c_str() );
         name = "ibiza";
     }
     // The command line camera applies to the first island only.
