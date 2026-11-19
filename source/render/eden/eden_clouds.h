@@ -52,6 +52,11 @@ public:
     inline GPUTexture *getHistoryColor() const {
         return pHistory[historyIndex] != nullptr ? &pHistory[historyIndex]->Color : nullptr;
     }
+    // The scene-res R32F copy of the opaque depth (copySceneDepth): sampled by
+    // the composite and by the cirrus sheet / height fog passes.
+    inline GPUTexture *getSceneDepthCopy() const {
+        return pCloudDepthTarget != nullptr ? &pCloudDepthTarget->Color : nullptr;
+    }
     // Half-res march / history targets (call from EdenSceneView::ensureTargets).
     void ensureTargets( uint32_t sceneWidth, uint32_t sceneHeight );
     void destroyTargets();
@@ -68,13 +73,24 @@ public:
     // Pass 3, into the render pass currently being recorded (the blended pass,
     // after the deferred flush and before the haze).
     void composite( RenderDevice &device, const Params &params );
+    // The high cirrus sheet (TDUSC Cloud Cirrus Texture port): a 2D band at
+    // 6500-7200 m, drawn into the render pass currently being recorded (the
+    // blended pass, right after the deferred flush, BEFORE composite so the
+    // deck draws over it). Depth-rejects against the copySceneDepth copy.
+    void drawCirrus( RenderDevice &device, const Params &params );
 
 private:
     // Tileable noise volumes, generated on the CPU once (eden_ocean builds
     // its NoiseSlice the same way).
     GPUTexture *pBaseNoise = nullptr;   // R8: Perlin-Worley base shape
     GPUTexture *pDetailNoise = nullptr; // RGBA8: Worley erosion octaves
+    GPUTexture *pCirrusNoise = nullptr; // R8 512x256: anisotropic streaks
+    GPUTexture *pLayerParams = nullptr; // RGBA32F 1x1: the march push block is
+                                        // at the 128-byte cap, so the
+                                        // -nosecondlayer gate rides in as a
+                                        // texture (uLayerParams.r)
     bool generateNoise();
+    bool generateCirrusNoise();
     static float tileablePerlin( float x, float y, float z, uint32_t frequency );
     static float tileableWorley( float x, float y, float z, uint32_t frequency );
     // coverage (0 clear .. 1 overcast) -> the base-noise threshold that leaves

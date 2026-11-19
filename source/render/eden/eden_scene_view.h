@@ -274,6 +274,10 @@ private:
     // being built, and a sampled image must not be the render target too.
     RenderTarget *pEnvironmentScratch = nullptr;
     RenderTarget *pFinalTarget = nullptr;
+    // TDUSC-style height fog output (-notdfog): the finished image with the
+    // ground-hugging fog layer applied, read by the final blit.
+    RenderTarget *pFogTarget = nullptr;
+    bool bFogApplied = false; // applyHeightFog ran this frame
     // Upscaler "FSR 1.0": EASU output, RCAS output (window size) and the image
     // draw() presents this frame (null when FSR is off).
     RenderTarget *pFsrEasuTarget = nullptr;
@@ -349,6 +353,15 @@ private:
     // world so terrain and the clouds occlude each other in both directions.
     void drawCloudLayer( const EdenSceneParams &params );
     void compositeCloudLayer( const EdenSceneParams &params );
+    // The high cirrus sheet of the same layer (drawn before the composite so
+    // the deck occludes it).
+    void drawCirrusLayer( const EdenSceneParams &params );
+    // TDUSC-style height + noise fog (-notdfog): one fullscreen pass over the
+    // finished image (after the photoshop pass, before the upscalers read it).
+    void applyHeightFog( const EdenSceneParams &params );
+    // The finished image the upscalers and the final blit consume: the fogged
+    // copy when the height fog ran this frame, else the photoshop / scene one.
+    GPUTexture *finishedSceneColor() const;
     // The per-frame view + weather parameters of the cloud layer (and the
     // -cloudcover / weather targets); false when the layer is off.
     bool fillCloudLayerParams( EdenClouds::Params &p, const EdenSceneParams &params );

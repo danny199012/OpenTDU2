@@ -10,6 +10,16 @@
 // multi-scatter fit (Schneider / Hillaire), a dual-lobe Henyey-Greenstein
 // phase and a vertical sky gradient.
 //
+// TDUSC port (docs/re/tdusc_weather_physics.md): a second, higher cloud layer
+// above the main deck (the TimeCycleElementSky template keeps
+// Coverage##CloudCoverageSecondLayer and its densities at defaults, so the
+// second slab is derived from the pushed main deck: +800 m above its top,
+// sparser threshold, flatter noise) and the forward Henyey-Greenstein lobe at
+// TDUSC's Mie Anisotropy 0.8. The template's Rainy Cloud coupling is the
+// darkness scalar pulling the second layer into the storm deck. The two
+// opt-outs ride in through uLayerParams (the push-constant block is at the
+// 128-byte cap): a 1x1 RGBA32F texture filled once by EdenClouds::initialize.
+//
 // Output: premultiplied colour; the alpha channel carries
 // packHalf2x16(alpha, hitDistance / kMaxDistance) for the accumulate pass
 // (volclouds_accum.frag, temporal reprojection that removes the ray jitter)
@@ -17,6 +27,7 @@
 // distance into a fragment depth so terrain and clouds occlude each other).
 layout( set = 0, binding = 0 ) uniform sampler3D uBase;
 layout( set = 0, binding = 1 ) uniform sampler3D uDetail;
+layout( set = 0, binding = 2 ) uniform sampler2D uLayerParams;
 layout( push_constant ) uniform PushConstants {
     vec4 CamPos;   // xyz camera (world), w time (s)
     vec4 Right;    // xyz camera right * tan(fov / 2) * aspect, w coverage 0..1
@@ -25,7 +36,7 @@ layout( push_constant ) uniform PushConstants {
     vec4 ToSun;    // xyz unit vector towards the sun, w darkness 0..1
     vec4 SunColor; // rgb sun light, w wind x (m/s)
     vec4 Ambient;  // rgb sky ambient, w wind z (m/s)
-    vec4 Fog;      // rgb fog colour, w unused
+    vec4 Fog;      // rgb fog colour, w coverage threshold
 } pc;
 layout( location = 0 ) in vec2 inTexcoord;
 layout( location = 0 ) out vec4 outColor;
@@ -34,9 +45,30 @@ const float kMaxDistance = 60000.0; // shared with the accumulate / composite pa
 const float kShapeScale = 2100.0;   // metres per base-noise tile (cumulus scale)
 const float kDetailScale = 210.0;   // metres per detail-noise tile
 const float kMarchLength = 26000.0; // metres marched inside the slab
+// The second layer (TDUSC-derived, see the header comment): a slab above the
+// main deck, sampled at twice the tile scale (flatter, wider cells) and with a
+// threshold offset so it stays sparser than the deck below.
+const float kLayer2Above = 800.0;    // metres above the main deck's top
+const float kLayer2Thick = 1300.0;   // slab thickness
+const float kLayer2March = 16000.0;  // march cap inside the second slab
+const float kLayer2Thresh = 0.10;    // threshold offset over the main deck's
+const float kLayer2Shape = 4200.0;   // metres per base-noise tile
 
 float heightFraction( float y ) {
     return clamp( ( y - pc.Up.w ) / max( pc.Fwd.w - pc.Up.w, 1.0 ), 0.0, 1.0 );
+}
+
+// Ray / slab intersection from any camera height (above the deck too).
+vec2 slabRange( float base, float top, vec3 dir ) {
+    if ( abs( dir.y ) > 1e-4 ) {
+        const float t0 = ( base - pc.CamPos.y ) / dir.y;
+        const float t1 = ( top - pc.CamPos.y ) / dir.y;
+        return vec2( max( min( t0, t1 ), 0.0 ), max( t0, t1 ) );
+    }
+    if ( pc.CamPos.y >= base && pc.CamPos.y <= top ) {
+        return vec2( 0.0, kMaxDistance );
+    }
+    return vec2( 0.0, -1.0 );
 }
 
 float density( vec3 p, bool bDetail ) {
@@ -88,13 +120,42 @@ float density( vec3 p, bool bDetail ) {
     return d * mix( 1.0, 1.6, pc.ToSun.w );
 }
 
+// The second layer: a thin broken deck floating above the main one. Same
+// noise pair, twice the tile scale, no convection cells and only light
+// erosion (the high deck reads as flattened altocumulus, not cumulus). The
+// darkness scalar (the template's Rainy Cloud coupling) grows it into the
+// storm overcast.
+float densityLayer2( vec3 p, bool bDetail ) {
+    const float base2 = pc.Fwd.w + kLayer2Above;
+    const float top2 = base2 + kLayer2Thick;
+    const float h = clamp( ( p.y - base2 ) / ( top2 - base2 ), 0.0, 1.0 );
+    const vec3 q = ( p + vec3( pc.SunColor.w, 0.0, pc.Ambient.w ) * pc.CamPos.w ) / kLayer2Shape;
+    const float cmap = texture( uBase, vec3( q.xz * 0.23, 0.37 ) ).r;
+    // Broken deck: soft rounded band, denser in the middle of the slab.
+    const float profile = smoothstep( 0.0, 0.30, h ) * ( 1.0 - smoothstep( 0.55, 1.0, h ) );
+    float d = texture( uBase, q ).r;
+    const float cluster = ( smoothstep( 0.25, 0.85, cmap ) - 0.5 ) * 0.5;
+    d += cluster;
+    const float threshold2 = min( pc.Fog.w + kLayer2Thresh, 0.95 );
+    d = clamp( ( d - threshold2 ) / 0.18, 0.0, 1.0 ) * profile;
+    if ( bDetail && d > 0.0 ) {
+        const vec4 w4 = texture( uDetail, q * ( kLayer2Shape / kDetailScale ) );
+        const float w = dot( w4, vec4( 0.50, 0.28, 0.14, 0.08 ) );
+        d = clamp( d - ( 1.0 - w ) * 0.24, 0.0, 1.0 );
+    }
+    return d * texture( uLayerParams, vec2( 0.5 ) ).r * mix( 1.0, 1.4, pc.ToSun.w );
+}
+
 // Optical depth towards the sun: six taps with a growing step, ~1.4 km reach.
-// The detail erosion only runs on the first taps (cost).
+// The detail erosion only runs on the first taps (cost). A tap above the
+// second slab samples the second layer's density.
 float lightMarch( vec3 p ) {
     float sum = 0.0;
     float step = 28.0;
     for ( int s = 0; s < 6; s++ ) {
-        sum += density( p + pc.ToSun.xyz * step, s < 2 ) * step;
+        const vec3 q = p + pc.ToSun.xyz * step;
+        const float d = q.y >= pc.Fwd.w + kLayer2Above ? densityLayer2( q, s < 2 ) : density( q, s < 2 );
+        sum += d * step;
         step *= 1.9;
     }
     return sum;
@@ -109,44 +170,22 @@ float interleavedGradient( vec2 p, float seed ) {
     return fract( 52.9829189 * fract( dot( p + seed * vec2( 5.41, 17.113 ), vec2( 0.06711056, 0.00583715 ) ) ) );
 }
 
-void main() {
-    // The texcoords are D3D style (0,0 top left): the vertical NDC of the ray
-    // must flip, or the sky renders mirrored below the horizon (attempt 1's
-    // "cloud band" was this bug seen edge-on).
-    const vec2 ndc = vec2( inTexcoord.x * 2.0 - 1.0, 1.0 - inTexcoord.y * 2.0 );
-    const vec3 dir = normalize( pc.Fwd.xyz + pc.Right.xyz * ndc.x + pc.Up.xyz * ndc.y );
-    const float base = pc.Up.w, top = pc.Fwd.w;
-    // Ray / slab intersection from any camera height (above the deck too).
-    float tNear = 0.0, tFar = -1.0;
-    if ( abs( dir.y ) > 1e-4 ) {
-        const float t0 = ( base - pc.CamPos.y ) / dir.y;
-        const float t1 = ( top - pc.CamPos.y ) / dir.y;
-        tNear = max( min( t0, t1 ), 0.0 );
-        tFar = max( t0, t1 );
-    } else if ( pc.CamPos.y >= base && pc.CamPos.y <= top ) {
-        tFar = kMaxDistance;
-    }
-    if ( tFar <= tNear || tNear > kMaxDistance ) {
-        outColor = vec4( 0.0 );
-        return;
-    }
-    tFar = min( tFar, tNear + kMarchLength );
-
-    const int kSteps = 56;
-    const float stepLength = ( tFar - tNear ) / float( kSteps );
-    const float jitter = interleavedGradient( gl_FragCoord.xy, fract( pc.CamPos.w * 0.618034 ) );
+// One slab march, shared by the two layers. The per-sample integration is the
+// v8 body: two multi-scatter octaves (Schneider's fit), powder darkening,
+// height-shaped ambient. transmittance / light / hitT carry across the two
+// segments so the layers compose as one medium.
+void marchSegment( vec3 dir, float tNear, float tFar, int steps, float seed, bool bLayer2,
+                   inout float transmittance, inout vec3 light, inout float hitT ) {
+    const float stepLength = ( tFar - tNear ) / float( steps );
+    const float jitter = interleavedGradient( gl_FragCoord.xy, seed );
     float t = tNear + stepLength * jitter;
-
     const float cosSun = dot( dir, pc.ToSun.xyz );
-    const float phase = mix( henyeyGreenstein( cosSun, 0.60 ), henyeyGreenstein( cosSun, -0.20 ), 0.35 ) * 12.566;
+    // Dual-lobe HG with the forward lobe at TDUSC's Mie Anisotropy 0.8.
+    const float phase = mix( henyeyGreenstein( cosSun, 0.80 ), henyeyGreenstein( cosSun, -0.20 ), 0.35 ) * 12.566;
     const float sigma = mix( 0.014, 0.036, pc.ToSun.w ); // extinction per metre of density
-
-    float transmittance = 1.0;
-    vec3 light = vec3( 0.0 );
-    float hitT = tNear;
-    for ( int i = 0; i < kSteps; i++ ) {
+    for ( int i = 0; i < steps; i++ ) {
         const vec3 p = pc.CamPos.xyz + dir * t;
-        const float d = density( p, true );
+        const float d = bLayer2 ? densityLayer2( p, true ) : density( p, true );
         if ( d > 0.004 ) {
             // Two multi-scatter octaves: the first is the single scatter with
             // a powder darkening, the second fakes the light that bounces
@@ -165,7 +204,8 @@ void main() {
                 scatter *= 0.55;
             }
             sunLight *= 0.42 /* HDR sun: unscaled the lit tops clip to flat white */ * min( phase, 1.3 ) * mix( 1.0, powder, 0.35 );
-            const float h = heightFraction( p.y );
+            const float h = bLayer2 ? clamp( ( p.y - ( pc.Fwd.w + kLayer2Above ) ) / kLayer2Thick, 0.0, 1.0 )
+                                    : heightFraction( p.y );
             const vec3 ambient = pc.Ambient.rgb * mix( 0.80, 1.35, h ) * mix( 1.0, 0.45, pc.ToSun.w );
             const float stepTransmittance = exp( -d * stepLength * sigma );
             // Energy of the step, integrated over its length (Hillaire's analytic form).
@@ -181,10 +221,53 @@ void main() {
         }
         t += stepLength;
     }
+}
+
+void main() {
+    // The texcoords are D3D style (0,0 top left): the vertical NDC of the ray
+    // must flip, or the sky renders mirrored below the horizon (attempt 1's
+    // "cloud band" was this bug seen edge-on).
+    const vec2 ndc = vec2( inTexcoord.x * 2.0 - 1.0, 1.0 - inTexcoord.y * 2.0 );
+    const vec3 dir = normalize( pc.Fwd.xyz + pc.Right.xyz * ndc.x + pc.Up.xyz * ndc.y );
+    const float amp2 = texture( uLayerParams, vec2( 0.5 ) ).r;
+    // Both slabs, then march them front to back (the second layer sits above
+    // the deck, but a camera above it sees it first).
+    vec2 range1 = slabRange( pc.Up.w, pc.Fwd.w, dir );
+    const float base2 = pc.Fwd.w + kLayer2Above;
+    vec2 range2 = amp2 > 0.0 ? slabRange( base2, base2 + kLayer2Thick, dir ) : vec2( 0.0, -1.0 );
+    bool bSeg1 = range1.y > range1.x && range1.x < kMaxDistance;
+    bool bSeg2 = range2.y > range2.x && range2.x < kMaxDistance;
+    if ( !bSeg1 && !bSeg2 ) {
+        outColor = vec4( 0.0 );
+        return;
+    }
+    if ( bSeg1 ) {
+        range1.y = min( range1.y, range1.x + kMarchLength );
+    }
+    if ( bSeg2 ) {
+        range2.y = min( range2.y, range2.x + kLayer2March );
+    }
+    float transmittance = 1.0;
+    vec3 light = vec3( 0.0 );
+    float hitT = min( bSeg1 ? range1.x : 1e9, bSeg2 ? range2.x : 1e9 );
+    // Second layer first when the camera (or the ray) reaches it sooner.
+    const float seed = fract( pc.CamPos.w * 0.618034 );
+    if ( bSeg2 && ( !bSeg1 || range2.x < range1.x ) ) {
+        marchSegment( dir, range2.x, range2.y, 16, seed + 0.31, true, transmittance, light, hitT );
+        if ( bSeg1 ) {
+            marchSegment( dir, range1.x, range1.y, 56, seed, false, transmittance, light, hitT );
+        }
+    } else {
+        marchSegment( dir, range1.x, range1.y, 56, seed, false, transmittance, light, hitT );
+        if ( bSeg2 ) {
+            marchSegment( dir, range2.x, range2.y, 16, seed + 0.31, true, transmittance, light, hitT );
+        }
+    }
     float alpha = 1.0 - transmittance;
     // Towards the horizon the layer dissolves into the fog colour, so it
     // never ends as a hard line (the composite's depth test keeps it in
-    // front of / behind terrain correctly).
+    // front of / behind terrain correctly). The nearest slab entry drives it.
+    const float tNear = min( bSeg1 ? range1.x : 1e9, bSeg2 ? range2.x : 1e9 );
     const float fade = clamp( ( tNear - 9000.0 ) / 26000.0, 0.0, 1.0 );
     // Rays grazing the slab (the deck seen edge-on) sample the noise field at
     // sub-pixel scale: fade only the truly edge-on ones (the old 0.10 window

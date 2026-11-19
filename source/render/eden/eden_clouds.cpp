@@ -5,6 +5,7 @@
 
 #include "render/shaders/builtin/depthcopy_frag.h"
 #include "render/shaders/builtin/volclouds_accum_frag.h"
+#include "render/shaders/builtin/volclouds_cirrus_frag.h"
 #include "render/shaders/builtin/volclouds_composite_frag.h"
 #include "render/shaders/builtin/volclouds_frag.h"
 
@@ -16,6 +17,12 @@
 namespace {
 constexpr uint32_t kBaseNoiseSize = 128;  // Perlin-Worley base shape (R8)
 constexpr uint32_t kDetailNoiseSize = 32; // Worley erosion octaves (RGBA8)
+constexpr uint32_t kCirrusWidth = 512;    // anisotropic streak noise (R8)
+constexpr uint32_t kCirrusHeight = 256;
+// The cirrus band of volclouds_cirrus.frag (the TDUSC sky puts its cirrus
+// far above the cumulus deck - TopCloud 8000, DownCloud 1500).
+constexpr float kCirrusBandBottom = 6500.0f;
+constexpr float kCirrusBandTop = 7200.0f;
 // Shared with volclouds*.frag: the march clamps its distances to this, the
 // hit distance travels packed (0..1) and the composite unpacks it.
 constexpr float kMaxMarchDistance = 60000.0f;
@@ -165,6 +172,33 @@ void GenerateDetailVolume( std::vector<uint8_t> &out ) {
         }
     }
 }
+
+// Cirrus streaks: anisotropic fbm - the noise varies slowly along x (the
+// streak direction) and quickly across it, with a large-scale band
+// modulation. The sheet uv wraps forever (the pass drifts it with the wind),
+// so every octave stays an integer multiple of the tile frequency.
+void GenerateCirrusStreaks( std::vector<uint8_t> &out ) {
+    out.resize( static_cast<size_t>( kCirrusWidth ) * kCirrusHeight );
+    for ( uint32_t y = 0; y < kCirrusHeight; y++ ) {
+        for ( uint32_t x = 0; x < kCirrusWidth; x++ ) {
+            const float u = ( static_cast<float>( x ) + 0.5f ) / static_cast<float>( kCirrusWidth );
+            const float v = ( static_cast<float>( y ) + 0.5f ) / static_cast<float>( kCirrusHeight );
+            // The bands: cirrus arrives in larger systems, not uniform grit.
+            const float bands = 0.55f + 0.45f * TileablePerlin( u, v, 0.61f, 2, 0x51D9A3F7u );
+            float n = 0.0f, amplitude = 0.55f, sum = 0.0f;
+            for ( uint32_t octave = 0; octave < 3; octave++ ) {
+                const uint32_t freq = 4u << octave;
+                // v stretched x8 (streaks along u): the octave tiles because
+                // 8 * freq is an integer.
+                n += amplitude * TileablePerlin( u, v * 8.0f, 0.37f, freq, 0x2B7E1C4Du + octave * 0x9E37u );
+                sum += amplitude;
+                amplitude *= 0.55f;
+            }
+            n = Clamp( n / sum * bands * 1.35f - 0.10f, 0.0f, 1.0f );
+            out[static_cast<size_t>( y ) * kCirrusWidth + x] = static_cast<uint8_t>( n * 255.0f + 0.5f );
+        }
+    }
+}
 } // namespace
 
 // ------------------------------------------------------------- lifecycle ---
@@ -174,6 +208,20 @@ bool EdenClouds::initialize( RenderDevice &device ) {
     if ( pBaseNoise == nullptr && !generateNoise() ) {
         pDevice = nullptr;
         return false;
+    }
+    if ( pCirrusNoise == nullptr && !generateCirrusNoise() ) {
+        // The sheet is an addition: without it the deck still works.
+        OTDU_LOG_ERROR( "EdenClouds: the cirrus texture failed to create - cirrus disabled\n" );
+    }
+    if ( pLayerParams == nullptr ) {
+        // The march push block is at the 128-byte cap, so the TDUSC opt-outs
+        // ride in as a 1x1 float texture (volclouds.frag reads uLayerParams.r
+        // as the second-layer amplitude).
+        const float layerParams[4] = { CmdLine::HasArg( "-nosecondlayer" ) ? 0.0f : 1.0f, 0.0f, 0.0f, 0.0f };
+        const void *pData = layerParams;
+        const uint32_t size = sizeof( layerParams );
+        pLayerParams = pDevice->createTexture( VK_IMAGE_VIEW_TYPE_2D, 1, 1, 1, 1, 1,
+                                               VK_FORMAT_R32G32B32A32_SFLOAT, &pData, &size, "CloudLayerParams" );
     }
     return true;
 }
@@ -223,14 +271,28 @@ bool EdenClouds::generateNoise() {
     return true;
 }
 
+bool EdenClouds::generateCirrusNoise() {
+    std::vector<uint8_t> streaks;
+    GenerateCirrusStreaks( streaks );
+    const void *pData = streaks.data();
+    const uint32_t size = static_cast<uint32_t>( streaks.size() );
+    pCirrusNoise = pDevice->createTexture( VK_IMAGE_VIEW_TYPE_2D, kCirrusWidth, kCirrusHeight, 1, 1, 1,
+                                           VK_FORMAT_R8_UNORM, &pData, &size, "CloudCirrusNoise" );
+    return pCirrusNoise != nullptr;
+}
+
 void EdenClouds::destroy() {
     destroyTargets();
     if ( pDevice != nullptr ) {
         pDevice->destroyTexture( pBaseNoise );
         pDevice->destroyTexture( pDetailNoise );
+        pDevice->destroyTexture( pCirrusNoise );
+        pDevice->destroyTexture( pLayerParams );
     }
     pBaseNoise = nullptr;
     pDetailNoise = nullptr;
+    pCirrusNoise = nullptr;
+    pLayerParams = nullptr;
     fullscreen.destroy();
     pDevice = nullptr;
     bWeatherInitialized = false;
@@ -353,12 +415,12 @@ void EdenClouds::marchAndAccumulate( RenderDevice &device, const Params &params 
         params.ambient.x, params.ambient.y, params.ambient.z, params.windZ,
         params.fogColor.x, params.fogColor.y, params.fogColor.z, thresholdForCoverage( coverage ),
     };
-    GPUTexture *pMarchTextures[2] = { pBaseNoise, pDetailNoise };
+    GPUTexture *pMarchTextures[3] = { pBaseNoise, pDetailNoise, pLayerParams };
     device.beginGpuPass( "clouds" );
     device.beginRenderTarget( pMarchTarget, false );
     // The 3D noise tiles are seamless: sample them wrapped (the default clamp
     // would flatten everything beyond half a tile).
-    fullscreen.draw( device, kSPIRV_volclouds_frag, sizeof( kSPIRV_volclouds_frag ), pMarchTextures, 2, push,
+    fullscreen.draw( device, kSPIRV_volclouds_frag, sizeof( kSPIRV_volclouds_frag ), pMarchTextures, 3, push,
                      sizeof( push ), eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear, false, false,
                      eSamplerAddress::SA_Wrap );
     device.endRenderTarget();
@@ -427,5 +489,42 @@ void EdenClouds::composite( RenderDevice &device, const Params &params ) {
                                    std::abs( savedViewport.height ), 0.0f, 1.0f } );
     fullscreen.draw( device, kSPIRV_volclouds_composite_frag, sizeof( kSPIRV_volclouds_composite_frag ), pTextures, 2,
                      push, sizeof( push ), eBlendMode::BM_PremultipliedAlpha, eSamplerFilter::SF_Linear );
+    device.setViewport( savedViewport );
+}
+
+void EdenClouds::drawCirrus( RenderDevice &device, const Params &params ) {
+    if ( pDevice == nullptr || pCirrusNoise == nullptr || pCloudDepthTarget == nullptr ) {
+        return;
+    }
+    // -nocirrus: the whole sheet is an A/B-able addition (TDUSC port).
+    static const bool bNoCirrus = CmdLine::HasArg( "-nocirrus" );
+    if ( bNoCirrus ) {
+        return;
+    }
+    pDevice = &device;
+    GPUTexture *pTextures[2] = { pCirrusNoise, &pCloudDepthTarget->Color };
+    // The smoothed storm scalar (marchAndAccumulate ran earlier this frame)
+    // carries the template's Rainy Cloud coupling: storms dissolve the sheet.
+    const float push[32] = {
+        params.camPos.x, params.camPos.y, params.camPos.z, params.time,
+        params.right.x * params.tanHalf * params.aspect, params.right.y * params.tanHalf * params.aspect,
+        params.right.z * params.tanHalf * params.aspect, params.tanHalf,
+        params.forward.x, params.forward.y, params.forward.z, 0.0f,
+        params.up.x, params.up.y, params.up.z, 0.0f,
+        params.toSun.x, params.toSun.y, params.toSun.z, darkness,
+        params.sunColor.x, params.sunColor.y, params.sunColor.z, 1.0f, // w = cirrus amount
+        params.nearPlane, params.farPlane, 0.0f, 0.0f,
+        params.windX, params.windZ, kCirrusBandBottom, kCirrusBandTop,
+    };
+    // Same flipped-viewport trap as the composite: draw with a plain Vulkan
+    // viewport inside the blended pass, then restore.
+    const VkViewport savedViewport = device.getCurrentViewport();
+    device.setViewport( VkViewport{ 0.0f, 0.0f, std::abs( savedViewport.width ),
+                                   std::abs( savedViewport.height ), 0.0f, 1.0f } );
+    // The noise tiles forever, so the drift samples wrapped; the depth copy
+    // clamps (the shader insets its uv off the wrap boundary).
+    fullscreen.draw( device, kSPIRV_volclouds_cirrus_frag, sizeof( kSPIRV_volclouds_cirrus_frag ), pTextures, 2,
+                     push, sizeof( push ), eBlendMode::BM_PremultipliedAlpha, eSamplerFilter::SF_Linear, false,
+                     false, eSamplerAddress::SA_Wrap );
     device.setViewport( savedViewport );
 }

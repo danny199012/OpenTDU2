@@ -5389,3 +5389,51 @@ dumps answered feasibility in the plan phase: the packs are plain data, the rend
 - The quests (driving-crazy score challenge, slow A-to-B, no-damage delivery) stay parked, feasibility
   in hand (FRIM scorer, GPS route + HUD, the damage metric to build; the `-switchcar` wedge shapes the
   "random car" flavour).
+
+## Session 2026-11-19 (`main`): TDUSC weather port — second cloud layer + cirrus, height+noise fog
+
+The owner: *"Is it possible we can use some of this weather stuff to improve our weather system please
+thanks start with the clouds and fog then anything after"* — the TDUSC dig earlier the same session
+(`docs/re/tdusc_weather_physics.md`) is the source.
+
+### What changed
+- **Second cloud layer** (`resources/shaders/volclouds.frag`): the march now runs two slab segments
+  front-to-back (`marchSegment`, 56 + 16 steps, transmittance carried) — the second slab derives from the
+  pushed main deck (+800 m above its top, 1300 m thick, threshold +0.10, twice the noise tile scale, no
+  convection cells, light erosion) because the TDUSC template keeps `Coverage##CloudCoverageSecondLayer`
+  and its densities at defaults. The `Rainy Cloud` coupling is the darkness scalar growing it into the
+  storm deck. The two opt-outs ride in a 1×1 RGBA32F texture (`uLayerParams`, created once in
+  `EdenClouds::initialize`) because the march push block is at the 128-byte cap.
+- **Cirrus sheet** (`resources/shaders/volclouds_cirrus.frag`, `EdenClouds::drawCirrus`): the TDUSC
+  cirrus is a 2D texture, not raymarched — this is a band intersection at 6500-7200 m over a
+  CPU-generated 512×256 anisotropic streak texture (tiling octaves, band modulation), forward-scatter
+  glow at the template's Mie anisotropy 0.8, alpha capped ~0.55 (`NewCirrusCoverage` 0.3/0.6/0.1),
+  dissolved by darkness (storm), depth-rejected against the existing `copySceneDepth` copy. Drawn in the
+  blended pass after the deferred flush, before `compositeCloudLayer`, so the deck occludes it.
+- **Scattering**: the forward HG lobe 0.60 → 0.80 (TDUSC Mie Anisotropy; also the silver-lining helper);
+  the back lobe and sigma unchanged.
+- **Height + noise fog** (`resources/shaders/tdfog.frag`, `EdenSceneView::applyHeightFog`): a fullscreen
+  pass over the finished image in the post section, after photoshop and before the upscalers —
+  `finishedSceneColor()` (new) is what the upscalers and the final blit consume, so FSR/DLSS/XeSS output
+  the fogged image with no other plumbing. Model: `1 - exp(-density·height·km)` with the TDUSC falloff
+  0.02/m, layer at sea level, 3-octave value-FBM at 200 m cells drifting with the cloud wind, tint to
+  `FogColor`, amount `0.12 + 0.55·Skydome_haze` (the haze pass's own key drives it). Depth-rejects on the
+  opaque depth copy (dome pixels hold the cleared far depth and are skipped). Opt-out `-notdfog`.
+
+### Verified (build 306, stamp `0f70dbc+dirty`, headless RTX 5070 Ti, exits 0)
+- The A/B matrix `_twx_*.ppm` (day/storm/sunset/night × on/off, same `200:look=0,-1` pose, frame 460):
+  day on/off mean diff 4.7 — decomposes as second layer 4.6 (`-nosecondlayer`), cirrus 1.3
+  (`-nocirrus`), fog 0.8 (`-notdfog`); storm on/off 1.3 (the deck stays overcast, rain and puddles
+  intact); day on/off visually: a fuller deck with a higher band + soft wisps, storm_on reads more
+  layered. No mirroring, no ridge-occlusion regressions, `-oldclouds`/`-novolclouds` untouched.
+- Perf: 74 fps avg (13.5 ms) at 1080p — the +16-step march is invisible in the frame budget.
+- The "night" pair ran with `-clock 2` but the weather preset follows the weather cycle's own clock (the
+  WorldClock log line confirms 02:00 while the sky is daylight) — pre-existing behaviour, both variants
+  identical apart from the weather deltas.
+
+### Not done / next
+- Owner eyeball in play (the shots are headless; the flags are there to A/B live).
+- From the same TDUSC data: the hour-keyed sun track (`Polar Coordinates`/`Color`), the
+  `TimeCycleElementWind` gust model (grass wiring is open), wet-absorption puddle accumulation.
+- The second layer's derived constants (+800 m, +0.10 threshold) are first-cut; the template's unset
+  layer-2 fields give no numbers to port, so tune from play if the deck reads too tall.

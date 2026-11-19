@@ -18,6 +18,7 @@
 #include "render/shaders/builtin/fsr1_easu_frag.h"
 #include "render/shaders/builtin/fsr1_rcas_frag.h"
 #include "render/shaders/builtin/windscreen_frag.h"
+#include "render/shaders/builtin/tdfog_frag.h"
 #include "render/shaders/builtin/viewpos_frag.h"
 #include "system/cmd_line.h"
 #include "debug/coords_overlay.h"
@@ -781,6 +782,7 @@ void EdenSceneView::ensureTargets() {
     pSceneTarget = device.createRenderTarget( width, height, VK_FORMAT_UNDEFINED, true, "EdenScene" );
     pViewPosTarget = device.createRenderTarget( width, height, VK_FORMAT_R8G8B8A8_UNORM, false, "gViewPos" );
     pFinalTarget = device.createRenderTarget( width, height, VK_FORMAT_UNDEFINED, false, "EdenSceneFinal" );
+    pFogTarget = device.createRenderTarget( width, height, VK_FORMAT_UNDEFINED, false, "EdenSceneFog" );
     volumetricClouds.ensureTargets( width, height );
     pDropletTarget = device.createRenderTarget( Max<uint32_t>( 64, width / 2 ), Max<uint32_t>( 64, height / 2 ),
                                                 VK_FORMAT_R8G8B8A8_UNORM, false, "Droplets_Windshield" );
@@ -807,6 +809,7 @@ void EdenSceneView::destroyTargets() {
     device.destroyRenderTarget( pEnvironmentTarget );
     device.destroyRenderTarget( pEnvironmentScratch );
     device.destroyRenderTarget( pFinalTarget );
+    device.destroyRenderTarget( pFogTarget );
     device.destroyRenderTarget( pDropletTarget );
     device.destroyRenderTarget( pAOTarget );
     device.destroyRenderTarget( pOcclusionTarget );
@@ -835,7 +838,7 @@ void EdenSceneView::destroyTargets() {
     bHistoryValid = false;
     pFsrEasuTarget = pFsrTarget = nullptr;
     pFsrResult = nullptr;
-    pSceneTarget = pViewPosTarget = pEnvironmentTarget = pEnvironmentScratch = pFinalTarget = pDropletTarget = pAOTarget = nullptr;
+    pSceneTarget = pViewPosTarget = pEnvironmentTarget = pEnvironmentScratch = pFinalTarget = pFogTarget = pDropletTarget = pAOTarget = nullptr;
     pOcclusionTarget = nullptr;
 }
 
@@ -979,8 +982,7 @@ void EdenSceneView::runFsr1() {
         pFsrTarget = device.createRenderTarget( outWidth, outHeight, VK_FORMAT_UNDEFINED, false, "FsrRcas" );
         return; // the targets are initialized by their first pass
     }
-    GPUTexture *pSource =
-        pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    GPUTexture *pSource = finishedSceneColor();
     const float inW = static_cast<float>( pSource->Width );
     const float inH = static_cast<float>( pSource->Height );
     const float outW = static_cast<float>( outWidth );
@@ -1182,7 +1184,7 @@ void EdenSceneView::runDlss() {
         return;
     }
     DlssUpscaler::Inputs inputs;
-    inputs.pColor = pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    inputs.pColor = finishedSceneColor();
     inputs.pDepth = &pFsrDepthTarget->Color;
     inputs.pMotion = &pVelocityTarget->Color;
     inputs.pOutput = &pFsrTarget->Color;
@@ -1224,7 +1226,7 @@ void EdenSceneView::runXess() {
         return;
     }
     XessUpscaler::Inputs inputs;
-    inputs.pColor = pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    inputs.pColor = finishedSceneColor();
     inputs.pDepth = &pFsrDepthTarget->Color;
     inputs.pMotion = &pVelocityTarget->Color;
     inputs.pOutput = &pFsrTarget->Color;
@@ -1256,7 +1258,7 @@ void EdenSceneView::runFsr3() {
     }
     prepareTemporalInputs( outWidth, outHeight );
     Fsr3Upscaler::Inputs inputs;
-    inputs.pColor = pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    inputs.pColor = finishedSceneColor();
     inputs.pDepth = &pFsrDepthTarget->Color;
     inputs.pMotion = &pVelocityTarget->Color;
     inputs.pOutput = &pFsrTarget->Color;
@@ -1833,8 +1835,10 @@ void EdenSceneView::renderOffscreen() {
     // The volumetric clouds composite right after the deferred flush (the dome
     // is already on screen here) and before the haze: scene depth nearer than
     // a cloud hides it (mountains, the car and its cockpit), a cloud stays in
-    // front of what is behind it.
+    // front of what is behind it. The cirrus sheet draws first so the deck
+    // occludes it (TDUSC order: cirrus behind the cumulus).
     if ( !bShowcase ) {
+        drawCirrusLayer( params );
         compositeCloudLayer( params );
     }
     // Port effects (wheel spray, tyre tracks): depth tested against the scene,
@@ -1920,6 +1924,10 @@ void EdenSceneView::renderOffscreen() {
     if ( !bNoPhotoshop ) {
         postFx.applyPhotoshop( *pRenderer, pSceneTarget, pFinalTarget, pWeather );
     }
+    // 4b. TDUSC-style height + noise fog (-notdfog): the finished image gains
+    //     the ground-hugging fog layer before the upscalers and the final
+    //     blit read it (finishedSceneColor picks the fogged copy).
+    applyHeightFog( params );
     // 5. The windscreen droplets (Droplets_Windshield): the final blit
     //    refracts the scene with this RT while the effect is active. The
     //    first pass here initializes the RT (its bInitialized lags one frame
@@ -1947,12 +1955,78 @@ void EdenSceneView::renderOffscreen() {
     }
 }
 
+// TDUSC-style height + noise fog (docs/re/tdusc_weather_physics.md): a
+// ground-hugging fog layer on top of the distance fog the retail haze pass
+// already applied. The TimeCycleElementFog template carries "Second Height
+// Falloff" 0.02 per metre and "Noise Amount" 0.4 / "Noise Scale" 0.1 drifting
+// with the wind; the night fog colour 8;96;255 is the tint reference. The
+// retail Skydome_haze key (the haze pass's own scalar) drives the amount, so
+// clear presets keep a faint ground mist and rainy ones sink into it.
+void EdenSceneView::applyHeightFog( const EdenSceneParams &params ) {
+    bFogApplied = false;
+    static const bool bOff = CmdLine::HasArg( "-notdfog" );
+    if ( bOff || bMapView || bShowcase || pWeather == nullptr || pSceneTarget == nullptr ||
+         !pSceneTarget->bInitialized ) {
+        return;
+    }
+    // The fog depth-rejects against the opaque depth copy the cloud composite
+    // makes every frame (the sky dome is not in it: its pixels hold the
+    // cleared far depth, which the shader skips).
+    GPUTexture *pDepthCopy = volumetricClouds.getSceneDepthCopy();
+    if ( pDepthCopy == nullptr ) {
+        return;
+    }
+    GPUTexture *pSource = finishedSceneColor();
+    if ( pSource == nullptr ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    if ( pFogTarget == nullptr || pFogTarget->Width != pSource->Width || pFogTarget->Height != pSource->Height ) {
+        device.destroyRenderTarget( pFogTarget );
+        pFogTarget =
+            device.createRenderTarget( pSource->Width, pSource->Height, VK_FORMAT_UNDEFINED, false, "EdenSceneFog" );
+    }
+    const float haze = pWeather->getFloat( "Skydome_haze", 0.0f );
+    const float speed = pWeather->getFloat( "clouds_cloud3dSpeed", 1.0f );
+    const Matrix4x4f cameraWorld = Matrix4x4f::Translation( camera.Position ) *
+                                   EdenRotationFromQuaternion( camera.Rotation ) *
+                                   Matrix4x4f::Scale( Vector3f( -1.0f, 1.0f, -1.0f ) );
+    const Vector3f right = cameraWorld.transformVector( Vector3f( 1.0f, 0.0f, 0.0f ) );
+    const Vector3f up = cameraWorld.transformVector( Vector3f( 0.0f, 1.0f, 0.0f ) );
+    const Vector3f forward = cameraWorld.transformVector( Vector3f( 0.0f, 0.0f, -1.0f ) );
+    const float tanHalf = tanf( effectiveFov * 0.5f );
+    const float aspect = static_cast<float>( pSource->Width ) / static_cast<float>( pSource->Height );
+    const float push[32] = {
+        camera.Position.x, camera.Position.y, camera.Position.z, params.Time,
+        right.x * tanHalf * aspect, right.y * tanHalf * aspect, right.z * tanHalf * aspect, tanHalf,
+        up.x * tanHalf, up.y * tanHalf, up.z * tanHalf, 0.0f,
+        forward.x, forward.y, forward.z, 0.0f,
+        camera.Near, camera.Far, 0.0f, 0.0f,
+        params.FogColor.x, params.FogColor.y, params.FogColor.z, Clamp( 0.12f + 0.55f * haze, 0.0f, 0.65f ),
+        0.35f, 0.02f, 0.0f, 0.5f, // density per km, height falloff per m, layer height (m), max clamp
+        0.40f, 0.005f,            // noise amount, noise scale (metres per cell / 200)
+        42.0f * Clamp( speed, 0.0f, 4.0f ), 21.0f * Clamp( speed, 0.0f, 4.0f ),
+    };
+    GPUTexture *ppTextures[2] = { pSource, pDepthCopy };
+    device.beginRenderTarget( pFogTarget, false );
+    fullscreen.draw( device, kSPIRV_tdfog_frag, sizeof( kSPIRV_tdfog_frag ), ppTextures, 2, push, sizeof( push ),
+                     eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear );
+    device.endRenderTarget();
+    bFogApplied = true;
+}
+
+GPUTexture *EdenSceneView::finishedSceneColor() const {
+    if ( bFogApplied && pFogTarget != nullptr && pFogTarget->bInitialized ) {
+        return &pFogTarget->Color;
+    }
+    return pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+}
+
 void EdenSceneView::draw() {
     if ( !bReady || pSceneTarget == nullptr || !pSceneTarget->bInitialized ) {
         return;
     }
-    GPUTexture *pColor =
-        pFinalTarget != nullptr && pFinalTarget->bInitialized ? &pFinalTarget->Color : &pSceneTarget->Color;
+    GPUTexture *pColor = finishedSceneColor();
     // Options > Advanced > Upscaler "FSR 1.0": renderOffscreen already
     // upscaled (EASU) and sharpened (RCAS) the scene to the window size; the
     // debug views below still replace it.
@@ -2160,6 +2234,14 @@ void EdenSceneView::compositeCloudLayer( const EdenSceneParams &params ) {
         return;
     }
     volumetricClouds.composite( gpRender->getDevice(), p );
+}
+
+void EdenSceneView::drawCirrusLayer( const EdenSceneParams &params ) {
+    EdenClouds::Params p;
+    if ( !fillCloudLayerParams( p, params ) ) {
+        return;
+    }
+    volumetricClouds.drawCirrus( gpRender->getDevice(), p );
 }
 
 void EdenSceneView::drawClouds( EdenRenderer &renderer ) {
