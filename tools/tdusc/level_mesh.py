@@ -158,7 +158,10 @@ def decode(d, origin=(0.0, 0.0), psi=None, lod0=True, attrs=None):
         vc = p['vc']
         if 'vpos' not in p['st'] or vc == 0:
             continue
-        loc = (mn + mx) / 2 + vpos_fields(blob, p) * VPOS_UNIT * 2.0 ** mesh_exponent(blob, mesh)
+        try:
+            loc = (mn + mx) / 2 + vpos_fields(blob, p) * VPOS_UNIT * 2.0 ** mesh_exponent(blob, mesh)
+        except ValueError:                    # part stream runs past the blob: skip the part
+            continue
         idx = np.frombuffer(blob, 'u1', count=p['ntri'] * 3, offset=p['ib']).reshape(-1, 3).astype(np.int64)
         vb = 0
         tris = []
@@ -206,6 +209,8 @@ def main():
 
 
 def run_tile(t, i, j, a):
+    if a.out and os.path.exists(os.path.join(a.out, 'TILE_X%d_Y%d_%s.npz' % (i, j, a.kind))):
+        return                            # resume: already decoded
     pre = BS.join(['WIN32', 'LEVELS', 'HONGKONG', 'TILE_X%d' % i, 'TILE_X%d_Y%d' % (i, j), a.kind])
     ox, oy = 256 * i - 11008, 256 * j - 11008
     allv, allf, base = [], [], 0
