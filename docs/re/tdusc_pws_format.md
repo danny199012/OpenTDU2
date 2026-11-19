@@ -188,3 +188,16 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
   so the 8-byte packed form seems specific to the level pipeline), or finding the dequantisation scale/offset in the plain head (the 10 floats after the name may be a quantisation box different from the bbox).
 * Summary of the Hong Kong data hunt (2d-2l): terrain solved; roads, buildings and footprints located but each blocked on one unknown (road outline = shader-side; parcel placement = PLM id mapping;
   imposter packing). Everything needed to continue is in `tools/tdusc/{pws_island,level_mesh,road_mask,pkg_scan}.py`.
+
+### 2m. PLM point-id mapping SOLVED (session 62d) [DATA]
+
+* The point ids of 2k **are direct indices** into one packed `float3` table, but the table starts earlier than the run found in 2k: **entry 0 is at `0x452e59`**
+  (`0x452d81 + 18 * 12`; the 2k walk had filtered out entries with |x| > 10,000, and the id 0 record `GLMK_VIC_01` lists ids 0..6). Found by a boundary test: adjacent polygons
+  (next first id = previous last id + 1) must jump between their last and first point; the median jump over 121 pairs peaks at shift +18 (77.9 m vs < 48 m for every other shift in -60..60).
+* Check: **97.9 % of the 514 four-point polygons are rectangles**; polygons are closed (first point repeated); `ManualBuildingPoly` points have z 0 or a constant (16.3, 18.0, 18.5: [INF] a base / top height).
+* Overlaid on the decoded heightfield (`Eden x = HK x + 9472, z = 6912 - HK y`) the 4,525 polygons follow the real city: the dense strip is the Central / Wan Chai / Causeway Bay waterfront, Aberdeen, Stanley, Cyberport.
+  Of them 724 `ManualBuildingPoly`, 2,815 `exclusion`, 512 `exclusion_sidewalk`; also `Taxi_n_Start/End` (24 pairs), `FX_Forest_*`, `ZE_LAKE_*`, `SND_CITY_LIGHT*` zones.
+* **Gap**: the downtown strip sits where the terrain raster of the mod has **no data** (black in the overlay), so buildings there would float over the sea fill; tile coverage must be fixed first.
+* Tool: `tools/tdusc/plm_footprints.py` -> JSON of `{name, kind, pts}` in HK metres (no TDUSC data in the repo).
+* **Next**: (1) fix the downtown terrain gap; (2) extrude footprints to boxes as mod props (`props.txt` route, `source/game/spots/mod_props.h`; one OBJ per ~512 m tile); (3) parcel meshes
+  (`PARCELBUILDSTEP`, 2j) still have no world placement - try matching each parcel's `Building_n` bbox to a `manual` footprint of its tile; (4) roads: still no source (the `Taxi_n_Start/End` points are the only route-like data found).
