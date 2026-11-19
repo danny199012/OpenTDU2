@@ -14,6 +14,21 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 62e (`win`): vpos solved; road prop exporter written, but ROADBUILDSTEP is not the road surface
+
+Owner: "yes go ahead with the road prop".
+
+### What changed
+- `tools/mod/make_hongkong_roads.py` - turns `C:/temp/hk_roads/*.npz` (decoded `ROADBUILDSTEP` meshes) into one OBJ per 512 m cell (vertex-clustered, upward winding, no collision since the terrain has it). 2.5 m grid -> 383 cells, 1.55 M triangles, 42 MB.
+
+### Verified
+- The props load and draw in `-gm worldviewer -island hongkong` (`-campos 14607,170,6600 -camyaw 0 -campitch -50`).
+- [DATA] but the source itself is scattered blobs, not ribbons: a plot of one raw tile (X63_Y42, 1660 triangles) is two irregular patches ~15 m across. The overview "dotted chains" are the same patches. So ROADBUILDSTEP is a set of road-build pads/junction patches, **not the road surface**; shipping it would put grey blobs on the terrain. I removed the generated props from the userdata overlay; the exporter stays.
+
+### Not done / next
+- Find the real road surface meshes: other mesh names in the tile SCENE files (list names per tile with `level_mesh.parse_named_meshes`, look for spline / lane / asphalt), or the PLM entity transforms that place kit pieces.
+- The k exponent source, `vnor`, dealership / garage kit assembly and traffic lights are still open.
+
 ## Session 62d (`win`): Hong Kong footprints decoded, box buildings placed as props
 
 Task: "roads and buildings from TDUSC". PLM point ids are direct indices into a float3 table at 0x452e59 (`tools/tdusc/plm_footprints.py`; 97.9 % of 4-point polygons are rectangles).
