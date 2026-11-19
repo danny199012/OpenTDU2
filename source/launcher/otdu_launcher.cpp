@@ -88,7 +88,7 @@ struct LauncherState {
     bool bSkipIntro = true;
     bool bWatermark = true;
     bool bShowFps = true;
-    int quality = 0; // 0 Phone, 1 Low, 2 Medium, 3 High
+    int quality = 0; // 0 Phone, 1 Low, 2 Medium, 3 High, 4 Custom (no profile arguments)
     char onlineUser[64] = {};
     char onlineServer[128] = {};
 
@@ -356,7 +356,7 @@ void LoadSettings( LauncherState &state ) {
         state.bSkipIntro = IniValue( content, "skip_intro" ) == "1";
     }
     if ( !IniValue( content, "quality" ).empty() ) {
-        state.quality = std::max( 0, std::min( 3, atoi( IniValue( content, "quality" ).c_str() ) ) );
+        state.quality = std::max( 0, std::min( 4, atoi( IniValue( content, "quality" ).c_str() ) ) );
     }
     if ( !IniValue( content, "show_fps" ).empty() ) {
         state.bShowFps = IniValue( content, "show_fps" ) == "1";
@@ -696,8 +696,8 @@ void DrawPlayPage( LauncherState &state, bool *pbPlay ) {
             state.page = Page::Profiles;
         }
         ImGui::TextColored( kDim, "GRAPHICS" );
-        const char *kQuality[4] = { "Phone (fastest)", "Low", "Medium", "High (PC look)" };
-        for ( int q = 0; q < 4; q++ ) {
+        const char *kQuality[5] = { "Phone (fastest)", "Low", "Medium", "High (PC look)", "Custom (keep my in-game settings)" };
+        for ( int q = 0; q < 5; q++ ) {
             if ( ImGui::RadioButton( kQuality[q], state.quality == q ) ) {
                 state.quality = q;
             }
@@ -1686,8 +1686,10 @@ bool Run( SDL_Window **ppOutWindow ) {
         case 2:
             CmdLine::AddArg( "-profile", "medium" );
             break;
-        default:
+        case 3:
             CmdLine::AddArg( "-profile", "high" );
+            break;
+        default: // Custom: no profile - the in-game graphics settings (options.ini) stay as saved
             break;
         }
         if ( state.onlineUser[0] != '\0' ) {

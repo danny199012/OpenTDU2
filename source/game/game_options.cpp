@@ -366,6 +366,11 @@ int32_t GetDisplayRefreshRate() {
 // exclusive. The menu row's label and its first step start from this too, so
 // they never show a mode the window is not in.
 int32_t EffectiveWindowMode() {
+#if defined( OTDU_ANDROID )
+    // A phone has no windows: always fullscreen, whatever options.ini says (a saved
+    // "windowed" brought the status and navigation bars back after every start).
+    return GameOptions::kWindowModeBorderless;
+#endif
     const int32_t mode = GetGameOptions().WindowMode;
     if ( mode >= 0 ) {
         return mode;
