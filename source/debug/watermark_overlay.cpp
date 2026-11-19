@@ -14,6 +14,11 @@
 namespace {
 std::string gTesterName;
 bool gbSuppressed = false;
+bool gbShowFps = false;
+
+// Frame-rate readout (-showfps): frames and the worst frame of the last half second.
+float gFpsAccum = 0.0f, gFpsWorst = 0.0f, gFpsShown = 0.0f, gMsShown = 0.0f, gWorstShown = 0.0f;
+int gFpsFrames = 0;
 } // namespace
 
 namespace WatermarkOverlay {
@@ -23,6 +28,7 @@ void Initialize() {
         gTesterName = pName;
     }
     gbSuppressed = CmdLine::HasArg( "-nowatermark" );
+    gbShowFps = CmdLine::HasArg( "-showfps" );
     // One line every run: the log and the build/branch are the ground truth a
     // bug report is filed against, whether or not the overlay is drawn.
     OTDU_LOG_ALWAYS( "Run: %s (%s built %s)%s\n", OTDU_BUILD_FULL_STRING,
@@ -31,7 +37,21 @@ void Initialize() {
 }
 
 void Draw() {
-    if ( gbSuppressed ) {
+    if ( gbShowFps ) {
+        const float dt = ImGui::GetIO().DeltaTime;
+        gFpsAccum += dt;
+        gFpsFrames++;
+        gFpsWorst = dt > gFpsWorst ? dt : gFpsWorst;
+        if ( gFpsAccum >= 0.5f ) {
+            gFpsShown = static_cast<float>( gFpsFrames ) / gFpsAccum;
+            gMsShown = gFpsAccum / static_cast<float>( gFpsFrames ) * 1000.0f;
+            gWorstShown = gFpsWorst * 1000.0f;
+            gFpsAccum = 0.0f;
+            gFpsWorst = 0.0f;
+            gFpsFrames = 0;
+        }
+    }
+    if ( gbSuppressed && !gbShowFps ) {
         return;
     }
     // Top-right: the coords readout (-coords) owns the top-left corner. The
@@ -48,12 +68,17 @@ void Draw() {
         ImGui::End();
         return;
     }
-    if ( gTesterName.empty() ) {
-        ImGui::TextUnformatted( OTDU_BUILD_FULL_STRING );
-    } else {
-        ImGui::Text( "%s · %s", gTesterName.c_str(), OTDU_BUILD_FULL_STRING );
+    if ( gbShowFps ) {
+        ImGui::Text( "FPS %.0f  ·  %.1f ms  ·  worst %.0f ms", gFpsShown, gMsShown, gWorstShown );
     }
-    ImGui::TextDisabled( "%s", OTDU_BUILD_TIMESTAMP );
+    if ( !gbSuppressed ) {
+        if ( gTesterName.empty() ) {
+            ImGui::TextUnformatted( OTDU_BUILD_FULL_STRING );
+        } else {
+            ImGui::Text( "%s · %s", gTesterName.c_str(), OTDU_BUILD_FULL_STRING );
+        }
+        ImGui::TextDisabled( "%s", OTDU_BUILD_TIMESTAMP );
+    }
     ImGui::End();
 }
 

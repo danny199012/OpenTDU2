@@ -87,6 +87,7 @@ struct LauncherState {
     // launch options + online (saved, passed to the game)
     bool bSkipIntro = true;
     bool bWatermark = true;
+    bool bShowFps = true;
     char onlineUser[64] = {};
     char onlineServer[128] = {};
 
@@ -352,6 +353,9 @@ void LoadSettings( LauncherState &state ) {
     state.profileId = IniValue( content, "profile" );
     if ( !IniValue( content, "skip_intro" ).empty() ) {
         state.bSkipIntro = IniValue( content, "skip_intro" ) == "1";
+    }
+    if ( !IniValue( content, "show_fps" ).empty() ) {
+        state.bShowFps = IniValue( content, "show_fps" ) == "1";
     }
     if ( !IniValue( content, "watermark" ).empty() ) {
         state.bWatermark = IniValue( content, "watermark" ) == "1";
@@ -687,6 +691,7 @@ void DrawPlayPage( LauncherState &state, bool *pbPlay ) {
         }
         ImGui::Checkbox( "Skip the intro cinematic", &state.bSkipIntro );
         ImGui::Checkbox( "Show my name in the in-game watermark", &state.bWatermark );
+        ImGui::Checkbox( "Show the FPS counter (top right, with the watermark)", &state.bShowFps );
     }
     CardEnd();
     ImGui::Spacing();
@@ -1109,6 +1114,35 @@ void DrawModsPage( LauncherState &state ) {
                         state.userData.c_str() );
     ImGui::PopFont();
     ImGui::Spacing();
+    {
+        // Loose files directly in mods/ (the Hong Kong island mod, props.txt, shader
+        // overrides ...) are always active; count them so an "empty" page is explained.
+        int loose = 0;
+        std::error_code ec;
+        const std::filesystem::path modsDir = std::filesystem::path( state.userData ) / "mods";
+        for ( const auto &entry : std::filesystem::recursive_directory_iterator( modsDir, ec ) ) {
+            const std::string rel = entry.path().lexically_relative( modsDir ).generic_string();
+            if ( entry.is_regular_file( ec ) && rel.rfind( "packages/", 0 ) != 0 && rel != "enabled.txt" ) {
+                loose++;
+            }
+        }
+        if ( CardBegin( "##modsfolder", ImVec2( 0, 0 ) ) ) {
+            ImGui::TextColored( kDim, "Mods folder" );
+            ImGui::PushFont( ImGui::GetIO().FontDefault, 12.0f );
+            ImGui::TextWrapped( "%s", modsDir.string().c_str() );
+            ImGui::PopFont();
+            if ( loose > 0 ) {
+                ImGui::TextColored( kGreen, "%d loose file%s in this folder are always active", loose, loose == 1 ? "" : "s" );
+            } else {
+                ImGui::TextColored( kDim, "No loose files. Copy your PC mods folder contents here over USB." );
+            }
+            if ( ImGui::Button( "Rescan", ImVec2( 0, S( 40.0f ) ) ) ) {
+                state.bModsDirty = true;
+            }
+        }
+        CardEnd();
+        ImGui::Spacing();
+    }
     if ( state.mods.empty() ) {
         if ( CardBegin( "##nomods", ImVec2( 0, 0 ) ) ) {
             ImGui::TextColored( kDim, "No mods installed" );
@@ -1561,6 +1595,9 @@ bool Run( SDL_Window **ppOutWindow ) {
         }
         if ( state.bSkipIntro ) {
             CmdLine::AddArg( "-skipintro", nullptr );
+        }
+        if ( state.bShowFps ) {
+            CmdLine::AddArg( "-showfps", nullptr );
         }
         if ( state.onlineUser[0] != '\0' ) {
             CmdLine::AddArg( "-onlineusername", state.onlineUser );

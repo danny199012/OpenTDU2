@@ -8,6 +8,8 @@
 // involved: this is a run-time overlay, not a setting.
 //
 //   -tester <name>   prefix the name: "<name> · build N (hash) · branch"
+//   -showfps         adds a frame-rate line (FPS, average and worst frame time over
+//                    half a second); the Android launcher has a switch for it
 //   -nowatermark     never draw it (automated pixel-identical A/B runs; the
 //                    startup log line, the window title and every screenshot's
 //                    file/log stamp keep the identification)
