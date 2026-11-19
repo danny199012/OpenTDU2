@@ -27,14 +27,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--userdata', required=True)
     ap.add_argument('--roads', default='C:/temp/hk_roads')
+    ap.add_argument('--pattern', default='*.npz')
+    ap.add_argument('--prefix', default='hk_r_', help='prop name prefix (also what a rerun replaces in props.txt)')
+    ap.add_argument('--colour', default='70,72,76')
+    ap.add_argument('--max-edge', type=float, default=20.0, help='drop triangles with an edge longer than this (decode noise)')
     ap.add_argument('--island', default='hongkong')
     ap.add_argument('--grid', type=float, default=1.0)
     ap.add_argument('--lift', type=float, default=0.08)
     a = ap.parse_args()
     cells = {}
-    for fn in sorted(glob.glob(os.path.join(a.roads, '*.npz'))):
+    for fn in sorted(glob.glob(os.path.join(a.roads, a.pattern))):
         d = np.load(fn)
         V, F = d['V'], d['F']
+        if len(F) == 0:
+            continue
+        T0 = V[F]
+        F = F[np.max(np.linalg.norm(T0 - np.roll(T0, 1, 1), axis=2), 1) <= a.max_edge]
         if len(F) == 0:
             continue
         ex = V[:, 0] - mh.HK_X0
@@ -45,14 +53,16 @@ def main():
         ci = np.floor(c[:, 0] / CELL).astype(np.int64)
         cj = np.floor(c[:, 2] / CELL).astype(np.int64)
         for key in set(zip(ci.tolist(), cj.tolist())):
+            if key[0] < 0 or key[1] < 0:      # decode noise outside the island
+                continue
             m = (ci == key[0]) & (cj == key[1])
             cells.setdefault(key, []).append(P[F[m]])      # (n,3,3) triangles
     mods = os.path.join(a.userdata, 'mods')
     pdir = os.path.join(mods, 'props')
     os.makedirs(pdir, exist_ok=True)
     from PIL import Image
-    Image.new('RGB', (16, 16), (70, 72, 76)).save(os.path.join(pdir, 'hk_road.png'))
-    with open(os.path.join(pdir, 'hk_roads.mtl'), 'w') as f:
+    Image.new('RGB', (16, 16), tuple(int(x) for x in a.colour.split(','))).save(os.path.join(pdir, a.prefix + 'tex.png'))
+    with open(os.path.join(pdir, a.prefix + 'mat.mtl'), 'w') as f:
         f.write('newmtl hk_road\nKd 1 1 1\nKa 0 0 0\nKs 0 0 0\nmap_Kd hk_road.png\n\n')
     lines = []
     ntri = 0
@@ -88,9 +98,9 @@ def main():
         n = np.cross(O[t[:, 1] - 1] - O[t[:, 0] - 1], O[t[:, 2] - 1] - O[t[:, 0] - 1])
         flip = n[:, 1] < 0
         t[flip] = t[flip][:, [0, 2, 1]]
-        name = 'hk_r_%d_%d' % (ci, cj)
+        name = '%s%d_%d' % (a.prefix, ci, cj)
         with open(os.path.join(pdir, name + '.obj'), 'w') as f:
-            f.write('mtllib hk_roads.mtl\nvt 0 0\nusemtl hk_road\n')
+            f.write('mtllib %smat.mtl\nvt 0 0\nusemtl %smat\n' % (a.prefix, a.prefix))
             f.write(''.join('v %.2f %.2f %.2f\n' % tuple(r) for r in O))
             f.write(''.join('f %d/1 %d/1 %d/1\n' % tuple(r) for r in t))
         ntri += len(t)
@@ -100,7 +110,7 @@ def main():
     if os.path.exists(pp):
         for l in open(pp).read().splitlines():
             t = l.split()
-            if l.strip() and not (len(t) > 1 and t[1].startswith('hk_r_')) and 'make_hongkong_roads' not in l:
+            if l.strip() and not (len(t) > 1 and t[1].startswith(a.prefix)) and l.strip() != '# Hong Kong roads (make_hongkong_roads.py)':
                 keep.append(l)
     with open(pp, 'w') as f:
         f.write('\n'.join(keep + ['# Hong Kong roads (make_hongkong_roads.py)'] + lines) + '\n')
