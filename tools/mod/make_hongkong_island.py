@@ -254,6 +254,20 @@ def entry_named(entries, suffix):
     raise KeyError(suffix)
 
 
+def patch_2dm_hashes(data, pairs):
+    """The terrain material (.2dm) references its colour / shadow map by GetIdentifier64bit(texture name) (0x158 / 0x178 in the
+    donor sector, 0x158 in area / island): after the textures are renamed those hashes must follow, or the map is not found and the
+    terrain draws white (found by comparing with real Hawaii, session 62). The material's own name hash stays: the 3dd refers to it."""
+    out = bytearray(data)
+    for old, new in pairs:
+        o, n = struct.pack("<Q", me.identifier64(old)), struct.pack("<Q", me.identifier64(new))
+        at = bytes(out).find(o)
+        if at < 0:
+            raise SystemExit(f"2dm: hash of {old!r} not found")
+        out[at:at + 8] = n
+    return bytes(out)
+
+
 def build_sector(world, donor_bank, donor_name, ax, ay, sx, sy, colour):
     name = f"sector-{ax}-{ay}-{sx}-{sy}"
     corner_x = (8 * ax + sx) * SECTOR + (SECTOR / 2 if sy % 2 else 0.0)
@@ -262,6 +276,8 @@ def build_sector(world, donor_bank, donor_name, ax, ay, sx, sy, colour):
     entries = me.retitle_entries(donor_bank, [(donor_name, name)])
     e = entry_named(entries, f"{name}.3dg")
     e["data"] = patch_heightfield(e["data"], heights, 3.0)
+    m = entry_named(entries, f"{name}.2dm")
+    m["data"] = patch_2dm_hashes(m["data"], [(f"{donor_name}-c", f"{name}-c"), (f"{donor_name}-s", f"{name}-s")])
     empty = entry_named(entries, f"{name}-O.pmi")["data"]
     entry_named(entries, f"{name}-V.pmi")["data"] = empty           # no donor vegetation
     if colour:
@@ -339,6 +355,8 @@ def main():
             heights = world.grid(ax * AREA, ay * AREA, 24.0, HF)
             e = entry_named(entries, f"{aname}.3dg")
             e["data"] = patch_heightfield(e["data"], heights, 24.0)
+            m = entry_named(entries, f"{aname}.2dm")
+            m["data"] = patch_2dm_hashes(m["data"], [(f"area-{dax}-{day}-c", f"{aname}-c")])
             o = entry_named(entries, f"{aname}-o.3dd")
             o["data"], _p, _s = me.patch_area_far_objects(o["data"], f"{dax}-{day}", f"{ax}-{ay}", set())
             if colour:
@@ -355,6 +373,8 @@ def main():
     old, new = args.source_island, args.island
     entries = me.retitle_entries(island_bank, [(f"{old}-o", f"{new}-o"), (old, new)])
     entries = [e for e in entries if not e["path"].rpartition("\\")[2].lower().endswith(".ia")]
+    im = entry_named(entries, f"{new}.2dm")
+    im["data"] = patch_2dm_hashes(im["data"], [(f"{old}-c", f"{new}-c")])
     ie = entry_named(entries, f"{new}.3dg")
     ih = np.full((HF, HF), -100.0, np.float32)
     n_in = int(round(COLS * AREA / 384.0)) + 1

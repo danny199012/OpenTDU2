@@ -37,9 +37,13 @@ build-main\bin\opentdu2-main.exe ... -gm worldviewer -island hongkong -nopanel -
 * FREERIDE `-tp 5632,7936`: the car stands on the quay platform with hills behind it (collision from the heightfield works). World viewer aerials show the coastline, bays and islets, and the ridge road of tile `X63_Y42` as real relief. Screenshots are kept locally (TDUSC-derived art stays out of the repo): `_hk1.png`, `_hk4.png`, `_hk5.png`, `_hk7.png`.
 * Source change: `gm_world_viewer.{h,cpp}` - `kIslands` gains `"hongkong"`, label "Hong Kong".
 
+## Driving tips
+
+* **Use `-tp x,y,z`** with a real height (the x,z form puts the car at y = 0, inside any hill: it was thrown through the clouds). A flat hill spot: `-tp 14792,191,6868` (tile `X63_Y42`); the quay: `-tp 5632,3,7936`.
+
 ## Open / next
 
-* **Daytime look:** at weather `14` and `12` the terrain reads white / pale blue, also with the donor's own Hawaiian colour maps (`--no-colour`), so it is the weather / terrain shader and not the generated maps; **not compared with real Hawaii in the same view** - the first check next time (`-island hawai` same weather, same height).
+* ~~Daytime look washed out~~ **fixed**: the terrain `.2dm` stores the donor's colour / shadow map name hashes (`0x158` / `0x178`); renaming the textures without patching them left the maps unresolved (white terrain, with the donor maps too). `patch_2dm_hashes` now rewrites them (sector, area, island). Verified: real Hawaii at the same weather / camera is green and detailed (`_hw1.png`), Hong Kong now green with coast, bays and the ridge road (`_hk8.png`), and a free-ride drive up a grass hillside in daylight (`_hk9.png`, `-weather 12`).
 * Colour maps are a flat palette: no roads / buildings painted; TDUSC's real textures are in the PKGs (PTX decode exists) but nothing maps a texture to a tile yet.
 * No road graph: GPS, traffic, the minimap roads, spots and races need one (roads exist only as ridges in the heightfield). `add_spot.py` and the Eden notes (s.4) apply.
 * No buildings: the PWS data after the 33x33 grid is undecoded; HK's buildings / props are the next big piece.
