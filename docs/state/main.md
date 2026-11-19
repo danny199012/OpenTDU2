@@ -14,6 +14,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-19 (61b, `main`): TDUSC UVs decoded - `vuvs` = unorm16 pairs, one per UV set
+
+`p3d_to_obj.py` now writes `vt` (UV0). Stride is `nUV * 4` B (the 'zeros' were a wrong stride on LR); unorm16 beats snorm / half on edge-length
+smoothness. Verified by a textured render of LR with BODY_LR (rear detail lands on the rear) - only a partial look: mesh -> texture needs `PMA`.
+Next: parse `PMA` (material -> texture slots) + `PSI`, then write per-part materials (.mtl) so the OBJ shows textured; `vtan` still undecoded.
+
 ## Session 2026-11-19 (61, `main`): TDUSC Huracan - node transforms applied AND the textures convert to DDS (53 of 53)
 
 The owner: "do both" - apply the node transforms, and textures to DDS (TDUSC is the Steam install on E:, part of our mod).

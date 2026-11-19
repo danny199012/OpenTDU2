@@ -7,7 +7,7 @@
 Reads the install read-only, decodes the GDeflate vertex / index blob with gdeflate.py, and writes positions,
 normals and triangles of every mesh part (`o mesh<i>_part<j>`), in the file's own space (Z up, Y along the car,
 metres). The scene-graph node transforms are applied (parse_nodes): doors, mirrors, windows, bumpers, wipers sit in place.
-`--local` keeps the old node-local output. UVs / tangents / materials are not written.
+`--local` keeps the old node-local output. UV0 (unorm16 pair at `vuvs`, stride 4 B per UV set) is written as `vt`; tangents / materials are not.
 The OBJ goes where you point `--out`; nothing is written into the repo or the game folder.
 """
 import argparse
@@ -139,6 +139,9 @@ def main():
             pos = np.frombuffer(blob, dtype='<f4', count=n * 3, offset=st['vpos']).reshape(-1, 3).astype(np.float64)
             nor = np.frombuffer(blob, dtype='<f2', count=n * 4, offset=st['vnor']).reshape(-1, 4)[:, :3].astype(np.float64)
             idx = np.frombuffer(blob, dtype='<u2', count=p['ntri'] * 3, offset=p['iboff']).reshape(-1, 3)
+            nuv = p['fmt'].count('UV')
+            uv = np.frombuffer(blob, dtype='<u2', count=n * nuv * 2, offset=st['vuvs']).reshape(n, nuv * 2)[:, :2] / 65535.0
+            uv = uv * [1.0, -1.0] + [0.0, 1.0]            # OBJ / DDS: v = 0 at the bottom
             pos = pos @ r + w[3, :3]
             nor = nor @ rn
             nor /= np.maximum(np.linalg.norm(nor, axis=1, keepdims=True), 1e-9)
@@ -147,7 +150,8 @@ def main():
             lines.append('o %s_part%d' % (name, pi))
             lines += ['v %.5f %.5f %.5f' % tuple(v) for v in pos]
             lines += ['vn %.4f %.4f %.4f' % tuple(v) for v in nor]
-            lines += ['f %d//%d %d//%d %d//%d' % (x + base, x + base, y + base, y + base, z + base, z + base)
+            lines += ['vt %.5f %.5f' % tuple(v) for v in uv]
+            lines += ['f %d/%d/%d %d/%d/%d %d/%d/%d' % (x + base, x + base, x + base, y + base, y + base, y + base, z + base, z + base, z + base)
                       for x, y, z in idx]
             base += n
             tris += len(idx)

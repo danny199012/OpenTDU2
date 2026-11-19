@@ -120,8 +120,7 @@ pilot poses). `P3D` and `PTX` are **stored** (`kind 0`); `PSI`, `PMA`, `PAN` are
 ### 7.1 The decoded blob [DATA, Huracan]
 
 Per part, offsets from the plain section index the decoded blob: `vtan` (4 B / vertex, packed tangent), `vnor` (**4 x half**, xyz
-unit length, w = sign), `vpos` (**3 x float**, metres, **Z up, Y along the car, X across**), `vuvs` (8 B / vertex; not decoded, the LR
-parts read as zeros), optional `vcol`; the **index buffer is `u16` triangle list** at `iboff` (right after the vertex streams, 16-byte
+unit length, w = sign), `vpos` (**3 x float**, metres, **Z up, Y along the car, X across**), `vuvs` (**one u16 pair per UV set** = `UV0_UV1_` 8 B, `UV0_UV1_UV2_` 12 B; section 7.3), optional `vcol`; the **index buffer is `u16` triangle list** at `iboff` (right after the vertex streams, 16-byte
 aligned), `ntri` triangles. Part entry in the plain section, after `MESH` + 10 floats (bbox min xyz, max xyz, sphere centre xyz, radius)
 + `u32 nparts`: `u32 1, u32 nWords, char fmt[nWords*4], u32 0, u32 0, u32 vcount, u32 nStreams, {char[4] tag, u32 offset} x nStreams,
 u32 ntri, u32 iboff, f32 (a distance? e.g. 358.3)`.
@@ -132,6 +131,14 @@ u32 ntri, u32 iboff, f32 (a distance? e.g. 358.3)`.
 (`--local` keeps the raw node-local output). `tools/tdusc/p3d_to_obj.py` writes the OBJ.
 
 `tools/tdusc/tdusc_read.py` (`ls` / `info` / `strings` / `export`) reads any entry by its game path.
+
+### 7.3 UVs (session 61) [DATA]
+
+`vuvs` holds, per vertex, one `(u16, u16)` pair per `UVn` in the format string (`nUV * 4` bytes), **unorm16** (value / 65535, v = 0 at the
+top like the DDS). Scored by the median UV length of a triangle edge over HR parts: unorm16 0.002-0.01 (smooth, islands intact), snorm16
+0.003-0.015, half floats NaN / out of range garbage -> unorm16. The earlier 'reads as zeros' came from decoding LR with the wrong stride.
+`p3d_to_obj.py` writes UV0 as `vt` (v flipped). Seen: LR body UVs sampling `BODY_LR` put the rear-lamp / diffuser detail on the rear
+(local render `tdusc_huracan_lr_uv_bodylr.png`). `vtan` (4 B) still undecoded; `PMA` (which texture each part uses) is the next step.
 
 ### 7.2 The scene graph (session 61) [DATA, Huracan HR / LR]
 
