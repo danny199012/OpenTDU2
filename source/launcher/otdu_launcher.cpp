@@ -823,6 +823,67 @@ void DrawSettingsPage( LauncherState &state ) {
     CardEnd();
     ImGui::Spacing();
 
+    if ( CardBegin( "##settings_pad", ImVec2( 0, 0 ) ) ) {
+        // Controller test: what SDL makes of the pad. If a stick is dead in the
+        // game, this shows whether it moves here as a mapped axis, only as a
+        // raw axis (a missing / wrong mapping), or not at all.
+        ImGui::TextColored( kDim, "Controller test" );
+        static SDL_Gamepad *pPad = nullptr;
+        static SDL_JoystickID padId = 0;
+        int count = 0;
+        SDL_JoystickID *pIds = SDL_GetGamepads( &count );
+        if ( count == 0 ) {
+            ImGui::TextColored( kAmber, "No gamepad detected (connect it, then press a button)" );
+            if ( pPad != nullptr ) {
+                SDL_CloseGamepad( pPad );
+                pPad = nullptr;
+            }
+        } else {
+            if ( pPad == nullptr || padId != pIds[0] ) {
+                if ( pPad != nullptr ) {
+                    SDL_CloseGamepad( pPad );
+                }
+                padId = pIds[0];
+                pPad = SDL_OpenGamepad( padId );
+            }
+            if ( pPad != nullptr ) {
+                char guid[64] = {};
+                SDL_GUIDToString( SDL_GetGamepadGUIDForID( padId ), guid, sizeof( guid ) );
+                ImGui::PushFont( ImGui::GetIO().FontDefault, 12.0f );
+                ImGui::TextWrapped( "%s", SDL_GetGamepadName( pPad ) );
+                ImGui::TextColored( kDim, "GUID %s", guid );
+                char *pMapping = SDL_GetGamepadMapping( pPad );
+                ImGui::TextColored( kDim, "Mapping: %s", pMapping != nullptr ? "found" : "none (generic)" );
+                if ( pMapping != nullptr ) {
+                    ImGui::TextWrapped( "%s", pMapping );
+                    SDL_free( pMapping );
+                }
+                ImGui::PopFont();
+                static const char *kAxisNames[6] = { "Left X", "Left Y", "Right X", "Right Y", "L trigger", "R trigger" };
+                for ( int a = 0; a < 6; a++ ) {
+                    const float v = SDL_GetGamepadAxis( pPad, static_cast<SDL_GamepadAxis>( a ) ) / 32767.0f;
+                    char overlay[48];
+                    snprintf( overlay, sizeof( overlay ), "%s  %+.2f", kAxisNames[a], v );
+                    ImGui::ProgressBar( ( v + 1.0f ) * 0.5f, ImVec2( -1.0f, S( 20.0f ) ), overlay );
+                }
+                SDL_Joystick *pJoy = SDL_GetGamepadJoystick( pPad );
+                if ( pJoy != nullptr ) {
+                    ImGui::TextColored( kDim, "Raw: %d axes, %d buttons, %d hats", SDL_GetNumJoystickAxes( pJoy ),
+                                        SDL_GetNumJoystickButtons( pJoy ), SDL_GetNumJoystickHats( pJoy ) );
+                    for ( int a = 0; a < SDL_GetNumJoystickAxes( pJoy ) && a < 8; a++ ) {
+                        const float v = SDL_GetJoystickAxis( pJoy, a ) / 32767.0f;
+                        char overlay[48];
+                        snprintf( overlay, sizeof( overlay ), "raw axis %d  %+.2f", a, v );
+                        ImGui::ProgressBar( ( v + 1.0f ) * 0.5f, ImVec2( -1.0f, S( 16.0f ) ), overlay );
+                    }
+                }
+            }
+        }
+        SDL_free( pIds );
+    }
+    CardEnd();
+    ImGui::Spacing();
+
     if ( CardBegin( "##settings_storage", ImVec2( 0, 0 ) ) ) {
         ImGui::TextColored( kDim, "Storage" );
         if ( HasAllFilesAccess() ) {

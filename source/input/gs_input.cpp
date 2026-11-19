@@ -533,6 +533,20 @@ void GSInput::processEvent( const SDL_Event &event, bool bUICapturesKeyboard, bo
         if ( pGamepad == nullptr && !CmdLine::HasArg( "-nopad" ) ) {
             pGamepad = SDL_OpenGamepad( event.gdevice.which );
             OTDU_LOG_INFO( "Gamepad connected: %s\n", SDL_GetGamepadName( pGamepad ) );
+            if ( pGamepad != nullptr ) {
+                char guid[64] = {};
+                SDL_GUIDToString( SDL_GetGamepadGUIDForID( event.gdevice.which ), guid, sizeof( guid ) );
+                char *pMapping = SDL_GetGamepadMapping( pGamepad );
+                SDL_Joystick *pJoy = SDL_GetGamepadJoystick( pGamepad );
+                OTDU_LOG_INFO( "Gamepad: guid %s, %s mapping, raw %d axes / %d buttons / %d hats\n", guid,
+                               pMapping != nullptr ? "has a" : "NO", pJoy != nullptr ? SDL_GetNumJoystickAxes( pJoy ) : -1,
+                               pJoy != nullptr ? SDL_GetNumJoystickButtons( pJoy ) : -1,
+                               pJoy != nullptr ? SDL_GetNumJoystickHats( pJoy ) : -1 );
+                if ( pMapping != nullptr ) {
+                    OTDU_LOG_INFO( "Gamepad mapping: %s\n", pMapping );
+                    SDL_free( pMapping );
+                }
+            }
         }
         break;
     case SDL_EVENT_GAMEPAD_REMOVED:
