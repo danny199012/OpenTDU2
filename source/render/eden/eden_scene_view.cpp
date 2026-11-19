@@ -18,6 +18,7 @@
 #include "render/shaders/builtin/fsr1_easu_frag.h"
 #include "render/shaders/builtin/fsr1_rcas_frag.h"
 #include "render/shaders/builtin/windscreen_frag.h"
+#include "render/eden/tdusc_sun.h"
 #include "render/shaders/builtin/tdfog_frag.h"
 #include "render/shaders/builtin/viewpos_frag.h"
 #include "system/cmd_line.h"
@@ -706,6 +707,30 @@ void EdenSceneView::setupScene( EdenSceneParams &params ) {
         params.SunSpecular = pWeather->getVector3( "sun_specular", params.SunSpecular );
         params.Ambient = pWeather->getVector3( "sun_ambient", params.Ambient );
         params.FogColor = pWeather->getVector3( "fog_color", params.FogColor );
+        // TDUSC sun track (-tdsun, tdusc_sun.h): the hour-keyed continuous path
+        // of the TimeCycleElementSun replaces the retail per-preset step path.
+        // The preset's sun_diffuse stays the base (weather dimming kept); the
+        // track supplies the direction and a colour/intensity multiplier.
+        static const bool bTdSun = CmdLine::HasArg( "-tdsun" );
+        if ( bTdSun ) {
+            static const float tdSunPeak = [] {
+                if ( const char *pPeak = CmdLine::GetArgValue( "-tdsunpeak" ) ) {
+                    return Clamp( static_cast<float>( atof( pPeak ) ), 5.0f, 89.0f );
+                }
+                return 62.0f; // a Hong Kong-like summer noon [INF]
+            }();
+            TduscSun::Sample sun;
+            if ( TduscSun::evaluate( dayHour, tdSunPeak, sun ) ) {
+                params.SunDirection = Vector3f( sun.dirX, sun.dirY, sun.dirZ ).normalized();
+                params.SunDiffuse = Vector3f( params.SunDiffuse.x * sun.colorR, params.SunDiffuse.y * sun.colorG,
+                                              params.SunDiffuse.z * sun.colorB );
+            }
+            if ( bLogSun ) {
+                OTDU_LOG_INFO( "TduscSun: hour %.2f elevation %.1f deg azimuth %.1f deg dir (%.3f %.3f %.3f)\n",
+                               dayHour, sun.elevationDeg, sun.azimuthDeg, params.SunDirection.x,
+                               params.SunDirection.y, params.SunDirection.z );
+            }
+        }
         const float fogStart = pWeather->getFloat( "fog_start", 100.0f );
         const float fogEnd = pWeather->getFloat( "fog_end", 2000.0f );
         const float fogMax = ( bMapView || !bFogEnabled ) ? 0.0f : pWeather->getFloat( "fog_max", 1.0f );
@@ -1387,6 +1412,18 @@ void EdenSceneView::renderOffscreen() {
     gSceneTimes.start( pRenderer );
     EdenSceneParams params;
     setupScene( params );
+    // The shared per-frame wind (eden_wind.h): one smoothed state for the
+    // grass, blade grass, clouds, cirrus, height-fog noise and the ocean.
+    wind.update( frameDelta, pWeather );
+    world.setWind( wind );
+    static const bool bLogWind = CmdLine::HasArg( "-logwind" );
+    if ( bLogWind ) {
+        static uint32_t windLogCounter = 0;
+        if ( ( windLogCounter++ % 120 ) == 0 ) {
+            OTDU_LOG_INFO( "Wind: drift (%.1f, %.1f) m/s gust %.2f phase %.1f rad dt %.3f\n", wind.windXZ.x,
+                           wind.windXZ.y, wind.gustFactor, wind.phaseAccum, frameDelta );
+        }
+    }
 
     // Environment cube. Each face is a full scene draw, which dominates CPU
     // frame time, so the cube is refreshed coherently: all 6 faces are
@@ -1511,6 +1548,14 @@ void EdenSceneView::renderOffscreen() {
     device.beginGpuPass( "ocean" );
     if ( ocean.isReady() && bOceanEnabled && !bShowcase ) {
         ocean.updateNormalMap( *pRenderer, frameDelta, pWeather );
+        // The wave drift follows the shared wind model (eden_wind.h); the CLI
+        // flags of the port's own drift (-wavespeed / -wavedir / -nowavedrift)
+        // keep precedence.
+        static const bool bWaveCli = CmdLine::HasArg( "-wavespeed" ) || CmdLine::HasArg( "-wavedir" ) ||
+                                     CmdLine::HasArg( "-nowavedrift" );
+        if ( !bWaveCli ) {
+            ocean.setWaveDrift( Clamp( wind.speed() * 0.10f, 0.2f, 3.0f ), wind.azimuthDeg() );
+        }
         // The port's shore swell: every ocean level (island / area / sector)
         // rides the same water plane height, computed by the tide clock.
         world.setSeaLevelOffset( ocean.getWaterLevel() );
@@ -1987,7 +2032,6 @@ void EdenSceneView::applyHeightFog( const EdenSceneParams &params ) {
             device.createRenderTarget( pSource->Width, pSource->Height, VK_FORMAT_UNDEFINED, false, "EdenSceneFog" );
     }
     const float haze = pWeather->getFloat( "Skydome_haze", 0.0f );
-    const float speed = pWeather->getFloat( "clouds_cloud3dSpeed", 1.0f );
     const Matrix4x4f cameraWorld = Matrix4x4f::Translation( camera.Position ) *
                                    EdenRotationFromQuaternion( camera.Rotation ) *
                                    Matrix4x4f::Scale( Vector3f( -1.0f, 1.0f, -1.0f ) );
@@ -2005,7 +2049,7 @@ void EdenSceneView::applyHeightFog( const EdenSceneParams &params ) {
         params.FogColor.x, params.FogColor.y, params.FogColor.z, Clamp( 0.12f + 0.55f * haze, 0.0f, 0.65f ),
         0.35f, 0.02f, 0.0f, 0.5f, // density per km, height falloff per m, layer height (m), max clamp
         0.40f, 0.005f,            // noise amount, noise scale (metres per cell / 200)
-        42.0f * Clamp( speed, 0.0f, 4.0f ), 21.0f * Clamp( speed, 0.0f, 4.0f ),
+        wind.windXZ.x, wind.windXZ.y, // the fog noise drifts with the shared wind model
     };
     GPUTexture *ppTextures[2] = { pSource, pDepthCopy };
     device.beginRenderTarget( pFogTarget, false );
@@ -2200,13 +2244,11 @@ bool EdenSceneView::fillCloudLayerParams( EdenClouds::Params &p, const EdenScene
     p.tanHalf = tanf( effectiveFov * 0.5f );
     p.aspect = static_cast<float>( pSceneTarget->Width ) / static_cast<float>( pSceneTarget->Height );
     p.toSun = ( params.SunDirection * -1.0f ).normalized();
-    const float speed = pWeather->getFloat( "clouds_cloud3dSpeed", 1.0f );
-    // clouds_cloud3dSpeed (0.6 .. 1.6 in the data) is the retail cloud scroll
-    // rate; map it to a 12 m/s drift for the fair-weather set and ~2x that in a
-    // storm. The measured drift between two frames 3.3 s apart is ~3/255 mean
-    // sky difference - the deck is alive, not the static sheet of attempt 2.
-    p.windX = 42.0f * Clamp( speed, 0.0f, 4.0f );
-    p.windZ = 21.0f * Clamp( speed, 0.0f, 4.0f );
+    // The shared wind model (eden_wind.h) took over the drift the clouds used
+    // to compute here (42/21 m/s x clouds_cloud3dSpeed is its base); the
+    // TDUSC gust envelope rides on top, so gusts travel through the deck.
+    p.windX = wind.windXZ.x;
+    p.windZ = wind.windXZ.y;
     const Vector4f tint = pWeather->getVector4( "clouds_cloud3dcolor", Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ) );
     p.sunColor = Vector3f( params.SunDiffuse.x * ( 0.6f + 0.4f * tint.x ) * 1.15f,
                            params.SunDiffuse.y * ( 0.6f + 0.4f * tint.y ) * 1.15f,

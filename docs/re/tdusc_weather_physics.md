@@ -126,3 +126,30 @@ force factors; software side collision vibration thresholds (`CollisionMaxImpact
   `Skydome_haze` key. Opt-out `-notdfog`.
 * Follow-ups from the same data: hour-keyed sun track, the `TimeCycleElementWind` gust model,
   wet-absorption puddle accumulation.
+
+### 6.2 Ported (session 59, second pass — sun / wind / wet)
+
+* **Sun track** (`source/render/eden/tdusc_sun.h`, opt-in `-tdsun`, `-tdsunpeak <deg>`): the azimuth
+  track is ported exactly (89.167 deg at 6.645 h -> 360 deg at 24 h), the sunrise/sunset hours come from
+  the Intensity keyframes (rise 6.65, set 19.9), the Color keyframes (night 107;144;255 -> day white)
+  and the intensity track (0.5 night -> 1.0 day) modulate the retail preset's `sun_diffuse`. The
+  template's own elevation component (12.7..15.4, peaking at 14 h) does not decode to plausible degrees,
+  so elevation is a sine arc between rise/set with a tunable peak (default 62 deg, Hong Kong-like
+  summer noon) [INF]. The retail per-preset `sundirection` is a step path (weather_spec.md 104); the
+  track makes it continuous, and the shadow slice cache handles the sweep (re-render every ~35 s of
+  real time at the retail 8x clock).
+* **Wind** (`source/render/eden/eden_wind.h/.cpp`, `-nowindgust`): the template's structure (base
+  Direction + per-axis oscillators over Period, a gust envelope with Interval/Duration/Fade In/Out of
+  1 s) with port [INF] constants; the base drift keeps the clouds' old 42/21 x clouds_cloud3dSpeed so
+  nothing regresses. One shared state (`WindModel`, updated by `EdenSceneView::renderOffscreen`) feeds
+  the grass `UserVector0` (v0.x strength, **v0.z = the travelling phase the grass law never had**,
+  grass_spec.md 7), the blade-grass amplitude (x 1 + gust), the cloud/cirrus/fog drift, and the ocean
+  wave drift (unless `-wavespeed`/`-wavedir`/`-nowavedrift`). `-logwind` prints the state.
+* **Wet absorption** (`eden_surface_fx.{h,cpp}`, `-notdwet`): the TerrainLayerComponent's per-layer
+  Wet Absorption means (grass 0.218, gravel 0.274, rock 0.469) become `GroundWetness::absorption()`
+  per family (tarmac sealed 0.20 [INF], sand 0.30 [INF], snow 0.47 [INF]) and re-order the soak rates
+  (dirt now wets faster than grass, rock-like fastest). Puddles accumulate: every pool holds Water
+  0..1 — it grows with the rain at (1 - absorption), dries with the sun at the absorption rate, and the
+  quad scales/fades with it (the old model popped them in and killed all at wetness < 0.25). The pool
+  family comes from the road probe at the cell (a mesh above the heightfield = tarmac); the spawn
+  threshold scales with the absorption (tarmac anchors the retail 0.25).

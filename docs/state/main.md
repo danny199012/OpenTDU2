@@ -5437,3 +5437,48 @@ thanks start with the clouds and fog then anything after"* — the TDUSC dig ear
   `TimeCycleElementWind` gust model (grass wiring is open), wet-absorption puddle accumulation.
 - The second layer's derived constants (+800 m, +0.10 threshold) are first-cut; the template's unset
   layer-2 fields give no numbers to port, so tune from play if the deck reads too tall.
+
+## Session 2026-11-19 (`main`, later): TDUSC weather port 2 — sun track, wind gusts, wet-absorption puddles
+
+The owner: *"please implement these"* — the three follow-ups of the clouds/fog pass above, same
+TDUSC TimeCycle source (docs/re/tdusc_weather_physics.md 6.2).
+
+### What changed
+- **Sun track** (`source/render/eden/tdusc_sun.h`, opt-in `-tdsun`, `-tdsunpeak`): the azimuth track
+  ported exactly, rise/set 6.65/19.9 from the Intensity keyframes, Color/Intensity tracks modulate the
+  retail preset's sun_diffuse; elevation = sine arc [INF] (the template's own numbers don't decode).
+  `EdenSceneView::setDayHour(hour)` fed per frame from `weatherCycle` (gm_freeride.cpp, next to the
+  per-frame `setWeather`); the override happens in `setupScene`, so shadows / dome / moon / clouds /
+  every `__DirLight_Dir_0` follow the one global vector.
+- **Wind** (`source/render/eden/eden_wind.h/.cpp`): the template's structure as one shared `WindModel`
+  (sway oscillator + gust envelope, base = the clouds' old 42/21 x clouds_cloud3dSpeed). Consumers:
+  grass `UserVector0` (v0.x strength, **v0.z the travelling phase** — grass_spec.md 7's open wiring),
+  blade-grass amplitude, cloud/cirrus/fog drift (the two hardcoded 42/21 sites are gone), ocean
+  `setWaveDrift` (CLI flags keep precedence). `-logwind` prints the state.
+- **Wet absorption** (`eden_surface_fx.{h,cpp}`): `GroundWetness::absorption()` from the TDUSC
+  TerrainLayerComponent means; soak rates re-ordered (dirt wets faster than grass now); puddles hold
+  Water 0..1 (grow with the rain at 1-absorption, dry with the sun at absorption, quad scales/fades,
+  dies below 0.05) with the family from a road probe at the cell (mesh above heightfield = tarmac);
+  spawn thresholds scale with absorption, tarmac anchors the retail 0.25. `-notdwet` = the old binary
+  switch.
+- **Fixed en route** (`weather_cycle.cpp ParseHourMinute`): it zeroed hour/minute *before* the null
+  check, so the unconditional `-clock` scan wiped every `-clocktime` value — the pinned-clock A/Bs ran
+  at midnight no matter what (probes in the logs settled it: sscanf was fine, the null path ate it).
+
+### Verified (build 338, stamp `4380bf6+dirty`, headless RTX 5070 Ti, 8 runs exit 0)
+- Sun: `-tdsun` logs morning 7.00 h -> elevation 5.1 deg / azimuth 94.7 deg, noon 59.2 / 172.7,
+  evening 19.50 h -> 5.9 / 289.8 (the track sweeps east -> west, dim at the edges); noon within 5.5
+  mean of retail (minimal regression), morning/evening 64/52 mean (the point of the feature). Shots
+  `_tw2_sun_*.png`: dawn-dim street, low-sun haze at the end of the road.
+- Wind: `-logwind` shows the gust envelope 0 -> 0.28 (fade-in) -> 1.60 (hold) with the drift chasing
+  25.5 -> 46.8 m/s; the grass phase slides continuously (v0.z). wind on/off shots 5.3 mean.
+- Puddles: storm runs early/pooled/binary — pools grow then hold (3.4 / 0.88 mean), `-notdwet`
+  returns the binary look.
+- Perf: 113 fps avg (8.9 ms) at 1080p.
+
+### Not done / next
+- Owner eyeball in play (sun track is opt-in; flipping it on by default is one line).
+- Moon `Use As Directional` (the template makes the moon the night directional light), per-channel wet
+  darkening tint from the absorption RGB, rain slant (retail kCarSpeedFactor is [ENC] 0).
+- The gust constants (interval 7 s, boost 1.6) are first-cut [INF]; the template leaves its wind values
+  at defaults, so tune from play.

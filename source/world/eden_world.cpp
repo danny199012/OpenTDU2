@@ -18,6 +18,7 @@
 #include "core/xmb.h"
 #include "core/crypto/cpr.h"
 #include "render/eden/eden_weather.h"
+#include "render/eden/eden_wind.h"
 
 namespace {
 bool BuildWetTerrainParams( EdenDrawParams &params, const EdenSceneParams &scene, float wet );
@@ -4080,7 +4081,12 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
         // Gouraud baseline [INF: the retail values write per frame, [ENC]].
         params.Vectors["alphaDist"] = Vector4f( dist, 2.0f * dist, 0.0f, 0.3f );
         params.Vectors["scaleDist"] = Vector4f( dist * 0.3f, dist * 0.6f, 0.0f, 0.0f );
-        params.Vectors["UserVector0"] = Vector4f( 0.7f, 0.0f, 0.0f, 0.0f ); // wind strength; weather wiring is open
+        // TDUSC wind (eden_wind.h): v0.x is the sway strength (the grass law
+        // scales with its square; the gust envelope rides on the 0.7 base),
+        // v0.z the travelling phase (grass_spec.md 7: the phase carries no
+        // time - this entry is that time, gusts sweep across the field).
+        params.Vectors["UserVector0"] =
+            Vector4f( grassWindStrength * ( 1.0f + grassWindGust ), 0.0f, grassWindPhase, 0.0f );
         params.Vectors["UserVector1"] = Vector4f( 1.0f, 1.0f, 0.0f, 0.0f ); // the light gradient scale [INF]
     }
 }
@@ -4309,6 +4315,11 @@ bool BuildWetTerrainParams( EdenDrawParams &params, const EdenSceneParams &scene
     return true;
 }
 } // namespace
+
+void EdenWorld::setWind( const WindModel &wind ) {
+    grassWindGust = wind.gustFactor;
+    grassWindPhase = wind.phaseAccum;
+}
 
 void EdenWorld::updateWetGround( EdenRenderer &renderer, const WeatherPreset *pWeather, GPUTexture *pEnvironmentCube,
                                  float deltaTime ) {

@@ -35,6 +35,12 @@ struct GroundWetness {
     // rainIntensity: 0..1 (rain_ground_global_intensity of the preset),
     // sunEnergy: 0..~1.2 (the luminance of the preset's sun_diffuse).
     void update( float deltaTime, float rainIntensity, float sunEnergy );
+    // TDUSC's per-surface Wet Absorption as a mean scalar
+    // (docs/re/tdusc_weather_physics.md 2: grass 0.218, gravel 0.274,
+    // rock 0.469; tarmac sealed [INF], sand interpolated [INF]): how much of
+    // the rain the surface soaks in instead of pooling. The puddle
+    // accumulation and the soak rates read this.
+    static float absorption( eGroundMaterial material );
     float get( eGroundMaterial material ) const {
         return Value[static_cast<size_t>( material )];
     }
@@ -190,7 +196,8 @@ public:
     // the headlight pools draw under the road and vanish, session 69).
     inline void setRoadOffset( float offset ) { roadOffset = offset; }
     inline void setPuddlesEnabled( bool bEnable ) { bPuddlesEnabled = bEnable; }
-    void updatePuddles( float deltaTime, const Vector3f &center, float wetness );
+    void updatePuddles( float deltaTime, const Vector3f &center, const GroundWetness &wetness, float rainIntensity,
+                        float sunEnergy );
     inline uint32_t getNumPuddles() const { return numAlivePuddles; }
     // Log lines (-logsurfacefx): the wetness and the pool sizes when they
     // change, so a headless run can prove the system ran.
@@ -319,9 +326,14 @@ private:
     // The terrain puddles (the comment at setPuddlesEnabled).
     struct Puddle {
         Vector3f Position;
-        float Size = 3.0f;    // half extent, m
+        float Size = 3.0f;    // half extent, m (the full size at Water 1)
         float Corner[4] = {}; // sampled corner heights (the quad follows the slope)
         bool bAlive = false;
+        // TDUSC puddle accumulation: a pool holds water 0..1 - it grows with
+        // the rain at a rate the surface's Wet Absorption sets and dries back
+        // out with the sun; the quad scales and fades with it.
+        float Water = 0.0f;
+        eGroundMaterial Family = eGroundMaterial::Tarmac;
     };
     std::vector<Puddle> puddles;
     uint32_t numAlivePuddles = 0;

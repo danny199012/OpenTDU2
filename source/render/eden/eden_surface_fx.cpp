@@ -104,19 +104,38 @@ const char *GroundMaterialName( eGroundMaterial material ) {
     }
 }
 
+// TDUSC Wet Absorption per terrain layer as a mean scalar (the TILED_LEVEL
+// TerrainLayerComponent values, docs/re/tdusc_weather_physics.md 2):
+// grass 0.223529;0.270588;0.160784 -> 0.218, gravel (the dirt/soil family)
+// 0.337255;0.298039;0.188235 -> 0.274, rock 0.46875. Tarmac is sealed
+// asphalt - water pools on it instead of soaking - so it takes the lowest
+// value [INF]; sand interpolates [INF]; snow keeps a rock-ish crust [INF].
+float GroundWetness::absorption( eGroundMaterial material ) {
+    static const float kAbsorption[static_cast<size_t>( eGroundMaterial::Count )] = {
+        0.20f,  // tarmac
+        0.274f, // dirt (the TDUSC gravel / soil layer)
+        0.30f,  // sand
+        0.218f, // grass (the TDUSC grass layer)
+        0.47f,  // snow
+    };
+    return kAbsorption[static_cast<size_t>( material )];
+}
+
 void GroundWetness::update( float deltaTime, float rainIntensity, float sunEnergy ) {
     if ( deltaTime <= 0.0f ) {
         return;
     }
     const float rain = Saturate( rainIntensity );
     const float sun = Saturate( sunEnergy );
-    // Soak rate: how fast a material takes the water in. Dirt is the slowest
-    // (the water has to reach the soil), tarmac only holds a film.
+    // Soak rate: how fast a material takes the water in. The terrain rates
+    // follow the TDUSC Wet Absorption ordering (the more the surface absorbs
+    // the faster it wets): dirt > grass now, sand between. Tarmac keeps the
+    // retail-fast film soak (sealed asphalt), snow the melt rate.
     static const float kSoakRate[static_cast<size_t>( eGroundMaterial::Count )] = {
         0.9f,  // tarmac
-        0.35f, // dirt
-        0.7f,  // sand
-        0.45f, // grass
+        0.38f, // dirt
+        0.42f, // sand
+        0.30f, // grass
         0.5f,  // snow (melt)
     };
     // Dry rate: how fast the sun takes it back out. Mud keeps its water for
@@ -140,6 +159,13 @@ void GroundWetness::update( float deltaTime, float rainIntensity, float sunEnerg
 
 
 namespace {
+// -notdwet: the puddles switch on/off with the wetness (the retail-style
+// binary behaviour) instead of accumulating water (the TDUSC port).
+bool PuddlesBinary() {
+    static const bool bBinary = CmdLine::HasArg( "-notdwet" );
+    return bBinary;
+}
+
 // Spray / dust / track per ground material. The colours are the port's reading
 // of the terrain textures (the beach plage.2db, the D3_SAND detail, the dirt
 // and grass colour maps of the sectors): dry sand is pale and dusty, wet sand
@@ -684,28 +710,35 @@ void EdenSurfaceFx::draw( RenderDevice &device, const Matrix4x4f &viewProjection
         appendGroundQuad( decalScratch[decal.Tread > 0.5f ? 1 : 0], faded );
     }
     // The terrain puddles ride the smooth batch (the same soft-shouldered
-    // quad shader): dark translucent water, alpha following the wetness.
+    // quad shader): dark translucent water. The TDUSC accumulation scales and
+    // fades every pool with its own Water; the binary mode keeps the
+    // wetness-driven alpha.
     if ( bPuddlesEnabled && numAlivePuddles != 0 ) {
+        static const bool bBinaryPuddles = PuddlesBinary();
         const float puddleWet = Saturate( ( wetness.get( eGroundMaterial::Tarmac ) - 0.25f ) / 0.75f );
-        if ( puddleWet > 0.0f ) {
-            const Vector4f water( 0.30f, 0.36f, 0.45f, puddleWet * puddleWet * 0.55f );
-            for ( const Puddle &puddle : puddles ) {
-                if ( !puddle.bAlive ) {
-                    continue;
-                }
-                const Vector3f delta = puddle.Position - cameraPosition;
-                if ( delta.dot( delta ) > maxDistanceSq ) {
-                    continue;
-                }
-                const float s = puddle.Size;
-                const Vector3f corners[4] = {
-                    Vector3f( puddle.Position.x - s, puddle.Corner[0], puddle.Position.z - s ),
-                    Vector3f( puddle.Position.x + s, puddle.Corner[1], puddle.Position.z - s ),
-                    Vector3f( puddle.Position.x + s, puddle.Corner[2], puddle.Position.z + s ),
-                    Vector3f( puddle.Position.x - s, puddle.Corner[3], puddle.Position.z + s ),
-                };
-                appendQuad( decalScratch[0], corners, PackColor( water ) );
+        const float alphaBase = bBinaryPuddles ? puddleWet * puddleWet * 0.55f : 0.55f;
+        for ( const Puddle &puddle : puddles ) {
+            if ( !puddle.bAlive ) {
+                continue;
             }
+            // TDUSC accumulation: a pool the ground has drunk dry is not drawn.
+            const float alpha = bBinaryPuddles ? alphaBase : alphaBase * Saturate( puddle.Water * 1.4f );
+            if ( alpha <= 0.003f ) {
+                continue;
+            }
+            const Vector3f delta = puddle.Position - cameraPosition;
+            if ( delta.dot( delta ) > maxDistanceSq ) {
+                continue;
+            }
+            const float s = puddle.Size * ( bBinaryPuddles ? 1.0f : ( 0.35f + 0.65f * puddle.Water ) );
+            const Vector4f water( 0.30f, 0.36f, 0.45f, alpha );
+            const Vector3f corners[4] = {
+                Vector3f( puddle.Position.x - s, puddle.Corner[0], puddle.Position.z - s ),
+                Vector3f( puddle.Position.x + s, puddle.Corner[1], puddle.Position.z - s ),
+                Vector3f( puddle.Position.x + s, puddle.Corner[2], puddle.Position.z + s ),
+                Vector3f( puddle.Position.x - s, puddle.Corner[3], puddle.Position.z + s ),
+            };
+            appendQuad( decalScratch[0], corners, PackColor( water ) );
         }
     }
     // The pools first (under the tracks), with the light-pool falloff.
@@ -974,7 +1007,8 @@ void EdenSurfaceFx::setSurfaceQuery( std::function<bool( float x, float z, float
 // puddle dies with the wetness (the retail road puddles switch off the same
 // way: the RainSpecs intensity gates their permutation), its alpha follows it
 // while it lasts.
-void EdenSurfaceFx::updatePuddles( float deltaTime, const Vector3f &center, float wetness ) {
+void EdenSurfaceFx::updatePuddles( float deltaTime, const Vector3f &center, const GroundWetness &wetness,
+                                   float rainIntensity, float sunEnergy ) {
     if ( !bPuddlesEnabled || !heightQuery ) {
         if ( numAlivePuddles != 0 ) {
             for ( Puddle &puddle : puddles ) {
@@ -984,15 +1018,42 @@ void EdenSurfaceFx::updatePuddles( float deltaTime, const Vector3f &center, floa
         }
         return;
     }
-    if ( wetness < 0.25f ) {
-        if ( numAlivePuddles != 0 ) {
-            for ( Puddle &puddle : puddles ) {
-                puddle.bAlive = false;
+    // TDUSC puddle accumulation (docs/re/tdusc_weather_physics.md 6.1; the
+    // terrain layers carry a per-surface Wet Absorption - the higher it is,
+    // the less of the rain pools): every pool holds Water 0..1, grows with
+    // the rain at (1 - absorption) and dries back out with the sun at the
+    // absorption rate. -notdwet returns the binary retail-style switch.
+    const bool bBinary = PuddlesBinary();
+    const float rain = Saturate( rainIntensity );
+    const float sun = Saturate( sunEnergy );
+    if ( bBinary ) {
+        // Everything lives or dies with the tarmac wetness, like before.
+        if ( wetness.get( eGroundMaterial::Tarmac ) < 0.25f ) {
+            if ( numAlivePuddles != 0 ) {
+                for ( Puddle &puddle : puddles ) {
+                    puddle.bAlive = false;
+                }
+                numAlivePuddles = 0;
             }
-            numAlivePuddles = 0;
+            puddleScanTimer = 0.0f;
+            return;
         }
-        puddleScanTimer = 0.0f;
-        return;
+    } else {
+        for ( Puddle &puddle : puddles ) {
+            if ( !puddle.bAlive ) {
+                continue;
+            }
+            const float absorption = GroundWetness::absorption( puddle.Family );
+            if ( rain > 0.0f ) {
+                puddle.Water += ( 1.0f - puddle.Water ) * ( 1.0f - absorption ) * rain * 0.35f * deltaTime;
+            }
+            // The sun (and a dry sky) drinks the pool at the absorption rate.
+            puddle.Water -= puddle.Water * absorption * ( 0.25f + 2.0f * sun ) * 0.5f * deltaTime;
+            if ( puddle.Water < 0.05f ) {
+                puddle.bAlive = false;
+                numAlivePuddles--;
+            }
+        }
     }
     puddleScanTimer -= deltaTime;
     if ( puddleScanTimer > 0.0f ) {
@@ -1083,12 +1144,27 @@ void EdenSurfaceFx::updatePuddles( float deltaTime, const Vector3f &center, floa
             if ( bKnown || numAlivePuddles >= kMaxPuddles ) {
                 continue;
             }
+            // The family from the surface itself: a mesh above the heightfield
+            // at the cell is a road (sealed tarmac, pools first), open terrain
+            // is grass (absorbs more, pools less).
+            float surfaceH = 0.0f;
+            const bool bRoad = surfaceQuery( x, z, h - 1.0f, surfaceH ) && surfaceH > h + 0.02f;
+            const eGroundMaterial family = bRoad ? eGroundMaterial::Tarmac : eGroundMaterial::Grass;
+            // A pool needs its family wet past a threshold scaled by the
+            // TDUSC absorption (tarmac anchors the retail 0.25).
+            const float threshold =
+                0.25f * GroundWetness::absorption( family ) / GroundWetness::absorption( eGroundMaterial::Tarmac );
+            if ( !bBinary && wetness.get( family ) < threshold ) {
+                continue;
+            }
             for ( Puddle &puddle : puddles ) {
                 if ( puddle.bAlive ) {
                     continue;
                 }
                 puddle = Puddle();
                 puddle.bAlive = true;
+                puddle.Family = family;
+                puddle.Water = bBinary ? 1.0f : 0.10f;
                 // Jittered inside the cell, so the pools do not form a
                 // lattice.
                 puddle.Position =

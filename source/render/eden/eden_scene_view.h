@@ -6,6 +6,7 @@
 #include "render/eden/eden_neons.h"
 #include "render/eden/eden_ocean.h"
 #include "render/eden/eden_rain.h"
+#include "render/eden/eden_wind.h"
 #include "render/eden/eden_windscreen.h"
 #include "render/eden/eden_planar_reflections.h"
 #include "render/eden/eden_postfx.h"
@@ -88,6 +89,12 @@ public:
     inline WeatherLibrary &getWeathers() { return weathers; }
     inline const WeatherPreset *getWeather() const { return pWeather; }
     inline const EdenSceneParams &getSceneParams() const { return sceneParams; }
+    // The hour of day of the weather clock (0..24, gm_freeride feeds it per
+    // frame): the TDUSC sun track (-tdsun) keys off it.
+    void setDayHour( float hourOfDay ) { dayHour = hourOfDay; }
+    // The shared per-frame wind (eden_wind.h): grass, blade grass, clouds,
+    // fog and the ocean drift read the same smoothed state.
+    inline const WindModel &getWind() const { return wind; }
     // Dynamic environment cube (nullptr until its first faces are drawn).
     GPUTexture *getEnvironmentCube() const;
     // The composited frame renderOffscreen produced (the final target, or the
@@ -263,6 +270,8 @@ private:
     EdenClouds volumetricClouds;
     FullscreenPass fullscreen;
     const WeatherPreset *pWeather = nullptr;
+    float dayHour = 12.0f; // the weather clock's hour (setDayHour), for the TDUSC sun track
+    WindModel wind;        // the TDUSC wind model (eden_wind.h), updated once per frame
     Camera camera;
     DrawCallback drawCallback;
     EdenSceneParams sceneParams;

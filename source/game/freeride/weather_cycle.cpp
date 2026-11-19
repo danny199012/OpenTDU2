@@ -32,11 +32,15 @@ bool IsCloudIntempery( int32_t value ) {
 }
 
 void ParseHourMinute( const char *pText, int32_t &outHour, int32_t &outMinute ) {
-    outHour = 0;
-    outMinute = 0;
+    // The caller scans -clocktime then -clock: a null (-clock absent) must
+    // keep the earlier value, so the null check comes before the reset (the
+    // zeroing here used to wipe the -clocktime hour - the pinned-clock A/Bs
+    // ran at midnight no matter what -clocktime said).
     if ( pText == nullptr ) {
         return;
     }
+    outHour = 0;
+    outMinute = 0;
     // "14" / "01.30" - the same shape the game_weathers names use.
     if ( sscanf( pText, "%d.%d", &outHour, &outMinute ) < 1 ) {
         outHour = 0;

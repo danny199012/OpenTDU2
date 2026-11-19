@@ -127,6 +127,14 @@ public:
     // from the weather. pEnvironmentCube nullptr or no wet weather: dry.
     // Terrain wetness 0..1 (smoothed rain soak): the heightfield draws darker and less sun-lit while wet.
     float terrainWet = 0.0f;
+    // The shared per-frame wind (eden_wind.h, EdenSceneView updates it): the
+    // grass law (grass_spec.md 7) takes the sway strength in v0.x (the shader
+    // scales with its square) and its travelling phase in v0.z - gusts sweep
+    // across the field instead of standing still.
+    void setWind( const struct WindModel &wind );
+    float grassWindStrength = 0.7f; // the retail constant, the base of v0.x
+    float grassWindGust = 0.0f;     // 0..~1.6, the gust envelope on top
+    float grassWindPhase = 0.0f;    // rad, the travelling phase
     void updateWetGround( EdenRenderer &renderer, const struct WeatherPreset *pWeather, GPUTexture *pEnvironmentCube,
                           float deltaTime );
     // World neon set + the .pmi blink states (FUN_009834d0): the shared /

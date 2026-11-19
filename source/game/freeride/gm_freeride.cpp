@@ -921,6 +921,9 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
                     frame.Time = scene.Time;
                     const WeatherPreset *pLit = view.getWeather();
                     frame.WindAmplitude = pLit != nullptr ? Clamp( pLit->getFloat( "wind_continuous_grass_amplitude", 0.12f ) * 0.8f, 0.04f, 0.5f ) : 0.12f;
+                    // The TDUSC gust envelope (eden_wind.h) rides on top: the
+                    // blades whip up when a gust passes.
+                    frame.WindAmplitude *= 1.0f + view.getWind().gustFactor;
                     frame.bCar = world.hasGrassCar();
                     frame.CarPosition = world.getGrassCarPosition();
                     frame.CarForward = world.getGrassCarForward();
@@ -5666,9 +5669,10 @@ void GMFreeRide::tickSurfaceFx( float deltaTime ) {
                                              : Vector3f( 1.0f, 1.0f, 1.0f );
     const float sunEnergy = ( sun.x + sun.y + sun.z ) / 3.0f;
     fx.update( deltaTime, rain, sunEnergy );
-    // The terrain puddles scan around the car (the wetness of the tarmac
-    // drives both their life and their alpha).
-    fx.updatePuddles( deltaTime, carWorld.getTranslation(), fx.getWetness().get( eGroundMaterial::Tarmac ) );
+    // The terrain puddles scan around the car (the TDUSC accumulation: every
+    // pool grows with the rain at its surface's Wet Absorption rate and dries
+    // with the sun; -notdwet returns the tarmac-wetness switch).
+    fx.updatePuddles( deltaTime, carWorld.getTranslation(), fx.getWetness(), rain, sunEnergy );
 
     // The car's own dirt / mud / water state (CarDirt): the wheels throw the
     // surface onto the body, the rain washes it off, the sun bakes a crust the
@@ -8507,6 +8511,9 @@ void GMFreeRide::tick( float deltaTime ) {
     updateCaveGate( deltaTime );
     view.setMapView( false );
     view.setCamera( camera );
+    // The TDUSC sun track (-tdsun, tdusc_sun.h) keys off the weather clock's
+    // hour; the wind model and the puddles read the preset as before.
+    view.setDayHour( weatherCycle.getHour() + weatherCycle.getMinute() / 60.0f );
     {
         // The Hawai test cave (the easter egg): its rock roof shades the sun out, so inside it the weather's ambient
         // is lifted to a dim cool glow, fading in over the last 120 m of the approach. -nocavelight = off.
