@@ -154,6 +154,17 @@ top like the DDS). Scored by the median UV length of a triangle edge over HR par
 * **Verified** with a per-material textured render of HR: the EU licence plate sits on the rear plate, the tail-lamp roundels, the door label and the
   window tint land where they belong (local render `tdusc_huracan_hr_materials.png`). Paint colour is the one thing missing (binary parameters).
 
+### 7.5 PMA parameters (session 61c) [DATA]
+
+The binary part of a PMA is a flat list of records `u32 nameLen, name, u32 type, value`: **type 5 = float**, **8 = four floats (RGBA)**, **2 = texture**
+(`u32 pathLen, path`). Surveyed over the 92 Huracan PMAs: colours `ExternalColor` (paint, 22), `DiffuseColor` (43), `GlassColor`, `StructureColor`,
+`FlakeColor`, `DamageColor`, lamp colours; floats `Gloss1/2`, `Metalness`, `ClearCoat`, `FlakeIntensity/Scale/Opacity`, `Occlusion`, `Opacity`, `Tinted`...
+**Colours are linear**: `C1_PAINT` ExternalColor = (0.042, 0.292, 0.002) -> sRGB (0.23, 0.58, 0.02) = the car's green; `C1_PAINT_RED` = (1.0, 0.0015, 0.0015).
+`psi_mtl.py` writes `Kd` (ExternalColor / DiffuseColor / GlassColor, sRGB, only when there is no diffuse texture), `Pm` = Metalness, `Pr` = 1 - Gloss1, `d 0.35`
+for glass. The body parts 0 / 2 / 3 / 4 are the **alternative paint variants** (`C1_PAINT`, `_RED`, `_WHITE`, `_GREEN`), all exported. Verified: a
+colour-only render of HR is a green Performante with the tricolore side stripe, black wing / bumpers / mirrors (local render `tdusc_huracan_hr_painted.png`).
+Not used: flakes, clear-coat, dirt / damage, `StructureColor` (the `_IOR` sheet tint).
+
 ### 7.2 The scene graph (session 61) [DATA, Huracan HR / LR]
 
 After the `MESH` entries comes the string `DEFAULT`, then **two tables joined by one id space**: `nDummy` dummy nodes (the word right

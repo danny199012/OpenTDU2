@@ -14,6 +14,12 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-19 (61d, `main`): TDUSC PMA parameters decoded - paint colour, metalness, gloss in the MTL
+
+PMA record = `u32 nameLen, name, u32 type (5 float / 8 RGBA / 2 texture), value`; colours are linear (C1_PAINT = green, `_RED` = red). `psi_mtl.parse_params` +
+`.mtl` `Kd` / `Pm` / `Pr` / `d`. A colour render of HR is a green Performante with the tricolore stripe. Spec 7.5. Caveat: the exporter emits all paint variants
+(`C1_PAINT`, `_RED`, `_WHITE`, `_GREEN` parts overlap) - the game picks one. Next: pick one variant / drop hidden ones, wheels at `Fork_*`, `vtan`, dirt-mask format.
+
 ## Session 2026-11-19 (61c, `main`): TDUSC PSI / PMA parsed - the OBJ gets per-part materials and textures
 
 `tools/tdusc/psi_mtl.py` (new) + `p3d_to_obj.py`: PSI gives node name -> PMA per part (k-th pair = part k), PMA gives texture slots; the exporter writes

@@ -16,6 +16,12 @@ import ptx_to_dds
 BS = chr(92)
 
 
+def _srgb(c):
+    """Linear -> sRGB (the PMA colours are linear: C1_PAINT ExternalColor (0.04, 0.29, 0.002) is the green paint)."""
+    c = max(0.0, min(1.0, c))
+    return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+
 def _strings(d):
     return [m.group().decode('latin1') for m in re.finditer(rb'[ -~]{3,}', d)]
 
@@ -63,10 +69,24 @@ def build(t, p3d_path, outdir):
             if pma in done:
                 continue
             slots = {}
+            prm = {}
             key = _find(t, ci, pma)
             if key:
-                slots = parse_pma(t.read(key))
-            ent = {'name': name, 'kd': None, 'bump': None}
+                raw = t.read(key)
+                slots = parse_pma(raw)
+                prm = parse_params(raw)
+            ent = {'name': name, 'kd': None, 'bump': None, 'color': None, 'metal': None, 'rough': None, 'alpha': None}
+            for cn in ('ExternalColor', 'DiffuseColor', 'GlassColor'):
+                if isinstance(prm.get(cn), tuple):
+                    ent['color'] = tuple(_srgb(c) for c in prm[cn][:3])
+                    break
+            if isinstance(prm.get('Metalness'), float):
+                ent['metal'] = prm['Metalness']
+            g = prm.get('Gloss1', prm.get('Glossiness'))
+            if isinstance(g, float):
+                ent['rough'] = 1.0 - g
+            if 'GlassColor' in prm:
+                ent['alpha'] = 0.35
             for slot, dsts in (('kd', ('DiffuseMap', 'DiffuseMapTile')), ('bump', ('NormalMap', 'NormalMapTile'))):
                 dst = next((x for x in dsts if x in slots and _find(t, ci, slots[x])), None)
                 if dst:
@@ -81,7 +101,14 @@ def build(t, p3d_path, outdir):
     lines = []
     for name, e in sorted(mats.items()):
         lines.append('newmtl ' + name)
-        lines.append('Kd 0.8 0.8 0.8')
+        c = e['color'] if (e['color'] and not e['kd']) else (0.8, 0.8, 0.8)
+        lines.append('Kd %.4f %.4f %.4f' % tuple(c))
+        if e['metal'] is not None:
+            lines.append('Pm %.3f' % e['metal'])
+        if e['rough'] is not None:
+            lines.append('Pr %.3f' % e['rough'])
+        if e['alpha'] is not None:
+            lines.append('d %.2f' % e['alpha'])
         if e['kd']:
             lines.append('map_Kd ' + e['kd'])
         if e['bump']:
@@ -93,3 +120,33 @@ def build(t, p3d_path, outdir):
         f.write('\n'.join(lines))
     per_node = {n: [os.path.splitext(p.rsplit('/', 1)[-1])[0] for p in ps] for n, ps in psi.items()}
     return per_node, stem + '.mtl'
+
+
+def parse_params(d):
+    """-> {name: value}: float (type 5), 4 floats (type 8), texture path (type 2).
+    Record = `u32 nameLen, name, u32 type, value`; a texture value is `u32 pathLen, path`."""
+    import struct
+    out = {}
+    i = 0
+    while i + 12 < len(d):
+        n = struct.unpack_from('<I', d, i)[0]
+        if 3 <= n <= 40 and i + 8 + n <= len(d) and all(32 <= c < 127 for c in d[i + 4:i + 4 + n]):
+            typ = struct.unpack_from('<I', d, i + 4 + n)[0]
+            q = i + 8 + n
+            name = d[i + 4:i + 4 + n].decode()
+            if typ == 5 and q + 4 <= len(d):
+                out[name] = struct.unpack_from('<f', d, q)[0]
+                i = q + 4
+                continue
+            if typ == 8 and q + 16 <= len(d):
+                out[name] = struct.unpack_from('<4f', d, q)
+                i = q + 16
+                continue
+            if typ == 2 and q + 4 <= len(d):
+                m = struct.unpack_from('<I', d, q)[0]
+                if m < 400:
+                    out[name] = d[q + 4:q + 4 + m].decode('latin1')
+                    i = q + 4 + m
+                    continue
+        i += 1
+    return out
