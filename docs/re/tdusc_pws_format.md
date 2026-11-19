@@ -174,3 +174,17 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * Net: **building footprints and parcel placement are still not recoverable**; the parcel meshes (2j) are decodable but cannot be placed. Fallback that needs neither: place the PARCELBUILDSTEP buildings
   by matching each parcel's local bbox against the terrain / the `exclusion` footprints once the id mapping is solved, or use the distant `IMPOSTER_*_BUILDING` meshes (224 tiles; in the Y-up
   imposter frame, packing validated only on edge lengths, not on placement) as low-detail buildings.
+
+### 2l. Imposter meshes: decode NOT validated (session 62) [DATA, negative]
+
+* `IMPOSTERS/HONGKONG/TILE_Xi/TILE_Xi_Yj/IMPOSTER_*_{TERRAIN,GENERIC,GENERICWORLDMAP,BUILDING,ROAD}.P3D`: one `MESHLETMESH` each, `COLONORMPOS_UV0_UV1_` (no `vuvy`), Y-up bbox
+  (TERRAIN X63_Y42: x 0..512, y -51..282 = **absolute heights, max equals the decoded heightfield max 281.96**, z -512..0), same u8 meshlet indices (meshlet sum == vertex count), `vpos` 8 B.
+* The 16-bit low field is constant (`0xd3af`) over the first vertices (flat sea floor), consistent with it being the height as in the road meshes. But **no combination validates against the terrain**:
+  (a) per-vertex height correlation with the decoded tile heightfield over all 6 axis permutations x 8 flips = 0.15-0.27; (b) over widths 8-22 bits x field orders x flips = max 0.27;
+  (c) with the 16-bit field as height and the two 14-bit fields as x / z (4 swaps / flips) = 0.05; (d) the same with a free tile offset +-768 m (16 m steps, both z signs) against the island
+  raster = 0.14. A terrain imposter must correlate > 0.9, so **the imposter `vpos` packing / frame is not (14, 14, 16) in this form** (or the mesh is not in the tile frame).
+  The edge-length metric used earlier only showed the packing is locally consistent, not placed.
+* So the imposters cannot give buildings yet. What would settle it: a `.P3D` whose shape is known (a car LOD or a prop) decoded with the SAME `vpos` code path as the imposters (its `vpos` is `float3`,
+  so the 8-byte packed form seems specific to the level pipeline), or finding the dequantisation scale/offset in the plain head (the 10 floats after the name may be a quantisation box different from the bbox).
+* Summary of the Hong Kong data hunt (2d-2l): terrain solved; roads, buildings and footprints located but each blocked on one unknown (road outline = shader-side; parcel placement = PLM id mapping;
+  imposter packing). Everything needed to continue is in `tools/tdusc/{pws_island,level_mesh,road_mask,pkg_scan}.py`.
