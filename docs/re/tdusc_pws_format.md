@@ -242,3 +242,9 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * Ruled out: 3 x 21 bits (no field spans the extremes); half-float lanes; per-mesh scale from the float after `ib`; the old bbox normalisation (spans only 0.2-0.9 of the range).
 * **Not found**: the offset / scale. Candidates: a per-meshlet centre + extent (the symmetric +- ranges are what per-meshlet local coordinates look like) stored in a table I have not located (not in the blob, not in the plain head after the part list); or the sphere centre + radius with a signed-14 scale.
   Next: take a 64-vertex single-meshlet mesh with a known shape (`CARDEALER01_LITTLEPLANTPOT_01`, a pot with 4 / 100 vertices), fit `pos = c + s * signed` per axis by least squares against its bbox (min / max are attained), then test the fit on a two-meshlet mesh.
+
+* **Partial result (session 62d)**: decoding fields z = bits 0-15, y = 16-29, x = 30-43 and normalising each axis by its **observed min / max over the mesh** (not by 0 .. 2^w - 1) onto the bbox turns `CARDEALER_COUCH_01` from a slab into a recognisable sofa
+  (three cushions, seat and back in the top / side views; `mesh_preview.py`). The chair stays a tangle, and **29 % of the couch's index edges are still longer than 30 % of the bbox diagonal**, so the fields are
+  still incomplete (the sign-extension runs of 1 bits in raw words suggest signed fields; the signed variants measured worse on median edge, so the layout is not just 16/14/14 signed). Raw words show long runs of 1s ending at bit 15 / 29 / 43.
+  Edge test script pattern: decode with candidate (off, w, signed) per axis, normalise by observed min / max, report the median and 95th-percentile edge length / bbox diagonal (the 95th percentile must drop below ~0.1 for a correct decode).
+  The vertex count check (`sum of meshlet vertex counts == vc`) passes for the couch, so the meshlet split is right; the remaining error is in the position words.
