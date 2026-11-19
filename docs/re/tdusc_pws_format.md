@@ -28,6 +28,21 @@ Header (tile `X75_Y26`, `X57_Y58` agree): `u32 0x00010017`, `u16 0`, then **thre
 * `0xbf0c0 .. 0xcc5f0` (13.8 KB): plain `u32` index arrays (`0x555`, runs of `1, n` pairs; `0x155, 0x2aa, 0x3ff` = 1/3, 2/3 of 1024 - a 32x32 lookup).
 * `0xcc5f0 .. end`: plain data, in the sea tile almost entirely repeated `1f 84 1f 84 00 00 00 00` (RGB565-looking `0x841f`). [INF]
 
+## 2b. The stream layout - DECODED, terrain heights confirmed (session 62) [DATA]
+
+Each decoded stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (not 4-aligned; sizes are `4n+1`).
+* Header floats: `[0..8]` 3x3 rotation, `[9..11]` **centre x, y, z**, `[12..14]` half extents - i.e. an oriented bounding box - then the same again at `[15..29]`
+  (a second box); `[30..63]` 34 more floats (sample heights of the box).
+* **World frame: x, y horizontal, z UP, metres.** Tile `TILE_X63_Y42` spans x 5120..5632, y -256..256 (a 512 m square); z 58..282 m.
+* Floats at 257: **a 33x33 heightfield** (1,089 floats; read as `reshape(33,33).T`, then the first 32x32 are the cell), **16 m per cell, 0.5 m samples**.
+  Leaf cells sit on a 16 m grid (centres 5128, 5144, ...; y -248, -232, ...), 32x32 = 1,024 cells per tile, in Z-order in the file. ~960 of 1,024 are present (the rest:
+  other stream kinds, sea or neighbours' LOD). Larger streams (50-70 KB, multi-tile `04 fb 02 00`) are coarser parents with bigger boxes (half extents 23-66 m).
+* After the 1,089 floats: more float data (vertex-like, y values near -250 in the first leaf) - not decoded.
+* **Verified:** `tools/tdusc/pws_height.py` stitches 941 leaf cells of `X63_Y42` into a 1024x1024 map with **no seams between cells** (orientation and stride correct) and a smooth
+  hillside falling ~220 m across the tile: a local render, not committed (TDUSC art stays out of the repo; regenerate with `pws_height.py --png`) (hillshade version looks like real terrain, not noise).
+* Multi-tile streams (tiles >= 2): the decoded size is `65536 * (tiles - 1) + last`, and the stream ends at `8 + 4*tiles + offs[-1] + offs[0]`.
+  A script that cut the stream at `offs[0]` alone hung the decoder - use `pws_scan.candidates` + that end.
+
 ## 3. Tool
 
 `tools/tdusc/pws_scan.py <file.PWS> [--out DIR] [--max-bytes N]` lists and decodes every embedded stream (pure Python, ~minutes for a 3 MB tile; a C++ loader would port
@@ -35,9 +50,11 @@ Header (tile `X75_Y26`, `X57_Y58` agree): `u32 0x00010017`, `u16 0`, then **thre
 
 ## 4. Not known yet / next
 
-* The float layout of the 12,861 / 21,053-byte blobs (vertex stride, which part is X/Z, how the 1,280 cells map to the tile's world rectangle). Start from
-  `X57_Y58`, slot `0x30a10` (the biggest, 8,232 B compressed): plot the floats as a heightfield and compare with the real coast.
-* What the *large* tiles (24 MB) hold beyond these 1,364 streams (the buildings / props are surely there: the 3 MB tile carries 1,364 streams, the 24 MB one will carry more or other kinds - run `--max-bytes` large).
-* Tile grid: world position of `TILE_Xn_Ym` (steps of one tile = ?), needed to place anything.
-* Not checked: whether the road / nav data is in the PWS or the packed exe / servers (see `tdusc_weather_physics.md`).
-* Island mod plan: (1) this doc; (2) heightfield + static meshes to OBJ; (3) terrain-only `islands/hongkong` with `tools/mod/make_eden_island.py` as the template; (4) objects, roads, minimap.
+* Tile placement: `TILE_X63_Y42` = x 5120..5632, y -256..256; the mapping from the tile name to world x/y is not known (not 512 * index). Decode a second land tile's centres to fit it
+  (`X57_Y58`, `X75_Y26` gave no non-zero centres in my first 400 leaf slots - check which slots are leaves there).
+* The ~60 missing cells per tile and the 50-70 KB parent streams (do they hold different detail, roads, water?).
+* The float data after the heightfield (vertices of the static meshes?) and the `0xbf0c0..` index sections.
+* Where roads / nav / buildings live; whether the PWS carries them at all.
+* Speed: `gdeflate.py` is pure Python (a 24 MB tile = a few minutes; fine for a one-off converter).
+* Island mod plan: (1) done; (2) heightfield done for one tile -> all 589 tiles + meshes; (3) terrain-only `islands/hongkong`, template `tools/mod/make_eden_island.py` (needs the Eden
+  `.3dg` heightfield format, `docs/formats.md`); (4) objects, roads, minimap.
