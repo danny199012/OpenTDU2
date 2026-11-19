@@ -313,6 +313,8 @@ static void BlendWeather( const WeatherPreset &a, const WeatherPreset &b, float 
     }
 }
 
+static bool ModIslandStart( const std::string &island, Vector3f &position, float &heading );
+
 bool GMFreeRide::surfaceHeight( float x, float z, float y, float &outHeight ) const {
     VehicleWorldCollision::Hit hit;
     if ( collision.raycast( Vector3f( x, y, z ), Vector3f( 0.0f, -1.0f, 0.0f ), 60.0f, hit ) ) {
@@ -472,9 +474,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     }
     // Island mods have no spots / airport: without -tp the car starts at the island's built-in start point
     // (Hong Kong: the Central quay, 0.3 m above the pier deck; y matters, y 0 puts the car inside terrain).
-    if ( !bTp && !bFromHandoff && islandName == "hongkong" ) {
-        tpPosition = Vector3f( 5632.0f, 3.0f, 7936.0f );
-        tpYaw = 0.0f;
+    if ( !bTp && !bFromHandoff && ModIslandStart( islandName, tpPosition, tpYaw ) ) {
         bTp = true;
         OTDU_LOG_INFO( "FREERIDE: hongkong start point (%.0f, %.0f, %.0f)\n", tpPosition.x, tpPosition.y, tpPosition.z );
     }
@@ -4976,10 +4976,20 @@ void GMFreeRide::updateCaveCar( float deltaTime ) {
     }
 }
 
+// Island mods have no spots / airport: their built-in start point (the Hong Kong Central quay; y matters, y 0 is inside terrain).
+static bool ModIslandStart( const std::string &island, Vector3f &position, float &heading ) {
+    if ( island == "hongkong" ) {
+        position = Vector3f( 5632.0f, 3.0f, 7936.0f );
+        heading = 0.0f;
+        return true;
+    }
+    return false;
+}
+
 void GMFreeRide::travelToIsland( const std::string &island ) {
     Vector3f entrance;
     float heading = 0.0f;
-    if ( !FindSpotByBankPrefix( island, "EAIR", entrance, heading ) ) {
+    if ( !ModIslandStart( island, entrance, heading ) && !FindSpotByBankPrefix( island, "EAIR", entrance, heading ) ) {
         OTDU_LOG_WARN( "FREERIDE: travel to '%s': no airport spot, staying on '%s'\n", island.c_str(), islandName.c_str() );
         return;
     }
@@ -5117,6 +5127,14 @@ void GMFreeRide::drawUI() {
     }
     if ( CmdLine::HasArg( "-ghost" ) ) {
         VehicleWorldCollision::Ghost() = true;
+    }
+    // -travelto <island>: the test hook for the island trip (fires once, on the 200th frame of the run).
+    static int32_t travelTestFrames = 0;
+    if ( const char *pTravelTo = CmdLine::GetArgValue( "-travelto" ) ) {
+        if ( ++travelTestFrames == 200 ) {
+            travelToIsland( ToLower( std::string( pTravelTo ) ) );
+            return;
+        }
     }
     std::string travelIsland;
     if ( cheats.takeIslandTravel( travelIsland ) ) {

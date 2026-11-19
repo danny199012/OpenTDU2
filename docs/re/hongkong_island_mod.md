@@ -61,3 +61,12 @@ build-main\bin\opentdu2-main.exe ... -gm worldviewer -island hongkong -nopanel -
   `MapScreen: car at (5632, 7936)` lands on the west bay. The centre cursor shows the red "not allowed" marker (no road edges / spots on the island). No road, spot or bookmark data exists, so the
   map has no overlays; the zone, travel and licence code paths still assume ibiza / hawai (`map_screen.cpp` `roadIsland == "hawai"` tests), so travel to / from Hong Kong is not wired.
 * Minimap is black (it draws road edges, which this island does not have).
+
+## Island travel (session 62)
+
+* **Cheats panel** (F4, "travel - now on <island>"): lists `Go to hongkong` when `islands/hongkong/level/worldconfig.cpr` is installed (the other islands always). `travelToIsland` uses
+  the island mod's built-in start (`ModIslandStart`, the Central quay) where there is no `EAIR` airport spot, then restarts the mode through the story handoff, exactly like Ibiza <-> Hawai.
+* **Test hook** `-travelto <island>`: fires once on the 200th frame of the run. Verified headless: `-island ibiza -travelto hongkong` logs `travel ibiza -> hongkong ... (5632.0, 3.0, 7936.0)`,
+  then `island 'hongkong', spawn overridden`; `-island hongkong -travelto ibiza` arrives at the Ibiza airport (16731.5, 20.3, 27506.4) with the "Ibiza Area 2" badge.
+* **Not wired**: the map's airport pop-up button (`isld`) still toggles the original Ibiza / Hawai pair (the pop-up exists only on the airport spots, which Hong Kong has none of), so there is no
+  map-screen button for Hong Kong yet. The trip back to Hong Kong from the map would need the pop-up's label (`m_gotohawai` / `m_gotoibiza`) extended to a third island.

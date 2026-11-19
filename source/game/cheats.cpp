@@ -2,6 +2,7 @@
 #include "cheats.h"
 
 #include "debug/gs_imgui.h"
+#include "filesystem/gs_file.h"
 #include "game/car_shop.h"
 #include "game/clothes_shop.h"
 #include "game/player_profile.h"
@@ -512,9 +513,14 @@ void Cheats::drawUI( const char *pModeName ) {
         // ---- Travel to another island (the mode restarts there, at its airport) ----
         if ( !island.empty() ) {
             ImGui::Text( "travel - now on %s", island.c_str() );
-            static const char *const kIslands[] = { "ibiza", "hawai", "casino" };
+            static const char *const kIslands[] = { "ibiza", "hawai", "casino", "hongkong" };
             for ( const char *pName : kIslands ) {
                 if ( island == pName ) {
+                    continue;
+                }
+                // Island mods (mods/Euro/Bnk/islands/<name>) only when installed.
+                if ( strcmp( pName, "hongkong" ) == 0 &&
+                     !gpFile->fileExists( ( gpFile->getBankFolder() + "islands/hongkong/level/worldconfig.cpr" ).c_str() ) ) {
                     continue;
                 }
                 ImGui::SameLine();
