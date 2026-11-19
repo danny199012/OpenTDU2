@@ -84,62 +84,66 @@ def parse_named_meshes(head):
 
 
 def actor_translations(head):
-    """Every `Actor_<id>_<n>` node record: name, then 16 floats (4x4 row-major), translation = row 3. The node parser cannot read these files
-    (many actors, no mesh index in the record), so the translation of each mesh is picked by fitting it to the terrain (see decode)."""
-    out = []
+    """Length-prefixed `Actor_<id>_<n>` node records -> {name: translation}: name, then 16 floats (4x4 row-major), translation = row 3."""
+    out = {}
     for m in re.finditer(rb'Actor_\d+_\d+', head):
-        if m.end() + 64 <= len(head):
+        n = m.group()
+        if m.start() >= 4 and struct.unpack_from('<I', head, m.start() - 4)[0] == len(n) and m.end() + 64 <= len(head):
             f = struct.unpack_from('<16f', head, m.end())
-            out.append(np.array(f[12:15], np.float64))
+            out.setdefault(n.decode(), np.array(f[12:15], np.float64))
     return out
 
 
-def decode(d, origin=(0.0, 0.0), ground=None):
+def psi_actors(psi):
+    """The `.PSI` lists one `Actor_*` name per mesh PART, in the P3D's part order (X56_Y36: 97 names for 97 parts); each actor appears 3 times = 3 LODs."""
+    return [n.decode() for n in re.findall(rb'Actor_\d+_\d+', psi)]
+
+
+def decode(d, origin=(0.0, 0.0), psi=None, lod0=True):
     """-> (V (n,3) float64 in WORLD metres (origin = tile SW corner added), F (m,3) int) for every mesh of the P3D.
-    ground = (array, x0, y0, step): a heightfield used to choose, per mesh, which actor translation fits (median |z - ground|)."""
+    psi = the matching `.PSI` bytes (gives each part's actor, hence its translation); lod0 keeps only the largest part of each actor."""
     bo = struct.unpack_from('<I', d, 0x34)[0]
     head, blob = d[:bo], gdeflate.decompress(d[bo:])
     meshes = parse_named_meshes(head)
-    trs = actor_translations(head) or [np.zeros(3)]
+    trs = actor_translations(head)
+    names = psi_actors(psi) if psi else []
+    flat = [(mi, pi) for mi, m in enumerate(meshes) for pi in range(len(m['parts']))]
+    if names and len(names) != len(flat):
+        names = []
+    keep = None
+    if lod0 and names:
+        best = {}
+        for k, (mi, pi) in enumerate(flat):
+            v = meshes[mi]['parts'][pi]['vc']
+            if names[k] not in best or v > best[names[k]][0]:
+                best[names[k]] = (v, k)
+        keep = {v[1] for v in best.values()}
     Vs, Fs, base = [], [], 0
-    for mesh in meshes:
+    for k, (mi, pi) in enumerate(flat):
+        if keep is not None and k not in keep:
+            continue
+        mesh = meshes[mi]; p = mesh['parts'][pi]
         mn = np.array(mesh['bbox'][:3]); mx = np.array(mesh['bbox'][3:6])
-        for p in mesh['parts']:
-            vc = p['vc']
-            if 'vpos' not in p['st'] or vc == 0:
-                continue
-            u = np.frombuffer(blob, '<u8', count=vc, offset=p['st']['vpos'])
-            loc = mn + np.stack([((u >> np.uint64(30)) & np.uint64(0x3FFF)).astype(np.float64) / 0x3FFF,
-                                 ((u >> np.uint64(16)) & np.uint64(0x3FFF)).astype(np.float64) / 0x3FFF,
-                                 (u & np.uint64(0xFFFF)).astype(np.float64) / 0xFFFF], 1) * (mx - mn)
-            idx = np.frombuffer(blob, 'u1', count=p['ntri'] * 3, offset=p['ib']).reshape(-1, 3).astype(np.int64)
-            vb = 0
-            tris = []
-            for a, b, n in split_meshlets(idx):
-                tris.append(idx[a:b] + vb)
-                vb += n
-            F = np.vstack(tris)
-            if vb != vc or F.max() >= vc:
-                continue                      # meshlet split did not add up: skip rather than emit garbage
-            tr = trs[0]
-            if ground is not None and len(trs) > 1:
-                G, gx0, gy0, gs = ground
-                best = None
-                sub = loc[::max(1, len(loc) // 64)]
-                for t in trs:
-                    w = sub + t
-                    c = ((origin[0] + w[:, 0] - gx0) / gs).astype(int)
-                    r = ((origin[1] + w[:, 1] - gy0) / gs).astype(int)
-                    if c.min() < 0 or r.min() < 0 or c.max() >= G.shape[1] or r.max() >= G.shape[0]:
-                        continue
-                    e = float(np.nanmedian(np.abs(G[r, c] - w[:, 2])))
-                    if best is None or e < best[0]:
-                        best = (e, t)
-                if best:
-                    tr = best[1]
-            Vs.append(loc + tr + [origin[0], origin[1], 0.0])
-            Fs.append(F + base)
-            base += vc
+        vc = p['vc']
+        if 'vpos' not in p['st'] or vc == 0:
+            continue
+        u = np.frombuffer(blob, '<u8', count=vc, offset=p['st']['vpos'])
+        loc = mn + np.stack([((u >> np.uint64(30)) & np.uint64(0x3FFF)).astype(np.float64) / 0x3FFF,
+                             ((u >> np.uint64(16)) & np.uint64(0x3FFF)).astype(np.float64) / 0x3FFF,
+                             (u & np.uint64(0xFFFF)).astype(np.float64) / 0xFFFF], 1) * (mx - mn)
+        idx = np.frombuffer(blob, 'u1', count=p['ntri'] * 3, offset=p['ib']).reshape(-1, 3).astype(np.int64)
+        vb = 0
+        tris = []
+        for a, b, n in split_meshlets(idx):
+            tris.append(idx[a:b] + vb)
+            vb += n
+        F = np.vstack(tris)
+        if vb != vc or F.max() >= vc:
+            continue
+        tr = trs.get(names[k], np.zeros(3)) if names else (next(iter(trs.values())) if trs else np.zeros(3))
+        Vs.append(loc + tr + [origin[0], origin[1], 0.0])
+        Fs.append(F + base)
+        base += vc
     if not Vs:
         return np.zeros((0, 3)), np.zeros((0, 3), np.int64)
     return np.vstack(Vs), np.vstack(Fs)
@@ -177,7 +181,7 @@ def run_tile(t, i, j, a):
     for p in t.ls(pre):
         if not p.upper().endswith('.P3D'):
             continue
-        V, F = decode(t.read(p), (ox, oy), GROUND)
+        V, F = decode(t.read(p), (ox, oy), t.read(p[:-4] + '.PSI'))
         print(p.split(BS)[-1], len(V), 'verts', len(F), 'tris')
         if len(V):
             allv.append(V); allf.append(F + base); base += len(V)

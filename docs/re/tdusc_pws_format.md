@@ -92,3 +92,17 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * `SPLINEMESH_*` (format `NORMPOS_UV0_`, no vcol) decodes to huge slabs with the same layout: its `vpos` packing is probably different. Not examined.
 * Next: read the 20 high bits (44-63) and the `vnor`/`vuvy` streams for a per-vertex or per-meshlet scale; compare against a P3D with a known shape (a car part, the
   imposters) using the same packed format; the PS3/360 builds do not contain TDUSC so there is no twin to read.
+
+### 2f. Road meshes, third pass (session 62) [DATA]
+
+* **Actor -> mesh mapping is solved**: the `.PSI` beside each road P3D lists one `Actor_<id>_<n>` name per mesh PART in the P3D's part order (X56_Y36: 97 names, 97 parts) with its `.PMA`.
+  Each actor appears **3 times = 3 LODs** (near-identical bboxes). The translation comes from the length-prefixed `Actor_*` node record (4x4 row-major after the name, translation = row 3; rotation is identity in
+  every file looked at). Only 4 distinct translations in X56_Y36. `level_mesh.decode(d, origin, psi)` uses this and keeps the largest part of each actor (`lod0`).
+* `vpos` packing z = bits 0-15, y = 16-29, x = 30-43 is **consistent** (median |z - terrain| 0.1-0.4 m per mesh, which would not hold with wrong xy on sloped ground; a per-axis smoothness
+  search also isolates x at bits ~30-44 and y/z below 31). The "z noise" seen before was vertex order, not geometry; the "long edges" are real triangles across a piece.
+* **Interpretation**: a piece is an axis-aligned rectangle (28 x 20 m, 37 x 13 m, ...): vertices on the perimeter plus a few diagonals. Rasterised, X56_Y36 shows a **staircase of such rectangles along the
+  shoreline** and a block of them inland, i.e. the road runs diagonally and each piece is the bounding pad. Material = `ENGINE/EFFECTS/SURFACES/PBR/PROCEDURALROAD.PFX` with `Use AlphaTest`,
+  world-space (`WS_NRM`, `WS_HM`) and two UV layers (`UV1`, `UV2`) of `GRAPH/ROADS/{TARMAC,CONCRETE,GRAVEL}/TEXTURES/HKI_*`, a tire-mark map, `vuvy`. [INF] the road outline is cut by the alpha / the
+  procedural shader, **not** by the mesh, so the triangle mesh alone cannot give a road centre-line.
+* Consequence: a usable road layer needs either (a) the alpha / UV maps of the `.PTX` set decoded and rasterised per piece, or (b) a centre-line traced from the terrain heightfield and snapped to these pads
+  (the pads say *where* a road is, to ~30 m, and their z gives its height).
