@@ -99,7 +99,7 @@ def psi_actors(psi):
     return [n.decode() for n in re.findall(rb'Actor_\d+_\d+', psi)]
 
 
-def decode(d, origin=(0.0, 0.0), psi=None, lod0=True):
+def decode(d, origin=(0.0, 0.0), psi=None, lod0=True, attrs=None):
     """-> (V (n,3) float64 in WORLD metres (origin = tile SW corner added), F (m,3) int) for every mesh of the P3D.
     psi = the matching `.PSI` bytes (gives each part's actor, hence its translation); lod0 keeps only the largest part of each actor."""
     bo = struct.unpack_from('<I', d, 0x34)[0]
@@ -119,6 +119,8 @@ def decode(d, origin=(0.0, 0.0), psi=None, lod0=True):
                 best[names[k]] = (v, k)
         keep = {v[1] for v in best.values()}
     Vs, Fs, base = [], [], 0
+    if attrs is not None:
+        attrs.clear(); attrs['col'] = []; attrs['uv'] = []
     for k, (mi, pi) in enumerate(flat):
         if keep is not None and k not in keep:
             continue
@@ -140,6 +142,9 @@ def decode(d, origin=(0.0, 0.0), psi=None, lod0=True):
         F = np.vstack(tris)
         if vb != vc or F.max() >= vc:
             continue
+        if attrs is not None:
+            attrs['col'].append(np.frombuffer(blob, 'u1', count=vc * 4, offset=p['st']['vcol']).reshape(-1, 4) if 'vcol' in p['st'] else np.full((vc, 4), 255, np.uint8))
+            attrs['uv'].append(np.frombuffer(blob, '<u2', count=vc * 2, offset=p['st']['vuvs']).reshape(-1, 2) / 65535.0 if 'vuvs' in p['st'] else np.zeros((vc, 2)))
         tr = trs.get(names[k], np.zeros(3)) if names else (next(iter(trs.values())) if trs else np.zeros(3))
         Vs.append(loc + tr + [origin[0], origin[1], 0.0])
         Fs.append(F + base)

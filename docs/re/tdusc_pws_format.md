@@ -115,3 +115,15 @@ Each stream = **256-byte header, 1 pad byte, then float32 data at offset 257** (
 * Bad: the total is **7.0 km2 = 7 % of the island** (a real road network is ~2-3 %: flat ground inside a pad passes too); the seafront strip never matches (pad z over sea floor); on X63_Y42 (hills) the mask is
   empty although roads exist (the baked heightfield carries no road there). A drive at a mask spot showed sand, not asphalt (spot not on a road).
 * **Not enabled by default**; the shipped mod is built without `--road-mask`. Better inputs: the alpha textures of the road pads (route (a) above) or the PSVO voxel / `.PLM` files per tile (not examined).
+
+### 2h. "Road alpha" ruled out (session 62) [DATA]
+
+* The 4th `vcol` byte (what an alpha test would read) is **255 for > 90 % of the vertices** (X56_Y36 LOD0: percentiles 0/10/50/90/100 = 97/255/255/255/255), so interpolated vertex alpha does not cut a road out of a pad
+  (rasterised: uniform rectangles).
+* `PROCEDURALROAD` materials carry **no mask texture**: only IOR / NRM / HM / DIFF maps in world space and two UV layers, a tire-mark map, `BlueNoiseMap`, `WorldSandMask`, and scalars
+  (`BorderEasePower`, `WorldSpaceTiling`, `LocalSpaceTilingY`, `HeightMap*Scale`, `bMap1/2InWorldSpace`). `Use AlphaTest` is a flag, not a texture.
+* All 31 `Actor_*` matrices of X56_Y36 have **identity rotation** (translation only), so the axis-aligned pads are not rotated road ribbons.
+* The pads have 3-5 m of height range and perimeter-dense vertices with corner duplicates (split normals / UVs): [INF] they are box-like parallax / trenching volumes the shader ray-marches
+  (`EnableParallax`, `TrenchingColor`), so **the road outline is not in the mesh, the vertex colours or a mask texture**. The shipped road location data must be elsewhere (spline spawner
+  P3D / `.PSVO` voxel trees / `.PLM` per tile, none examined).
+* Next for roads: read `SPLINESPAWNERBUILDSTEP/SPLINESPAW_*.P3D` (229 tiles) and `OCTREEVOXEL_0_0.PSVO` (589) - the spline spawner is the likeliest source of centre-lines.
