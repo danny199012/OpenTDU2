@@ -128,13 +128,56 @@ u32 ntri, u32 iboff, f32 (a distance? e.g. 358.3)`.
 **Verified**: the LR body is 708 + 36 + 488 vertices (+ small parts), its positions span exactly the header bounding box
 (-1.095..1.097, -2.405..2.093, -0.003..1.013 m = 2.19 x 4.50 x 1.02) and Blender renders a recognisable low-poly Huracan Performante
 (wing, side intakes); HR = 38 meshes / 90 parts / 55,217 triangles (body shell, wheel arches, suspension, interior, mirrors).
-**The parts are in node-local space**: doors, wheels and suspension pieces sit at their own node origin until the scene-graph
-transforms (the node table after the mesh entries) are applied. `tools/tdusc/p3d_to_obj.py` writes the OBJ.
+**The parts are in node-local space** until the scene graph (section 7.2) is applied; `tools/tdusc/p3d_to_obj.py` now applies it
+(`--local` keeps the raw node-local output). `tools/tdusc/p3d_to_obj.py` writes the OBJ.
 
 `tools/tdusc/tdusc_read.py` (`ls` / `info` / `strings` / `export`) reads any entry by its game path.
+
+### 7.2 The scene graph (session 61) [DATA, Huracan HR / LR]
+
+After the `MESH` entries comes the string `DEFAULT`, then **two tables joined by one id space**: `nDummy` dummy nodes (the word right
+before the first header; HR 24, LR 11: `Root`, `D_CAR`, `D_Door_L`, `D_Wiper_FL_01`, `Fork_FL` ... no mesh) and, after a `u32 nMesh`
+(HR 38, LR 1), the mesh nodes. Every record is
+
+    u32 id, u32 nChildren, u32 nDescendants, u32 nameLen, char name[nameLen], f32 m[16]
+    mesh nodes only, 21 more bytes:  00 00 00 04, 7f x 8, ff ff, 01 00, u32 meshIndex, 00
+
+* `id` is the **pre-order index of the whole tree** (HR: 62 nodes, `Root` = 0, `D_CAR` = 1, `Body` = 2 ... `Glass_R_Int` = 33, then
+  `D_Ref_CarAnim` = 34 ... 61). The tables are written in a different order, so the parent of id *k* is the deepest node whose range
+  `(id, id + nDescendants]` holds *k* (`Root` has `nDescendants` = N - 1 = 61 for HR, 11 for LR: the check that the walk is right).
+* `m` is a **row-major 4x4, row vectors, translation in row 3**, local -> parent: `world = m * parent.world`. All 62 HR matrices are pure
+  rotation + translation (det = 1); the Mirror nodes carry the **negated door hinge** because the mirror vertices are stored in car space
+  and hang under `Door_*` (hinge `D_Door_L` = (0.916, -0.862, 0.504)) -> world (0, -0.018, 0) = identity within 2 cm.
+* `meshIndex` counts the `MESH` entries in file order (alphabetical by node name: `Aero_Bumper_L` 0, `Body` 2, `Door_L` 5 ... `Wnd_R1` 37).
+  A mesh no node uses (LR meshes 1 and 2) is exported untransformed.
+* Coordinates: **Z up, front = -Y, rear = +Y, left = +X** (`Fork_FL` (0.819, -1.310, 0.194), `Fork_RL` (0.819, +1.310, 0.194): wheelbase
+  2.62 m, track half-width 0.819 m; `D_Exhaust_Flash_*` at y = +2.086). The `Fork_*` wheel anchors exist in the LR file only.
+
+**Verified**: HR with the graph applied spans (-1.11, -2.41, 0.00)..(1.11, 2.11, 1.03) m, the LR header's own box (-1.095, -2.405, -0.003)..
+(1.097, 2.093, 1.013) to 2 cm; with `--local` the doors / mirrors / windows drop to z = -0.43 and the box is wrong
+(local renders `tdusc_huracan_hr_local.png` vs `tdusc_huracan_hr_nodes.png`, kept outside the repo like all TDUSC art, a plain z-buffer render, looking up from below).
 
 ## 8. Ruled out (model blob)
 
 * The executable's strings say nothing (it is packed: no `PKGB` / `SCENE___` literal); not pursued.
 * A second 32-byte text key on the blob: an artefact of overlapping hexdumps, not a mask.
 
+## 9. `PTX` textures -> DDS (session 61) [DATA, Huracan, 53 files]
+
+`tools/tdusc/ptx_to_dds.py` converts them (`--png` writes a preview, `--all <prefix>` a whole folder, DX10-header DDS, mip 0).
+
+* Layout: `PATX-SP2` `ENDI` u32 3 ..., then 12-word entries from word 11: `u32 width, height, depth(1), fileOffset, 0, compressedSize,
+  uncompressedSize, 0 x 5`. Entries are mip 0, mip 1, ..., and the **last is a packed tail** of the small mips (`width` 0x80, **0x5e10**
+  bytes, always). A 4096^2 texture has 5 entries, a 512^2 one 3, `ALPHA` just 1.
+* **Every entry is a DirectStorage GDeflate stream** (`04 fb numTiles ...`, `tools/tdusc/gdeflate.py`) of block-compressed pixels, so the
+  old note "pixel data is not compressed / BC1 from the sizes" (section 2.2) was only the uncompressed-size arithmetic: the file holds it
+  packed (BODY_LR 512^2 mip 0: 84,516 -> 262,144 bytes).
+* **The header names no pixel format**; `uncompressedSize * 8 / (w * h)` gives 4 or 8 bits per pixel. Decoded and *looked at*:
+  * 8 bpp `_DIFF` (and `_LGT_MSK`, `_ALPHA`) = **BC3** (DXGI 77): the logo sheet, dashboard, tail lamps and the BODY atlas decode clean; BC7
+    decodes the same bytes to noise.
+  * `_NRM` (8 bpp) = **BC5 SIGNED** (DXGI 84): flat normal = (0, 0); BC5 unorm and BC3 / BC7 give noise (`C:/temp/tdusc-evidence/tdusc_huracan_detail_nrm_bc5s.png`).
+  * 4 bpp `_DIFF` / `_IOR` / `_EMI` / `_F_DETAIL` = **BC1** (the IOR sheets are packed channels, yellow / magenta in a viewer); `_AO` = BC4 [INF
+    from the name: the 2048^2 wheel AO decodes as a clean greyscale wheel].
+* **Unresolved: the dirt masks** (`BODY_MASK_DIRT`, `GLASS_MASK_DIRT`, `W0n_MASK_DIRT`, 8 bpp, 4096^2 / 2048^2): BC3, BC5, BC5S and BC7 all
+  decode to structured noise (the wheel shape shows through, so the tiles are right and the block format is not). Not needed for the look.
+* Result: **53 of 53** Huracan textures convert without an error (`C:/temp/tdusc-evidence/tdusc_huracan_textures.png`).

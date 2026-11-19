@@ -14,6 +14,34 @@ appends its entry at the top of this file**, newest first, in the
 
 
 
+## Session 2026-11-19 (61, `main`): TDUSC Huracan - node transforms applied AND the textures convert to DDS (53 of 53)
+
+The owner: "do both" - apply the node transforms, and textures to DDS (TDUSC is the Steam install on E:, part of our mod).
+
+### What changed
+- `tools/tdusc/p3d_to_obj.py` - `parse_nodes()` reads the scene graph (two tables, one pre-order id space, 4x4 row-major local matrices,
+  parent = deepest node whose id range holds the child) and the exporter instances each mesh at its node's world matrix; `--local` = old output.
+- `tools/tdusc/ptx_to_dds.py` (new) - `PATX-SP2` -> DX10 DDS (mip 0) + optional PNG preview; `--all <prefix>` converts a folder.
+- `docs/re/tdusc_pkg_format.md` sections 7.2 (scene graph) and 9 (PTX layout, formats); `C:/temp/tdusc-evidence/tdusc_huracan_*.png`.
+
+### Verified
+- HR with the graph applied: bbox (-1.11, -2.41, 0)..(1.11, 2.11, 1.03) = the LR header box to 2 cm; `--local` had z down to -0.43. Door / mirror /
+  window / wiper / bumper nodes land on the body (`C:/temp/tdusc-evidence/tdusc_huracan_hr_nodes.png` vs `_local.png`). Tree: 62 nodes, `Root` nDesc = 61.
+- PTX mip entries are GDeflate streams; 53 of 53 Huracan textures convert, no error. Looked at: `_DIFF` 8 bpp = **BC3** (logo sheet, dashboard,
+  BODY atlas clean), `_NRM` = **BC5 signed**, 4 bpp `_DIFF` / `_IOR` = BC1, wheel `_AO` greyscale.
+
+### Ruled out
+- BC7 for the 8 bpp diffuse: the same bytes decode to noise, BC3 is clean. BC5 unorm / BC3 / BC7 for `_NRM`: noise; signed BC5 is right.
+- The header carries no pixel-format field (identical `hdr` words on BC3, BC5S and BC1 files): the format is bpp + file-name convention.
+
+### Not done / next
+- **Dirt masks** (`*_MASK_DIRT`, 8 bpp, 5 files) decode to noise under BC3 / BC5 / BC5S / BC7: format unknown, not needed for the look.
+- Only mip 0 is written (the packed tail of mips 128 and below, 0x5e10 bytes, is not unpacked).
+- **UVs**: `vuvs` (8 B / vertex) is still undecoded, so the OBJ has no texture coordinates - the next step to see the car textured
+  (try 2 x half2 / unorm16 against the DIFF atlas). `vtan` too. Then `PMA` (mesh -> texture slots) and a carswap pack.
+- Wheels: `W_*.P3D` are separate files; place them at the LR `Fork_FL/RL` anchors (mirror for the right side). `Fork_*` is in LR only.
+- Not pushed.
+
 ## Session 2026-11-18 (60, `main`): TDUSC Huracan - decoded: GDeflate decoder works, the car's meshes export to OBJ
 
 The owner: "Decode a car (Huracan)". Spec section 7 of `docs/re/tdusc_pkg_format.md`; reader `tools/tdusc/tdusc_read.py`.
@@ -210,7 +238,8 @@ custom exhausts for the pops".
   from every tip via `EdenSurfaceFx::emitBurst`. Only a fitted tuner exhaust spits (the stock pipe does not).
   `CinematicCar::get/setTunerAttachmentTips` give the world-space pipe mouths.
 - `-tunerfit` now takes `<slot>_finish` / `exhaust_flames` keys too and the pops follow the same loadout.
-- Loader fix: a CRLF `tuner.txt` left a `` in `mesh = wing_gt.obj` (OBJ never found); the parser strips it.
+- Loader fix: a CRLF `tuner.txt` left a `
+` in `mesh = wing_gt.obj` (OBJ never found); the parser strips it.
 
 ### Verified (build 290, headless)
 - `-car GTR -tunermod -tunerfit "exhaust=exhaust_quad_ti;exhaust_finish=blueburnt;spoiler=wing_gt;spoiler_finish=s_painted;exhaust_flames=orange"`
