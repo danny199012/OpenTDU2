@@ -3,6 +3,21 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`): fourth Ibiza OIL station wired; `-lognearinst`
+
+Owner: found another petrol station (F6 X 20338.6 Z 20153.4), wants it wired, shutters removed, lighting and better textures; unsure where the others are.
+
+### What changed
+- `service_stations.cpp` kBuiltIn: `OIL Station (Area 2)` at (20338, 20153). Log: 4 built-in stations on ibiza.
+- `eden_world.cpp`: `-lognearinst x,z,r` logs every sector instance near a point (hash/name, box).
+
+### Ruled out
+- The station building is NOT a world instance: only vegetation (V_PALM/V_BUSH) and low walls (SF_WALE*) within 70 m. It is baked in the sector object geometry, so shutters / lights / textures need item-level work on that mesh (find the REPAIR shutter materials, hide or swap them), not an instance swap.
+
+### Not done / next
+- Shutters, forecourt lighting, texture pass: start from the sector Objects EdenModel items near (20338, 53, 20153) (log item material names), then hide the shutter items and add emissive/point-light props.
+- Other stations: need F6 positions (or a scan of sector object materials for the pump / REPAIR textures).
+
 ## Session 2026-11-20 (`main`, later): other exterior banks checked for the car wash's set-vs-collision offset - none has it
 
 `-logbankoffsets` (`gm_freeride.cpp`) prints `BANKOFFSET <bank> render (...) coll (...) centre delta size delta` per streamed building. Swept via `-tpdestination` (Ferrari dealer, Any dealer, Tuning shop, Race school, Clothes shop, Airport, Casino) on Ibiza + Hawai: dealers (ecd_ferr / audi / bri2 / ital), houses (eph_l0c / l1bi / l1c / ephot), shops, edi, ere, enc_pac, ech, ehd: render and collision bounds agree to 0.0 m in x and z. Differences exist only where the collision is smaller than the render (egamha -3.5 x -5.7, etnr / etun 1 m, elandcaa, airports' extra runway collision) - bounds, not a rigid shift. The wash (-1.5, 0, -16) offset is specific to `ecw_`. Not swept: every house variant / the Hawai-only banks not near those destinations.

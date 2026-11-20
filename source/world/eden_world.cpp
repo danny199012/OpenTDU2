@@ -1191,6 +1191,23 @@ void EdenWorld::loadInstances( Sector &sector, const std::string &name ) {
                     sector.InstanceBlinks.emplace_back( pMaterial, blink );
                 }
             }
+            // -lognearinst x,z,radius: every instance within radius (flat) of a point, with its model hash / name.
+            static float nearX = 0.0f, nearZ = 0.0f, nearR = -1.0f;
+            static bool bNearParsed = false;
+            if ( !bNearParsed ) {
+                bNearParsed = true;
+                if ( const char *pNear = CmdLine::GetArgValue( "-lognearinst" ) ) {
+                    sscanf( pNear, "%f,%f,%f", &nearX, &nearZ, &nearR );
+                }
+            }
+            if ( nearR > 0.0f ) {
+                const float dx = instance.Position.x - nearX, dz = instance.Position.z - nearZ;
+                if ( dx * dx + dz * dz < nearR * nearR ) {
+                    OTDU_LOG_INFO( "NEARINST type %u %s pos (%.1f %.1f %.1f) box (%.1f %.1f %.1f)-(%.1f %.1f %.1f)\n", static_cast<unsigned>( instance.Type ),
+                                   IdentifierToString( instance.Hashcode ).c_str(), instance.Position.x, instance.Position.y, instance.Position.z,
+                                   instance.BoxMin.x, instance.BoxMin.y, instance.BoxMin.z, instance.BoxMax.x, instance.BoxMax.y, instance.BoxMax.z );
+                }
+            }
             sector.Instances.push_back( instance );
             sector.InstanceModels.push_back( model );
             sector.InstanceDistances.push_back( distance );
