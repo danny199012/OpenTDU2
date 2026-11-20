@@ -59,12 +59,18 @@ per command, so the log alone is a transcript.
 | `list_overrides` | | the current overrides |
 | `screenshot` | `path` | saves the next presented frame (build stamp burnt in) |
 | `commit_props` | | writes the prop placements to `<mods>/props.txt` (what the current game build draws outside the editor) |
+| `enter_walk` | `id?`, `pos?`, `yaw?` | M4 first person: walks an `interior` object on its bank's own `.shk` collision from the retail `FirstPerson` camera (`id` default: the selection, else the nearest placement; **none → the scene grounds**, terrain / road floors, no walls). `pos` is a bank-local start eye `[x, y, z]`, `yaw` a bank-local heading in degrees. Returns the walk note + the world `eye` |
+| `exit_walk` | | ends the walk; the fly camera parks at the walk eye |
 
 Kinds for `add`: `group` (an attach parent, draws nothing), `library` (a node
 of the island's commonworld library — what the `.pmi` V/O lists instance),
 `actor` (a `worldactors.bnk` entity by name), `spot` (a whole building bank
 from `islands/<island>/exterior/`, streamed like the retail spots),
-`prop` (an OBJ from `<mods>/props/`).
+`interior` (a walkable room bank — M4: the stem `icd_ferr`, a shop spot ref
+`ECD_FERR` → its interior, or a house ref `EPH_L2E_0345I` with `:garage` for
+the garage room; streamed like the spots, walkable), `prop` (an OBJ from
+`<mods>/props/`). `list_assets` with `kind:"interior"` lists the game data's
+`interior/*.bnk` stems.
 
 ## A session, verbatim
 

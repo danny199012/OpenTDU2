@@ -116,8 +116,8 @@ void DrawAssetsSection( GMSceneEditor &editor ) {
     ImGui::SetNextItemWidth( 200.0f );
     ImGui::InputText( "search", filter, sizeof( filter ) );
     static int32_t kindTab = 0;
-    const char *kinds[ 4 ] = { "library", "spot", "actor", "prop" };
-    for ( int32_t i = 0; i < 4; i++ ) {
+    const char *kinds[ 5 ] = { "library", "interior", "spot", "actor", "prop" };
+    for ( int32_t i = 0; i < 5; i++ ) {
         if ( i > 0 ) {
             ImGui::SameLine();
         }
@@ -219,6 +219,13 @@ void DrawPropertiesSection( GMSceneEditor &editor ) {
     if ( ImGui::Button( "at camera" ) ) {
         pObject->Position = editor.position + editor.getForward() * 8.0f;
         bChanged = true;
+    }
+    if ( pObject->Kind == "interior" ) {
+        ImGui::SameLine();
+        if ( ImGui::Button( "walk inside (F6)" ) ) {
+            editor.enterWalk( pObject->Id );
+            bChanged = false;
+        }
     }
     ImGui::SameLine();
     if ( ImGui::Button( "snap ground" ) ) {
@@ -430,7 +437,12 @@ void GMSceneEditor::drawSceneUI() {
         ImGui::SameLine();
     }
     ImGui::Separator();
-    ImGui::TextDisabled( "RMB look, WSAD move, wheel speed; LMB pick / drag selection" );
-    ImGui::TextDisabled( "Ctrl+Z / Ctrl+Y undo / redo, Ctrl+D duplicate, Del delete, F2 panel" );
+    if ( isWalkActive() ) {
+        ImGui::TextColored( ImVec4( 1.0f, 0.8f, 0.3f, 1.0f ), "WALK: %s", getWalkNote().c_str() );
+        ImGui::TextDisabled( "WASD move, mouse look, Esc / F6 back to the editor" );
+    } else {
+        ImGui::TextDisabled( "RMB look, WSAD move, wheel speed; LMB pick / drag selection" );
+        ImGui::TextDisabled( "Ctrl+Z / Ctrl+Y undo / redo, Ctrl+D duplicate, Del delete, F2 panel, F6 walk" );
+    }
     ImGui::End();
 }

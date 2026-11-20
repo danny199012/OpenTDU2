@@ -3,6 +3,29 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, scene editor M4 — interior-bank composition + walk-mode entry)
+
+The scene editor roadmap's M4 ("interior-bank composition + walk-mode entry"), continuing M3 (roads, last commit). Task: place the game's own walkable rooms in a scene, compose furniture into them, and walk them first person to feel the composition.
+
+### What changed
+- **`source/game/scene_editor/scene_interior.{h,cpp}`** (new): the interior-bank asset layer. `ListBanks` (the game data's `interior/*.bnk` stems, the `__fr/__ge/__it/__sp/__us` locale clones filtered; 104 on this copy), `ResolveBankPath` (the three ref forms: the stem `icd_ferr`; the shop spot `ECD_FERR` through `InteriorWalk::InteriorBankFor`; the house `EPH_L2E_0345I` through `HouseBankFor`, `:garage` suffix for the garage bank — a bank only counts when the file exists), `LoadWalkData` (the bank's `.shk` collision via `LoadHavokCollision` + the retail walk start: `Entity__FirstPerson { StartCamera = Entity__Camera __Hc }` — `cam_entree` in every bank checked, spot_interiors_spec.md 2).
+- **`gm_scene_editor.{h,cpp}`**: `refreshSpotRecords` now builds records for spot AND interior objects and resolves **parent chains** (`doc.resolveWorlds`; position + heading extracted from the composed matrix — the doc's own yaw law, so unparented objects behave exactly as before; pitch / roll / scale do not survive a spot record). An interior record's `ExteriorPath` points into `interior/` — the room draws through the unchanged `SpotExteriors` streaming path (lightmaps / overrides / distances = the retail machinery). The **walk**: `enterWalk(id?, atBankLocal?, yawLocal?)` / `exitWalk` / `tickWalk` — the walked room's placement frame is the SpotExteriors frame law (T·R_y), the walk runs bank-local (`WalkController`) with the `WalkMode::collide` law mirrored (0.3 m sphere `ResolveSphereHavokCollision`, `FindHavokFloor` step 0.4 / drop 2.0 + the 8-ray ring, freeze off-floor), start eye = the bank's FirstPerson camera dropped to the floor (+1.6, walk_mode.cpp's start law; no camera in the bank → the collision bounds centre; overrides via the command). Streaming follows the walk eye (`streamWorld`/`streamExteriors` take a center); Esc/F6 exits, the fly camera parks at the eye; F6 with no interior placement walks the scene grounds (terrain / road floors via `getSurfaceHeight`, step / drop bounded, no walls). The walk dies on island switch / walked-object delete. `refreshAssets` lists the interior banks (the browser's new tab).
+- **Grass clearings** (`source/world/eden_world.{h,cpp}`): `GrassClearing` rects (world XZ) + `addGrassClearing` / `clearGrassClearings`; the grass emit's five-probe law skips any card probing inside one. The editor re-derives the set from the loaded interior banks' render bounds × placement frames every stream pass (`refreshGrassClearings`) — a scene room in a field no longer grows tall grass through its floor.
+- **`scene_cmd.cpp`**: `enter_walk` (fields `id?` — defaults to the selection when it is an interior, else the nearest placement; bank-local `pos?` + `yaw?` overrides — returns the walk note + world `eye`), `exit_walk`, `status` gained `walk_active` / `walk_interior`, `teleport` ends the walk first. **`scene_editor_ui.cpp`**: the interior asset tab, the "walk inside (F6)" properties button, the walk status / hint lines. **`scene_objects.cpp`**: the `interior` kind skips silently (it draws through the streamer; was an "unknown kind" warn).
+
+### Verified (headless, build 388, live server from Python)
+- `add interior icd_ferr` at the ETUN_A field → `SpotExteriors: icd_ferr at (12640, 16700): 4 models, 1 placements` + `SpotExterior: Euro/Bnk/interior/icd_ferr.bnk: 2 set models, 2 props`; the room draws (`_m4_shot_field.png`) and the walk starts at `cam_entree` (eye bank-local (−8.19, 1.60, 1.77), floor snapped) inside the showroom — red hall, atrium, swatch wall (`_m4_shot_walk.png`).
+- Chair `FU_Chair_act` attached to the interior at parent-local (2, 0, 3); save → reload → `enter_walk` round-trips (`_m4_shot_walk2.png`).
+- Group yaw 90 + `ECD_FERR` (spot-ref form) attached → `1 scene spots appended`; `enter_walk` eye `[12641.8, 11.6, 16708.2]` = the hand-computed +90° composition (a sign flip would give `[12638.2, 16691.8]`) — the record frame and the walk frame agree with the drawn frames (`_m4_shot_group90.png`).
+- Grass A/B: the first run grew flowering grass through the showroom floor; after `addGrassClearing` the floor is clean.
+- `list_assets kind=interior`: 104 stems, `icd_ferr` / `lph_*` present.
+- Note for the next session: the batch `-editorscript` runs all commands before the first frame, so multi-shot screenshot sequences drive better through the live server (the M2 route).
+
+### Not done / next
+- M5 native export (`bnk_tool pack` + the `.3dd/.3dg/.2dm/.2db` writers, byte-compare round-trips, scene→bank/spots/pmi); M6 polish (3-axis gizmo, material editing); the human UI pass + the roads feel-check in play.
+- The interior walk has no scene-object collision (the attached furniture does not push the walker — the .shk only) and the grounds walk has no wall push; the retail walk (avatar / cinematics / shop menus) stays the game modes' route on purpose.
+- Scene records are append-only for a session (`appendSpots` has no removal): a removed interior's record keeps streaming until relaunch — the documented M1 law, acceptable for a dev tool; a `SpotExteriors` removal path is the clean fix if it bothers the composing flow.
+
 ## Session 2026-11-20 (`main`, LOGIN skips the New profile dialog when a profile exists)
 
 Owner (recording of the retail game): with an existing profile retail loads straight in; the port always asked for details.

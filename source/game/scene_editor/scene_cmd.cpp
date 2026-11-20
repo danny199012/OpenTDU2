@@ -122,6 +122,8 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
         result.add( "num_overrides", JsonValue::MakeNumber( static_cast<double>( editor.doc.Overrides.size() ) ) );
         result.add( "num_roads", JsonValue::MakeNumber( static_cast<double>( editor.doc.Roads.size() ) ) );
         result.add( "selected", JsonValue::MakeString( editor.selectedId ) );
+        result.add( "walk_active", JsonValue::MakeBool( editor.isWalkActive() ) );
+        result.add( "walk_interior", JsonValue::MakeString( editor.getWalkInteriorId() ) );
         JsonValue pos = JsonValue::MakeArray();
         pos.push( JsonValue::MakeNumber( editor.position.x ) );
         pos.push( JsonValue::MakeNumber( editor.position.y ) );
@@ -203,7 +205,7 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
         const std::string kind = ToLower( command.getString( "kind", "" ) );
         const std::string ref = command.getString( "ref", command.getString( "name", "" ) );
         if ( kind.empty() ) {
-            result = ResultError( "no 'kind' (group|library|actor|spot|prop)" );
+            result = ResultError( "no 'kind' (group|library|actor|spot|interior|prop)" );
         } else {
             const JsonValue *pPos = command.find( "pos" );
             const Vector3f at = pPos != nullptr ? ReadVec3( pPos, Vector3f() ) : EditorFocusPoint( editor );
@@ -330,6 +332,9 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
         editor.snapSelectedToGround();
         result = ResultOk( editor.statusText );
     } else if ( cmd == "teleport" || cmd == "camera" ) {
+        if ( editor.isWalkActive() ) {
+            editor.exitWalk(); // the walk eye parks the camera first
+        }
         const JsonValue *pPos = command.find( "pos" );
         if ( pPos != nullptr ) {
             editor.position = ReadVec3( pPos, editor.position );
@@ -479,6 +484,47 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
             }
             editor.markSceneChanged();
             result = ResultOk( id );
+        }
+    } else if ( cmd == "enter_walk" ) {
+        // M4: first person. Fields: id? (an `interior` object; default the
+        // selection, else the nearest placement; none -> the scene grounds),
+        // pos? (bank-local start eye [x, y, z]), yaw? (bank-local degrees).
+        const JsonValue *pPos = command.find( "pos" );
+        Vector3f atBankLocal( FLT_MAX, FLT_MAX, FLT_MAX );
+        if ( pPos != nullptr ) {
+            atBankLocal = ReadVec3( pPos, atBankLocal );
+        }
+        float yawLocal = FLT_MAX;
+        if ( command.find( "yaw" ) != nullptr ) {
+            yawLocal = static_cast<float>( command.getNumber( "yaw", 0.0 ) );
+        }
+        // No id: the selection when it is an interior, else the nearest
+        // placement (the enterWalk defaults; a non-interior selection does
+        // not hijack the walk).
+        std::string walkId = command.getString( "id", "" );
+        if ( walkId.empty() ) {
+            const SceneObject *pSelected = editor.doc.findObject( editor.selectedId );
+            if ( pSelected != nullptr && pSelected->Kind == "interior" ) {
+                walkId = editor.selectedId;
+            }
+        }
+        if ( editor.enterWalk( walkId, atBankLocal, yawLocal ) ) {
+            result = ResultOk( editor.getWalkNote() );
+            result.add( "walk_interior", JsonValue::MakeString( editor.getWalkInteriorId() ) );
+            JsonValue eye = JsonValue::MakeArray();
+            eye.push( JsonValue::MakeNumber( editor.walkEyeWorld.x ) );
+            eye.push( JsonValue::MakeNumber( editor.walkEyeWorld.y ) );
+            eye.push( JsonValue::MakeNumber( editor.walkEyeWorld.z ) );
+            result.add( "eye", std::move( eye ) );
+        } else {
+            result = ResultError( editor.getWalkNote() );
+        }
+    } else if ( cmd == "exit_walk" ) {
+        if ( !editor.isWalkActive() ) {
+            result = ResultError( "not walking" );
+        } else {
+            editor.exitWalk();
+            result = ResultOk( "walk ended (the camera parked at the eye)" );
         }
     } else if ( cmd == "export_roads" ) {
         editor.exportRoadsFile();

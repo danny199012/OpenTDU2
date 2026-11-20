@@ -251,7 +251,9 @@ void SceneObjects::applyDocument( const SceneDocument &document ) {
             continue;
         }
 
-        if ( object.Kind != "spot" ) {
+        if ( object.Kind != "spot" && object.Kind != "interior" ) {
+            // spot / interior draw through the SpotExteriors streamer (the
+            // scene's records), not through instances here.
             OTDU_LOG_WARN( "SceneEditor: unknown object kind '%s' (id %s)\n", object.Kind.c_str(), object.Id.c_str() );
         }
     }

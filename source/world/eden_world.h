@@ -758,6 +758,16 @@ public:
     void appendRoadShapes( const std::vector<std::vector<Vector3f>> &roadShapes ) {
         grassRoads.merge( roadShapes );
     }
+    // Grass clearings (scene interiors, M4): world-space XZ rects without
+    // grass. The retail spots sit on cleared plots; a scene room placed in a
+    // field otherwise grows the tall grass through its floor. The editor
+    // re-derives the set from the loaded interior banks every stream pass
+    // (clear + re-add, a handful of rects).
+    struct GrassClearing {
+        float MinX, MinZ, MaxX, MaxZ;
+    };
+    void addGrassClearing( const GrassClearing &clearing ) { grassClearings.push_back( clearing ); }
+    void clearGrassClearings() { grassClearings.clear(); }
     // Mod roads (the scene editor / scene runtime): road ribbons registered
     // as driveable surfaces (world-space, up-facing triangles). Added before
     // the first query that must see them (a mode's load, the editor's road
@@ -793,6 +803,7 @@ private:
     void buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraPosition );
     void drawGrass( EdenRenderer &renderer, const Vector3f &cameraPosition );
     GrassRoadIndex grassRoads;          // the ROAD_MAP graph as an XZ segment hash
+    std::vector<GrassClearing> grassClearings; // the scene interiors' footprints (M4)
     std::vector<GrassType> grassTypes;
     Bank grassBank;
     EdenModel grassModel;               // the PLANE_01 / PLANE_02 card template

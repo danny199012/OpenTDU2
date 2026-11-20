@@ -4024,6 +4024,25 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                     roadSkipped++;
                     continue;
                 }
+                // The scene interiors' clearings (M4): any probe inside a
+                // footprint rect skips the card (the same five-probe law; a
+                // handful of rects, a linear test guarded by the count).
+                if ( !grassClearings.empty() ) {
+                    bool bInClearing = false;
+                    for ( int32_t probe = 0; probe < numProbes && !bInClearing; probe++ ) {
+                        for ( const GrassClearing &clearing : grassClearings ) {
+                            bInClearing = probeX[ probe ] >= clearing.MinX && probeX[ probe ] <= clearing.MaxX &&
+                                          probeZ[ probe ] >= clearing.MinZ && probeZ[ probe ] <= clearing.MaxZ;
+                            if ( bInClearing ) {
+                                break;
+                            }
+                        }
+                    }
+                    if ( bInClearing ) {
+                        roadGraphSkipped++;
+                        continue;
+                    }
+                }
                 // The road-graph test: the village streets / plazas are
                 // terrain paint inside the ROAD_MAP network's half width -
                 // the geometric index above has nothing to find there (the

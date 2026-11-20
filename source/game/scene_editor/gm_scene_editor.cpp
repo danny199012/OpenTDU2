@@ -5,7 +5,9 @@
 #include "filesystem/gs_file.h"
 #include "game/freeride/chase_camera.h"
 #include "game/scene_editor/scene_cmd.h"
+#include "game/scene_editor/scene_interior.h"
 #include "input/gs_input.h"
+#include "physics/havok_collision.h"
 #include "render/gs_render.h"
 #include "system/cmd_line.h"
 #include "tdu_instance.h"
@@ -23,6 +25,14 @@ constexpr float kSpotHeight = 25.0f;
 constexpr float kNoSectorHeight = 400.0f;
 constexpr float kWheelUp = 1.1f;
 constexpr float kWheelDown = 0.9090909f;
+
+// The walk body (the walk_mode.cpp law the editor walk mirrors: the proxy
+// centre + eye offset, the 0.3 m sphere, the 0.4 m step / 2 m drop bounds).
+constexpr float kWalkEyeHeight = 1.6f;
+constexpr float kWalkRadius = 0.3f;
+constexpr float kWalkStepUp = 0.4f;
+constexpr float kWalkMaxDrop = 2.0f;
+constexpr float kWalkStartRay = 10.0f;
 
 const char *IslandLabel( const char *pIsland ) {
     if ( strcmp( pIsland, "ibiza" ) == 0 ) {
@@ -121,7 +131,7 @@ bool GMSceneEditor::enter( TestDriveGameInstance *pInstance ) {
             pCommandServer.reset();
         }
     }
-    streamWorld( true );
+    streamWorld( true, position );
     return true;
 }
 
@@ -154,27 +164,50 @@ void GMSceneEditor::loadSpots() {
 }
 
 void GMSceneEditor::refreshSpotRecords() {
-    // The scene's spot placements join the island's own spots as extra
-    // records: one streaming path (SpotExteriors) for every building. They
-    // APPEND (appendSpots): setSpots would unload the loaded banks and leave
-    // the view's lightmap list dangling (the crash of the first run).
+    // The scene's spot AND interior placements join the island's own spots as
+    // extra records: one streaming path (SpotExteriors) for every building
+    // and every room (M4). They APPEND (appendSpots): setSpots would unload
+    // the loaded banks and leave the view's lightmap list dangling (the
+    // crash of the first run).
+    //
+    // The placement rides the parent chain (an interior attached to a group
+    // composes): position + heading come out of the resolved world matrix.
+    // The heading is the doc's own yaw (the object matrix's local-Z column:
+    // atan2(-z.x, z.z) returns the same degrees the plain placement carried);
+    // pitch / roll / scale do not survive a spot record - the same law the
+    // plain placements have always had.
     std::string signature;
     std::vector<SpotRecord> sceneSpots;
-    for ( const SceneObject &object : doc.Objects ) {
-        if ( object.Kind != "spot" || object.Ref.empty() ) {
+    std::vector<Matrix4x4f> worlds;
+    doc.resolveWorlds( worlds );
+    for ( size_t i = 0; i < doc.Objects.size(); i++ ) {
+        const SceneObject &object = doc.Objects[ i ];
+        const bool bSpot = object.Kind == "spot";
+        const bool bInterior = object.Kind == "interior";
+        if ( ( !bSpot && !bInterior ) || object.Ref.empty() ) {
             continue;
         }
+        const Matrix4x4f &world = worlds[ i ];
+        const Vector3f recordPos( world.m[ 3 ][ 0 ], world.m[ 3 ][ 1 ], world.m[ 3 ][ 2 ] );
+        const float headingRad = std::atan2( -world.m[ 2 ][ 0 ], world.m[ 2 ][ 2 ] );
         signature += object.Id + "@" + object.Ref + ":" +
-                     std::to_string( object.Position.x ) + "," + std::to_string( object.Position.y ) + "," +
-                     std::to_string( object.Position.z ) + "," + std::to_string( object.Yaw ) + ";";
+                     std::to_string( recordPos.x ) + "," + std::to_string( recordPos.y ) + "," +
+                     std::to_string( recordPos.z ) + "," + std::to_string( headingRad ) + ";";
         SpotRecord record;
         record.Id = GetIdentifier64bit( object.Id.c_str() );
-        record.Bank = object.Ref;
-        record.Position = object.Position;
-        record.Heading = object.Yaw * kPi / 180.0f;
-        const std::string exterior =
-            gpFile->getBankFolder() + "islands/" + island + "/exterior/" + ToLower( object.Ref ) + ".bnk";
-        if ( gpFile->fileExists( exterior.c_str() ) ) {
+        record.Bank = bInterior ? SceneInterior::DescribeRef( object.Ref ) : object.Ref;
+        record.Position = recordPos;
+        record.Heading = headingRad;
+        std::string exterior;
+        if ( bInterior ) {
+            exterior = SceneInterior::ResolveBankPath( object.Ref );
+        } else {
+            exterior = gpFile->getBankFolder() + "islands/" + island + "/exterior/" + ToLower( object.Ref ) + ".bnk";
+            if ( !gpFile->fileExists( exterior.c_str() ) ) {
+                exterior.clear();
+            }
+        }
+        if ( !exterior.empty() ) {
             record.ExteriorPath = exterior;
         }
         record.NumSectors = 9;
@@ -284,6 +317,7 @@ bool GMSceneEditor::loadIsland( const std::string &name ) {
 }
 
 void GMSceneEditor::unloadIsland() {
+    exitWalk(); // a walk across the island switch ends here (plain data: no GPU)
     if ( gpRender != nullptr ) {
         gpRender->getDevice().waitIdle();
     }
@@ -317,11 +351,19 @@ void GMSceneEditor::setRelativeMouse( bool bEnable ) {
 }
 
 void GMSceneEditor::updateCamera( float deltaTime ) {
+    if ( bWalkActive ) {
+        return; // tickWalk owns the input while walking (F6 / Esc exit there)
+    }
     if ( gpInput->wasKeyPressed( SDL_SCANCODE_TAB ) ) {
         bCaptured = !bCaptured;
     }
     if ( gpInput->wasKeyPressed( SDL_SCANCODE_F2 ) ) {
         bShowPanel = !bShowPanel;
+    }
+    // Walk entry (M4): the selected / nearest interior placement, else the
+    // scene grounds.
+    if ( gpInput->wasKeyPressed( SDL_SCANCODE_F6 ) ) {
+        enterWalk();
     }
     for ( uint32_t i = 0; i < sizeof( kIslands ) / sizeof( kIslands[ 0 ] ); i++ ) {
         if ( gpInput->wasKeyPressed( SDL_SCANCODE_F5 + i ) && island != kIslands[ i ] ) {
@@ -415,26 +457,274 @@ void GMSceneEditor::updateCamera( float deltaTime ) {
     }
 }
 
-void GMSceneEditor::streamWorld( bool bForce ) {
+// The scene rooms' grass clearings: the footprints of every loaded interior
+// bank (see refreshGrassClearings in the header).
+
+void GMSceneEditor::refreshGrassClearings() {
     if ( !bWorldReady ) {
         return;
     }
-    const int32_t key = SectorKey( position );
+    EdenWorld &world = view.getWorld();
+    world.clearGrassClearings();
+    for ( const auto &pExterior : exteriors.getExteriors() ) {
+        if ( pExterior->getPath().find( "/interior/" ) == std::string::npos ) {
+            continue;
+        }
+        // The bank's render bounds (bank frame) through every placement
+        // frame: the footprint rect in world XZ.
+        for ( const Matrix4x4f &frame : pExterior->getFrames() ) {
+            const Vector3f &bmin = pExterior->getRenderBoundsMin();
+            const Vector3f &bmax = pExterior->getRenderBoundsMax();
+            Vector3f lo( 1e30f, 0.0f, 1e30f ), hi( -1e30f, 0.0f, -1e30f );
+            for ( int32_t i = 0; i < 4; i++ ) {
+                const Vector3f corner( ( i & 1 ) ? bmax.x : bmin.x, 0.0f, ( i & 2 ) ? bmax.z : bmin.z );
+                const Vector3f world3 = frame.transformPoint( corner );
+                lo = Vector3f( Min( lo.x, world3.x ), 0.0f, Min( lo.z, world3.z ) );
+                hi = Vector3f( Max( hi.x, world3.x ), 0.0f, Max( hi.z, world3.z ) );
+            }
+            EdenWorld::GrassClearing clearing;
+            clearing.MinX = lo.x;
+            clearing.MinZ = lo.z;
+            clearing.MaxX = hi.x;
+            clearing.MaxZ = hi.z;
+            world.addGrassClearing( clearing );
+        }
+    }
+}
+
+
+// --- walk (M4): first person inside a composed interior -----------------------
+
+bool GMSceneEditor::enterWalk( const std::string &interiorId, const Vector3f &atBankLocal, float yawLocalDegrees ) {
+    if ( !bWorldReady ) {
+        walkNote = "the world is not ready";
+        return false;
+    }
+    exitWalk();
+
+    // The room: the explicit id, else the selected interior, else the nearest
+    // interior placement. None: the scene grounds (terrain / road floors, no
+    // walls).
+    std::vector<Matrix4x4f> worlds;
+    doc.resolveWorlds( worlds );
+    int32_t targetIndex = -1;
+    if ( !interiorId.empty() ) {
+        const SceneObject *pObject = doc.findObject( interiorId );
+        if ( pObject == nullptr || pObject->Kind != "interior" ) {
+            walkNote = "not an interior object: " + interiorId;
+            return false;
+        }
+        targetIndex = static_cast<int32_t>( pObject - doc.Objects.data() );
+    } else if ( !selectedId.empty() ) {
+        const SceneObject *pObject = doc.findObject( selectedId );
+        if ( pObject != nullptr && pObject->Kind == "interior" ) {
+            targetIndex = static_cast<int32_t>( pObject - doc.Objects.data() );
+        }
+    }
+    if ( targetIndex < 0 ) {
+        float bestDistance2 = FLT_MAX;
+        for ( size_t i = 0; i < doc.Objects.size(); i++ ) {
+            const SceneObject &object = doc.Objects[ i ];
+            if ( object.Kind != "interior" ) {
+                continue;
+            }
+            const float dx = worlds[ i ].m[ 3 ][ 0 ] - position.x;
+            const float dz = worlds[ i ].m[ 3 ][ 2 ] - position.z;
+            const float distance2 = dx * dx + dz * dz;
+            if ( distance2 < bestDistance2 ) {
+                bestDistance2 = distance2;
+                targetIndex = static_cast<int32_t>( i );
+            }
+        }
+    }
+
+    const Quaternionf headingFromYaw = [ yawLocalDegrees, this ]() {
+        if ( yawLocalDegrees != FLT_MAX ) {
+            return Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), yawLocalDegrees * kPi / 180.0f );
+        }
+        const Vector3f forward = getForward();
+        return Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), std::atan2( forward.x, forward.z ) );
+    }();
+
+    if ( targetIndex < 0 ) {
+        // The scene grounds walk: the fly camera's ground becomes the floor.
+        Vector3f eye( position.x, 0.0f, position.z );
+        float ground = 0.0f;
+        if ( !view.getWorld().getSurfaceHeight( eye.x, eye.z, position.y + 1.0f, ground ) ) {
+            walkNote = "no surface under the camera (walk over the island first)";
+            return false;
+        }
+        eye.y = ground + kWalkEyeHeight;
+        walkFrame = Matrix4x4f::Identity();
+        walkCollision = HavokCollision();
+        walkInteriorId.clear();
+        walkController.setCollide( [ this ]( const Vector3f &from, const Vector3f &to ) {
+            // Floor only (terrain / roads / scene roads): a step over
+            // kWalkStepUp or a ledge beyond kWalkMaxDrop stays.
+            float floor = 0.0f;
+            if ( !view.getWorld().getSurfaceHeight( to.x, to.z, from.y + kWalkStepUp + 0.1f, floor ) ) {
+                return from;
+            }
+            const float feet = from.y - kWalkEyeHeight;
+            if ( floor > feet + kWalkStepUp || floor < feet - kWalkMaxDrop ) {
+                return from;
+            }
+            return Vector3f( to.x, floor + kWalkEyeHeight, to.z );
+        } );
+        walkController.reset( eye, headingFromYaw );
+        walkNote = "walking the scene grounds (no interior placed)";
+        statusText = walkNote;
+        OTDU_LOG_INFO( "SceneEditor: walk: the scene grounds at (%.1f, %.1f, %.1f), floor %.2f\n", eye.x, eye.y, eye.z,
+                       ground );
+    } else {
+        const SceneObject &target = doc.Objects[ static_cast<size_t>( targetIndex ) ];
+        const std::string bankPath = SceneInterior::ResolveBankPath( target.Ref );
+        if ( bankPath.empty() ) {
+            walkNote = "no interior bank for '" + target.Ref + "'";
+            return false;
+        }
+        SceneInterior::WalkData walkData;
+        if ( !SceneInterior::LoadWalkData( bankPath, walkData ) ) {
+            walkNote = "the bank of '" + target.Ref + "' could not be read";
+            return false;
+        }
+        walkCollision = std::move( walkData.Collision );
+        walkInteriorId = target.Id;
+        // The placement frame: the SpotExteriors law (T(position) R_y(heading))
+        // - exactly the frames the room draws with, so the walk eye is in the
+        // room the view renders.
+        const Matrix4x4f &world = worlds[ static_cast<size_t>( targetIndex ) ];
+        const Vector3f framePos( world.m[ 3 ][ 0 ], world.m[ 3 ][ 1 ], world.m[ 3 ][ 2 ] );
+        const float headingRad = std::atan2( -world.m[ 2 ][ 0 ], world.m[ 2 ][ 2 ] );
+        walkFrame = Matrix4x4f::Translation( framePos ) *
+                    Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), headingRad ) );
+
+        Vector3f eye = walkData.StartEye;
+        Quaternionf heading = walkData.StartHeading;
+        if ( !walkData.bHasStart ) {
+            // No FirstPerson camera in the bank: the middle of the room
+            // (the collision bounds centre), looking along the room yaw.
+            eye = ( walkCollision.BoundsMin + walkCollision.BoundsMax ) * 0.5f + Vector3f( 0.0f, 1.8f, 0.0f );
+            heading = headingFromYaw;
+        }
+        if ( atBankLocal.x != FLT_MAX ) {
+            eye = atBankLocal;
+            heading = headingFromYaw;
+        }
+        // The eye on the floor (the walk start law: ray down, eye = floor + 1.6;
+        // off the floors the bank's camera height stands - walk_mode.cpp).
+        float floorY = 0.0f;
+        const bool bFloor = FindHavokFloor( walkCollision, eye, 0.1f, kWalkStartRay, floorY );
+        if ( bFloor ) {
+            eye.y = floorY + kWalkEyeHeight;
+        }
+        walkController.setCollide( [ this ]( const Vector3f &from, const Vector3f &to ) {
+            // The WalkMode::collide law in the bank frame: the body sphere is
+            // pushed out of the .shk walls, the feet follow the floor (step
+            // up / drop), and off the room's floors the walk freezes (the
+            // retail law - the .shk is a closed room).
+            const HavokCollision &collision = walkCollision;
+            if ( collision.Indices.empty() && collision.Boxes.empty() ) {
+                return Vector3f( to.x, from.y, to.z );
+            }
+            Vector3f feet( to.x, from.y - kWalkEyeHeight, to.z );
+            Vector3f body = feet + Vector3f( 0.0f, kWalkStepUp + kWalkRadius, 0.0f );
+            body = ResolveSphereHavokCollision( collision, body, kWalkRadius );
+            feet = Vector3f( body.x, feet.y, body.z );
+            float floorValue = 0.0f;
+            bool bFound = FindHavokFloor( collision, feet, kWalkStepUp, kWalkMaxDrop, floorValue );
+            for ( int32_t i = 0; i < 8 && !bFound; i++ ) {
+                // The floor under the body footprint (the body is not a point;
+                // walk_mode.cpp's 8-ray ring over the floor seams).
+                const float angle = i * ( 2.0f * kPi / 8.0f );
+                float y = 0.0f;
+                if ( FindHavokFloor( collision, feet + Vector3f( std::cos( angle ) * kWalkRadius, 0.0f,
+                                                                 std::sin( angle ) * kWalkRadius ),
+                                     kWalkStepUp, kWalkMaxDrop, y ) ) {
+                    floorValue = y;
+                    bFound = true;
+                }
+            }
+            if ( !bFound ) {
+                return from;
+            }
+            feet.y = floorValue;
+            return feet + Vector3f( 0.0f, kWalkEyeHeight, 0.0f );
+        } );
+        walkController.reset( eye, heading );
+        walkNote = "walking '" + target.Id + "' (" + SceneInterior::DescribeRef( target.Ref ) + ")" +
+                   ( walkData.bHasStart ? ( " from " + walkData.StartCameraName ) : std::string() ) +
+                   ( bFloor ? "" : " (no floor under the start)" );
+        statusText = walkNote;
+        OTDU_LOG_INFO( "SceneEditor: walk: '%s' bank %s, eye bank-local (%.2f, %.2f, %.2f), start camera '%s'%s\n",
+                       target.Id.c_str(), bankPath.c_str(), eye.x, eye.y, eye.z, walkData.StartCameraName.c_str(),
+                       bFloor ? "" : " (no floor under the start)" );
+    }
+
+    walkEyeWorld = walkFrame.transformPoint( walkController.getPosition() );
+    walkForwardWorld = walkFrame.transformVector( walkController.getForward() ).normalized();
+    setRelativeMouse( true );
+    bWalkActive = true;
+    return true;
+}
+
+void GMSceneEditor::exitWalk() {
+    if ( !bWalkActive ) {
+        return;
+    }
+    // The fly camera continues at the eye (looking where the walk looked).
+    position = walkEyeWorld;
+    const Vector3f forward = walkForwardWorld;
+    if ( forward.length() > 1e-4f ) {
+        yaw = std::atan2( forward.x, forward.z );
+        pitch = std::asin( Clamp( forward.y / forward.length(), -1.0f, 1.0f ) );
+    }
+    bWalkActive = false;
+    walkInteriorId.clear();
+    walkCollision = HavokCollision();
+    walkFrame = Matrix4x4f::Identity();
+    setRelativeMouse( false );
+    statusText = "walk ended";
+    OTDU_LOG_INFO( "SceneEditor: walk ended (eye %.1f %.1f %.1f)\n", position.x, position.y, position.z );
+}
+
+void GMSceneEditor::tickWalk( float deltaTime ) {
+    if ( gpInput->wasKeyPressed( SDL_SCANCODE_F2 ) ) {
+        bShowPanel = !bShowPanel;
+    }
+    // Exit: Esc or F6 (B is the game's back key, but it is not bound in the
+    // editor; Esc is IA_MenuBack anyway).
+    if ( gpInput->wasKeyPressed( SDL_SCANCODE_ESCAPE ) || gpInput->wasKeyPressed( SDL_SCANCODE_F6 ) ) {
+        exitWalk();
+        return;
+    }
+    const bool bUiKeys = gpImGui != nullptr && gpImGui->wantsKeyboard();
+    walkController.update( deltaTime, !bUiKeys );
+    walkEyeWorld = walkFrame.transformPoint( walkController.getPosition() );
+    walkForwardWorld = walkFrame.transformVector( walkController.getForward() ).normalized();
+}
+
+void GMSceneEditor::streamWorld( bool bForce, const Vector3f &center ) {
+    if ( !bWorldReady ) {
+        return;
+    }
+    const int32_t key = SectorKey( center );
     if ( key == lastSectorKey && !bForce ) {
         return;
     }
     lastSectorKey = key;
     EdenWorld &world = view.getWorld();
-    if ( world.unloadFar( position, sectorRadius + 1 ) != 0 ) {
+    if ( world.unloadFar( center, sectorRadius + 1 ) != 0 ) {
         if ( EdenRenderer *pRenderer = gpRender->getEdenRenderer() ) {
             pRenderer->clearShadowCasterCache();
         }
     }
-    world.loadAround( position, sectorRadius );
+    world.loadAround( center, sectorRadius );
 }
 
-void GMSceneEditor::streamExteriors() {
-    exteriors.tick( view, position, bExteriors );
+void GMSceneEditor::streamExteriors( const Vector3f &center ) {
+    exteriors.tick( view, center, bExteriors );
+    refreshGrassClearings();
     // The hide overrides of the scene cover the streamed banks too (idempotent,
     // cheap: a bank is a handful of models).
     if ( !doc.Overrides.empty() ) {
@@ -456,14 +746,22 @@ void GMSceneEditor::tick( float deltaTime ) {
     if ( !pendingIsland.empty() ) {
         const std::string name = pendingIsland;
         pendingIsland.clear();
+        exitWalk(); // the walked bank belonged to the old island (if any)
         loadIsland( name );
     }
-    updateCamera( deltaTime );
+    if ( bWalkActive ) {
+        tickWalk( deltaTime );
+    } else {
+        updateCamera( deltaTime );
+    }
     if ( !bWorldReady ) {
         return;
     }
-    streamWorld( false );
-    streamExteriors();
+    // Streaming follows the camera: the walk eye when walking (the room and
+    // its surroundings stay loaded), the fly position otherwise.
+    const Vector3f streamCenter = bWalkActive ? walkEyeWorld : position;
+    streamWorld( false, streamCenter );
+    streamExteriors( streamCenter );
 
     // Scene edits re-instantiate on the next tick (a batch / server command
     // may have changed the document outside the UI flow).
@@ -475,21 +773,30 @@ void GMSceneEditor::tick( float deltaTime ) {
             modRoads.loadDocument( *pRenderer, doc, &view.getWorld() );
             modRoads.registerSurfaces( view.getWorld() ); // a scene road is a driveable surface
         }
+        if ( bWalkActive && !walkInteriorId.empty() && doc.findObject( walkInteriorId ) == nullptr ) {
+            exitWalk(); // the walked interior was deleted under the walker
+        }
     }
 
     EdenSceneView::Camera camera;
-    camera.Position = position;
-    camera.Rotation = ChaseCamera::LookRotation( position, position + getForward() );
-    camera.Fov = fovDegrees * kPi / 180.0f;
+    if ( bWalkActive ) {
+        camera.Position = walkEyeWorld;
+        camera.Rotation = ChaseCamera::LookRotation( walkEyeWorld, walkEyeWorld + walkForwardWorld );
+        camera.Fov = walkFovDegrees * kPi / 180.0f;
+    } else {
+        camera.Position = position;
+        camera.Rotation = ChaseCamera::LookRotation( position, position + getForward() );
+        camera.Fov = fovDegrees * kPi / 180.0f;
+    }
     view.setCamera( camera );
     view.setWeather( pWeather );
-    view.setEnvironmentCenter( position, false );
+    view.setEnvironmentCenter( streamCenter, false );
     view.tick( deltaTime );
     view.getWorld().setNightLights( ( pWeather != nullptr && ( pWeather->Hour < 6 || pWeather->Hour >= 20 ) ) ||
                                     CmdLine::HasArg( "-lampday" ) );
 
     // --- picking / dragging (the ImGui overlay has the mouse over panels) ---
-    const bool bMouseFree = gpImGui == nullptr || !gpImGui->wantsMouse();
+    const bool bMouseFree = ( gpImGui == nullptr || !gpImGui->wantsMouse() ) && !bWalkActive;
     const ImGuiIO &io = ImGui::GetIO();
     const bool bLeft = gpInput->isMouseButtonDown( SDL_BUTTON_LEFT ) && bMouseFree && !io.WantCaptureMouse;
     const bool bLeftPressed = bLeft && !bPrevLeftMouse;
@@ -961,6 +1268,11 @@ void GMSceneEditor::refreshAssets() {
     banks.erase( std::unique( banks.begin(), banks.end() ), banks.end() );
     for ( const std::string &bank : banks ) {
         assets.push_back( { bank, "spot" } );
+    }
+    // The interior banks (M4): the game's walkable rooms (icd_*, ias_*,
+    // lph_*/gph_* house rooms...).
+    for ( const std::string &stem : SceneInterior::ListBanks() ) {
+        assets.push_back( { stem, "interior" } );
     }
     // The overlay's OBJ props.
     for ( const std::string &prop : ModProps::listAvailableProps() ) {

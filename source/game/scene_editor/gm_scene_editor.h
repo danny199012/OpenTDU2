@@ -6,6 +6,8 @@
 #include "game/spots/mod_props.h"
 #include "game/spots/mod_roads.h"
 #include "game/spots/spot_exteriors.h"
+#include "game/walkmode/walk_controller.h"
+#include "physics/havok_collision.h"
 #include "render/eden/eden_scene_view.h"
 #include "render/eden/eden_weather.h"
 
@@ -18,9 +20,10 @@ class SceneCommandServer;
 // "SCENE_EDITOR": the OpenTDU2 scene editor - a Blender-like but easy tool
 // over the streamed island (WORLD_VIEWER skeleton: streaming, weather, free
 // camera). It composes new buildings / interiors / props from what the game
-// already ships (library nodes, actors, exterior banks, OBJ props), detaches
-// baked pieces (hide / material overrides), edits roads from splines (M3)
-// and saves everything as a JSON scene in the mods overlay
+// already ships (library nodes, actors, exterior banks, interior banks, OBJ
+// props), detaches baked pieces (hide / material overrides), edits roads
+// from splines (M3), walks the composed interiors first person (M4) and
+// saves everything as a JSON scene in the mods overlay
 // (`<mods>/scenes/<name>.scene.json`, docs/re/scene_editor.md).
 //
 // Two non-interactive entries share the command interpreter
@@ -32,7 +35,7 @@ class SceneCommandServer;
 // Controls: the WORLD_VIEWER camera (RMB look / WSAD / wheel speed) plus:
 //   LMB: pick (an object selects it; drag after pick-on-selection moves it on
 //        its ground plane), Delete: remove the selection, Ctrl+Z / Ctrl+Y:
-//        undo / redo, Ctrl+D: duplicate, F2: panel.
+//        undo / redo, Ctrl+D: duplicate, F2: panel, F6: walk (M4).
 class GMSceneEditor : public GameMode {
 public:
     GMSceneEditor();
@@ -119,14 +122,30 @@ public:
     std::unique_ptr<SceneCommandServer> pCommandServer;
     bool bBatchRun = false;
 
+    // Walk state (M4). The controller and the collision live in the BANK
+    // frame of the walked interior (the .shk's own space); walkFrame is the
+    // placement frame bank -> world (the SpotExteriors frame law), so the
+    // camera renders from frame * eye and the streamed room draws exactly
+    // where the walk happens. walkInteriorId "" = the scene grounds walk
+    // (terrain / road floors, no walls).
+    bool bWalkActive = false;
+    WalkController walkController;
+    HavokCollision walkCollision;
+    std::string walkInteriorId;
+    Matrix4x4f walkFrame;
+    Vector3f walkEyeWorld;
+    Vector3f walkForwardWorld = Vector3f( 0.0f, 0.0f, 1.0f );
+    float walkFovDegrees = 60.0f;
+    std::string walkNote;
+
     // --- the methods ---
     bool loadIsland( const std::string &name );
     void unloadIsland();
     void loadSpots();
     void teleport( const Vector3f &target, float heading, float height );
     void updateCamera( float deltaTime );
-    void streamWorld( bool bForce );
-    void streamExteriors();
+    void streamWorld( bool bForce, const Vector3f &center );
+    void streamExteriors( const Vector3f &center );
     void setRelativeMouse( bool bEnable );
     Vector3f getForward() const;
 
@@ -160,8 +179,32 @@ public:
     int32_t importRoadsFile();
     void refreshAssets();
 
+    // --- walk (M4): first person inside an interior placement ---
+    // F6 / enter_walk: walks the given `interior` object (default: the
+    // selection, else the nearest placement) on the bank's own .shk
+    // collision, starting at the retail FirstPerson camera. Without any
+    // interior placement it walks the scene grounds (terrain / road floors,
+    // no walls). atBankLocal overrides the start eye (bank-local metres,
+    // x = FLT_MAX: the bank's own start); yawLocalDegrees overrides the
+    // start heading (bank-local degrees, FLT_MAX: the camera's / the fly
+    // heading). exitWalk parks the fly camera at the walk eye.
+    bool enterWalk( const std::string &interiorId = std::string(),
+                    const Vector3f &atBankLocal = Vector3f( FLT_MAX, FLT_MAX, FLT_MAX ),
+                    float yawLocalDegrees = FLT_MAX );
+    void exitWalk();
+    inline bool isWalkActive() const { return bWalkActive; }
+    inline const std::string &getWalkInteriorId() const { return walkInteriorId; }
+    inline const std::string &getWalkNote() const { return walkNote; }
+
 private:
     void refreshSpotRecords();
+    // The walk tick: controller input + the camera pose (tick's walk branch).
+    void tickWalk( float deltaTime );
+    // The grass clearings: every loaded interior bank's footprint rects
+    // (scene rooms in fields would otherwise grow the tall grass through the
+    // floor; the retail spots sit on cleared plots). Re-derived per stream
+    // pass.
+    void refreshGrassClearings();
     // The panels (scene_editor_ui.cpp): one drawUI member, one TU.
     void drawSceneUI();
 };

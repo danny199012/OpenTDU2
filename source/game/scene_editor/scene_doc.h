@@ -34,9 +34,11 @@
 //
 // kinds: "group" (no draw, a parent for attaching), "library" (a node of the
 // island's commonworld library), "actor" (worldactors.bnk entity by name),
-// "spot" (a whole exterior bank: a retail building placed by a scene), "prop"
-// (an OBJ from <mods>/props/). pos / yaw / pitch / roll are the object's own
-// transform; "parent" composes it on top of the parent's (attach).
+// "spot" (a whole exterior bank: a retail building placed by a scene),
+// "interior" (a walkable room bank: `icd_ferr`, a shop spot ref `ECD_FERR`,
+// or a house ref `EPH_L2E_0345I` [+":garage"] — M4), "prop" (an OBJ from
+// <mods>/props/). pos / yaw / pitch / roll are the object's own transform;
+// "parent" composes it on top of the parent's (attach).
 struct SceneObject {
     std::string Id;
     std::string Parent;   // "" = scene root, else the parent object's id
