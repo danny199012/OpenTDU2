@@ -31,6 +31,7 @@
 #include "game/freeride/gm_freeride.h"
 #include "game/worldviewer/gm_world_viewer.h"
 #include "game/uiviewer/gm_ui_viewer.h"
+#include "game/scene_editor/gm_scene_editor.h"
 #include "game/cine/gm_cine.h"
 #include "game/shop/gm_shop.h"
 #include "game/shop/gm_testcar.h"
@@ -489,6 +490,8 @@ TestDriveGameInstance::createGameMode( eGameMode mode ) {
         return std::make_unique<GMAssetViewer>();
     case eGameMode::GM_UiViewer:
         return std::make_unique<GMUiViewer>();
+    case eGameMode::GM_SceneEditor:
+        return std::make_unique<GMSceneEditor>();
     case eGameMode::GM_Cine:
         return std::make_unique<GMCine>();
     case eGameMode::GM_Shop:

@@ -825,6 +825,7 @@ bool EdenWorld::initialize( EdenRenderer &renderer, const char *pIsland ) {
                     libraryNodes.emplace( nodes[i].Hashcode, i );
                 }
             }
+            applyVisibility( libraryModel );
             // The library materials are shared by every instance: the neon
             // set value is written in place (neon_spec 2).
             if ( !CmdLine::HasArg( "-noworldneons" ) ) {
@@ -2054,6 +2055,7 @@ bool EdenWorld::loadSector( const SectorId &id ) {
     pSector->Objects.setKeepCollision( true );
     pSector->Objects.load( *pRenderer, pSector->SectorBank, ( name + "-o" ).c_str(), &libraryMaterials, path, nullptr,
                            materialSetup );
+    applyVisibility( pSector->Objects );
     stage( "objects" );
     if ( modelLoadedCallback && pSector->Objects.isLoaded() ) {
         modelLoadedCallback( pSector->Objects );
@@ -2303,6 +2305,7 @@ bool EdenWorld::loadArea( int32_t x, int32_t y ) {
     pArea->Terrain.Spacing = 24.0f;
     pArea->Objects.load( *pRenderer, pArea->AreaBank, ( std::string( name ) + "-o" ).c_str(), &libraryMaterials, path );
     pArea->Objects.bindUVAnimations( pArea->AreaBank );
+    applyVisibility( pArea->Objects );
     if ( modelLoadedCallback && pArea->Objects.isLoaded() ) {
         modelLoadedCallback( pArea->Objects );
     }
@@ -4331,7 +4334,108 @@ void EdenWorld::drawLibraryNode( EdenRenderer &renderer, int32_t nodeIndex, cons
     if ( nodeIndex < 0 || !libraryModel.isLoaded() ) {
         return;
     }
+    // A hidden-node override covers placements of the node too (drawNodeItems
+    // does not test nodeVisible, so the guard is here).
+    const std::vector<SceneNode> &nodes = libraryModel.getScene().getNodes();
+    if ( nodeIndex < static_cast<int32_t>( nodes.size() ) &&
+         hiddenNodeHashes.count( nodes[ nodeIndex ].Hashcode ) != 0 ) {
+        return;
+    }
     libraryModel.drawNodeItems( renderer, nodeIndex, world );
+}
+
+EdenModel *EdenWorld::getActorModelPtr( uint64_t hashcode ) {
+    const int32_t index = getActorModel( hashcode );
+    return index >= 0 && index < static_cast<int32_t>( actorModels.size() ) ? actorModels[ index ].get() : nullptr;
+}
+
+bool EdenWorld::raycastObjects( const Vector3f &origin, const Vector3f &direction, float &outDistance,
+                                std::string &outNodeName ) const {
+    bool bHit = false;
+    for ( const auto &pSector : sectors ) {
+        if ( pSector->bPreloaded || !pSector->Objects.isLoaded() ) {
+            continue;
+        }
+        // The sector model draws with a Translation(Origin) world: model space
+        // is the ray translated by -Origin, the direction unchanged.
+        float distance = 0.0f;
+        int32_t nodeIndex = -1;
+        if ( pSector->Objects.raycast( origin - pSector->Origin, direction, distance, nodeIndex ) ) {
+            if ( !bHit || distance < outDistance ) {
+                outDistance = distance;
+                bHit = true;
+                const std::vector<SceneNode> &nodes = pSector->Objects.getScene().getNodes();
+                outNodeName =
+                    ( nodeIndex >= 0 && nodeIndex < static_cast<int32_t>( nodes.size() ) ) ? nodes[ nodeIndex ].Name
+                                                                                           : std::string();
+            }
+        }
+    }
+    return bHit;
+}
+
+uint64_t EdenWorld::OverrideHash( const std::string &name ) {
+    if ( name.size() > 3 && ( name[ 0 ] == 'h' || name[ 0 ] == 'H' ) && ( name[ 1 ] == 'c' || name[ 1 ] == 'C' ) &&
+         name[ 2 ] == ':' ) {
+        return std::strtoull( name.c_str() + 3, nullptr, 16 );
+    }
+    return GetIdentifier64bit( name.c_str() );
+}
+
+void EdenWorld::addHiddenNode( const std::string &name ) {
+    const uint64_t hash = OverrideHash( name );
+    if ( hash == 0 ) {
+        return;
+    }
+    if ( hiddenNodeHashes.insert( hash ).second ) {
+        OTDU_LOG_INFO( "EdenWorld: hide node '%s' (hc:%016llx)\n", name.c_str(),
+                       static_cast<unsigned long long>( hash ) );
+    }
+    if ( libraryModel.isLoaded() ) {
+        applyVisibility( libraryModel );
+    }
+    for ( const auto &pSector : sectors ) {
+        applyVisibility( pSector->Objects );
+    }
+    for ( const auto &pArea : areas ) {
+        applyVisibility( pArea->Objects );
+    }
+}
+
+void EdenWorld::addHiddenMaterial( const std::string &name ) {
+    const uint64_t hash = OverrideHash( name );
+    hiddenMaterialHashes.insert( hash );
+    // Long names (the .2dm parser recovers them beyond 8 characters) match
+    // verbatim too: GetIdentifier64bit folds them into 8 slots.
+    if ( name.size() > 8 && name.compare( 0, 3, "hc:" ) != 0 ) {
+        hiddenMaterialNames.push_back( name );
+    }
+    OTDU_LOG_INFO( "EdenWorld: hide material '%s' (hc:%016llx)\n", name.c_str(),
+                   static_cast<unsigned long long>( hash ) );
+    if ( libraryModel.isLoaded() ) {
+        applyVisibility( libraryModel );
+    }
+    for ( const auto &pSector : sectors ) {
+        applyVisibility( pSector->Objects );
+    }
+    for ( const auto &pArea : areas ) {
+        applyVisibility( pArea->Objects );
+    }
+}
+
+void EdenWorld::clearHiddenOverrides() {
+    hiddenNodeHashes.clear();
+    hiddenMaterialHashes.clear();
+    hiddenMaterialNames.clear();
+    // The visibility states of the loaded models stay: a reload (island
+    // switch) is the reset path.
+}
+
+void EdenWorld::applyVisibility( EdenModel &model ) const {
+    if ( hiddenNodeHashes.empty() && hiddenMaterialHashes.empty() && hiddenMaterialNames.empty() ) {
+        return;
+    }
+    EdenModelApplyVisibility( model, hiddenNodeHashes, hiddenMaterialHashes, hiddenMaterialNames );
 }
 
 bool EdenWorld::getSurfaceHeight( float x, float z, float maxHeight, float &outHeight ) const {

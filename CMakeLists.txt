@@ -62,6 +62,8 @@ if( OTDU_DEVBUILD )
     target_compile_definitions( otdu_engine PUBLIC OTDU_DEVBUILD )
 endif()
 if( WIN32 )
+    # The scene editor's localhost command server (source/game/scene_editor/scene_cmd.*).
+    target_link_libraries( otdu_engine PUBLIC ws2_32 )
     # Direct3D backends: the define is what source/render/rhi/render_backend.cpp
     # asks for ("is this backend compiled in?"), the libraries are the device,
     # the swapchain factory and (D3D9/11) the shader compiler.

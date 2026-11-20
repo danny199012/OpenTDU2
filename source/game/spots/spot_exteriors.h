@@ -46,6 +46,12 @@ public:
     // Takes an already parsed list (the world viewer fills the sector coverage
     // fields before handing it over).
     void setSpots( std::vector<SpotRecord> list );
+    // Adds records WITHOUT unloading the loaded banks (setSpots unloads: the
+    // buildings drop for a frame and the view's lightmap list is left
+    // dangling). The scene editor's placements append here; a record whose
+    // bank is already loaded just adds its frame. Duplicates (same bank,
+    // position and heading) are skipped.
+    void appendSpots( const std::vector<SpotRecord> &list );
     // A bank the mode already owns and draws (FREERIDE's house cinematic bank
     // eph_l3di.bnk): never streamed. The texture cache owner and the lightmap
     // entries of that bank belong to that other owner, and releasing the shared

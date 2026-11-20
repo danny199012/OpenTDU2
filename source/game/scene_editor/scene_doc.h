@@ -1,0 +1,107 @@
+#pragma once
+
+#include "core/math.h"
+#include "game/scene_editor/scene_json.h"
+
+#include <string>
+#include <vector>
+
+// The scene document (source/game/scene_editor/): the editable source of
+// truth of the scene editor. One JSON file per scene in the mods overlay
+// (`<mods>/scenes/<name>.scene.json`), human- and AI-editable; the editor
+// saves it and re-instantiates it at load. Files are read through the VFS
+// (the overlay shadows) and written under the mods root - the game data
+// folder is never written (docs/re/modding.md 4).
+//
+// Shape:
+//   {
+//     "version": 1,
+//     "island": "ibiza",
+//     "name": "my_scene",
+//     "objects": [
+//       { "id": "canopy", "kind": "library", "ref": "SB_GAZCAN",
+//         "pos": [x, y, z], "yaw": 90, "pitch": 0, "roll": 0,
+//         "scale": [1, 1, 1], "visible": true, "parent": "" }
+//     ],
+//     "overrides": [
+//       { "kind": "node", "target": "shutters", "hidden": true }
+//     ],
+//     "roads": [
+//       { "id": "coast", "points": [[x, y, z], ...], "width": 7.0,
+//         "lanes": 2, "closed": false, "collide": true, "texture": "asphalt.png" }
+//     ]
+//   }
+//
+// kinds: "group" (no draw, a parent for attaching), "library" (a node of the
+// island's commonworld library), "actor" (worldactors.bnk entity by name),
+// "spot" (a whole exterior bank: a retail building placed by a scene), "prop"
+// (an OBJ from <mods>/props/). pos / yaw / pitch / roll are the object's own
+// transform; "parent" composes it on top of the parent's (attach).
+struct SceneObject {
+    std::string Id;
+    std::string Parent;   // "" = scene root, else the parent object's id
+    std::string Kind;     // group | library | actor | spot | prop
+    std::string Ref;      // node / actor / bank / OBJ name (see the kinds)
+    Vector3f Position;
+    float Yaw = 0.0f;     // degrees, the rotation about Y (the heading)
+    float Pitch = 0.0f;   // degrees
+    float Roll = 0.0f;    // degrees
+    Vector3f Scale = Vector3f( 1.0f, 1.0f, 1.0f );
+    bool bVisible = true;
+};
+
+// A piece of the streamed game that the scene hides (a baked sub-object, a
+// .pmi library node, a material). "target" is a node / material name (what
+// -lognodesnear / -logstationmats print) or "hc:<16 hex>" when the parser
+// could not recover the name.
+struct SceneOverride {
+    std::string Kind;   // "node" | "material"
+    std::string Target; // name or hc:<hex>
+    bool bHidden = true;
+};
+
+// A road drawn from a spline (M3; the document model ships with M1 so scenes
+// are forward compatible).
+struct SceneRoad {
+    std::string Id;
+    std::vector<Vector3f> Points;
+    float Width = 7.0f;
+    int32_t Lanes = 2;
+    bool bClosed = false;
+    bool bCollide = true;
+    std::string Texture; // props-folder PNG; empty = the default asphalt
+};
+
+struct SceneDocument {
+    int32_t Version = 1;
+    std::string Island = "ibiza";
+    std::string Name;
+    std::vector<SceneObject> Objects;
+    std::vector<SceneOverride> Overrides;
+    std::vector<SceneRoad> Roads;
+
+    // VFS read (`scenes/<file>` resolves through the mods overlay).
+    bool loadFromVfs( const std::string &fileName, std::string &outError );
+    // Direct write under the mods root: `<modsRoot>/scenes/<fileName>`.
+    bool saveToMods( const std::string &fileName, std::string &outError ) const;
+
+    JsonValue toJson() const;
+    bool fromJson( const JsonValue &root, std::string &outError );
+
+    SceneObject *findObject( const std::string &id );
+    const SceneObject *findObject( const std::string &id ) const;
+    SceneRoad *findRoad( const std::string &id );
+    // id unique in the scene: base, base_2, base_3...
+    std::string uniqueId( const std::string &base ) const;
+    void removeObject( const std::string &id ); // and the children's Parent -> ""
+    // The world matrix of an object (its own transform; the parent chain is
+    // resolved by the caller - resolveWorld below).
+    Matrix4x4f objectMatrix( const SceneObject &object ) const;
+    // Composes the full world matrices of every object (parent chains
+    // resolved, children after parents; cycle-safe: a cycle composes from the
+    // scene root). outWorlds is parallel to Objects.
+    void resolveWorlds( std::vector<Matrix4x4f> &outWorlds ) const;
+};
+
+// The scene files of the mods overlay ("scenes/" folder), sorted by name.
+std::vector<std::string> ListSceneFiles();

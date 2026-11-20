@@ -344,3 +344,13 @@ private:
     Vector3f boundsMin;
     Vector3f boundsMax;
 };
+
+// Tools (the scene editor): hides the nodes and the materials of a loaded
+// model (nodeVisible / hiddenItems - the same state draw() honours). A
+// hidden node hides its whole subtree (every descendant node's items).
+// Matching is by hashcode - GetIdentifier64bit of a name, or the raw hash of
+// an "hc:<16 hex>" target - plus a verbatim case-insensitive material-name
+// list for names the parser recovered in full. Idempotent.
+void EdenModelApplyVisibility( EdenModel &model, const std::unordered_set<uint64_t> &hiddenNodes,
+                               const std::unordered_set<uint64_t> &hiddenMaterials,
+                               const std::vector<std::string> &hiddenMaterialNames );

@@ -7,7 +7,7 @@ namespace {
         "FREERIDE", "CARSHOWCASE", "CINVIEWER",    "TESTCAR",
         "FIRST_WM", "CASINO",      "ASSET_VIEWER", "WORLD_VIEWER",
         "CINE",     "MISSION",     "SHOP",         "FREE_DRIVE",
-        "UI_VIEWER",
+        "UI_VIEWER", "SCENE_EDITOR",
     };
     static_assert( sizeof( kGameModeNames ) / sizeof( kGameModeNames[0] ) ==
                        static_cast<size_t>( eGameMode::GM_Count ),

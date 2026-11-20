@@ -215,6 +215,40 @@ public:
         instanceHideRadius = radius;
     }
 
+    // --- scene editor / tool extensions (source/game/scene_editor/) ---
+    // The shared library model (commonworld.bnk library.3dd) and its node
+    // map (hashcode -> node index): the scene editor's asset browser
+    // enumerates the nodes, placements draw through drawLibraryNode.
+    inline const EdenModel &getLibraryModel() const { return libraryModel; }
+    inline const std::unordered_map<uint64_t, int32_t> &getLibraryNodes() const { return libraryNodes; }
+    // The worldactors.bnk entities (__Name per __Hc) and one actor's model
+    // (loaded on demand like the .pmi A lists; nullptr when the entity has
+    // no model). The model stays owned by the world.
+    inline const std::unordered_map<uint64_t, std::string> &getActorNames() const { return actorNames; }
+    EdenModel *getActorModelPtr( uint64_t hashcode );
+    // Picking (the scene editor): nearest hit in the loaded sectors' object
+    // models (exact: the CPU collision copies). outNodeName is the hit scene
+    // node's name ("" when the parser could not recover it). False when
+    // nothing is hit (outDistance untouched).
+    bool raycastObjects( const Vector3f &origin, const Vector3f &direction, float &outDistance,
+                         std::string &outNodeName ) const;
+    // Visibility overrides (the scene editor's "detach / hide" of baked
+    // pieces): the named nodes / materials are hidden in every model loaded
+    // after the call and in the already loaded ones (sectors, areas, the
+    // library). A name is matched through GetIdentifier64bit, or verbatim
+    // (case-insensitive, materials) when the parser recovered a longer name;
+    // "hc:<16 hex>" addresses a hash directly. Idempotent.
+    void addHiddenNode( const std::string &name );
+    void addHiddenMaterial( const std::string &name );
+    void clearHiddenOverrides();
+    // GetIdentifier64bit, or the raw hash of an "hc:<16 hex>" target.
+    static uint64_t OverrideHash( const std::string &name );
+    // The override sets (the scene editor re-applies them to the streamed
+    // spot banks itself - SpotExterior::applyVisibilityOverrides).
+    inline const std::unordered_set<uint64_t> &getHiddenNodeHashes() const { return hiddenNodeHashes; }
+    inline const std::unordered_set<uint64_t> &getHiddenMaterialHashes() const { return hiddenMaterialHashes; }
+    inline const std::vector<std::string> &getHiddenMaterialNames() const { return hiddenMaterialNames; }
+
 private:
     struct Sector;
     // Marks the heightfield cells whose height lies inside a tunnel / bridge
@@ -254,6 +288,12 @@ private:
     // (opaque with depth write, session 22's see-through fix). Runs once per
     // loaded sector, after MarkCarvedCells.
     void updateCarveBuffers( Sector &sector );
+    // The hidden node / material override sets applied to a freshly loaded
+    // model (see addHiddenNode / addHiddenMaterial).
+    std::unordered_set<uint64_t> hiddenNodeHashes;
+    std::unordered_set<uint64_t> hiddenMaterialHashes;
+    std::vector<std::string> hiddenMaterialNames; // long names (no hash form)
+    void applyVisibility( EdenModel &model ) const;
     // Frees the split / carved index buffers (unloadFar, the survey).
     static void destroyCarveBuffers( Sector &sector );
 

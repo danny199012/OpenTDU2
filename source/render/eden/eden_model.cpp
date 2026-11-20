@@ -1046,6 +1046,67 @@ bool EdenModel::getCollisionBounds( Vector3f &outMin, Vector3f &outMax ) const {
     return true;
 }
 
+void EdenModelApplyVisibility( EdenModel &model, const std::unordered_set<uint64_t> &hiddenNodes,
+                               const std::unordered_set<uint64_t> &hiddenMaterials,
+                               const std::vector<std::string> &hiddenMaterialNames ) {
+    if ( !model.isLoaded() ||
+         ( hiddenNodes.empty() && hiddenMaterials.empty() && hiddenMaterialNames.empty() ) ) {
+        return;
+    }
+    const Render3DD &scene = model.getScene();
+    const std::vector<SceneNode> &nodes = scene.getNodes();
+    // A hidden node hides its whole subtree: draw() tests each item's own
+    // node, so every descendant node of a hidden one is hidden with it.
+    std::vector<bool> hidden;
+    if ( !hiddenNodes.empty() ) {
+        hidden.assign( nodes.size(), false );
+        for ( size_t i = 0; i < nodes.size(); i++ ) {
+            if ( hiddenNodes.count( nodes[ i ].Hashcode ) != 0 ) {
+                hidden[ i ] = true;
+                for ( size_t j = 0; j < nodes.size(); j++ ) {
+                    if ( j != i && scene.isDescendantOf( static_cast<int32_t>( j ), static_cast<int32_t>( i ) ) ) {
+                        hidden[ j ] = true;
+                    }
+                }
+            }
+        }
+        for ( size_t i = 0; i < hidden.size(); i++ ) {
+            if ( hidden[ i ] && model.isNodeVisible( static_cast<int32_t>( i ) ) ) {
+                model.setNodeVisible( static_cast<int32_t>( i ), false );
+            }
+        }
+    }
+    if ( hiddenMaterials.empty() && hiddenMaterialNames.empty() ) {
+        return;
+    }
+    // Materials: the items drawn with a hidden material get hidden (the
+    // service-station material swap matches names the same way).
+    const std::vector<EdenModel::Item> &items = model.getItems();
+    const std::vector<EdenMaterial> &materials = model.getMaterials();
+    uint32_t numHidden = 0;
+    for ( size_t itemIndex = 0; itemIndex < items.size(); itemIndex++ ) {
+        const uint32_t materialIndex = items[ itemIndex ].MaterialIndex;
+        if ( materialIndex >= materials.size() ) {
+            continue;
+        }
+        const EdenMaterial &material = materials[ materialIndex ];
+        bool bMatch = hiddenMaterials.count( material.Hashcode ) != 0;
+        if ( !bMatch && !material.Name.empty() ) {
+            for ( const std::string &name : hiddenMaterialNames ) {
+                if ( StringCmpI( material.Name.c_str(), name.c_str() ) == 0 ) {
+                    bMatch = true;
+                    break;
+                }
+            }
+        }
+        if ( bMatch ) {
+            model.setItemHidden( itemIndex, true );
+            numHidden++;
+        }
+    }
+    (void)numHidden;
+}
+
 void EdenModel::drawNode( EdenRenderer &renderer,
                           int32_t nodeIndex,
                           const Matrix4x4f &world ) const {

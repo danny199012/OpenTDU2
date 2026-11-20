@@ -3,6 +3,38 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`): the scene editor, M1 + M2 (owner request: "a tool like blender but easy to use, headless, AI can use it; design buildings, interiors, props from what's in the game; attach/detach; map editor with spline roads")
+
+Task: the approved plan's first two milestones — the in-engine scene editor shell + the AI/headless command interface. M3 (spline roads), M4 (interiors), M5 (native bank export) follow.
+
+### What changed
+- **New `source/game/scene_editor/`** (the mode `-gm SCENE_EDITOR`, factory + enum + `launch/18_SceneEditor.bat`):
+  - `scene_json.{h,cpp}` — minimal JSON parse/write in-repo (no third-party dep; pretty files, one-line compact for the protocol).
+  - `scene_doc.{h,cpp}` — the document (`<mods>/scenes/<name>.scene.json`): objects (group / library / actor / spot / prop with pos + yaw/pitch/roll + scale + visible + parent), overrides (node / material hide), roads (M3 shape), parent-chain world resolution, VFS load / mods-root save.
+  - `scene_objects.{h,cpp}` — instantiates the document: library nodes via `EdenWorld::drawLibraryNode` (nothing uploaded, shared model), actors via `getActorModelPtr`, props via `LoadObjDraws`; world AABBs for picking; draw in the scene view's callback next to the exteriors.
+  - `gm_scene_editor.{h,cpp}` — the WORLD_VIEWER skeleton (streaming, weather, islands F5-F8) + editor: LMB pick / ground-plane drag (RMB looks), undo / redo (document snapshots), duplicate / delete, snap-ground, asset browser cache, scene-spot records appended to the streamer.
+  - `scene_editor_ui.cpp` — the panels (Scene / Assets / Outliner / Properties / World pick-detach / Export).
+  - `scene_cmd.{h,cpp}` — the command interpreter + `-editorscript` batch (VFS path or plain file) + the live server (one client, JSON lines, 127.0.0.1 only, main-thread execution between frames; winsock2, `ws2_32` linked on WIN32).
+- **EdenWorld extensions** (`world/eden_world.{h,cpp}`): public `getLibraryModel / getLibraryNodes / getActorNames / getActorModelPtr`, `raycastObjects` (exact sector picking through the collision copies), and the visibility-override sets `addHiddenNode / addHiddenMaterial / clearHiddenOverrides` — applied at library / sector / area model load (a hidden node hides its whole subtree) and guarding `drawLibraryNode` (drawNodeItems does not test nodeVisible).
+- **EdenModel**: shared `EdenModelApplyVisibility` (nodes + subtree, material items) in `render/eden/eden_model.{h,cpp}`.
+- **SpotExterior(s)**: `applyVisibilityOverrides` (the banks' models get the sets; the editor re-applies per frame) and **`appendSpots`** — records added WITHOUT the `setSpots` unload (see Ruled out), an already-loaded bank just gains a frame.
+- Docs: `docs/re/scene_editor.md` (the format + routes), `docs/studio_ai_api.md` (every command + a verbatim session), README rows (flags, tool table, source map), PROGRESS.md.
+
+### Verified (headless, build 384, RTX 5070 Ti, `-userdata C:\OpenTDU2\_test_userdata` so the overlay never touches the game data)
+- Scripted run (`-editorscript`): status / list_assets (library 399 names, actors 135 entities, spots 79 banks) → `add` spot + actor + library → `snap_ground` (heightfield hit) → `save_scene` → reload via `load_scene` + `status` (`num_objects 3`). The scene JSON is human-readable and round-trips.
+- The placed `EAS_B` streams and draws: `SpotExteriors: 1 scene spots appended` → `EAS_B at (12630, 16698): 2 models, 1 placements`. **A/B**: `_ed_shot5.png` (with scene: the MYWEAR building) vs `_ed_shot6_ab.png` (empty field, no scene), same camera.
+- **Live server**: Python TCP session ran status → add → look_at → hide_node → save_scene → screenshot → status; every response JSON, the screenshot saved (`_ed_server_shot.png` — the AI-placed building framed by the AI-aimed camera).
+- WORLD_VIEWER untouched (the skeleton is shared code, the mode is separate); full engine regression = the same runs' logs (0 stalls, no VUID lines).
+
+### Ruled out
+- **`SpotExteriors::setSpots` as the scene-placement path — segfault.** It `unload()`s the loaded banks; the view's lightmap list then holds dangling material pointers and the next draw crashed. `appendSpots` (no unload, frames appended for loaded banks) replaced it; the crash is gone (the full placement run exits 0).
+- ImGuizmo as the gizmo: dropped for M1 — the projection conventions would have needed empirical flipping and a new FetchContent dep risks the offline `OTDU_DEPS_DIR` builds. The screen-space pick + ground-plane drag + numeric inputs cover placement; a 3-axis gizmo can come back in M6 with the exact view/projection now proven.
+
+### Not done / next
+- M3 spline roads (the tool + `mod_roads` runtime + collision + grass suppression + OBJ bake export).
+- M4 interiors; M5 `bnk_tool pack` + `.3dd/.3dg/.2dm/.2db` writers + scene→bank export; M6 polish (3-axis gizmo, material editing).
+- The editor panels are untested interactively (all verification headless): a human pass over the UI is still owed.
+
 ## Session 2026-11-20 (`main`, clip-driven seated driver)
 
 Task: replace the procedural driver IK (hand goals on the wheel + 0.6 s reach to GEAR_LR) by the game's own driving clips.

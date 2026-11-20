@@ -85,6 +85,35 @@ void SpotExteriors::setSpots( std::vector<SpotRecord> list ) {
     OTDU_LOG_INFO( "SpotExteriors: %zu spots, %zu with an exterior bank\n", spots.size(), withExterior );
 }
 
+void SpotExteriors::appendSpots( const std::vector<SpotRecord> &list ) {
+    int32_t added = 0;
+    for ( const SpotRecord &spot : list ) {
+        bool bDuplicate = false;
+        for ( const SpotRecord &existing : spots ) {
+            bDuplicate |= existing.ExteriorPath == spot.ExteriorPath &&
+                          HorizontalDistance( existing.Position, spot.Position ) < 0.5f &&
+                          std::fabs( existing.Heading - spot.Heading ) < 0.01f;
+        }
+        if ( bDuplicate ) {
+            continue;
+        }
+        spots.push_back( spot );
+        added++;
+        // An already-loaded bank does not reload: the new placement joins its
+        // frames (T(position) R_y(heading), the tick's law).
+        for ( const auto &pExterior : exteriors ) {
+            if ( pExterior->getPath() == spot.ExteriorPath ) {
+                pExterior->getFrames().push_back(
+                    Matrix4x4f::Translation( spot.Position ) *
+                    Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), spot.Heading ) ) );
+            }
+        }
+    }
+    if ( added > 0 ) {
+        OTDU_LOG_INFO( "SpotExteriors: %d scene spots appended (%zu records)\n", added, spots.size() );
+    }
+}
+
 void SpotExteriors::excludeBank( const std::string &bankPath ) {
     if ( bankPath.empty() ) {
         return;

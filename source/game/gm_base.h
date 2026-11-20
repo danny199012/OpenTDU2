@@ -33,6 +33,10 @@ enum class eGameMode : int32_t {
     // movie drawn live), not a TDU2 mode. Appended last so the values of the
     // modes above do not move.
     GM_UiViewer,
+    // "SCENE_EDITOR": OpenTDU2 developer tool (the scene editor: assets,
+    // placement, detach, roads; source/game/scene_editor/), not a TDU2 mode.
+    // Appended last so the values of the modes above do not move.
+    GM_SceneEditor,
 
     GM_Count
 };
