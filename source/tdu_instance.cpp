@@ -839,7 +839,7 @@ void TestDriveGameInstance::mainLoop() {
             mainMsSum += mainMs;
             uiMsSum += uiMs;
             endMsSum += endMs;
-            WatermarkOverlay::SetFrameTimes( updateMs, offscreenMs, mainMs, uiMs, endMs );
+            WatermarkOverlay::SetFrameTimes( updateMs, offscreenMs, mainMs, uiMs, endMs, frameMs );
             updateMsMax = Max( updateMsMax, updateMs );
             drawMsMax = Max( drawMsMax, drawMs );
             frameMsMax = Max( frameMsMax, frameMs );

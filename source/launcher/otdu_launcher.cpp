@@ -1679,6 +1679,7 @@ bool Run( SDL_Window **ppOutWindow ) {
             CmdLine::AddArg( "-renderscale", "50" );
             CmdLine::AddArg( "-drawdistance", "50" );
             CmdLine::AddArg( "-fpslimit", "30" );
+            CmdLine::AddArg( "-noclouds", nullptr ); // the volumetric clouds are a heavy GPU pass
             break;
         case 1:
             CmdLine::AddArg( "-profile", "low" );

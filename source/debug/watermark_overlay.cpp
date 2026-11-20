@@ -20,12 +20,15 @@ bool gbShowFps = false;
 // Frame-rate readout (-showfps): frames and the worst frame of the last half second.
 float gFpsAccum = 0.0f, gFpsWorst = 0.0f, gFpsShown = 0.0f, gMsShown = 0.0f, gWorstShown = 0.0f;
 int gFpsFrames = 0;
-double gTimes[5] = {};
+double gTimes[6] = {};
 } // namespace
 
 namespace WatermarkOverlay {
 
-void SetFrameTimes( double updateMs, double offscreenMs, double mainMs, double uiMs, double endMs ) {
+void SetFrameTimes( double updateMs, double offscreenMs, double mainMs, double uiMs, double endMs, double frameMs ) {
+    // "wait" = the frame time outside the timed sections (the frame start: waiting for the
+    // GPU to finish the previous frame, acquiring the swapchain image).
+    gTimes[5] = frameMs - ( updateMs + offscreenMs + mainMs + uiMs + endMs );
     gTimes[0] = updateMs;
     gTimes[1] = offscreenMs;
     gTimes[2] = mainMs;
@@ -87,8 +90,8 @@ void Draw() {
     }
     if ( gbShowFps ) {
         ImGui::Text( "FPS %.0f  ·  %.1f ms  ·  worst %.0f ms", gFpsShown, gMsShown, gWorstShown );
-        ImGui::TextDisabled( "update %.0f · offscreen %.0f · main %.0f · ui %.0f · present %.0f ms", gTimes[0], gTimes[1],
-                             gTimes[2], gTimes[3], gTimes[4] );
+        ImGui::TextDisabled( "update %.0f · offscreen %.0f · main %.0f · ui %.0f · present %.0f · wait %.0f ms", gTimes[0], gTimes[1],
+                             gTimes[2], gTimes[3], gTimes[4], gTimes[5] );
     }
     if ( !gbSuppressed ) {
         if ( gTesterName.empty() ) {
