@@ -5399,7 +5399,72 @@ void GMFreeRide::finishTessMission() {
     pGameInstance->setNextGameMode( eGameMode::GM_Cine );
 }
 
+void GMFreeRide::resolveSteeringWheel() {
+    steerNodeName.clear();
+    steerAxisLocal = Vector3f( 0.0f, 0.0f, 0.0f );
+    steerWheelAngle = 0.0f;
+    if ( !car.isLoaded() ) {
+        return;
+    }
+    for ( const char *pName : { "STEER_HR", "STEER_LR", "STEER" } ) {
+        if ( car.getNodeModelTransform( pName, steerRest ) ) {
+            steerNodeName = pName;
+            break;
+        }
+    }
+    steerIntNode = car.getInteriorModel().isLoaded() ? car.getInteriorModel().getScene().findNode( "STEER_HR" ) : -1;
+    if ( steerIntNode >= 0 ) {
+        steerIntRest = car.getInteriorModel().getNodeTransform( steerIntNode );
+    }
+    if ( steerNodeName.empty() ) {
+        return;
+    }
+    // The turn axis is the local axis that points along the column (toward the
+    // driver: car frame +z forward, the wheel pitched ~16 deg) [INF from
+    // driver_seat_spec 1.2: Steer pitched 16 deg].
+    const Vector3f rear( 0.0f, 0.28f, -0.96f );
+    float best = 0.0f;
+    const Vector3f axes[3] = { Vector3f( 1, 0, 0 ), Vector3f( 0, 1, 0 ), Vector3f( 0, 0, 1 ) };
+    for ( const Vector3f &axis : axes ) {
+        const Vector3f dir = steerRest.transformVector( axis ).normalized();
+        const float score = dir.dot( rear );
+        if ( std::abs( score ) > std::abs( best ) ) {
+            best = score;
+            steerAxisLocal = score < 0.0f ? axis * -1.0f : axis;
+        }
+    }
+    OTDU_LOG_INFO( "FREERIDE: steering wheel node %s, local axis (%.0f %.0f %.0f), column match %.2f\n",
+                   steerNodeName.c_str(), steerAxisLocal.x, steerAxisLocal.y, steerAxisLocal.z, std::abs( best ) );
+}
+
+void GMFreeRide::updateSteeringWheel( float deltaTime ) {
+    if ( steerNodeName.empty() || CmdLine::HasArg( "-nosteerwheel" ) ) {
+        return;
+    }
+    // Road-wheel angle -> wheel angle: ~9:1 visual ratio, +-270 deg lock;
+    // smoothed so a keyboard tap does not snap the wheel [INF].
+    static const char *pWheelTest = CmdLine::GetArgValue( "-wheeltest" ); // rad, forced wheel angle (positive = left)
+    const float target = pWheelTest != nullptr ? static_cast<float>( atof( pWheelTest ) )
+                                               : Clamp( -vehicle.getSteerAngle() * 9.0f, -4.7f, 4.7f ); // the axis points at the driver: left = clockwise seen from behind it [measured]
+    steerWheelAngle += ( target - steerWheelAngle ) * ( 1.0f - expf( -deltaTime / 0.06f ) );
+    static const bool bLogWheel = CmdLine::HasArg( "-logwheel" );
+    if ( bLogWheel && std::abs( steerWheelAngle ) > 0.01f ) {
+        OTDU_LOG_INFO( "WHEEL road %.3f wheel %.3f\n", vehicle.getSteerAngle(), steerWheelAngle );
+    }
+    const Matrix4x4f turn = Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( steerAxisLocal, steerWheelAngle ) );
+    if ( steerIntNode >= 0 ) {
+        car.getInteriorModel().setNodeTransform( steerIntNode, steerIntRest * turn );
+    }
+    car.setNodeModelTransform( steerNodeName.c_str(),
+                               steerRest * Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( steerAxisLocal, steerWheelAngle ) ) );
+    if ( bDriverSeated ) {
+        const Vector3f axis = steerRest.transformVector( steerAxisLocal ).normalized();
+        driver.setDriving( steerWheelAngle, steerRest.getTranslation(), axis, vehicle.getGear(), deltaTime );
+    }
+}
+
 void GMFreeRide::loadOccupants() {
+    resolveSteeringWheel();
     // The driver of the car (docs/re/driver_seat_spec.md; GMTestCar does the
     // same): the player's avatar seated at the driver seat with the seat IK.
     // -noseated keeps the empty cockpit.
@@ -7719,6 +7784,7 @@ void GMFreeRide::tick( float deltaTime ) {
     }
     }
     updateWheels();
+    updateSteeringWheel( deltaTime );
     if ( bDriverSeated ) {
         driver.update( car, carWorld );
     }

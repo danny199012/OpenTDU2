@@ -49,6 +49,22 @@ public:
         overrideTime = time;
         overrideWeight = weight;
     }
+    // The driving inputs (call before update): wheelAngle rad (positive = left)
+    // about the steering wheel's axis through pivot (car model space) - the
+    // hands follow the rim - and the gearbox gear: a change sends the right
+    // hand to the gear lever and back (FUN_00b7e940 switches the right hand
+    // goal to Gear_* while shifting, +0xc60 == 2 [CODE]).
+    void setDriving( float wheelAngle, const Vector3f &pivot, const Vector3f &axis, int32_t gear, float deltaTime ) {
+        driveWheelAngle = wheelAngle;
+        drivePivot = pivot;
+        driveAxis = axis;
+        driveDelta = deltaTime;
+        if ( bHaveGear && gear != lastGear ) {
+            shiftTime = 0.0f;
+        }
+        lastGear = gear;
+        bHaveGear = true;
+    }
     // Per frame: pose + IK; pFacial applied on the local pose before the
     // skinning (FaceFX bones).
     void update( const CinematicCar &car, const Matrix4x4f &carWorld,
@@ -76,4 +92,11 @@ private:
     std::vector<Matrix4x4f> skin;
     EdenAvatarLighting lighting;
     bool bVisible = false;
+    float driveWheelAngle = 0.0f;
+    Vector3f drivePivot;
+    Vector3f driveAxis = Vector3f( 0.0f, 0.0f, 0.0f );
+    float driveDelta = 0.0f;
+    int32_t lastGear = 0;
+    bool bHaveGear = false;
+    float shiftTime = 100.0f; // s since the last gear change
 };

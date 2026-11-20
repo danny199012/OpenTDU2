@@ -28,6 +28,7 @@ struct CarIKOffsets {
         FootR = 3,
         FootL = 4,
         BackL = 6,
+        Gear = 7,
         PsgSeat = 10,
         BackR = 11,
         PsgFootR = 12,

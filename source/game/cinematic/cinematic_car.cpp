@@ -3592,6 +3592,21 @@ bool CinematicCar::getNodeModelTransform( const char *pName,
     return true;
 }
 
+bool CinematicCar::setNodeModelTransform( const char *pName, const Matrix4x4f &transform ) {
+    if ( !car.isLoaded() ) {
+        return false;
+    }
+    int32_t node = car.getScene().findNode( pName );
+    if ( node < 0 ) {
+        node = FindNodeByHash( car.getScene(), pName );
+    }
+    if ( node < 0 ) {
+        return false;
+    }
+    car.setNodeTransform( node, transform );
+    return true;
+}
+
 namespace {
     // Inverse of a rotation + translation (row vector convention, m[3] = translation).
     Matrix4x4f RigidInverse( const Matrix4x4f &f ) {

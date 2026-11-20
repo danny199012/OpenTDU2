@@ -3,6 +3,22 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, later): clouds fixed, the steering wheel turns, the driver's hands follow, gear-shift reach
+
+Owner: clouds rock back and forth and sit too low; "implement the avatar's driving animations (gears, steering wheel)"; thinks the Android is draw-call bound.
+
+### What changed
+- Clouds (`ccd4301`): the shader offset the deck by wind*time, so the gust pulses rocked it. The drift is integrated on the CPU (`WindModel::driftXZ`) and passed as an offset; deck raised to 5500-6800 m (rain 3200-4500, cirrus 9500-10200).
+- `gm_freeride.cpp` `resolveSteeringWheel` / `updateSteeringWheel`: the cockpit wheel is **`STEER_HR` of the INTERIOR model** (`STEER_LR` of the exterior has a mesh too); both are turned about the local axis along the column (auto-picked, log `FREERIDE: steering wheel node`), road angle x9, +-270 deg, 60 ms smoothing. `-nosteerwheel` = off, `-wheeltest <rad>` forces an angle (negative = left, MEASURED: positive turned it clockwise), `-logwheel`.
+- `seated_avatar.cpp` `setDriving`: both hand IK goals are rotated with the wheel (`-nosteerhands` = off); a gear change sends the right hand to `GEAR_LR` (+ IKOffsetDB node 7) and back over 0.6 s (`-noshift` = off) [INF timings: layer-5 clips gear_seq_up/down not decoded].
+
+### Verified
+- Cockpit shots at `-wheeltest 0 / 0.6 / -2.5`: the wheel hub rotates. The seated driver's arm moves in the chase shot (`-wheeltest -2.5`).
+
+### Not verified / next
+- The hands were not seen up close, and the gear reach was never looked at (needs a side view of the cabin; test profile needs `avatar_config = AVT_Male`). The real clips (`turn.xan` layer 0 weight, `hand_open`, `gear_seq_*`) are not played: next step is layer 0/4/5 of `driveiklayer*.bas` in `SeatedAvatar::update`.
+- Draw calls: NOT investigated on the phone. `-logdrawfamilies` prints the per-shader-family draws every 120 frames; the overlay's "draw calls" is the LAST scene only (0 in the menu). Needs a log from the phone in a city.
+
 ## Session 2026-11-20 (`main`): Android performance — the 16x anisotropic filter nobody set, a 7.3x texture problem, and the ARM build
 
 Owner: *"we started doing android builds and anyway shape or form you can think of ways to get the game to run well and look good […] not sure if arm optimisations would help and if so maybe looking at rpcs3"* (test device: Honor

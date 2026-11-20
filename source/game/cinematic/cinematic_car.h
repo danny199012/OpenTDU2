@@ -299,6 +299,9 @@ public:
     // are folded, e.g. DVRSEAT_LR); false if absent.
     bool getNodeModelTransform( const char *pName,
                                 Matrix4x4f &outTransform ) const;
+    // Overwrites the model space transform of a car node (the steering wheel);
+    // false if absent.
+    bool setNodeModelTransform( const char *pName, const Matrix4x4f &transform );
     // Model space bounds of the high resolution body (BODY_HR).
     bool getBodyBounds( Vector3f &outMin, Vector3f &outMax ) const;
     // The body plus the separate rear bumper node(s) (names containing

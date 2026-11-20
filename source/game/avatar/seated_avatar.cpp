@@ -78,7 +78,22 @@ void SeatedAvatar::update( const CinematicCar &car, const Matrix4x4f &carWorld,
     const Matrix4x4f seatMatrix = Matrix4x4f::Translation( seatAdjust + offsets.Node[seatIndex] ) * seatNode;
     const Matrix4x4f seatInverse = seatMatrix.inverse();
 
-    auto goal = [&]( const char *pNode, int32_t index, bool bInSeatGroup, Vector3f &out ) {
+    // The shift: after a gear change the right hand goes to the lever and back
+    // (reach 0.2 s, hold 0.15 s, return 0.25 s) [INF: the clip layer 5 timings
+    // (gear_seq_up / down) are not decoded].
+    shiftTime += driveDelta;
+    float shiftBlend = 0.0f;
+    if ( bDriver && !CmdLine::HasArg( "-noshift" ) ) {
+        const float t = shiftTime;
+        shiftBlend = t < 0.2f ? t / 0.2f : t < 0.35f ? 1.0f : t < 0.6f ? 1.0f - ( t - 0.35f ) / 0.25f : 0.0f;
+        shiftBlend = shiftBlend * shiftBlend * ( 3.0f - 2.0f * shiftBlend );
+    }
+    const bool bSteer = bDriver && driveAxis.dot( driveAxis ) > 0.5f && !CmdLine::HasArg( "-nosteerhands" );
+    const Matrix4x4f wheelTurn = bSteer ? Matrix4x4f::Translation( drivePivot ) *
+                                              Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( driveAxis, driveWheelAngle ) ) *
+                                              Matrix4x4f::Translation( -drivePivot )
+                                        : Matrix4x4f::Identity();
+    auto goal = [&]( const char *pNode, int32_t index, bool bInSeatGroup, Vector3f &out, bool bOnWheel = false ) {
         Matrix4x4f node;
         if ( !car.getNodeModelTransform( pNode, node ) ) {
             return false;
@@ -86,6 +101,9 @@ void SeatedAvatar::update( const CinematicCar &car, const Matrix4x4f &carWorld,
         Vector3f position = node.getTranslation() + node.transformVector( offsets.Node[index] );
         if ( bInSeatGroup ) {
             position += seatAdjust;
+        }
+        if ( bOnWheel ) {
+            position = wheelTurn.transformPoint( position );
         }
         out = seatInverse.transformPoint( position );
         return true;
@@ -97,11 +115,15 @@ void SeatedAvatar::update( const CinematicCar &car, const Matrix4x4f &carWorld,
         SolveAimIK( skeleton, locals, bone( "Spine" ), bone( "IK_Back" ), target );
     }
     if ( bDriver ) {
-        if ( goal( "HAND_LR_R", CarIKOffsets::HandR, false, target ) ) {
+        if ( goal( "HAND_LR_R", CarIKOffsets::HandR, false, target, true ) ) {
+            Vector3f lever;
+            if ( shiftBlend > 0.0f && goal( "GEAR_LR", CarIKOffsets::Gear, false, lever ) ) {
+                target = target + ( lever - target ) * shiftBlend;
+            }
             SolveTwoBoneIK( skeleton, locals, bone( "Arm_R" ), bone( "ForeArm_R" ), bone( "IK_Right_Hand" ), target,
                             bone( "Hand_R" ) );
         }
-        if ( goal( "HAND_LR_L", CarIKOffsets::HandL, false, target ) ) {
+        if ( goal( "HAND_LR_L", CarIKOffsets::HandL, false, target, true ) ) {
             SolveTwoBoneIK( skeleton, locals, bone( "Arm_L" ), bone( "ForeArm_L" ), bone( "IK_Left_Hand" ), target,
                             bone( "Hand_L" ) );
         }

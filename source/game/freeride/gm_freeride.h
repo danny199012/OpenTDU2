@@ -158,6 +158,16 @@ private:
     SeatedAvatar driver;
     SeatedAvatar passenger;
     bool bDriverSeated = false;
+    // The steering wheel node (STEER_HR / STEER_LR): rest pose, local turn axis,
+    // resolved at the car load; turned by the steering (updateSteeringWheel).
+    std::string steerNodeName;
+    Matrix4x4f steerRest = Matrix4x4f::Identity();
+    Vector3f steerAxisLocal = Vector3f( 0.0f, 0.0f, 0.0f );
+    float steerWheelAngle = 0.0f;
+    int32_t steerIntNode = -1; // STEER_HR of the interior model (the visible cockpit wheel)
+    Matrix4x4f steerIntRest = Matrix4x4f::Identity();
+    void resolveSteeringWheel();
+    void updateSteeringWheel( float deltaTime );
     bool bPassengerSeated = false;
     void loadOccupants();
     void unloadOccupants();
