@@ -266,6 +266,33 @@ bool LoadObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pObj
                    const char *pShaderName, std::vector<ObjMeshDraw> &outDraws,
                    Vector3f *pBoundsMin, Vector3f *pBoundsMax, uint32_t *pTriangles, const char *pLogTag ) {
     outDraws.clear();
+    const std::string objPath = std::string( pFolder ) + pObjName + ".obj";
+    std::vector<uint8_t> obj;
+    if ( !gpFile->loadFile( objPath.c_str(), obj ) ) {
+        return false; // not in the overlay: the normal case for an optional mod
+    }
+    std::string mtlText;
+    {
+        std::vector<ObjGroup> probe;
+        std::string mtlFile;
+        if ( ParseObj( std::string( obj.begin(), obj.end() ), probe, mtlFile ) && !mtlFile.empty() ) {
+            std::vector<uint8_t> mtlData;
+            const std::string mtlPath = std::string( pFolder ) + mtlFile;
+            if ( gpFile->loadFile( mtlPath.c_str(), mtlData ) ) {
+                mtlText.assign( mtlData.begin(), mtlData.end() );
+            } else {
+                OTDU_LOG_WARN( "%s: '%s' is missing ('%s')\n", pLogTag, mtlFile.c_str(), mtlPath.c_str() );
+            }
+        }
+    }
+    return BuildObjDraws( renderer, pFolder, pObjName, pShaderName, std::string( obj.begin(), obj.end() ), mtlText,
+                          outDraws, pBoundsMin, pBoundsMax, pTriangles, pLogTag );
+}
+
+bool BuildObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pObjName, const char *pShaderName,
+                    const std::string &objText, const std::string &mtlText, std::vector<ObjMeshDraw> &outDraws,
+                    Vector3f *pBoundsMin, Vector3f *pBoundsMax, uint32_t *pTriangles, const char *pLogTag ) {
+    outDraws.clear();
     if ( pBoundsMin != nullptr ) {
         *pBoundsMin = Vector3f( 0.0f, 0.0f, 0.0f );
     }
@@ -276,25 +303,15 @@ bool LoadObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pObj
         *pTriangles = 0;
     }
     const std::string objPath = std::string( pFolder ) + pObjName + ".obj";
-    std::vector<uint8_t> obj;
-    if ( !gpFile->loadFile( objPath.c_str(), obj ) ) {
-        return false; // not in the overlay: the normal case for an optional mod
-    }
     std::vector<ObjGroup> groups;
     std::string mtlFile;
-    if ( !ParseObj( std::string( obj.begin(), obj.end() ), groups, mtlFile ) ) {
+    if ( !ParseObj( objText, groups, mtlFile ) ) {
         OTDU_LOG_WARN( "%s: '%s' has no triangle\n", pLogTag, objPath.c_str() );
         return false;
     }
     std::unordered_map<std::string, ObjMaterial> mtl;
-    if ( !mtlFile.empty() ) {
-        std::vector<uint8_t> mtlData;
-        const std::string mtlPath = std::string( pFolder ) + mtlFile;
-        if ( gpFile->loadFile( mtlPath.c_str(), mtlData ) ) {
-            ParseMtl( std::string( mtlData.begin(), mtlData.end() ), mtl );
-        } else {
-            OTDU_LOG_WARN( "%s: '%s' is missing ('%s')\n", pLogTag, mtlFile.c_str(), mtlPath.c_str() );
-        }
+    if ( !mtlText.empty() ) {
+        ParseMtl( mtlText, mtl );
     }
 
     ShaderLibrary *pLibrary = renderer.getShaderSystem().findLibrary( pShaderName );

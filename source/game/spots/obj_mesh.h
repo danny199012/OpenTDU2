@@ -3,6 +3,7 @@
 #include "core/math.h"
 #include "render/eden/eden_renderer.h"
 
+#include <string>
 #include <vector>
 
 // The shared OBJ route of the port's own assets (Blender -> OBJ + MTL + PNG,
@@ -40,6 +41,12 @@ bool LoadObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pObj
                    const char *pShaderName, std::vector<ObjMeshDraw> &outDraws,
                    Vector3f *pBoundsMin = nullptr, Vector3f *pBoundsMax = nullptr,
                    uint32_t *pTriangles = nullptr, const char *pLogTag = "ObjMesh" );
+
+// The same build from in-memory OBJ / MTL text (procedural props, e.g. the pool ring).
+bool BuildObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pObjName, const char *pShaderName,
+                    const std::string &objText, const std::string &mtlText, std::vector<ObjMeshDraw> &outDraws,
+                    Vector3f *pBoundsMin = nullptr, Vector3f *pBoundsMax = nullptr, uint32_t *pTriangles = nullptr,
+                    const char *pLogTag = "ObjMesh" );
 
 // Destroys the device resources of the draws (buffers, textures) and clears
 // the list. Null-safe: gpRender may already be gone at shutdown.

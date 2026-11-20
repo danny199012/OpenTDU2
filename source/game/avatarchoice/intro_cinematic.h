@@ -742,6 +742,18 @@ private:
         Vector3f BoundsMin, BoundsMax;
     };
     std::vector<RoomProp> roomProps;
+    // The swim ring drifting round the exterior's pool (a port-invented prop: the exterior banks hold only the
+    // water quad). Built lazily from the pool water model's bounds, in the spot frame.
+    struct PoolRing {
+        bool bTried = false;
+        std::vector<ObjMeshDraw> Draws;
+        Vector3f Center;      // local: pool centre at the water height
+        float OrbitRadius = 0.0f;
+        float Angle = 0.0f;   // rad
+        float Time = 0.0f;
+        Vector3f BoundsMin, BoundsMax;
+    } poolRing;
+    void tickPoolRing( float deltaTime );
     std::vector<DisplayCar> displayCars;
     std::vector<VehiclePosition> vehiclePositions;
     std::vector<std::string> shopPosCams;

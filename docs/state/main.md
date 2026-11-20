@@ -15,7 +15,7 @@ Owner: vegetation slightly transparent; properties: out-of-bounds, walked into g
 ### Not done / next
 - **The caravan pool is an above-ground tub with a wooden rim** (`-enterhouse EPH_L0C_1254I -nointeriorintro -walkat -6.5,1.8,2.5,0`): the exterior shell blocks entry, so wading was NOT exercised; a deep in-ground pool (house with a terrace pool, e.g. EPH_L3DI) is the test.
 - Wet avatar / ripples around the character: not started (needs a water-interaction pass; nothing in the engine does it yet).
-- The pool ring: there is no ring object in the caravan exterior bank (nodes: EPH_L0C, POOL, REFRACT only) - it would be a port-invented prop (a torus orbiting the pool centre). Say if wanted.
+- **The pool ring (built, later in the session)**: no ring object exists in the data, so `IntroCinematic::tickPoolRing` builds a port-invented red/white torus (`BuildObjDraws`, in-memory OBJ + 2x2 colour textures) on the pool water model's bounds (centre, top y) and drifts it round at ~0.9 m/s with a bob and slow spin. `-noring`, `-logring`, `-ringlift <m>`, `-ringat x,y,z` (test). Checked: caravan pool (`-enterhouse EPH_L0C_1254I -nointeriorintro -walkat -6.6,1.8,-0.3,0 -autoplay "100:look=0,60;500:shot=..."`) ring seen at frame 500, out of frame at 200 / 800. It is unlit-flat (the TD_Gouraud variant ignores the lighting here).
 - Glass push and out-of-bounds: need the owner's property + spot (a repro command).
 
 ## Session 2026-11-20 (`main`, later): clouds fixed, the steering wheel turns, the driver's hands follow, gear-shift reach

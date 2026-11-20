@@ -273,6 +273,8 @@ void IntroCinematic::unload() {
         UnloadObjDraws( roomProp.Draws );
     }
     roomProps.clear();
+    UnloadObjDraws( poolRing.Draws );
+    poolRing = PoolRing();
     shopPosCams.clear();
     posCamCameras.clear();
     bCarEnvironment = false;
@@ -811,6 +813,7 @@ bool IntroCinematic::playEmitter( const char *pName ) {
 }
 
 void IntroCinematic::tick( float deltaTime ) {
+    tickPoolRing( deltaTime );
     for ( RetiredAvatar &retired : retiredAvatars ) {
         retired.TicksLeft--;
     }
@@ -2002,6 +2005,25 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
             }
         }
     }
+    // The pool ring drifting round the exterior's pool (tickPoolRing): the spot frame, bobbing on the water.
+    if ( !bActorsOnly && !poolRing.Draws.empty() ) {
+        const float bob = 0.012f * std::sin( poolRing.Time * 1.7f );
+        const Matrix4x4f local =
+            Matrix4x4f::Translation( poolRing.Center + Vector3f( std::cos( poolRing.Angle ) * poolRing.OrbitRadius, bob,
+                                                                 std::sin( poolRing.Angle ) * poolRing.OrbitRadius ) ) *
+            Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), poolRing.Time * 0.35f ) ) *
+            Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), 0.03f * std::sin( poolRing.Time * 1.3f ) ) );
+        const Matrix4x4f world = spotOrigin * local;
+        static const bool bLogRing = CmdLine::HasArg( "-logring" );
+        if ( bLogRing ) {
+            const Vector3f p = world.getTranslation();
+            OTDU_LOG_INFO( "PoolRing: draw %zu parts at world (%.2f %.2f %.2f) angle %.2f\n", poolRing.Draws.size(), p.x, p.y, p.z,
+                           poolRing.Angle );
+        }
+        for ( const ObjMeshDraw &draw : poolRing.Draws ) {
+            renderer.draw( draw.Mesh, draw.Material, world );
+        }
+    }
     // Props: .sce actor of the main / background cinematic (same entity) or
     // the entity placement.
     static const bool bNoProps = CmdLine::HasArg( "-noprops" ); // A/B: no props at all
@@ -2526,6 +2548,108 @@ bool IsWaterSet( const EdenModel &model ) {
     return model.getScene().findNode( "POOL" ) >= 0;
 }
 } // namespace
+
+// The pool ring: a torus (red / white segments) floating on the pool water and drifting round the pool in a
+// slow circle. The exterior banks have no such object [DATA: nodes EPH_L0C / POOL / REFRACT]: [INF] a port prop,
+// built from the water quad's bounds. -noring = off.
+void IntroCinematic::tickPoolRing( float deltaTime ) {
+    if ( CmdLine::HasArg( "-noring" ) ) {
+        return;
+    }
+    if ( !poolRing.bTried ) {
+        poolRing.bTried = true;
+        for ( size_t i = 0; i < sets.size() && i < setIsExterior.size(); i++ ) {
+            if ( !setIsExterior[i] || !IsWaterSet( *sets[i] ) ) {
+                continue;
+            }
+            Vector3f lo( 1e9f, 1e9f, 1e9f ), hi( -1e9f, -1e9f, -1e9f );
+            for ( const Vector3f &v : sets[i]->getCollisionVertices() ) {
+                lo = Vector3f( Min( lo.x, v.x ), Min( lo.y, v.y ), Min( lo.z, v.z ) );
+                hi = Vector3f( Max( hi.x, v.x ), Max( hi.y, v.y ), Max( hi.z, v.z ) );
+            }
+            if ( hi.x <= lo.x || hi.z <= lo.z ) {
+                continue;
+            }
+            const float cx = ( lo.x + hi.x ) * 0.5f, cz = ( lo.z + hi.z ) * 0.5f;
+            // The water model spans y lo..hi (the caravan tub: 0.06..0.90): the surface is its top.
+            const float waterY = hi.y;
+            const float halfSize = Min( hi.x - lo.x, hi.z - lo.z ) * 0.5f;
+            const float major = Clamp( halfSize * 0.2f, 0.25f, 0.6f ), minor = major * 0.26f;
+            // OBJ text: a torus about +Y, 3 segments red then 3 white round the ring.
+            std::string obj = "mtllib ring.mtl\n";
+            const int32_t around = 24, tube = 10;
+            char line[200];
+            for ( int32_t a = 0; a < around; a++ ) {
+                for ( int32_t t = 0; t < tube; t++ ) {
+                    const float u = a * 2.0f * kPI / around, v = t * 2.0f * kPI / tube;
+                    const float ring = major + minor * std::cos( v );
+                    snprintf( line, sizeof( line ), "v %.4f %.4f %.4f\nvn %.4f %.4f %.4f\nvt %.4f %.4f\n",
+                              ring * std::cos( u ), minor * std::sin( v ), ring * std::sin( u ),
+                              std::cos( v ) * std::cos( u ), std::sin( v ), std::cos( v ) * std::sin( u ),
+                              static_cast<float>( a ) / around, static_cast<float>( t ) / tube );
+                    obj += line;
+                }
+            }
+            for ( int32_t group = 0; group < 2; group++ ) {
+                obj += group == 0 ? "usemtl red\n" : "usemtl white\n";
+                for ( int32_t a = 0; a < around; a++ ) {
+                    if ( ( a / 3 ) % 2 != group ) {
+                        continue;
+                    }
+                    for ( int32_t t = 0; t < tube; t++ ) {
+                        const int32_t a1 = ( a + 1 ) % around, t1 = ( t + 1 ) % tube;
+                        const int32_t i00 = a * tube + t + 1, i10 = a1 * tube + t + 1, i11 = a1 * tube + t1 + 1,
+                                      i01 = a * tube + t1 + 1;
+                        snprintf( line, sizeof( line ), "f %d/%d/%d %d/%d/%d %d/%d/%d\nf %d/%d/%d %d/%d/%d %d/%d/%d\n",
+                                  i00, i00, i00, i01, i01, i01, i11, i11, i11, i00, i00, i00, i11, i11, i11, i10, i10, i10 );
+                        obj += line;
+                    }
+                }
+            }
+            // map_Kd names a file that is not there: it only switches the shader to its textured variant; the
+            // 2x2 colour textures are created below and bound to the COLOR slot.
+            const std::string mtl = "newmtl red\nKd 1 1 1\nmap_Kd ring_red.png\nnewmtl white\nKd 1 1 1\nmap_Kd ring_white.png\n";
+            if ( !BuildObjDraws( *gpRender->getEdenRenderer(), "", "poolring", "TD_Gouraud", obj, mtl, poolRing.Draws,
+                                 &poolRing.BoundsMin, &poolRing.BoundsMax, nullptr, "PoolRing" ) ) {
+                continue;
+            }
+            // Draw 0 = red, 1 = white (the order of the usemtl groups).
+            static const uint8_t colors[2][4] = { { 214, 34, 28, 255 }, { 242, 242, 236, 255 } };
+            for ( size_t d = 0; d < poolRing.Draws.size() && d < 2; d++ ) {
+                uint8_t pixels[4 * 4];
+                for ( int32_t k = 0; k < 4; k++ ) {
+                    memcpy( pixels + k * 4, colors[d], 4 );
+                }
+                const std::string name = d == 0 ? "ring_red.png" : "ring_white.png";
+                GPUTexture *pTexture = gpRender->getTextureCache().createFromRGBA( 2, 2, pixels, name.c_str() );
+                if ( pTexture != nullptr ) {
+                    EdenRenderer &edenRenderer = *gpRender->getEdenRenderer();
+                    edenRenderer.assignTexture( poolRing.Draws[d].Material, "COLOR", pTexture );
+                    edenRenderer.updateProgram( poolRing.Draws[d].Material );
+                    poolRing.Draws[d].pTexture = pTexture;
+                }
+            }
+            static const float lift = CmdLine::HasArg( "-ringlift" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-ringlift" ) ) ) : 0.0f;
+            poolRing.Center = Vector3f( cx, waterY + minor * 0.35f + lift, cz );
+            poolRing.OrbitRadius = Max( 0.0f, halfSize - major - minor - 0.35f );
+            if ( const char *pAt = CmdLine::GetArgValue( "-ringat" ) ) { // test: a fixed spot-local position
+                float x = 0, y = 0, z = 0;
+                if ( sscanf( pAt, "%f,%f,%f", &x, &y, &z ) == 3 ) {
+                    poolRing.Center = Vector3f( x, y, z );
+                    poolRing.OrbitRadius = 0.0f;
+                }
+            }
+            OTDU_LOG_INFO( "PoolRing: ring r %.2f on the pool at (%.2f, %.2f, %.2f), orbit %.2f m\n", major,
+                           poolRing.Center.x, poolRing.Center.y, poolRing.Center.z, poolRing.OrbitRadius );
+            break;
+        }
+    }
+    if ( poolRing.Draws.empty() ) {
+        return;
+    }
+    poolRing.Time += deltaTime;
+    poolRing.Angle += deltaTime * ( 0.9f / Max( 0.8f, poolRing.OrbitRadius ) ); // ~0.9 m/s along the circle
+}
 
 bool IntroCinematic::getWaterSurfaceHeight( float x, float z, float maxY, float &outHeight ) {
     const Matrix4x4f toSpot = spotOrigin.inverse();
