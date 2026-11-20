@@ -3,7 +3,11 @@
 
 #include "core/logger.h"
 #include "filesystem/gs_file.h"
+#include "render/gs_render.h"
+#include "render/texture_cache.h"
+#include "system/cmd_line.h"
 
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -39,6 +43,13 @@ void ServiceStations::load( const std::string &island ) {
     for ( const BuiltIn &entry : kBuiltIn ) {
         if ( ToLower( entry.Island ) == ToLower( island ) ) {
             stations.push_back( { entry.Name, Vector3f( entry.X, 0.0f, entry.Z ), Vector3f( entry.LightX, 0.0f, entry.LightZ ) } );
+            if ( std::string( entry.Name ) == "OIL Station (Area 2)" ) {
+                // The dirt track that runs past the pad (traced from a top-down shot, north end first): its two ends are
+                // the entrance and the exit.
+                stations.back().DrivePath = { Vector3f( 20343.5f, 0.0f, 20228.0f ), Vector3f( 20343.3f, 0.0f, 20224.7f ), Vector3f( 20345.6f, 0.0f, 20207.3f ),
+                                              Vector3f( 20344.4f, 0.0f, 20198.0f ), Vector3f( 20339.8f, 0.0f, 20189.9f ), Vector3f( 20338.5f, 0.0f, 20160.0f ),
+                                              Vector3f( 20336.3f, 0.0f, 20131.7f ), Vector3f( 20338.1f, 0.0f, 20120.0f ) };
+            }
         }
     }
     if ( gpFile == nullptr ) {

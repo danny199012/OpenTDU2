@@ -967,6 +967,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( pass != EdenSceneView::ePass::ProjectorActors ) {
             spotExteriors.draw( renderer );
             modProps.draw( renderer );
+            serviceStations.drawDrives( renderer );
         }
         // The race gates: holograms, no shadow of their own.
         if ( pass != EdenSceneView::ePass::ShadowCasters && pass != EdenSceneView::ePass::ProjectorActors &&
@@ -8427,6 +8428,11 @@ void GMFreeRide::tick( float deltaTime ) {
         // The petrol stations' forecourt lights (port-native [INF]: the retail forecourts are unlit at night): a
         // grid of warm downward pools and glow heads around each listed station within 150 m of the car.
         // -nostationlights removes them.
+        if ( EdenRenderer *pDriveRenderer = gpRender != nullptr ? gpRender->getEdenRenderer() : nullptr ) {
+            serviceStations.tickDrives(
+                *pDriveRenderer, playerPos, [this]( float x, float z, float y, float &outHeight ) { return surfaceHeight( x, z, y, outHeight ); },
+                [this]( const Vector3f &from, Vector3f &outPoint ) { return mapScreen.getRoadPointNear( from, 150.0f, outPoint ); } );
+        }
         static const bool bNoStationLights = CmdLine::HasArg( "-nostationlights" );
         if ( !bNoStationLights && bNight ) {
             for ( const ServiceStations::Station &station : serviceStations.getAll() ) {

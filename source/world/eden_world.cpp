@@ -12,6 +12,7 @@
 
 #include "filesystem/gs_file.h"
 #include "render/gs_render.h"
+#include "game/freeride/service_stations.h"
 #include "render/texture_cache.h"
 #include "system/cmd_line.h"
 #include "core/watchdog.h"
@@ -3153,6 +3154,20 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
                         pShop = &m;
                     } else if ( m.Name == "SB_GazSB_Instc" ) {
                         pShutter = &m;
+                    }
+                }
+                // The forecourt pad and its drive (SB_GazSB_Ground, TD_Ground): the shipped art is bare dirt. Its COLOR
+                // slot takes a generated tarmac (grey grain, darker patches); the detail layer stays. -nostationfloor.
+                if ( !CmdLine::HasArg( "-nostationfloor" ) ) {
+                    static const uint64_t asphaltHash = 0x57a710a5fa11ull;
+                    GPUTexture *pAsphalt = GetStationAsphalt();
+                    if ( pAsphalt != nullptr ) {
+                        for ( EdenMaterial &m : sector.Objects.getMaterials() ) {
+                            if ( m.Name == "SB_GazSB_Ground" ) {
+                                m.pTextures[0] = pAsphalt;
+                                m.TextureHashes[0] = asphaltHash;
+                            }
+                        }
                     }
                 }
                 if ( CmdLine::HasArg( "-logstationmats" ) ) {

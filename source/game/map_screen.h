@@ -182,6 +182,8 @@ public:
     // The road under a point as text for the coordinates overlay: the DAOR id, the ROAD_DETAIL type code, the dirt flag.
     std::string describeRoad( const Vector3f &position, float radius ) const;
     inline int32_t getRoadLinkNear( const Vector3f &point, float maxDistance ) const { return findRoadNear( point, maxDistance ); }
+    // The point of the road curve nearest to `point` within maxDistance (flat metres); false when none.
+    inline bool getRoadPointNear( const Vector3f &point, float maxDistance, Vector3f &outPoint ) const { return findRoadNear( point, maxDistance, &outPoint ) >= 0; }
     // True when that link has been driven (it is drawn in its class colour; an
     // undiscovered link stays grey like the retail, and it refuses fast travel).
     inline bool isRoadExplored( int32_t edge ) const {
