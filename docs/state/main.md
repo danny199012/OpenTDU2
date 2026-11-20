@@ -35,6 +35,14 @@ Owner: found another petrol station (F6 X 20338.6 Z 20153.4), wants it wired, sh
 - Texture pass (needs a light/glow prop mechanism; TD_Building params unknown). Other SB_Gazs_A_* station variants not checked for shutters.
 - Other stations: need F6 positions (or a scan of sector object materials for the pump / REPAIR textures).
 
+## Session 2026-11-20 (`main`, evening): steering wheel direction fixed, East Coast station moved to the owner's F6
+
+Owner: "steering wheel and animations are reversed turning left wheel turns right"; found a petrol station at X 23281 Z 19374 (= the scanned `East Coast` one, 34 m off its centre, so it sat outside the 35 m prompt radius).
+
+- `updateSteeringWheel`: target is now `+getSteerAngle()*9` (was `-`). `getSteerAngle` is positive = left (`-logwheel` `steerleft` -> road +0.53). Cockpit California at `-wheeltest +0.8 / -0.8`: positive turns the wheel counter-clockwise as the driver sees it (the Engine Start button goes from the lower left to the lower right spoke) = a LEFT turn. The earlier note "positive turned it clockwise" was wrong or from behind. The hands follow the same angle.
+- `ServiceStations`: East Coast entry = (23281, 19374.5), lights still at the scanned centre via LightOffset (22, -26).
+- Not done: the real driving clips (`driveiklayer0..6.bas`: turn.xan, hand_open, gear_seq_up/down, gear_lever_*) are still not played; the gear reach is the procedural 0.6 s IK move. The 2012 dev build (`E:\Documents\TDU2+Dev+Build`) has readable code for it.
+
 ## Session 2026-11-20 (`main`, later): other exterior banks checked for the car wash's set-vs-collision offset - none has it
 
 `-logbankoffsets` (`gm_freeride.cpp`) prints `BANKOFFSET <bank> render (...) coll (...) centre delta size delta` per streamed building. Swept via `-tpdestination` (Ferrari dealer, Any dealer, Tuning shop, Race school, Clothes shop, Airport, Casino) on Ibiza + Hawai: dealers (ecd_ferr / audi / bri2 / ital), houses (eph_l0c / l1bi / l1c / ephot), shops, edi, ere, enc_pac, ech, ehd: render and collision bounds agree to 0.0 m in x and z. Differences exist only where the collision is smaller than the render (egamha -3.5 x -5.7, etnr / etun 1 m, elandcaa, airports' extra runway collision) - bounds, not a rigid shift. The wash (-1.5, 0, -16) offset is specific to `ecw_`. Not swept: every house variant / the Hawai-only banks not near those destinations.

@@ -5455,9 +5455,9 @@ void GMFreeRide::updateSteeringWheel( float deltaTime ) {
     }
     // Road-wheel angle -> wheel angle: ~9:1 visual ratio, +-270 deg lock;
     // smoothed so a keyboard tap does not snap the wheel [INF].
-    static const char *pWheelTest = CmdLine::GetArgValue( "-wheeltest" ); // rad, forced wheel angle (positive = left)
+    static const char *pWheelTest = CmdLine::GetArgValue( "-wheeltest" ); // rad, forced wheel angle (positive = left turn)
     const float target = pWheelTest != nullptr ? static_cast<float>( atof( pWheelTest ) )
-                                               : Clamp( -vehicle.getSteerAngle() * 9.0f, -4.7f, 4.7f ); // the axis points at the driver: left = clockwise seen from behind it [measured]
+                                               : Clamp( vehicle.getSteerAngle() * 9.0f, -4.7f, 4.7f ); // steer angle is positive = left; the wheel turns counter-clockwise seen by the driver for a left turn (the owner saw it reversed with the old sign, 2026-11-20)
     steerWheelAngle += ( target - steerWheelAngle ) * ( 1.0f - expf( -deltaTime / 0.06f ) );
     static const bool bLogWheel = CmdLine::HasArg( "-logwheel" );
     if ( bLogWheel && std::abs( steerWheelAngle ) > 0.01f ) {

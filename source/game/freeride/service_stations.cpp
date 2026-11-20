@@ -38,7 +38,7 @@ void ServiceStations::load( const std::string &island ) {
         { "ibiza", "OIL Station (South West)", 18773.0f, 26650.0f, 0.0f, 0.0f },
         { "ibiza", "OIL Station (North)", 20407.0f, 5934.0f, 0.0f, 0.0f },
         { "ibiza", "OIL Station (North East)", 22670.0f, 8336.0f, 0.0f, 0.0f },
-        { "ibiza", "OIL Station (East Coast)", 23303.0f, 19348.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (East Coast)", 23281.0f, 19374.5f, 22.0f, -26.0f }, // the owner's F6 on the forecourt (2026-11-20); lights at the scanned canopy centre (23303, 19348)
     };
     for ( const BuiltIn &entry : kBuiltIn ) {
         if ( ToLower( entry.Island ) == ToLower( island ) ) {
