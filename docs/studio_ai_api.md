@@ -59,6 +59,7 @@ per command, so the log alone is a transcript.
 | `list_overrides` | | the current overrides |
 | `screenshot` | `path` | saves the next presented frame (build stamp burnt in) |
 | `commit_props` | | writes the prop placements to `<mods>/props.txt` (what the current game build draws outside the editor) |
+| `export_spots` | | M5: appends the scene's spot / interior placements as real `spots.bin` records through the mods overlay (the `add_spot.py` route in C++; re-exports upsert — moving a building and re-exporting rewrites its record) and copies the referenced interior banks to the overlay's `exterior/`. FREERIDE then streams the scene with no engine change |
 | `enter_walk` | `id?`, `pos?`, `yaw?` | M4 first person: walks an `interior` object on its bank's own `.shk` collision from the retail `FirstPerson` camera (`id` default: the selection, else the nearest placement; **none → the scene grounds**, terrain / road floors, no walls). `pos` is a bank-local start eye `[x, y, z]`, `yaw` a bank-local heading in degrees. Returns the walk note + the world `eye` |
 | `exit_walk` | | ends the walk; the fly camera parks at the walk eye |
 

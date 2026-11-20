@@ -5,6 +5,7 @@
 #include "filesystem/gs_file.h"
 #include "game/freeride/chase_camera.h"
 #include "game/scene_editor/scene_cmd.h"
+#include "game/scene_editor/scene_export.h"
 #include "game/scene_editor/scene_interior.h"
 #include "input/gs_input.h"
 #include "physics/havok_collision.h"
@@ -1092,6 +1093,19 @@ void GMSceneEditor::commitPropsToGame() {
     OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
 }
 
+
+void GMSceneEditor::exportSpotsToGame() {
+    const SceneExportResult result = SceneExportSpots( doc );
+    if ( !result.Error.empty() ) {
+        statusText = "export FAILED: " + result.Error;
+        OTDU_LOG_WARN( "SceneEditor: %s\n", statusText.c_str() );
+        return;
+    }
+    statusText = "exported: " + std::to_string( result.Appended ) + " appended, " +
+                 std::to_string( result.BanksCopied ) + " bank(s) copied -> " + result.Path +
+                 " (relaunch FREERIDE to see the scene streamed natively)";
+    OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
+}
 
 void GMSceneEditor::exportRoadsFile() {
     if ( gpFile == nullptr ) {

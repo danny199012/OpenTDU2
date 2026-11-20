@@ -98,7 +98,75 @@ route). Commands: `add_road`, `add_road_point` (snapped to the surface),
 `set_road`, `remove_road_point`, `remove_road`, `export_roads`, `load_roads`,
 `bake_road`. Traffic / GPS graph integration (ROAD_MAP writers) stays open.
 
-## 4. Interiors and the walk (M4, implemented)
+## 4. How a scene gets into the game (the routes)
+
+- **Now**: prop placements via `commit_props` -> `<mods>/props.txt` (the
+  proven ModProps route; solid/fuel columns available by editing the line).
+- **In the editor**: everything draws immediately (the editor mode
+  instantiates the document itself).
+- **M5 first slice (shipped)**: `export_spots` writes the placements as real
+  `spots.bin` records through the mods overlay (the `add_spot.py` route in
+  C++) and copies the referenced interior banks to the overlay's
+  `exterior/` — FREERIDE streams the scene with no engine change (see 6).
+- **M5 next**: the `.pmi` patch (library-node placements into the sector
+  banks) and the composed `.3dd` bank build (a scene compiled into one new
+  `exterior/<name>.bnk`, OBJ props authored to `.3dg`).
+
+## 5. The editor UI
+
+One ImGui window ("Scene Editor", F2 toggles): Scene (island radios, name,
+new / open / save / undo / redo), Assets (search + kind tabs — library /
+interior / spot / actor / prop; double-click places 8 m ahead of the camera,
+snapped to the surface), Outliner, Properties (transform, attach-to combo, at
+camera / walk inside (F6, interiors) / snap ground / duplicate / delete),
+World pick / detach (the pick line + "hide this node" for what the cursor is
+on), Roads, Export. Camera = the WORLD_VIEWER camera; LMB picks (drag on the
+selection moves it on its ground plane), RMB looks, F6 walks (M4).
+
+## 6. Native export (M5, first slice: bank writers + spots)
+
+Two writers came out of `tools/x360/build_bank.py` (the Python bank writer)
+into C++, both **validated by byte-compare round-trips**:
+
+- **`source/filesystem/bank_write.{h,cpp}`** — the BNK packer. `BuildBank`
+  packs entries into a PC (`KNAB`) bank; `otdu2_bnk_tool pack <folder>
+  <out.bnk>` packs a folder tree, `otdu2_bnk_tool roundtrip <bank.bnk>`
+  rebuilds a retail bank (entries, per-entry CRCs / dates, section CRCs, the
+  raw directory tree, the per-file section / data / file alignments, the
+  filler-filled gaps, the streamed tail) and compares **whole-file bytes**.
+  Nine retail banks of every family rebuild byte-identical: frontend
+  (Intro), commonworld (478 entries), an interior bank (icd_ferr), an
+  exterior bank (eph_l3di), the worldactors pack (714 entries), ias_a, an
+  area bank, a sector bank and a vehicle bank (250_gto). Known limitation:
+  banks without a directory section (`avatar/config/pnj.bnk`) rebuild with
+  one invented — the reader parses both.
+- **`source/render/render_file_write.{h,cpp}`** — the RenderFile container
+  writer (`.2dm / .3dd / .3dg / .2db / .xsb`): sections with payload /
+  children / trailing split, DataSize measured from the section start.
+  `otdu2_bnk_tool roundtripfile <file>` rebuilds from the parsed tree and
+  byte-compares: 218 payloads of four banks (interior, exterior, vehicle —
+  cube-map textures included) rebuild byte-identical.
+
+**`export_spots`** (the editor command / Export panel button, the
+`add_spot.py` route in C++, `source/game/scene_editor/scene_export.{h,cpp}`):
+the scene's `spot` and `interior` placements append as **real 0x110-byte
+records** to the mods overlay's
+`<mods>/Euro/Bnk/islands/<island>/level/spots.bin` (a copy of the island's
+own list; the size field keeps the file's own law, the 16-byte tail moves to
+the end), and every referenced interior bank copies to
+`<mods>/.../exterior/<bank field>.bnk` (the retail reader resolves every
+exterior there; the field is the interior stem truncated to 8 chars).
+Records are **upserts** (the record name is the scene object's id — moving a
+building and re-exporting rewrites its record in place). Verified headless:
+the editor exported 2 placements → FREERIDE (no editor, no engine change)
+loaded the overlay list ("Mod overlay: ...spots.bin", "81 spots, 81 with an
+exterior bank") and streamed the scene buildings through the retail records
+(`ECD_AUDI ...: 3 placements` = the island's 2 + the scene's 1;
+`icd_ferr at (12620, 16700): 4 models, 1 placements` from the copied bank).
+
+Remaining M5: the `.pmi` patch (library-node placements into the sector
+banks) and the composed `.3dd` bank build (a scene compiled into one new
+exterior bank, OBJ props authored to `.3dg`).
 
 An `interior` object is one of the game's walkable rooms
 (`euro/bnk/interior/<stem>.bnk`: the shops' `icd_*` / `ias_*` ..., the houses'
@@ -136,32 +204,7 @@ the walk eye. This is a compose / feel tool — the retail walk (avatar,
 cinematics, shop menus) stays the game modes' route. Commands: `enter_walk`
 (`id` / bank-local `pos` + `yaw` overrides), `exit_walk`.
 
-## 4. How a scene gets into the game (the routes)
-
-- **Now**: prop placements via `commit_props` -> `<mods>/props.txt` (the
-  proven ModProps route; solid/fuel columns available by editing the line).
-- **In the editor**: everything draws immediately (the editor mode
-  instantiates the document itself).
-- **M3**: the game modes load `<mods>/scenes/*.scene.json` the same way they
-  load `props.txt` — the scene becomes a runtime mod feature, not an editor
-  artifact.
-- **M5 (native)**: the BNK packer + the `.3dd/.3dg/.2dm/.2db` writers turn a
-  scene into `exterior/<name>.bnk` + a real `spots.bin` record (the
-  `add_spot.py` route in C++), and patch sector `.pmi` lists for
-  library-node placements.
-
-## 5. The editor UI
-
-One ImGui window ("Scene Editor", F2 toggles): Scene (island radios, name,
-new / open / save / undo / redo), Assets (search + kind tabs — library /
-interior / spot / actor / prop; double-click places 8 m ahead of the camera,
-snapped to the surface), Outliner, Properties (transform, attach-to combo, at
-camera / walk inside (F6, interiors) / snap ground / duplicate / delete),
-World pick / detach (the pick line + "hide this node" for what the cursor is
-on), Roads, Export. Camera = the WORLD_VIEWER camera; LMB picks (drag on the
-selection moves it on its ground plane), RMB looks, F6 walks (M4).
-
-## 6. What we must not do (unchanged, docs/re/modding.md 4)
+## 7. What we must not do (unchanged, docs/re/modding.md 4)
 
 The editor writes only `<mods>/` (scenes, props.txt) and the screenshot /
 export paths it is given. The game folder is never written; no game data

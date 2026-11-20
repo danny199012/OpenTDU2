@@ -104,6 +104,13 @@ public:
     std::vector<const BankEntry *>
     findEntriesByExtension( const char *pExtension ) const;
 
+    // The compressed path tree walk (the writer's mirror lives in
+    // bank_write.cpp): the decoded paths in tree (leaf) order. Static: the
+    // bnk_tool's roundtrip uses it on a raw bank's directory section.
+    static void parseDirectory( const uint8_t *pDirectory,
+                                const uint8_t *pDirectoryEnd,
+                                std::vector<std::string> &outPaths );
+
 private:
     std::string bankPath;
     std::vector<uint8_t> buffer;
@@ -111,9 +118,6 @@ private:
 
 private:
     bool parse();
-    void parseDirectory( const uint8_t *pDirectory,
-                         const uint8_t *pDirectoryEnd,
-                         std::vector<std::string> &outPaths );
     uint32_t resolveIndex( const uint8_t *pIndexes,
                            uint32_t numEntries,
                            uint32_t index ) const;

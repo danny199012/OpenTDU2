@@ -292,8 +292,12 @@ void DrawExportSection( GMSceneEditor &editor ) {
     if ( ImGui::Button( "commit prop placements -> props.txt" ) ) {
         editor.commitPropsToGame();
     }
-    ImGui::TextDisabled( "props / library / spots draw in-game from the scene JSON (M3+);" );
-    ImGui::TextDisabled( "props.txt is the route the current game build draws" );
+    ImGui::SameLine();
+    if ( ImGui::Button( "export spots -> mods overlay" ) ) {
+        editor.exportSpotsToGame();
+    }
+    ImGui::TextDisabled( "props.txt is the route the current game build draws;" );
+    ImGui::TextDisabled( "export spots writes a native spots.bin (FREERIDE streams the scene)" );
 }
 
 void DrawRoadsSection( GMSceneEditor &editor ) {

@@ -3,6 +3,29 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, scene editor M5 first slice — the bank writers + the native spots export)
+
+The scene editor roadmap's M5 opening ("bnk_tool pack + the `.3dd/.3dg/.2dm/.2db` writers, validated by byte-compare round-trips, then scene→bank/spots/pmi export"): the write side into the engine, the byte-compare validation, and the first export route (spots; the `.pmi` patch and the composed `.3dd` bank build stay open).
+
+### What changed
+- **`source/filesystem/bank_write.{h,cpp}`** (new): the BNK packer, the C++ port of `tools/x360/build_bank.py` with the layout laws the Python tool never faced (it only compared entries): per-file section/data/file alignments out of the source header (icd_ferr packs sections 4-aligned with NO filler; frontend banks 32-align with the filler), the gap filler = **"STNICC2000 RULEZPADDING DATAS...-OR"** restarting at EVERY gap (sections and payload gaps alike; the 24-char header string continues past itself — the retail gaps read "...RULEZPADDING DATA"), the last payload UNPADDED (the sentinel sits at its last byte), the file padded to a 2048 multiple with the stream tail (the streamed texture region after the last payload; the header's SizeWithoutPadding points INTO it — copied, not recomputed), the retail CRCs copied on rebuild (Eden's own algorithm is not reproduced; zlib crc32 otherwise — the engine never verifies). The directory tree: retail trees may list a directory name TWICE (commonworld's `objects` holds `vegetations` twice) so `CaptureBankDirectoryTree` captures the raw node structure verbatim; fresh packs build the tree from decoded paths. Traps hit on the way: `Bank::parseDirectory` returns the INTERNAL path form (`dir\.ext
+ame` — decode before rebuilding); the node law is length → **count → name** (build_bank.py and bank.cpp agree; my first capture read name → count and mangled every tree).
+- **`source/render/render_file_write.{h,cpp}`** (new): the RenderFile container writer/parse pair — sections with payload / children / trailing split per section; the DataSize field is measured from the SECTION START (child region at DataSize — my first rebuild put it after the header and every payload differed at byte 28).
+- **`tools/bnk_tool/main.cpp`**: `pack <folder> <out.bnk>` (folder tree → bank, parse-back checked), `roundtrip <bank>` (whole-file rebuild + compare; entries + directory as the fallback bar), `roundtripfile <payload>` (the RenderFile rebuild + compare). `Bank::parseDirectory` made public static.
+- **`source/game/scene_editor/scene_export.{h,cpp}`** (new) + `export_spots` (the editor command + the Export panel button): the scene's spot / interior placements append as real 0x110-byte records to the overlay's spots.bin; the referenced interior banks copy to the overlay's `exterior/<bank field>.bnk` (the field = the interior stem truncated to 8). Records UPSERT (the record name = "SN" + the object id — position-independent, so a moved building rewrites its record). The list's own law kept: the retail size field = fileSize − 0x10 (a 16-byte tail after the records), so records count off the FILE length and the tail moves to the end on append.
+
+### Verified (headless, build 394)
+- **Byte-identical whole-file rebuilds of nine retail banks** of every layout family: Intro (frontend, 12 entries), commonworld (478), icd_ferr (interior, 158), eph_l3di (exterior, 125), worldactors (scenarics pack, 714), ias_a (interior, 130), area-2-4 (7), sector-2-4-3-3 (20), 250_gto (vehicle, 15). Known limitation: banks without a directory section (`avatar/config/pnj.bnk`) rebuild with one invented — the reader parses both.
+- **218 payloads byte-identical** through `roundtripfile` (icd_ferr 125 + eph_l3di 81 + 250_gto 12: `.2dm/.3dd/.3dg/.2db/.XSB`, cube-map textures included).
+- `pack` a folder → parse-back OK (`sub.bin` sub-paths right).
+- **The native route end to end**: the editor (`export_spots`, 2 placements) → FREERIDE with NO editor: "Mod overlay: ...spots.bin", "81 spots, 81 with an exterior bank", `ECD_AUDI at (11665, 17437): 3 placements` (the island's 2 + the scene's 1 at 12680), `icd_ferr at (12620, 16700): 4 models, 1 placements` from the copied bank; screenshot landed (`_m5_freeride_native.png`).
+- Re-export with the building moved 20 m: still 81 records, the scene record rewritten in place (upsert).
+- Data trap documented: a hand-edited overlay spots.bin from an earlier session (the retail size-field law ignored) poisoned the first export — the export now counts records off the file length, keeps the tail, and refuses junk.
+
+### Not done / next
+- **M5 next**: the `.pmi` patch (library-node placements into the sector banks — the RenderFile writer is the tool for it) and the composed `.3dd` bank build (a scene compiled into one `exterior/<name>.bnk`; OBJ props authored to `.3dg/.2dm/.2db`).
+- M6 polish (3-axis gizmo, material editing); the human UI pass + the roads feel-check in play.
+
 ## Session 2026-11-20 (`main`, brake / tail lamps: lopsided glow anchor + rear pool on the real lamps)
 
 Owner: brake lights "don't seem correctly aligned" (Veyron Super Sport at night: white glow cores between the lamps, a hard red rectangle on the road shifted to one side).

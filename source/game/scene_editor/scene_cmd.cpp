@@ -393,6 +393,11 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
     } else if ( cmd == "commit_props" ) {
         editor.commitPropsToGame();
         result = ResultOk( editor.statusText );
+    } else if ( cmd == "export_spots" ) {
+        // M5: the placements append as real spots.bin records through the
+        // mods overlay (the game streams the scene with no engine change).
+        editor.exportSpotsToGame();
+        result = ResultOk( editor.statusText );
     } else if ( cmd == "add_road" ) {
         std::string id = command.getString( "id", "" );
         if ( id.empty() ) {

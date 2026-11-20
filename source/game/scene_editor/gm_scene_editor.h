@@ -171,6 +171,11 @@ public:
     void applyOverrides();
     // Prop placements -> <mods>/props.txt (the route the game draws today).
     void commitPropsToGame();
+    // Scene -> native export (M5): the placements append as real records to
+    // the overlay's spots.bin (the add_spot.py route in C++); the referenced
+    // interior banks copy to the overlay's exterior/ folder. FREERIDE
+    // streams the scene with no engine change; re-running updates in place.
+    void exportSpotsToGame();
     // Roads: the doc's splines -> <mods>/roads/<island>.json (what the game
     // modes load), one road baked as a props OBJ + placement line, and the
     // island's roads file imported into a fresh document (editable).
