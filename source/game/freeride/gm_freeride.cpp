@@ -7250,6 +7250,19 @@ void GMFreeRide::tick( float deltaTime ) {
                             pool.Position = carWorld.getTranslation() + backward * 1.6f + Vector3f( 0.0f, 0.6f, 0.0f );
                             pool.Direction = backward;
                             pool.Range = 6.0f;
+                            // From the real stop lamps: centred between them (the
+                            // fixed point 1.6 m behind the origin sat off-centre /
+                            // inside the body on long cars). -oldrearpool = old.
+                            static const bool bOldRearPool = CmdLine::HasArg( "-oldrearpool" );
+                            Vector3f tailL, tailR;
+                            if ( !bOldRearPool && car.getTaillampPositions( carWorld, tailL, tailR ) ) {
+                                const Vector3f mid = ( tailL + tailR ) * 0.5f;
+                                const float halfSpan = ( tailL - tailR ).length() * 0.5f;
+                                pool.Position = mid + backward * 0.1f + Vector3f( 0.0f, 0.0f, 0.0f );
+                                pool.PoolAhead = 2.2f;
+                                pool.PoolAlong = 2.0f;
+                                pool.PoolAcross = halfSpan + 0.5f;
+                            }
                             pool.Intensity = bReverse ? 1.0f : 0.7f;
                             if ( bReverse ) {
                                 pool.Tint = Vector4f( 1.0f, 1.0f, 1.0f, 0.42f ); // the white reverse lamps

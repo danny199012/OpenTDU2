@@ -3,6 +3,20 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, brake / tail lamps: lopsided glow anchor + rear pool on the real lamps)
+
+Owner: brake lights "don't seem correctly aligned" (Veyron Super Sport at night: white glow cores between the lamps, a hard red rectangle on the road shifted to one side).
+
+### What changed
+- `cinematic_car.cpp` `collectLampAnchors`: [DATA] the Veyron's `?A_S_RL_` glow mesh spans x -0.61..0.23 (twin `?A_S_RR_` 0.30 wide), so its centre landed at x 0.21 instead of 0.47. A left/right pair whose model-space centres are not mirror images now takes the compact side's anchor mirrored (log `CarLight: lopsided glow`). `-noglowmirror` = old.
+- `gm_freeride.cpp` + `CinematicCar::getTaillampPositions`: the rear brake / reverse ground pool is centred between the real stop lamps with a width from their span (it was a fixed point 1.6 m behind the car origin). `-oldrearpool` = old.
+
+### Verified
+- `-car Veyron_Super_Sport -clocktime 23:00 -logcarlights`: `lopsided glow S rear left: centre x 0.21 -> 0.47`. A/B frame pair (reversing, white pool) `docs/images/rear-lamps-pool-ab.webp`: new = compact pool centred behind the car, old = wide band.
+
+### Not done / next
+- The owner's exact frame (braking, red pool, Veyron Grand Sport rear view) was not reproduced: my test car reversed, and the lamp cores themselves were not seen close up (low camera). Check: brake from speed, `-photoat` behind the car, with and without `-noglowmirror -oldrearpool`. Other cars with lopsided glow meshes get the same fix automatically; only this one was measured.
+
 ## Session 2026-11-20 (`main`, pool water: the dark blob was the walker's own head)
 
 Owner: "odd pool reflection behaviour in pools" (dark blob with hair texture in the water of a house pool, terrain-like shapes).

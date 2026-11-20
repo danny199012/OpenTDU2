@@ -258,6 +258,8 @@ public:
     // last applyLights() wrote.
     // The world positions of the left / right headlamp lenses (the 'L' glow
     // anchors); false when the car has none.
+    // The rear stop lamps' centres (left / right, world), false without a pair.
+    bool getTaillampPositions( const Matrix4x4f &world, Vector3f &outLeft, Vector3f &outRight ) const;
     bool getHeadlampPositions( const Matrix4x4f &world,
                                Vector3f &outLeft,
                                Vector3f &outRight ) const;

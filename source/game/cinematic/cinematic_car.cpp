@@ -2134,6 +2134,7 @@ void CinematicCar::collectLampAnchors() {
         lampAnchors.push_back( anchor );
     };
     bool bHasFunction[128] = {};
+    std::vector<float> glowExtentX; // parallel to the glow-node anchors (see the mirror pass)
     for ( const LightNode &light : causticNodes ) {
         Vector3f boundsMin, boundsMax;
         if ( !car.getNodeBounds( light.Node, boundsMin, boundsMax ) ) {
@@ -2148,8 +2149,46 @@ void CinematicCar::collectLampAnchors() {
         anchor.Normal = Vector3f( 0.0f, 0.0f, light.bFront ? 1.0f : -1.0f );
         const Vector3f extent = boundsMax - boundsMin;
         anchor.Size = Clamp( Max( extent.x, extent.y ) * 0.9f, 0.08f, 0.32f );
+        const size_t before = lampAnchors.size();
         addAnchor( anchor );
         bHasFunction[static_cast<uint8_t>( light.Function ) & 127] = true;
+        if ( lampAnchors.size() > before ) {
+            glowExtentX.push_back( extent.x );
+        }
+    }
+    // A glow mesh is sometimes authored lopsided (the Veyron's ?A_S_RL_ spans
+    // x -0.61..0.23 where its twin spans 0.30): its centre then lands between
+    // the lamps. A left / right pair whose model-space centres are not mirror
+    // images gets the compact side's anchor mirrored onto the wide one.
+    // -noglowmirror = the raw centres (A/B).
+    static const bool bNoGlowMirror = CmdLine::HasArg( "-noglowmirror" );
+    if ( !bNoGlowMirror ) {
+        auto modelPoint = [this]( const LampAnchor &a ) {
+            return a.Node >= 0 ? car.getNodeTransform( a.Node ).transformPoint( a.Local ) : a.Local;
+        };
+        for ( size_t i = 0; i < lampAnchors.size() && i < glowExtentX.size(); i++ ) {
+            for ( size_t j = i + 1; j < lampAnchors.size() && j < glowExtentX.size(); j++ ) {
+                LampAnchor &a = lampAnchors[i];
+                LampAnchor &b = lampAnchors[j];
+                if ( a.Function != b.Function || a.bFront != b.bFront || a.bLeft == b.bLeft ) {
+                    continue;
+                }
+                const Vector3f pa = modelPoint( a ), pb = modelPoint( b );
+                if ( std::abs( pa.x + pb.x ) < 0.08f ) {
+                    continue; // already mirror images
+                }
+                const bool bAWide = glowExtentX[i] > glowExtentX[j];
+                LampAnchor &wide = bAWide ? a : b;
+                const LampAnchor &compact = bAWide ? b : a;
+                const Vector3f pc = bAWide ? pb : pa;
+                OTDU_LOG_INFO( "CarLight: lopsided glow %c %s %s: centre x %.2f -> %.2f (mirror of the other side)\n",
+                               wide.Function, wide.bFront ? "front" : "rear", wide.bLeft ? "left" : "right",
+                               modelPoint( wide ).x, -pc.x );
+                wide.Node = -1;
+                wide.Local = Vector3f( -pc.x, pc.y, pc.z );
+                wide.Size = compact.Size;
+            }
+        }
     }
     for ( const EdenModel::Item &item : car.getItems() ) {
         const LightMaterial *pLight = nullptr;
@@ -2251,6 +2290,26 @@ bool CinematicCar::getHeadlampPositions( const Matrix4x4f &world,
         const Matrix4x4f node =
             anchor.Node >= 0 ? world * car.getNodeTransform( anchor.Node )
                              : world;
+        const int32_t side = anchor.bLeft ? 0 : 1;
+        sum[side] = sum[side] + node.transformPoint( anchor.Local );
+        count[side]++;
+    }
+    if ( count[0] == 0 || count[1] == 0 ) {
+        return false;
+    }
+    outLeft = sum[0] * ( 1.0f / count[0] );
+    outRight = sum[1] * ( 1.0f / count[1] );
+    return true;
+}
+
+bool CinematicCar::getTaillampPositions( const Matrix4x4f &world, Vector3f &outLeft, Vector3f &outRight ) const {
+    Vector3f sum[2];
+    int32_t count[2] = { 0, 0 };
+    for ( const LampAnchor &anchor : lampAnchors ) {
+        if ( anchor.Function != 'S' || anchor.bFront || anchor.bStrip ) {
+            continue;
+        }
+        const Matrix4x4f node = anchor.Node >= 0 ? world * car.getNodeTransform( anchor.Node ) : world;
         const int32_t side = anchor.bLeft ? 0 : 1;
         sum[side] = sum[side] + node.transformPoint( anchor.Local );
         count[side]++;
