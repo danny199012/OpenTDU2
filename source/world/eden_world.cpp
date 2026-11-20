@@ -3155,6 +3155,56 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
                         pShutter = &m;
                     }
                 }
+                if ( CmdLine::HasArg( "-logstationmats" ) ) {
+                    for ( const EdenMaterial &m : sector.Objects.getMaterials() ) {
+                        if ( m.Name.find( "Gaz" ) == std::string::npos && m.Name.find( "window" ) == std::string::npos && m.Name.find( "Wind" ) == std::string::npos ) {
+                            continue;
+                        }
+                        std::string spec, slots;
+                        for ( uint32_t i = 0; i < EdenShaderSystem::kNumSpecs; i++ ) {
+                            if ( m.Spec[i] != 0 ) {
+                                spec += " " + std::to_string( i ) + "=" + std::to_string( m.Spec[i] );
+                            }
+                        }
+                        for ( uint32_t i = 0; i < 16; i++ ) {
+                            if ( m.pTextures[i] != nullptr || m.TextureHashes[i] != 0 ) {
+                                slots += " " + std::to_string( i ) + ( m.pTextures[i] != nullptr ? "T" : "h" );
+                            }
+                        }
+                        OTDU_LOG_INFO( "STATIONMAT %s prog %s nslots %u bucket %x spec:%s slots:%s\n", m.Name.c_str(),
+                                       m.pProgram != nullptr ? m.pProgram->Name.c_str() : "-", m.NumSlots, m.Bucket, spec.c_str(), slots.c_str() );
+                    }
+                }
+                if ( CmdLine::HasArg( "-nightwindowtest" ) ) {
+                    // Experiment: the Metal material moves to the TD_Building window permutation (the spec bits of the
+                    // shacks' SB_GazS_Volet, vs92 / ps512) with the Detail (sign) texture as its slot-6 window map.
+                    EdenMaterial *pMetal = nullptr, *pDetail = nullptr;
+                    for ( EdenMaterial &m : sector.Objects.getMaterials() ) {
+                        if ( m.Name == "SB_GazSB_Metal" ) {
+                            pMetal = &m;
+                        } else if ( m.Name == "SB_GazSB_Detail" ) {
+                            pDetail = &m;
+                        }
+                    }
+                    if ( pMetal != nullptr && pDetail != nullptr && pDetail->pTextures[0] != nullptr ) {
+                        uint8_t spec[EdenShaderSystem::kNumSpecs];
+                        memcpy( spec, pMetal->Spec, sizeof( spec ) );
+                        spec[1] = 2;
+                        spec[36] = 1;
+                        spec[38] = 0;
+                        spec[40] = 1;
+                        const EdenProgram *pProgram = renderer.getShaderSystem().getProgram( pMetal->ShaderSetGUID, spec );
+                        OTDU_LOG_INFO( "nightwindowtest: program %s\n", pProgram != nullptr ? pProgram->Name.c_str() : "none" );
+                        if ( pProgram != nullptr ) {
+                            memcpy( pMetal->Spec, spec, sizeof( spec ) );
+                            pMetal->pProgram = pProgram;
+                            pMetal->pTextures[6] = pDetail->pTextures[0];
+                            pMetal->SamplerIndex[6] = pDetail->SamplerIndex[0];
+                            pMetal->TextureHashes[6] = pDetail->TextureHashes[0];
+                            pMetal->SlotTypes[6] = pDetail->SlotTypes[0];
+                        }
+                    }
+                }
                 if ( pShop != nullptr && pShutter != nullptr && !CmdLine::HasArg( "-noopenbays" ) ) {
                     const std::string keepName = pShutter->Name;
                     *pShutter = *pShop;
