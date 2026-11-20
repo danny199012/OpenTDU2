@@ -29,6 +29,9 @@ android {
                     // Same offline FetchContent cache the desktop builds seed
                     // (seed-deps-cache.ps1 / build.ps1).
                     "-DOTDU_DEPS_DIR=C:/otdu2-deps",
+                    // The debug variant defaults to CMake Debug (-O0, asserts): the engine then runs
+                    // ~40x slower on the phone (213 ms in the scene pass, 2-5 fps). Always optimise.
+                    "-DCMAKE_BUILD_TYPE=Release",
                 )
             }
         }
