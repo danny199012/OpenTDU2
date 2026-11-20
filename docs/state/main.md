@@ -3,6 +3,12 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, photo DoF + Character, Android in CI)
+
+- **Depth of field**: `resources/shaders/photodof.frag` (+ generated `photodof_frag.h`, `tools/compile_shaders.py photodof.frag`): the port's own depth-driven gather blur, NOT the original "crappy" ps_1 (that one only moves the LUT's luminance index, no visible blur, postfx_spec 2.5). Depth = gViewPos B/A decoded as postfx_spec 6.2; `EdenSceneView::applyPhotoDof` runs after the height fog on the finished image (`PhotoGrade::DofIntensity/DofDistance`): distance slider 0..1 -> focus 2..200 m (0.5 = 20 m), intensity -> up to 16 px at 1080 lines. Trap fixed: `bDofApplied` must be cleared BEFORE `applyHeightFog` (the fog reads `finishedSceneColor()` - last frame's DoF output fed back and the image smeared more every frame). `-photodofdebug` shows decoded depth (white = 50 m), `-photodofdebug2` the blur radius.
+- **Character Off** hides the seated driver and passenger (`gm_freeride.cpp`, `photoCamera.isCharacterShown()`); `-photoopt` takes an 8th value (character 0/1). NOT verified visually: the test profile has no avatar (needs `avatar_config = AVT_Male`), the diff was 0.
+- **CI**: the Windows workflow has failed since run 311 (`558bd6a`); a clean local clone of HEAD (LLVM 23.1.2, same cmake line as CI) builds fine, so it is the runner toolchain - the log's first `error:` line is needed (the API gives no log without a login). New `android` job in `.github/workflows/windows.yml`: Gradle `assembleDebug` on ubuntu -> `opentdu2-android-b<commit count>.apk`, attached to the auto prerelease by `release-main` (a failed phone build does not block the Windows zip). Untested until it runs on GitHub.
+
 ## Session 2026-11-20 (`main`, photo Options -> post pass)
 
 - `PhotoGrade` (`eden_postfx.h`), set each tick by `PhotoCamera` while it is open, read in `EdenPostFx::applyPhotoshop`: Bloom intensity scales `photoshop_bloom_intensity` (x value/0.2), Contrast scales the overlay layer opacity (x value/0.5, capped 1), Red/Green/Blue add (value-0.5)*2 to the midtone color balance [INF: retail mapping not readable; neutral at the defaults]. `-photoopt bloom,dofI,dofD,contrast,r,g,b` presets the values (test).

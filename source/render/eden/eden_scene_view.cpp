@@ -19,6 +19,7 @@
 #include "render/shaders/builtin/fsr1_rcas_frag.h"
 #include "render/shaders/builtin/windscreen_frag.h"
 #include "render/eden/tdusc_sun.h"
+#include "render/shaders/builtin/photodof_frag.h"
 #include "render/shaders/builtin/tdfog_frag.h"
 #include "render/shaders/builtin/viewpos_frag.h"
 #include "system/cmd_line.h"
@@ -838,6 +839,7 @@ void EdenSceneView::destroyTargets() {
     device.destroyRenderTarget( pEnvironmentScratch );
     device.destroyRenderTarget( pFinalTarget );
     device.destroyRenderTarget( pFogTarget );
+    device.destroyRenderTarget( pDofTarget );
     device.destroyRenderTarget( pDropletTarget );
     device.destroyRenderTarget( pAOTarget );
     device.destroyRenderTarget( pOcclusionTarget );
@@ -866,7 +868,7 @@ void EdenSceneView::destroyTargets() {
     bHistoryValid = false;
     pFsrEasuTarget = pFsrTarget = nullptr;
     pFsrResult = nullptr;
-    pSceneTarget = pViewPosTarget = pEnvironmentTarget = pEnvironmentScratch = pFinalTarget = pFogTarget = pDropletTarget = pAOTarget = nullptr;
+    pSceneTarget = pViewPosTarget = pEnvironmentTarget = pEnvironmentScratch = pFinalTarget = pFogTarget = pDofTarget = pDropletTarget = pAOTarget = nullptr;
     pOcclusionTarget = nullptr;
 }
 
@@ -1995,6 +1997,7 @@ void EdenSceneView::renderOffscreen() {
     //     the ground-hugging fog layer before the upscalers and the final
     //     blit read it (finishedSceneColor picks the fogged copy).
     applyHeightFog( params );
+    applyPhotoDof();
     // 5. The windscreen droplets (Droplets_Windshield): the final blit
     //    refracts the scene with this RT while the effect is active. The
     //    first pass here initializes the RT (its bInitialized lags one frame
@@ -2031,6 +2034,7 @@ void EdenSceneView::renderOffscreen() {
 // clear presets keep a faint ground mist and rainy ones sink into it.
 void EdenSceneView::applyHeightFog( const EdenSceneParams &params ) {
     bFogApplied = false;
+    bDofApplied = false; // the DoF below reads the finished image: last frame's must not feed the fog
     static const bool bOff = CmdLine::HasArg( "-notdfog" );
     if ( bOff || bMapView || bShowcase || pWeather == nullptr || pSceneTarget == nullptr ||
          !pSceneTarget->bInitialized ) {
@@ -2081,7 +2085,40 @@ void EdenSceneView::applyHeightFog( const EdenSceneParams &params ) {
     bFogApplied = true;
 }
 
+// Photo mode depth of field (EdenPostFx PhotoGrade, the Options panel): a depth-driven gather blur of the
+// finished image (photodof.frag). Off unless the photo camera set a non-zero intensity.
+void EdenSceneView::applyPhotoDof() {
+    bDofApplied = false;
+    const PhotoGrade &grade = GetPhotoGrade();
+    if ( !grade.Active || grade.DofIntensity < 0.02f || pViewPosTarget == nullptr || !pViewPosTarget->bInitialized ||
+         pSceneTarget == nullptr || !pSceneTarget->bInitialized ) {
+        return;
+    }
+    GPUTexture *pSource = finishedSceneColor();
+    if ( pSource == nullptr ) {
+        return;
+    }
+    RenderDevice &device = gpRender->getDevice();
+    if ( pDofTarget == nullptr || pDofTarget->Width != pSource->Width || pDofTarget->Height != pSource->Height ) {
+        device.destroyRenderTarget( pDofTarget );
+        pDofTarget = device.createRenderTarget( pSource->Width, pSource->Height, VK_FORMAT_UNDEFINED, false, "EdenSceneDof" );
+    }
+    // distance slider 0..1 -> focus 2 m .. 200 m (0.5 = 20 m); intensity -> up to 16 px at 1080 lines.
+    const float focus = 2.0f * powf( 100.0f, grade.DofDistance );
+    const float maxRadius = grade.DofIntensity * 16.0f * static_cast<float>( pSource->Height ) / 1080.0f;
+    const float push[4] = { focus, maxRadius, CmdLine::HasArg( "-photodofdebug2" ) ? 3.0f : CmdLine::HasArg( "-photodofdebug" ) ? 2.0f : 1.0f, 1.0f };
+    GPUTexture *ppTextures[2] = { pSource, &pViewPosTarget->Color };
+    device.beginRenderTarget( pDofTarget, false );
+    fullscreen.draw( device, kSPIRV_photodof_frag, sizeof( kSPIRV_photodof_frag ), ppTextures, 2, push, sizeof( push ),
+                     eBlendMode::BM_Opaque, eSamplerFilter::SF_Linear );
+    device.endRenderTarget();
+    bDofApplied = true;
+}
+
 GPUTexture *EdenSceneView::finishedSceneColor() const {
+    if ( bDofApplied && pDofTarget != nullptr && pDofTarget->bInitialized ) {
+        return &pDofTarget->Color;
+    }
     if ( bFogApplied && pFogTarget != nullptr && pFogTarget->bInitialized ) {
         return &pFogTarget->Color;
     }

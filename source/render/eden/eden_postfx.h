@@ -26,6 +26,7 @@ struct RenderTarget;
 struct PhotoGrade {
     bool Active = false;
     float Bloom = 0.2f, Contrast = 0.5f, Red = 0.5f, Green = 0.5f, Blue = 0.5f;
+    float DofIntensity = 0.0f, DofDistance = 0.5f; // depth of field (photodof.frag)
 };
 PhotoGrade &GetPhotoGrade();
 

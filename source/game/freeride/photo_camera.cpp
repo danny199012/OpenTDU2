@@ -60,8 +60,10 @@ void PhotoCamera::open( const Vector3f &carPosition, const EdenSceneView::Camera
     }
     // -photoopt bloom,dofInt,dofDist,contrast,red,green,blue (0..1): preset Options values (test hook).
     if ( const char *pOpt = CmdLine::GetArgValue( "-photoopt" ) ) {
-        sscanf( pOpt, "%f,%f,%f,%f,%f,%f,%f", &optionValue[0], &optionValue[1], &optionValue[2], &optionValue[3],
-                &optionValue[4], &optionValue[5], &optionValue[6] );
+        float character = 1.0f;
+        sscanf( pOpt, "%f,%f,%f,%f,%f,%f,%f,%f", &optionValue[0], &optionValue[1], &optionValue[2], &optionValue[3],
+                &optionValue[4], &optionValue[5], &optionValue[6], &character );
+        bCharacter = character > 0.5f;
     }
     bOpen = true;
     bLooking = false;
@@ -108,6 +110,8 @@ bool PhotoCamera::tick( float deltaTime, const Vector3f &carPosition ) {
         PhotoGrade &grade = GetPhotoGrade();
         grade.Active = true;
         grade.Bloom = optionValue[0];
+        grade.DofIntensity = optionValue[1];
+        grade.DofDistance = optionValue[2];
         grade.Contrast = optionValue[3];
         grade.Red = optionValue[4];
         grade.Green = optionValue[5];

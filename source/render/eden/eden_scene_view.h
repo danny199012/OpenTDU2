@@ -286,6 +286,8 @@ private:
     // TDUSC-style height fog output (-notdfog): the finished image with the
     // ground-hugging fog layer applied, read by the final blit.
     RenderTarget *pFogTarget = nullptr;
+    RenderTarget *pDofTarget = nullptr; // the photo mode depth of field
+    bool bDofApplied = false;
     bool bFogApplied = false; // applyHeightFog ran this frame
     // Upscaler "FSR 1.0": EASU output, RCAS output (window size) and the image
     // draw() presents this frame (null when FSR is off).
@@ -368,6 +370,7 @@ private:
     // TDUSC-style height + noise fog (-notdfog): one fullscreen pass over the
     // finished image (after the photoshop pass, before the upscalers read it).
     void applyHeightFog( const EdenSceneParams &params );
+    void applyPhotoDof();
     // The finished image the upscalers and the final blit consume: the fogged
     // copy when the height fog ran this frame, else the photoshop / scene one.
     GPUTexture *finishedSceneColor() const;

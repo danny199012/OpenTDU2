@@ -994,11 +994,11 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
                 }
                 debris.draw( renderer );
                 // Driver (and passenger): the head is hidden in the cockpit view.
-                if ( bDriverSeated ) {
+                if ( bDriverSeated && !( photoCamera.isOpen() && !photoCamera.isCharacterShown() ) ) { // Options > Character
                     // (the photo camera sees the driver from outside: head on)
                     driver.draw( renderer, chase.getMode() != 23 || photoCamera.isOpen() );
                 }
-                if ( bPassengerSeated ) {
+                if ( bPassengerSeated && !( photoCamera.isOpen() && !photoCamera.isCharacterShown() ) ) {
                     passenger.draw( renderer );
                 }
             }
