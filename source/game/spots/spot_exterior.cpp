@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "spot_exterior.h"
+#include "physics/havok_collision.h"
 
 #include "core/xmb.h"
 #include "render/gs_render.h"
@@ -32,6 +33,7 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
         const BankEntry *pGeometry = bank.findEntry( pScene->Name.c_str(), "3dg" );
         const BankEntry *pMaterials = bank.findEntry( pScene->Name.c_str(), "2dm" );
         auto pModel = std::make_unique<EdenModel>();
+        pModel->setKeepCollision( path.find( "/ecw_" ) != std::string::npos ); // the car wash floor (collectFloorTriangles)
         if ( pGeometry == nullptr ||
              !pModel->load( *pRenderer, *pScene, *pGeometry, pMaterials, pLibrary, bank.getPath().c_str() ) ) {
             return nullptr;
@@ -141,6 +143,42 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
                    path.c_str(), sets.size(), props.size(), boundsMin.x, boundsMin.y, boundsMin.z, boundsMax.x,
                    boundsMax.y, boundsMax.z );
     return true;
+}
+
+void SpotExterior::collectFloorTriangles( float minY, float maxY, HavokCollision &out ) const {
+    for ( const auto &pSet : sets ) {
+        const std::vector<Vector3f> &vertices = pSet->getCollisionVertices();
+        const std::vector<uint32_t> &indices = pSet->getCollisionIndices();
+        for ( size_t i = 0; i + 2 < indices.size(); i += 3 ) {
+            const Vector3f &a = vertices[indices[i]], &b = vertices[indices[i + 1]], &c = vertices[indices[i + 2]];
+            if ( a.y < minY || a.y > maxY || b.y < minY || b.y > maxY || c.y < minY || c.y > maxY ) {
+                continue;
+            }
+            const Vector3f normal = ( b - a ).cross( c - a );
+            if ( normal.length() < 1e-4f || fabsf( normal.y ) < 0.9f * normal.length() ) {
+                continue;
+            }
+            const uint32_t base = static_cast<uint32_t>( out.Vertices.size() );
+            out.Vertices.push_back( a );
+            out.Vertices.push_back( b );
+            out.Vertices.push_back( c );
+            out.Indices.push_back( base );
+            out.Indices.push_back( base + 1 );
+            out.Indices.push_back( base + 2 );
+            out.TriMaterial.push_back( 0 );
+        }
+    }
+    if ( !out.Indices.empty() && out.Bodies.empty() ) {
+        HavokCollision::Body body;
+        body.Transform = Matrix4x4f::Identity();
+        body.MotionType = 7;
+        body.Friction = 0.8f;
+        out.Bodies.push_back( body );
+    }
+    if ( !out.Bodies.empty() ) {
+        out.Bodies[0].FirstTriangle = 0;
+        out.Bodies[0].NumTriangles = static_cast<uint32_t>( out.Indices.size() / 3 );
+    }
 }
 
 void SpotExterior::registerLightmaps( EdenSceneView &view ) {

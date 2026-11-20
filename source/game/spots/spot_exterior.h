@@ -15,6 +15,7 @@
 // One bank = one building (a dealership, a shop, a house...). SpotExteriors
 // (spot_exteriors.h) owns the streamed set of them and is what the world
 // viewer and FREERIDE both use to place the buildings on an island.
+struct HavokCollision;
 class SpotExterior {
 public:
     SpotExterior() = default;
@@ -32,6 +33,10 @@ public:
     inline const std::vector<Matrix4x4f> &getFrames() const { return frames; }
     // The bank (its <bank>_sc_*.shk: the building's own collision, bank frame).
     inline const Bank &getBank() const { return bank; }
+    // The up-facing triangles of the sets whose vertices all lie between minY and maxY (bank frame):
+    // a building's drawn floor, for the places where the bank's own collision has none (the car wash
+    // forecourt: the floor is 0.4 m above the road the car rests on).
+    void collectFloorTriangles( float minY, float maxY, HavokCollision &out ) const;
     inline size_t getNumModels() const { return sets.size() + props.size(); }
 
 private:

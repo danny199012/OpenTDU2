@@ -3,6 +3,14 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, car wash floor report): car under the bay floor at wash 2 (19122.7, 18162.4) - NOT reproduced
+
+Owner (build 362 `842836a+dirty`): teleported (cheat row "Car wash") to X 19128.36 Z 18167.76 HDG 225.3 and the car sat ~0.5 m below the bay's concrete floor (screenshot), "collision is broke".
+
+- Test hooks added (`gm_freeride.cpp`): `-atwashidx <n>`, `-atwashinside`, `-atwashlocal x,z` (wash-frame spawn), `-atwashlift` (spawn 40 m up so the car lands after the exterior collision streams in).
+- `SpotExterior::collectFloorTriangles` + `-washfloor` (opt-in): the up-facing triangles of the ecw sets between local y -0.3..0.6 (928 triangles) added to the vehicle collision. Default OFF: in this tree the car already rests at Y 139.97 (spot Y 139.9) with or without it, so it is not shown to change anything.
+- NOT reproduced: at the owner's exact world coordinates this tree puts the car OUTSIDE the tunnel, on sand beside it (`-atwash -atwashidx 1 -atwashlocal -7.4,-2.5`), while the owner's screenshot has the car inside the tunnel there. Their build is `842836a`, mine `27386d9`: the spot frame / building placement may differ between the two trees. Next: the owner runs `check-build.ps1` + pulls, then `-tpdestination "Car wash"`; if still sunk, send the log line `building collision ... ecw_a` and `-logdrive` Y.
+
 ## Session 2026-11-20 (`main`, photo mode UI): the 360 photo-mode screens redrawn natively, free camera kept
 
 Owner: wants the real photo-mode UI (360 shots: Move/Zoom/Tilt/Rotate top bar, Take a Photo/Back/Options bottom bar, reticle, Options panel) but the camera must stay free (no locked default radius/height); also: the car wash at the Ibiza forecourt overlaps the road and the car parks in the wrong place (360 shots of the tile-wall bay).

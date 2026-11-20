@@ -520,10 +520,21 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     if ( CmdLine::HasArg( "-atwash" ) && !bFromHandoff ) {
         CarWash washes;
         if ( washes.load( islandName ) ) {
-            const CarWashSpot &spot = washes.getSpots().front();
+            // -atwashidx <n>: the n-th wash; -atwashinside: spawn on the wash place (local 1.47, -17.5).
+            int32_t washIndex = 0;
+            if ( const char *pIdx = CmdLine::GetArgValue( "-atwashidx" ) ) {
+                washIndex = Clamp( atoi( pIdx ), 0, static_cast<int32_t>( washes.getSpots().size() ) - 1 );
+            }
+            const CarWashSpot &spot = washes.getSpots()[washIndex];
             const float forwardX = std::sin( spot.Heading ), forwardZ = std::cos( spot.Heading );
-            tpPosition = Vector3f( spot.Position.x - forwardX * 18.0f, spot.Position.y,
-                                   spot.Position.z - forwardZ * 18.0f );
+            const float rightX = std::cos( spot.Heading ), rightZ = -std::sin( spot.Heading );
+            float back = CmdLine::HasArg( "-atwashinside" ) ? -17.5f : -18.0f;
+            float side = CmdLine::HasArg( "-atwashinside" ) ? 1.47f : 0.0f;
+            if ( const char *pLocal = CmdLine::GetArgValue( "-atwashlocal" ) ) {
+                sscanf( pLocal, "%f,%f", &side, &back ); // local x,z in the wash frame
+            }
+            tpPosition = Vector3f( spot.Position.x + forwardX * back + rightX * side, spot.Position.y + ( CmdLine::HasArg( "-atwashlift" ) ? 40.0f : 0.5f ),
+                                   spot.Position.z + forwardZ * back + rightZ * side );
             tpYaw = spot.Heading; // the car faces the building (its local +Z)
             bTp = true;
             OTDU_LOG_INFO( "FREERIDE: -atwash '%s' at (%.1f, %.1f), spawn 18 m in front\n", spot.Bank.c_str(),
@@ -9134,6 +9145,18 @@ void GMFreeRide::addSpotExteriorCollisions() {
                     collision.addCollision( spotCollision, frames[f], true );
                     numTriangles += spotCollision.getNumTriangles();
                     numBoxes += spotCollision.Boxes.size();
+                }
+            }
+            // The car wash floor: drawn at the spot height (-0.2..0.5 m) the car rests on and absent from the
+            // bank's own collision (the car sank 0.4 m under the bay floor, the owner 2026-11-20).
+            // -washfloor: on (opt-in: not shown to fix the sink yet).
+            if ( pExterior->getPath().find( "/ecw_" ) != std::string::npos && CmdLine::HasArg( "-washfloor" ) ) {
+                HavokCollision floor;
+                pExterior->collectFloorTriangles( -0.3f, 0.6f, floor );
+                if ( floor.getNumTriangles() > 0 ) {
+                    collision.addCollision( floor, frames[f], true );
+                    numTriangles += floor.getNumTriangles();
+                    OTDU_LOG_INFO( "FREERIDE: car wash floor (frame %zu): %zu triangles\n", f, floor.getNumTriangles() );
                 }
             }
             if ( numTriangles + numBoxes > 0 ) {
