@@ -34,6 +34,15 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
         const BankEntry *pMaterials = bank.findEntry( pScene->Name.c_str(), "2dm" );
         auto pModel = std::make_unique<EdenModel>();
         pModel->setKeepCollision( path.find( "/ecw_" ) != std::string::npos ); // the car wash floor (collectFloorTriangles)
+        if ( path.find( "/ecw_" ) != std::string::npos && !CmdLine::HasArg( "-hidewashplate" ) && !CmdLine::HasArg( "-keepwashplate" ) ) {
+            // The forecourt plate is the wash's real floor (y 0 = the road height, a 0.2 m rim): draw it,
+            // minus the strip over the road along the front (bank-local z >= 26.3, 6 m) [DATA: the plate
+            // mesh is a polygon whose front lip lies over the road band z 24..32].
+            pModel->setTriangleDrop( []( const Vector3f &a, const Vector3f &b, const Vector3f &c ) {
+                const float lo = Min( a.y, Min( b.y, c.y ) ), hi = Max( a.y, Max( b.y, c.y ) );
+                return lo > -0.3f && hi < 0.3f && Min( a.z, Min( b.z, c.z ) ) >= 26.3f;
+            } );
+        }
         if ( pGeometry == nullptr ||
              !pModel->load( *pRenderer, *pScene, *pGeometry, pMaterials, pLibrary, bank.getPath().c_str() ) ) {
             return nullptr;
@@ -116,12 +125,20 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
     // the collision never blocked, measured with -scanwash). The plate is not drawn; the
     // world's own terrain / road shows. -keepwashplate keeps it. [INF: retail drew the road
     // differently there; the data places the plate over the link].
-    if ( path.find( "/ecw_" ) != std::string::npos && !CmdLine::HasArg( "-keepwashplate" ) ) {
+    if ( path.find( "/ecw_" ) != std::string::npos && CmdLine::HasArg( "-hidewashplate" ) ) {
         for ( auto &pSet : sets ) {
             const auto &setItems = pSet->getItems();
             for ( size_t i = 0; i < setItems.size(); i++ ) {
                 const Vector3f ext = setItems[i].BoundsMax - setItems[i].BoundsMin;
                 if ( ext.y < 0.5f && ext.x > 40.0f && ext.z > 50.0f ) {
+                    if ( CmdLine::HasArg( "-logwashplate" ) ) {
+                        const auto &cv = pSet->getCollisionVertices();
+                        const auto &ci = pSet->getCollisionIndices();
+                        for ( uint32_t k = setItems[i].CollisionFirst; k + 2 < setItems[i].CollisionFirst + setItems[i].CollisionCount; k += 3 ) {
+                            const Vector3f &a = cv[ci[k]], &b = cv[ci[k + 1]], &c = cv[ci[k + 2]];
+                            OTDU_LOG_INFO( "washplate tri (%.1f %.1f %.1f) (%.1f %.1f %.1f) (%.1f %.1f %.1f)\n", a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z );
+                        }
+                    }
                     pSet->setItemHidden( i, true );
                 }
             }

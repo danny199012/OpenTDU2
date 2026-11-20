@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 #include <array>
 #include <memory>
@@ -176,6 +177,8 @@ public:
     // Keeps a CPU copy of the triangles (model space) for height queries
     // (set before load).
     inline void setKeepCollision( bool bKeep ) { bKeepCollision = bKeep; }
+    // Drops the triangles (model-space world positions) the callback returns true for, before upload (set before load).
+    inline void setTriangleDrop( std::function<bool( const Vector3f &, const Vector3f &, const Vector3f & )> drop ) { triangleDrop = std::move( drop ); }
 
     // Crumpling (docs/re/damage_spec.md 3f): keeps the original vertex streams
     // on the CPU (set before load), and deformPositions rewrites the POSITIONS
@@ -326,6 +329,7 @@ private:
                          const uint32_t *&pBegin,
                          const uint32_t *&pEnd ) const;
     bool bKeepCollision = false;
+    std::function<bool( const Vector3f &, const Vector3f &, const Vector3f & )> triangleDrop;
     bool bKeepItemIndices = false;
     bool bKeepParsedGeometry = false;
     std::unique_ptr<Render3DG>

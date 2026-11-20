@@ -375,17 +375,34 @@ bool EdenModel::load( EdenRenderer &renderer,
                 }
                 item.ImpostorIndices = primitive.Indices;
             }
+            // Optional per-triangle drop (setTriangleDrop): the car wash's forecourt plate keeps its floor
+            // and loses the strip over the road.
+            std::vector<uint32_t> droppedIndices;
+            if ( triangleDrop ) {
+                droppedIndices.reserve( primitive.Indices.size() );
+                for ( size_t t = 0; t + 2 < primitive.Indices.size(); t += 3 ) {
+                    Vector3f v[3];
+                    for ( int c = 0; c < 3; c++ ) {
+                        const MeshVertex &mv = primitive.Vertices[primitive.Indices[t + c]];
+                        v[c] = node.World.transformPoint( Vector3f( mv.Position[0], mv.Position[1], mv.Position[2] ) );
+                    }
+                    if ( !triangleDrop( v[0], v[1], v[2] ) ) {
+                        droppedIndices.insert( droppedIndices.end(), primitive.Indices.begin() + t, primitive.Indices.begin() + t + 3 );
+                    }
+                }
+            }
+            const std::vector<uint32_t> &useIndices = triangleDrop ? droppedIndices : primitive.Indices;
             mesh.FirstIndex = static_cast<uint32_t>( indexData.size() );
-            mesh.IndexCount = static_cast<uint32_t>( primitive.Indices.size() );
+            mesh.IndexCount = static_cast<uint32_t>( useIndices.size() );
             item.NumVertices =
                 static_cast<uint32_t>( primitive.Vertices.size() );
             item.NumRawVertices = primitive.NumRawVertex;
             mesh.VertexOffset = 0;
-            indexData.insert( indexData.end(), primitive.Indices.begin(),
-                              primitive.Indices.end() );
+            indexData.insert( indexData.end(), useIndices.begin(),
+                              useIndices.end() );
             mesh.computeLayoutKey();
             uint32_t maxIndex = 0;
-            for ( uint32_t index : primitive.Indices ) {
+            for ( uint32_t index : useIndices ) {
                 maxIndex = Max( maxIndex, index );
             }
             itemMaxIndex.push_back( maxIndex );
@@ -399,11 +416,11 @@ bool EdenModel::load( EdenRenderer &renderer,
                         Vector3f( vertex.Position[0], vertex.Position[1],
                                   vertex.Position[2] ) ) );
                 }
-                for ( uint32_t index : primitive.Indices ) {
+                for ( uint32_t index : useIndices ) {
                     collisionIndices.push_back( base + index );
                 }
                 item.CollisionCount =
-                    static_cast<uint32_t>( primitive.Indices.size() );
+                    static_cast<uint32_t>( useIndices.size() );
                 bSurfaceGridBuilt =
                     false; // the height grid is rebuilt over the new triangles
             }

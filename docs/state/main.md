@@ -3,6 +3,15 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, car wash true floor back)
+
+Owner (photo of wash 2 from above): the wash lot shows bare gravel; most of the carwash's true floor is missing; asks to check the other washes for road overlap.
+
+- Cause: commit 0177afb hid the whole forecourt plate item (ecw set, mat 2) because its front lip lies over the road band. `-logwashplate` dumps its triangles [DATA]: the plate is a polygon at y 0.0 (= road height) with a 0.2 m rim; only the lip with all vertices z >= 26.3 (bank-local) lies over the road.
+- Fix: `EdenModel::setTriangleDrop` (per-triangle drop before upload); `spot_exterior.cpp` draws the plate and drops the flat triangles (y -0.3..0.3) with min z >= 26.3 on ecw banks. `-hidewashplate` = the old whole-item hide, `-keepwashplate` unchanged meaning (no filter).
+- Verified top-down (`-atwash -atwashidx N -photoat x,y,z,0,-89`): `docs/images/carwash-floor-wash2-s66.webp` (the dark paved lot, blue border, road clear), `carwash-floor-wash1-3-s66.webp`. Washes 1 and 3 (Ibiza): floor correct; the roof canopy still hangs ~3 m over the road edge (the building's own roof, retail geometry). Hawai washes NOT checked.
+- Not done: the sink-under-floor case is still unreproduced (see the entry below); with the floor drawn at y 0 = road height there should be nothing to sink under.
+
 ## Session 2026-11-20 (`main`, car wash floor report): car under the bay floor at wash 2 (19122.7, 18162.4) - NOT reproduced
 
 Owner (build 362 `842836a+dirty`): teleported (cheat row "Car wash") to X 19128.36 Z 18167.76 HDG 225.3 and the car sat ~0.5 m below the bay's concrete floor (screenshot), "collision is broke".
