@@ -4,6 +4,7 @@
 #include "game/scene_editor/scene_doc.h"
 #include "game/scene_editor/scene_objects.h"
 #include "game/spots/mod_props.h"
+#include "game/spots/mod_roads.h"
 #include "game/spots/spot_exteriors.h"
 #include "render/eden/eden_scene_view.h"
 #include "render/eden/eden_weather.h"
@@ -55,6 +56,8 @@ public:
     ModProps modProps;
     SceneDocument doc;
     SceneObjects sceneObjects;
+    ModRoads modRoads;              // the doc's roads, tessellated (M3)
+    std::string activeRoadId;       // the road the editor adds points to
     bool bExteriors = true;
     bool bGroundClamp = false; // the editor walks the ground: clamping fights placement
     std::string island;
@@ -149,6 +152,12 @@ public:
     void applyOverrides();
     // Prop placements -> <mods>/props.txt (the route the game draws today).
     void commitPropsToGame();
+    // Roads: the doc's splines -> <mods>/roads/<island>.json (what the game
+    // modes load), one road baked as a props OBJ + placement line, and the
+    // island's roads file imported into a fresh document (editable).
+    void exportRoadsFile();
+    void bakeRoadToProps( const std::string &roadId );
+    int32_t importRoadsFile();
     void refreshAssets();
 
 private:

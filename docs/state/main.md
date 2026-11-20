@@ -13,6 +13,28 @@ Owner: "Add the finger layers hand_open and hand_size" (and offered to record th
 - Evidence `docs/images/driver-fingers-s68.webp`. `-logdriveclips` prints the hand_size sweep numbers.
 - Next: a camera on the right hand during a shift (`-shifttest 1 -shifttestat 80`) to see hand_open; the owner's 360-recomp video would settle the grip time / angle map.
 
+## Session 2026-11-20 (`main`): scene editor M3 - spline roads
+
+Task: the approved plan's M3 - draw roads as splines in the scene editor, play them in FREERIDE.
+
+### What changed
+- **`source/game/spots/mod_roads.{h,cpp}`** (the mod_props sibling): `ModRoads::load` reads `<mods>/roads/<island>.json` (or a scene document), `loadDocument` rebuilds; `BuildCenterline` (Catmull-Rom, 2 m samples, closed loops), `BuildRoadObjText` (8 m ribbon, distance UVs, OBJ text in the AUTHORING space - the loader mirrors X), `BuildRoadSolid` (world-space up-facing soup); `draw` (identity frame) / `registerCollision` (`VehicleWorldCollision::addStaticTriangles`) / `registerSurfaces` (EdenWorld). `ModRoadsDefaultTexture` generates `<mods>/props/asphalt_road.png` once (own art; `SaveImagePng` added to `render/image_file.*`).
+- **EdenWorld**: `addRoadSurfaceTriangles` (world-level 8 m-bucket soup; `getSurfaceHeight` / `getDriveHeight` sample it - a scene road is a surface like a retail one) and `GrassRoadIndex::merge` + `appendRoadShapes` (the mod roads' centerlines join the retail graph's grass suppression).
+- **Editor**: a Roads panel (new road / points at focus / width / lanes / closed / collide / delete), road commands (`add_road`, `add_road_point` [snapped], `set_road`, `remove_road[_point]`, `export_roads`, `load_roads`, `bake_road`); a fresh document imports the island's roads file at load; `exportRoadsFile` writes the roads JSON; `bakeRoadToProps` writes `props/road_<id>.obj+mtl` + a `solid` props.txt line.
+- **FREERIDE**: `ModRoads modRoads` loaded in `ensureModPropsLoaded` (draw in the scene callback, collision, surfaces, grass); `-nomodroads` = the A/B.
+- Docs: `docs/re/scene_editor.md` 3 rewritten (implemented), README rows.
+
+### Verified (headless, build 386)
+- Editor: scripted road (`add_road` + 3 snapped points + `export_roads`) draws as a continuous terrain-following ribbon - top-down `_road_top2.png` (build 386). The first run showed FRAGMENTS of ribbon: the spline interpolated y between control points while the heightfield rolls - the ribbon dipped under the terrain between points. Fixed by conforming the samples (lift to terrain +5 cm; a bridge's explicit height stays). The bake OBJ was inspected (`v -12609.000 9.710 16600.000` - authoring space, ground heights).
+- FREERIDE with the exported roads file: `ModRoads: 1 road(s), 184 surface triangles`, `EdenWorld: mod road surface registered (184 triangles, 49 buckets)`, collision added; the car teleported onto the strip stands on the ribbon (`_road_freeride4.png`), 0 stalls.
+
+### Ruled out
+- Drawing the ribbon at control-point heights only (the fragments above) - terrain conformance is required for ground roads.
+
+### Not done / next
+- Road drive-feel, lane markings and the grass-suppression A/B: owner in play (logs + screenshots are the headless evidence).
+- M4 interiors; M5 native export (`bnk_tool pack` + the .3dd/.3dg/.2dm/.2db writers + scene->bank); traffic/GPS graph (ROAD_MAP writers) stays open.
+
 ## Session 2026-11-20 (`main`): the scene editor, M1 + M2 (owner request: "a tool like blender but easy to use, headless, AI can use it; design buildings, interiors, props from what's in the game; attach/detach; map editor with spline roads")
 
 Task: the approved plan's first two milestones — the in-engine scene editor shell + the AI/headless command interface. M3 (spline roads), M4 (interiors), M5 (native bank export) follow.

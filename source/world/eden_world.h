@@ -294,6 +294,19 @@ private:
     std::unordered_set<uint64_t> hiddenMaterialHashes;
     std::vector<std::string> hiddenMaterialNames; // long names (no hash form)
     void applyVisibility( EdenModel &model ) const;
+    // The mod roads' surface soup (addRoadSurfaceTriangles): world-space
+    // triangles in 8 m XZ buckets; getSurfaceHeight / getDriveHeight sample
+    // it like a sector's road index. Rebuilt (cleared) by every add call.
+    struct RoadSurfaceSoup {
+        std::vector<Vector3f> Vertices;
+        std::vector<uint32_t> Indices;
+        std::unordered_map<uint64_t, std::vector<uint32_t>> Cells;
+        static uint64_t CellKey( int32_t x, int32_t z ) {
+            return ( static_cast<uint64_t>( static_cast<uint32_t>( x ) ) << 32 ) | static_cast<uint32_t>( z );
+        }
+        bool Sample( float x, float z, float maxHeight, float &outHeight ) const;
+    };
+    RoadSurfaceSoup modRoadSurfaces;
     // Frees the split / carved index buffers (unloadFar, the survey).
     static void destroyCarveBuffers( Sector &sector );
 
@@ -694,6 +707,45 @@ public:
             }
             return false;
         }
+        // build() without the clears: the mod roads' centerlines join the
+        // retail graph's segments.
+        void merge( const std::vector<std::vector<Vector3f>> &shapes ) {
+            for ( const std::vector<Vector3f> &shape : shapes ) {
+                for ( size_t i = 0; i + 1 < shape.size(); i++ ) {
+                    const Vector3f &a = shape[ i ];
+                    const Vector3f &b = shape[ i + 1 ];
+                    if ( a.x == b.x && a.z == b.z ) {
+                        continue;
+                    }
+                    const float minX = Min( a.x, b.x ), maxX = Max( a.x, b.x );
+                    const float minZ = Min( a.z, b.z ), maxZ = Max( a.z, b.z );
+                    const int32_t cx0 = static_cast<int32_t>( std::floor( minX / kBucket ) );
+                    const int32_t cx1 = static_cast<int32_t>( std::floor( maxX / kBucket ) );
+                    const int32_t cz0 = static_cast<int32_t>( std::floor( minZ / kBucket ) );
+                    const int32_t cz1 = static_cast<int32_t>( std::floor( maxZ / kBucket ) );
+                    if ( ( cx1 - cx0 ) > 256 || ( cz1 - cz0 ) > 256 ) {
+                        continue;
+                    }
+                    const uint32_t slot = static_cast<uint32_t>( segmentPoints.size() / 2 );
+                    segmentPoints.push_back( a );
+                    segmentPoints.push_back( b );
+                    for ( int32_t cz = cz0; cz <= cz1; cz++ ) {
+                        for ( int32_t cx = cx0; cx <= cx1; cx++ ) {
+                            const uint64_t key = CellKey( cx, cz );
+                            buckets[ key ].push_back( slot );
+                            for ( int32_t dz = -1; dz <= 1; dz++ ) {
+                                for ( int32_t dx = -1; dx <= 1; dx++ ) {
+                                    dilated.insert( CellKey( cx + dx, cz + dz ) );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if ( !segmentPoints.empty() ) {
+                bBuilt = true;
+            }
+        }
     };
     // One-time per island from the game mode: the road graph the map screen
     // parsed (map_screen.h getRoadShapes) as the grass road-suppression
@@ -701,6 +753,16 @@ public:
     void buildGrassRoadIndex( const std::vector<std::vector<Vector3f>> &roadShapes ) {
         grassRoads.build( roadShapes );
     }
+    // Appends shapes (the mod roads' centerlines) into the same index without
+    // clearing the retail graph's build.
+    void appendRoadShapes( const std::vector<std::vector<Vector3f>> &roadShapes ) {
+        grassRoads.merge( roadShapes );
+    }
+    // Mod roads (the scene editor / scene runtime): road ribbons registered
+    // as driveable surfaces (world-space, up-facing triangles). Added before
+    // the first query that must see them (a mode's load, the editor's road
+    // rebuild); a re-register replaces the soup.
+    void addRoadSurfaceTriangles( const std::vector<Vector3f> &vertices, const std::vector<uint32_t> &indices );
 
 private:
     // Tall grass (docs/re/grass_spec.md): the retail ground-cover layer —

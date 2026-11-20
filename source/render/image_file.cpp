@@ -7,6 +7,7 @@
 // PNG writer of render_device.cpp does the same with stb_image_write).
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include "stb_image_write.h" // the implementation lives in render_device.cpp
 
 namespace {
 // A DDS file: "DDS " + DDS_HEADER (124 bytes, the DDS_PIXELFORMAT included).
@@ -178,4 +179,11 @@ bool LoadImageFileRGBA( const std::filesystem::path &path, std::vector<uint8_t> 
     outPixels.assign( pImage, pImage + static_cast<size_t>( width ) * height * 4 );
     stbi_image_free( pImage );
     return true;
+}
+
+bool SaveImagePng( const std::filesystem::path &path, const uint8_t *pRGBA, int32_t width, int32_t height ) {
+    if ( pRGBA == nullptr || width <= 0 || height <= 0 ) {
+        return false;
+    }
+    return stbi_write_png( path.string().c_str(), width, height, 4, pRGBA, width * 4 ) != 0;
 }

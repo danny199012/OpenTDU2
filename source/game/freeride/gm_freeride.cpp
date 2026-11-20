@@ -967,6 +967,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         if ( pass != EdenSceneView::ePass::ProjectorActors ) {
             spotExteriors.draw( renderer );
             modProps.draw( renderer );
+            modRoads.draw( renderer );
             serviceStations.drawDrives( renderer );
         }
         // The race gates: holograms, no shadow of their own.
@@ -5971,6 +5972,14 @@ void GMFreeRide::ensureModPropsLoaded() {
             collision.addStaticTriangles( prop.SolidVertices, prop.SolidIndices );
         }
     }
+    // The scene roads (docs/re/scene_editor.md 3): ribbon draw, car collision
+    // and driveable surfaces + the grass suppression along them. -nomodroads
+    // is the A/B.
+    if ( !CmdLine::HasArg( "-nomodroads" ) ) {
+        modRoads.load( *pEdenRenderer, islandName, &view.getWorld() );
+        modRoads.registerCollision( collision );
+        modRoads.registerSurfaces( view.getWorld() );
+    }
     std::vector<Vector3f> stations;
     for ( const ModProps::Prop &prop : modProps.getProps() ) {
         if ( prop.bFuelStation && FuelModEnabled() ) {
@@ -9525,6 +9534,7 @@ void GMFreeRide::exit() {
     interior.exit();
     spotExteriors.unload();
     modProps.unload();
+    modRoads.unload();
     hud.unload();
     wakeup.unload();
     outro.unload();

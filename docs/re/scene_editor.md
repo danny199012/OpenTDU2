@@ -67,14 +67,35 @@ frame (`SpotExterior::applyVisibilityOverrides`). What the
 `-lognodesnear x,z,r` / `-logstationmats` flags print is exactly what the
 targets are.
 
-## 3. Roads (the document shape ships with M1; the runtime is M3)
+## 3. Roads (M3, implemented)
 
 A `roads` entry: `id`, `points` `[[x, y, z], ...]` (the spline control
 points), `width` (m), `lanes`, `closed` (a loop), `collide` (the car stands
-on it), `texture` (a props-folder PNG; empty = the default asphalt). M3
-tessellates the ribbon, registers the collision triangles and suppresses the
-grass along it; the bake export writes `roads/<name>.obj` + a `props.txt`
-line for the vanilla-mod route.
+on it), `texture` (a props-folder PNG; empty = the generated
+`asphalt_road.png`).
+
+`source/game/spots/mod_roads.{h,cpp}` (the mod_props sibling) is the runtime:
+Catmull-Rom resampled ~2 m, an 8 m ribbon with distance UVs built as OBJ text
+in the authoring space (the loader mirrors X, the mod_props law) and built
+with `BuildObjDraws`; the samples that dip under the heightfield lift to the
+terrain (+5 cm, bridges keep their explicit height). Registered three ways:
+
+- **draw** — the identity-frame ribbon in the scene view's callback (the
+  editor and FREERIDE),
+- **surfaces** — `EdenWorld::addRoadSurfaceTriangles` (world-space, up-facing,
+  8 m XZ buckets): `getSurfaceHeight` / `getDriveHeight` answer a scene road
+  like a retail one,
+- **collision** — `VehicleWorldCollision::addStaticTriangles` (FREERIDE),
+- **grass** — the centerlines merge into the grass road-suppression index
+  (`EdenWorld::appendRoadShapes`).
+
+FREERIDE loads `<mods>/roads/<island>.json` (with the editor's
+`export_roads` output) unless `-nomodroads`. The editor imports the island's
+roads file into a fresh document (`load_roads` re-imports), `bake_road`
+writes `props/road_<id>.obj` + mtl + a `solid` props.txt line (the vanilla
+route). Commands: `add_road`, `add_road_point` (snapped to the surface),
+`set_road`, `remove_road_point`, `remove_road`, `export_roads`, `load_roads`,
+`bake_road`. Traffic / GPS graph integration (ROAD_MAP writers) stays open.
 
 ## 4. How a scene gets into the game (the routes)
 

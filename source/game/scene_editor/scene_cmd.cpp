@@ -388,6 +388,113 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
     } else if ( cmd == "commit_props" ) {
         editor.commitPropsToGame();
         result = ResultOk( editor.statusText );
+    } else if ( cmd == "add_road" ) {
+        std::string id = command.getString( "id", "" );
+        if ( id.empty() ) {
+            id = editor.doc.uniqueId( "road" );
+        }
+        if ( editor.doc.findRoad( id ) != nullptr ) {
+            result = ResultError( "road exists: " + id );
+        } else {
+            editor.pushUndo();
+            SceneRoad road;
+            road.Id = id;
+            road.Width = static_cast<float>( command.getNumber( "width", 7.0 ) );
+            road.Lanes = static_cast<int32_t>( command.getNumber( "lanes", 2.0 ) );
+            road.bClosed = command.getBool( "closed", false );
+            road.bCollide = command.getBool( "collide", true );
+            editor.doc.Roads.push_back( road );
+            editor.activeRoadId = id;
+            editor.markSceneChanged();
+            result = ResultOk( id );
+            result.add( "id", JsonValue::MakeString( id ) );
+        }
+    } else if ( cmd == "add_road_point" ) {
+        const std::string id = command.getString( "road", editor.activeRoadId );
+        SceneRoad *pRoad = editor.doc.findRoad( id );
+        if ( pRoad == nullptr ) {
+            result = ResultError( "no such road: " + id );
+        } else {
+            editor.pushUndo();
+            const JsonValue *pPos = command.find( "pos" );
+            Vector3f point = ReadVec3( pPos, EditorFocusPoint( editor ) );
+            if ( pPos == nullptr || command.getBool( "snap", true ) ) {
+                float ground = 0.0f;
+                if ( editor.bWorldReady &&
+                     editor.view.getWorld().getSurfaceHeight( point.x, point.z, point.y + 50.0f, ground ) ) {
+                    point.y = ground;
+                }
+            }
+            pRoad->Points.push_back( point );
+            editor.markSceneChanged();
+            result = ResultOk( id );
+            result.add( "num_points", JsonValue::MakeNumber( static_cast<double>( pRoad->Points.size() ) ) );
+        }
+    } else if ( cmd == "set_road" ) {
+        const std::string id = command.getString( "road", editor.activeRoadId );
+        SceneRoad *pRoad = editor.doc.findRoad( id );
+        if ( pRoad == nullptr ) {
+            result = ResultError( "no such road: " + id );
+        } else {
+            editor.pushUndo();
+            if ( command.find( "width" ) != nullptr ) {
+                pRoad->Width = static_cast<float>( command.getNumber( "width", pRoad->Width ) );
+            }
+            if ( command.find( "lanes" ) != nullptr ) {
+                pRoad->Lanes = static_cast<int32_t>( command.getNumber( "lanes", static_cast<double>( pRoad->Lanes ) ) );
+            }
+            if ( command.find( "closed" ) != nullptr ) {
+                pRoad->bClosed = command.getBool( "closed", pRoad->bClosed );
+            }
+            if ( command.find( "collide" ) != nullptr ) {
+                pRoad->bCollide = command.getBool( "collide", pRoad->bCollide );
+            }
+            if ( command.find( "texture" ) != nullptr ) {
+                pRoad->Texture = command.getString( "texture", "" );
+            }
+            editor.markSceneChanged();
+            result = ResultOk( id );
+        }
+    } else if ( cmd == "remove_road_point" ) {
+        const std::string id = command.getString( "road", editor.activeRoadId );
+        SceneRoad *pRoad = editor.doc.findRoad( id );
+        if ( pRoad == nullptr || pRoad->Points.empty() ) {
+            result = ResultError( "no such road or no points: " + id );
+        } else {
+            editor.pushUndo();
+            pRoad->Points.pop_back();
+            editor.markSceneChanged();
+            result = ResultOk( id );
+        }
+    } else if ( cmd == "remove_road" ) {
+        const std::string id = command.getString( "road", editor.activeRoadId );
+        SceneRoad *pRoad = editor.doc.findRoad( id );
+        if ( pRoad == nullptr ) {
+            result = ResultError( "no such road: " + id );
+        } else {
+            editor.pushUndo();
+            editor.doc.Roads.erase( editor.doc.Roads.begin() + ( pRoad - editor.doc.Roads.data() ) );
+            if ( editor.activeRoadId == id ) {
+                editor.activeRoadId.clear();
+            }
+            editor.markSceneChanged();
+            result = ResultOk( id );
+        }
+    } else if ( cmd == "export_roads" ) {
+        editor.exportRoadsFile();
+        result = ResultOk( editor.statusText );
+    } else if ( cmd == "load_roads" ) {
+        // The overlay's <mods>/roads/<island>.json into the document (so an
+        // existing roads file is editable; a fresh doc imports its island's
+        // file at load anyway).
+        editor.pushUndo();
+        const int32_t imported = editor.importRoadsFile();
+        editor.markSceneChanged();
+        result = imported >= 0 ? ResultOk( std::to_string( imported ) + " roads imported" )
+                               : ResultError( "no roads file for " + editor.island );
+    } else if ( cmd == "bake_road" ) {
+        editor.bakeRoadToProps( command.getString( "road", editor.activeRoadId ) );
+        result = ResultOk( editor.statusText );
     } else {
         result = ResultError( "unknown command: " + cmd );
     }

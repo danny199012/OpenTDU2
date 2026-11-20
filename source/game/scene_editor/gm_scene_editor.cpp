@@ -244,6 +244,7 @@ bool GMSceneEditor::loadIsland( const std::string &name ) {
         exteriors.draw( renderer );
         modProps.draw( renderer );
         sceneObjects.draw( renderer );
+        modRoads.draw( renderer );
     } );
     gameWeathers = WeatherLibrary();
     gameWeathers.load( ( gpFile->getBankFolder() + "islands/" + island + "/fx/game_weathers.xmb" ).c_str() );
@@ -267,6 +268,13 @@ bool GMSceneEditor::loadIsland( const std::string &name ) {
     bWorldReady = true;
     bAssetsStale = true;
     applyOverrides();
+    // A fresh document imports the island's roads file (so the editor opens
+    // on the existing roads; an explicit scene keeps its own).
+    if ( doc.Roads.empty() ) {
+        if ( importRoadsFile() > 0 ) {
+            OTDU_LOG_INFO( "SceneEditor: imported the roads of '%s'\n", island.c_str() );
+        }
+    }
     markSceneChanged();
     const EdenWorld &world = view.getWorld();
     OTDU_LOG_INFO( "SceneEditor: %s ready: %d x %d areas grid, %zu areas, %zu sectors, weather '%s'\n", island.c_str(),
@@ -280,6 +288,7 @@ void GMSceneEditor::unloadIsland() {
         gpRender->getDevice().waitIdle();
     }
     sceneObjects.unload();
+    modRoads.unload();
     exteriors.unload();
     modProps.unload();
     view.destroy();
@@ -462,6 +471,10 @@ void GMSceneEditor::tick( float deltaTime ) {
         bRebuildPending = false;
         sceneObjects.applyDocument( doc );
         refreshSpotRecords();
+        if ( EdenRenderer *pRenderer = gpRender != nullptr ? gpRender->getEdenRenderer() : nullptr ) {
+            modRoads.loadDocument( *pRenderer, doc, &view.getWorld() );
+            modRoads.registerSurfaces( view.getWorld() ); // a scene road is a driveable surface
+        }
     }
 
     EdenSceneView::Camera camera;
@@ -770,6 +783,139 @@ void GMSceneEditor::commitPropsToGame() {
     }
     statusText = std::to_string( committed ) + " prop placements -> props.txt (relaunch the game to see them)";
     OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
+}
+
+
+void GMSceneEditor::exportRoadsFile() {
+    if ( gpFile == nullptr ) {
+        return;
+    }
+    // {"roads": [...]} with the doc's road records (what ModRoads::load and
+    // the other game modes read).
+    JsonValue root = JsonValue::MakeObject();
+    JsonValue list = JsonValue::MakeArray();
+    for ( const SceneRoad &road : doc.Roads ) {
+        JsonValue entry = JsonValue::MakeObject();
+        entry.add( "id", JsonValue::MakeString( road.Id ) );
+        JsonValue points = JsonValue::MakeArray();
+        for ( const Vector3f &point : road.Points ) {
+            JsonValue p = JsonValue::MakeArray();
+            p.push( JsonValue::MakeNumber( point.x ) );
+            p.push( JsonValue::MakeNumber( point.y ) );
+            p.push( JsonValue::MakeNumber( point.z ) );
+            points.push( std::move( p ) );
+        }
+        entry.add( "points", std::move( points ) );
+        entry.add( "width", JsonValue::MakeNumber( road.Width ) );
+        entry.add( "lanes", JsonValue::MakeNumber( road.Lanes ) );
+        entry.add( "closed", JsonValue::MakeBool( road.bClosed ) );
+        entry.add( "collide", JsonValue::MakeBool( road.bCollide ) );
+        if ( !road.Texture.empty() ) {
+            entry.add( "texture", JsonValue::MakeString( road.Texture ) );
+        }
+        list.push( std::move( entry ) );
+    }
+    root.add( "roads", std::move( list ) );
+    const std::filesystem::path folder = gpFile->getModsRoot() / "roads";
+    std::error_code ec;
+    std::filesystem::create_directories( folder, ec );
+    const std::filesystem::path file = folder / ( island + ".json" );
+    FILE *pFile = fopen( file.string().c_str(), "wb" );
+    if ( pFile == nullptr ) {
+        statusText = "cannot write '" + file.string() + "'";
+        return;
+    }
+    const std::string text = JsonWrite( root );
+    const bool bOk = fwrite( text.data(), 1, text.size(), pFile ) == text.size();
+    fclose( pFile );
+    statusText = bOk ? ( std::to_string( doc.Roads.size() ) + " roads -> " + file.string() )
+                     : "write failed";
+    OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
+}
+
+void GMSceneEditor::bakeRoadToProps( const std::string &roadId ) {
+    const SceneRoad *pRoad = doc.findRoad( roadId );
+    if ( pRoad == nullptr || gpFile == nullptr ) {
+        statusText = "no such road: " + roadId;
+        return;
+    }
+    std::vector<Vector3f> center;
+    ModRoads::BuildCenterline( pRoad->Points, pRoad->bClosed, 2.0f, center );
+    std::string objText, mtlText;
+    const std::string texture = pRoad->Texture.empty() ? ModRoadsDefaultTexture() : pRoad->Texture;
+    ModRoads::BuildRoadObjText( center, pRoad->Width, texture, objText, mtlText );
+    const std::filesystem::path folder = gpFile->getModsRoot() / "props";
+    std::error_code ec;
+    std::filesystem::create_directories( folder, ec );
+    const std::string base = "road_" + roadId;
+    bool bOk = false;
+    if ( FILE *pFile = fopen( ( folder / ( base + ".obj" ) ).string().c_str(), "wb" ) ) {
+        bOk = fwrite( objText.data(), 1, objText.size(), pFile ) == objText.size();
+        fclose( pFile );
+    }
+    if ( FILE *pFile = fopen( ( folder / ( base + ".mtl" ) ).string().c_str(), "wb" ) ) {
+        const bool bMtlOk = fwrite( mtlText.data(), 1, mtlText.size(), pFile ) == mtlText.size();
+        fclose( pFile );
+        bOk = bOk && bMtlOk;
+    }
+    if ( !bOk ) {
+        statusText = "bake write FAILED";
+        return;
+    }
+    // The placement line: the ribbon is world space, so identity (the OBJ is
+    // in the authoring space; the prop loader mirrors it back). "solid" gives
+    // the car collision in the modes that draw props.
+    const std::string line = island + " " + base + " 0 0 0 0 solid";
+    ModProps::appendPlacement( island, base, Vector3f( 0.0f, 0.0f, 0.0f ), 0.0f, 1.0f, false, "TD_Gouraud" );
+    statusText = "baked '" + base + "' -> props (see props.txt)";
+    OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
+}
+
+int32_t GMSceneEditor::importRoadsFile() {
+    // <mods>/roads/<island>.json into the document (a fresh doc imports at
+    // island load; load_roads re-imports).
+    std::vector<uint8_t> bytes;
+    const std::string path = std::string( "roads/" ) + island + ".json";
+    if ( !gpFile->loadFile( path.c_str(), bytes ) ) {
+        return -1;
+    }
+    std::string error;
+    JsonValue root;
+    if ( !JsonParse( std::string( bytes.begin(), bytes.end() ), root, error ) ) {
+        OTDU_LOG_WARN( "SceneEditor: '%s': %s\n", path.c_str(), error.c_str() );
+        return -1;
+    }
+    const JsonValue *pRoads = root.find( "roads" );
+    if ( pRoads == nullptr && root.isArray() ) {
+        pRoads = &root;
+    }
+    int32_t imported = 0;
+    if ( pRoads != nullptr ) {
+        for ( const JsonValue &entry : pRoads->array ) {
+            SceneRoad road;
+            road.Id = entry.getString( "id", "" );
+            if ( const JsonValue *pPoints = entry.find( "points" ) ) {
+                for ( const JsonValue &point : pPoints->array ) {
+                    if ( point.isArray() && point.array.size() >= 3 ) {
+                        road.Points.push_back( Vector3f( static_cast<float>( point.array[ 0 ].asNumber() ),
+                                                         static_cast<float>( point.array[ 1 ].asNumber() ),
+                                                         static_cast<float>( point.array[ 2 ].asNumber() ) ) );
+                    }
+                }
+            }
+            road.Width = static_cast<float>( entry.getNumber( "width", 7.0 ) );
+            road.Lanes = static_cast<int32_t>( entry.getNumber( "lanes", 2.0 ) );
+            road.bClosed = entry.getBool( "closed", false );
+            road.bCollide = entry.getBool( "collide", true );
+            road.Texture = entry.getString( "texture", "" );
+            if ( road.Id.empty() || road.Points.size() < 2 || doc.findRoad( road.Id ) != nullptr ) {
+                continue;
+            }
+            doc.Roads.push_back( std::move( road ) );
+            imported++;
+        }
+    }
+    return imported;
 }
 
 void GMSceneEditor::refreshAssets() {

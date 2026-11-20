@@ -54,6 +54,7 @@ struct RenderTarget;
 #include "game/freeride/car_debris.h"
 #include "game/gm_base.h"
 #include "game/spots/mod_props.h"
+#include "game/spots/mod_roads.h"
 #include "game/spots/spot_exteriors.h"
 #include "game/map_screen.h"
 #include "game/pause_menu.h"
@@ -337,6 +338,7 @@ private:
     // Our own buildings (docs/re/modding.md): OBJ + MTL + PNG meshes placed from
     // the mods overlay (props.txt), drawn with the spot exteriors. -nomodprops.
     ModProps modProps;
+    ModRoads modRoads; // the scene roads (<mods>/roads/<island>.json): ribbon draw + collision + surfaces
     // The Eden renderer is not ready at enter() (it readies with the first world
     // draw), so the props - and with them the fuel stations' map icons - load on
     // the first tick the renderer exists.

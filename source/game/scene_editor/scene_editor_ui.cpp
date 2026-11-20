@@ -289,6 +289,93 @@ void DrawExportSection( GMSceneEditor &editor ) {
     ImGui::TextDisabled( "props.txt is the route the current game build draws" );
 }
 
+void DrawRoadsSection( GMSceneEditor &editor ) {
+    if ( !ImGui::CollapsingHeader( "Roads" ) ) {
+        return;
+    }
+    if ( ImGui::Button( "new road" ) ) {
+        std::string id = editor.doc.uniqueId( "road" );
+        editor.pushUndo();
+        SceneRoad road;
+        road.Id = id;
+        editor.doc.Roads.push_back( road );
+        editor.activeRoadId = id;
+        editor.markSceneChanged();
+        editor.statusText = "road " + id + ": click the terrain to add points (see the commands)";
+    }
+    ImGui::TextDisabled( "the road tool is driven from the AI commands (add_road_point);" );
+    ImGui::TextDisabled( "a point lands at the camera focus, snapped to the surface" );
+    for ( size_t i = 0; i < editor.doc.Roads.size(); i++ ) {
+        SceneRoad &road = editor.doc.Roads[ i ];
+        ImGui::PushID( static_cast<int>( i ) );
+        const bool bActive = editor.activeRoadId == road.Id;
+        char label[ 96 ];
+        snprintf( label, sizeof( label ), "%s%s (%zu pts)", bActive ? "> " : "", road.Id.c_str(), road.Points.size() );
+        if ( ImGui::Selectable( label, bActive ) ) {
+            editor.activeRoadId = road.Id;
+        }
+        if ( ImGui::BeginPopupContextItem( "road_ctx" ) ) {
+            if ( ImGui::MenuItem( "delete road" ) ) {
+                editor.pushUndo();
+                editor.doc.Roads.erase( editor.doc.Roads.begin() + static_cast<ptrdiff_t>( i ) );
+                if ( editor.activeRoadId == road.Id ) {
+                    editor.activeRoadId.clear();
+                }
+                editor.markSceneChanged();
+                ImGui::PopID();
+                ImGui::EndPopup();
+                break; // the list changed
+            }
+            ImGui::EndPopup();
+        }
+        if ( bActive ) {
+            bool bChanged = false;
+            if ( ImGui::SliderFloat( "width", &road.Width, 3.0f, 30.0f, "%.1f m" ) ) {
+                bChanged = true;
+            }
+            if ( ImGui::SliderInt( "lanes", &road.Lanes, 1, 6 ) ) {
+                bChanged = true;
+            }
+            if ( ImGui::Checkbox( "closed loop", &road.bClosed ) ) {
+                bChanged = true;
+            }
+            ImGui::SameLine();
+            if ( ImGui::Checkbox( "collide", &road.bCollide ) ) {
+                bChanged = true;
+            }
+            if ( ImGui::Button( "add point at focus" ) ) {
+                editor.pushUndo();
+                float ground = 0.0f;
+                Vector3f focus = editor.position + editor.getForward() * 8.0f;
+                if ( editor.view.getWorld().getSurfaceHeight( focus.x, focus.z, editor.position.y + 50.0f, ground ) ) {
+                    focus.y = ground;
+                }
+                road.Points.push_back( focus );
+                editor.markSceneChanged();
+            }
+            ImGui::SameLine();
+            if ( ImGui::Button( "remove last point" ) && !road.Points.empty() ) {
+                editor.pushUndo();
+                road.Points.pop_back();
+                editor.markSceneChanged();
+            }
+            if ( bChanged ) {
+                editor.markSceneChanged();
+            }
+        }
+        ImGui::PopID();
+    }
+    if ( !editor.doc.Roads.empty() ) {
+        if ( ImGui::Button( "export roads file" ) ) {
+            editor.exportRoadsFile();
+        }
+        ImGui::SameLine();
+        if ( ImGui::Button( "bake active road -> props" ) ) {
+            editor.bakeRoadToProps( editor.activeRoadId );
+        }
+    }
+}
+
 } // namespace
 
 void GMSceneEditor::drawUI() {
@@ -314,6 +401,8 @@ void GMSceneEditor::drawSceneUI() {
     DrawPropertiesSection( *this );
     ImGui::Separator();
     DrawWorldPickSection( *this );
+    ImGui::Separator();
+    DrawRoadsSection( *this );
     ImGui::Separator();
     DrawExportSection( *this );
     ImGui::Separator();

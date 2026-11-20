@@ -4438,6 +4438,80 @@ void EdenWorld::applyVisibility( EdenModel &model ) const {
     EdenModelApplyVisibility( model, hiddenNodeHashes, hiddenMaterialHashes, hiddenMaterialNames );
 }
 
+void EdenWorld::addRoadSurfaceTriangles( const std::vector<Vector3f> &vertices, const std::vector<uint32_t> &indices ) {
+    modRoadSurfaces.Vertices = vertices;
+    modRoadSurfaces.Indices = indices;
+    modRoadSurfaces.Cells.clear();
+    constexpr float kCell = 8.0f;
+    for ( size_t t = 0; t + 2 < indices.size(); t += 3 ) {
+        const Vector3f &a = vertices[ indices[ t ] ];
+        const Vector3f &b = vertices[ indices[ t + 1 ] ];
+        const Vector3f &c = vertices[ indices[ t + 2 ] ];
+        const float minX = Min( a.x, Min( b.x, c.x ) ), maxX = Max( a.x, Max( b.x, c.x ) );
+        const float minZ = Min( a.z, Min( b.z, c.z ) ), maxZ = Max( a.z, Max( b.z, c.z ) );
+        const int32_t cx0 = static_cast<int32_t>( std::floor( minX / kCell ) );
+        const int32_t cx1 = static_cast<int32_t>( std::floor( maxX / kCell ) );
+        const int32_t cz0 = static_cast<int32_t>( std::floor( minZ / kCell ) );
+        const int32_t cz1 = static_cast<int32_t>( std::floor( maxZ / kCell ) );
+        if ( ( cx1 - cx0 ) > 256 || ( cz1 - cz0 ) > 256 ) {
+            continue; // degenerate (an island-spanning jump)
+        }
+        const uint32_t slot = static_cast<uint32_t>( t );
+        for ( int32_t cz = cz0; cz <= cz1; cz++ ) {
+            for ( int32_t cx = cx0; cx <= cx1; cx++ ) {
+                modRoadSurfaces.Cells[ modRoadSurfaces.CellKey( cx, cz ) ].push_back( slot );
+            }
+        }
+    }
+    OTDU_LOG_INFO( "EdenWorld: mod road surface registered (%u triangles, %zu buckets)\n",
+                   static_cast<uint32_t>( indices.size() / 3 ), modRoadSurfaces.Cells.size() );
+}
+
+bool EdenWorld::RoadSurfaceSoup::Sample( float x, float z, float maxHeight, float &outHeight ) const {
+    if ( Vertices.empty() || Indices.empty() ) {
+        return false;
+    }
+    constexpr float kCell = 8.0f;
+    const int32_t cx = static_cast<int32_t>( std::floor( x / kCell ) );
+    const int32_t cz = static_cast<int32_t>( std::floor( z / kCell ) );
+    const auto it = Cells.find( CellKey( cx, cz ) );
+    if ( it == Cells.end() ) {
+        return false;
+    }
+    bool bFound = false;
+    for ( uint32_t slot : it->second ) {
+        const Vector3f &p0 = Vertices[ Indices[ slot ] ];
+        const Vector3f &p1 = Vertices[ Indices[ slot + 1 ] ];
+        const Vector3f &p2 = Vertices[ Indices[ slot + 2 ] ];
+        // Barycentric coordinates of (x, z) in the triangle's XZ projection.
+        const float d00 = ( p1.x - p0.x ) * ( p1.x - p0.x ) + ( p1.z - p0.z ) * ( p1.z - p0.z );
+        const float d01 = ( p1.x - p0.x ) * ( p2.x - p0.x ) + ( p1.z - p0.z ) * ( p2.z - p0.z );
+        const float d11 = ( p2.x - p0.x ) * ( p2.x - p0.x ) + ( p2.z - p0.z ) * ( p2.z - p0.z );
+        const float d20 = ( x - p0.x ) * ( p1.x - p0.x ) + ( z - p0.z ) * ( p1.z - p0.z );
+        const float d21 = ( x - p0.x ) * ( p2.x - p0.x ) + ( z - p0.z ) * ( p2.z - p0.z );
+        const float denom = d00 * d11 - d01 * d01;
+        if ( std::fabs( denom ) < 1e-12f ) {
+            continue;
+        }
+        const float v = ( d11 * d20 - d01 * d21 ) / denom;
+        const float w = ( d00 * d21 - d01 * d20 ) / denom;
+        if ( v < -1e-4f || w < -1e-4f || v + w > 1.0f + 1e-4f ) {
+            continue;
+        }
+        const float y = p0.y + v * ( p1.y - p0.y ) + w * ( p2.y - p0.y );
+        // Up-facing (the winding law of BuildRoadSolid) and below the cap.
+        const float ny = ( p1.z - p0.z ) * ( p2.x - p0.x ) - ( p1.x - p0.x ) * ( p2.z - p0.z );
+        if ( ny < 0.0f ) {
+            continue;
+        }
+        if ( y <= maxHeight && ( !bFound || y > outHeight ) ) {
+            outHeight = y;
+            bFound = true;
+        }
+    }
+    return bFound;
+}
+
 bool EdenWorld::getSurfaceHeight( float x, float z, float maxHeight, float &outHeight ) const {
     bool bFound = getHeight( x, z, outHeight ) && outHeight <= maxHeight;
     for ( const auto &pSector : sectors ) {
@@ -4450,6 +4524,13 @@ bool EdenWorld::getSurfaceHeight( float x, float z, float maxHeight, float &outH
                 bFound = true;
             }
         }
+    }
+    // The mod roads' ribbons (scene editor / scene runtime): a scene road is
+    // a surface like a retail one.
+    float roadHeight = 0.0f;
+    if ( modRoadSurfaces.Sample( x, z, maxHeight, roadHeight ) && ( !bFound || roadHeight > outHeight ) ) {
+        outHeight = roadHeight;
+        bFound = true;
     }
     return bFound;
 }
