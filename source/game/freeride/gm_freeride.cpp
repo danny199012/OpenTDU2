@@ -8424,6 +8424,51 @@ void GMFreeRide::tick( float deltaTime ) {
             traffic.appendBrakeCones( EdenRearLightFrameCones(), playerPos, bNight, 6 );
         }
         traffic.appendLampGlows( EdenLampGlowFrame(), playerPos, bNight );
+        // The petrol stations' forecourt lights (port-native [INF]: the retail forecourts are unlit at night): a
+        // grid of warm downward pools and glow heads around each listed station within 150 m of the car.
+        // -nostationlights removes them.
+        static const bool bNoStationLights = CmdLine::HasArg( "-nostationlights" );
+        if ( !bNoStationLights && bNight ) {
+            for ( const ServiceStations::Station &station : serviceStations.getAll() ) {
+                const Vector3f lc = station.Position + station.LightOffset;
+                const float sx = lc.x - playerPos.x, sz = lc.z - playerPos.z;
+                if ( sx * sx + sz * sz > 150.0f * 150.0f ) {
+                    continue;
+                }
+                float ground = playerPos.y;
+                surfaceHeight( lc.x, lc.z, playerPos.y, ground );
+                static bool bLoggedLights = false;
+                if ( !bLoggedLights ) {
+                    bLoggedLights = true;
+                    OTDU_LOG_INFO( "stationlights: %s ground %.1f player y %.1f\n", station.Name.c_str(), ground, playerPos.y );
+                }
+                for ( int32_t row = -1; row <= 1; row++ ) {
+                    for ( int32_t col = -1; col <= 1; col++ ) {
+                        const Vector3f head( lc.x + col * 6.0f, ground + 4.4f, lc.z + row * 5.5f );
+                        EdenHeadlightCone cone;
+                        cone.Position = Vector3f( head.x, ground - 1.0f, head.z ); // the pool's surface query starts 4.5 m above this: under the canopy roof, not on it
+                        cone.Direction = Vector3f( 1.0f, 0.0f, 0.0f ); // the pool is a flat quad centred under the head
+                        cone.PoolAhead = 0.01f;
+                        cone.PoolAlong = 3.5f;
+                        cone.PoolAcross = 3.5f;
+                        cone.Range = 9.0f;
+                        cone.Intensity = 0.4f;
+                        cone.InnerCos = 0.55f;
+                        cone.OuterCos = 0.25f;
+                        cone.Tint = Vector4f( 1.0f, 0.9f, 0.7f, 1.0f );
+                        EdenHeadlightFrameCones().push_back( cone );
+                        EdenLampGlow glow;
+                        glow.Position = head;
+                        glow.Normal = Vector3f( 0.0f, -1.0f, 0.0f );
+                        glow.Color = Vector3f( 1.0f, 0.88f, 0.6f );
+                        glow.Size = 0.45f;
+                        glow.Strength = 1.0f;
+                        glow.Spread = 1.0f; // a bare bulb under the canopy: lit from every side
+                        EdenLampGlowFrame().push_back( glow );
+                    }
+                }
+            }
+        }
         // The cop cars ride the same registries: their light state is
         // advanced here (the FA_ sprite toggle in ChaseMode::draw stays the
         // lens art; these are the glows and the headlight cones).

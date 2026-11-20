@@ -16,17 +16,18 @@ void ServiceStations::load( const std::string &island ) {
     struct BuiltIn {
         const char *Island, *Name;
         float X, Z;
+        float LightX, LightZ; // canopy centre relative to the entry
     };
     static const BuiltIn kBuiltIn[] = {
-        { "ibiza", "OIL Station (Area 1)", 18961.0f, 18097.0f },
-        { "ibiza", "OIL Station (Car Wash)", 27002.0f, 11622.0f },
-        { "ibiza", "OIL Station (East)", 27305.0f, 13962.0f },
+        { "ibiza", "OIL Station (Area 1)", 18961.0f, 18097.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (Car Wash)", 27002.0f, 11622.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (East)", 27305.0f, 13962.0f, 0.0f, 0.0f },
         // Owner's screenshot 2026-11-20: car under the canopy, REPAIR shutters behind (F6 overlay X 20338.6, Z 20153.4).
-        { "ibiza", "OIL Station (Area 2)", 20338.0f, 20153.0f },
+        { "ibiza", "OIL Station (Area 2)", 20338.0f, 20153.0f, 10.5f, 14.0f },
     };
     for ( const BuiltIn &entry : kBuiltIn ) {
         if ( ToLower( entry.Island ) == ToLower( island ) ) {
-            stations.push_back( { entry.Name, Vector3f( entry.X, 0.0f, entry.Z ) } );
+            stations.push_back( { entry.Name, Vector3f( entry.X, 0.0f, entry.Z ), Vector3f( entry.LightX, 0.0f, entry.LightZ ) } );
         }
     }
     if ( gpFile == nullptr ) {

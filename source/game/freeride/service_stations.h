@@ -20,6 +20,7 @@ public:
     struct Station {
         std::string Name;
         Vector3f Position;
+        Vector3f LightOffset = Vector3f( 0.0f, 0.0f, 0.0f ); // forecourt light grid centre, from Position
     };
 
     // Reads <mods>/stations.txt: only the lines of this island.
