@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "intro_cinematic.h"
+#include "game/spots/spot_exterior.h"
 #include "render/eden/eden_neons.h"
 
 #include "audio/gs_audio.h"
@@ -1991,7 +1992,9 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
         // Setup::InteriorBank room (CINE kind 3) stand at the spot even when
         // the cinematic frame moved (liftOntoFloor / placeEntityAt).
         const bool bSpotFrame = ( i < setIsExterior.size() && setIsExterior[i] ) || i >= interiorSetStart;
-        sets[i]->draw( renderer, bSpotFrame ? spotOrigin : sceneOrigin );
+        // The car wash bank's set is drawn turned against its collision (spot_exterior.h WashSetLocal).
+        const bool bWashSet = bSpotFrame && i < setIsExterior.size() && setIsExterior[i] && IsWashBankPath( "/" + setup.ExteriorBank );
+        sets[i]->draw( renderer, bWashSet ? spotOrigin * WashSetLocal() : ( bSpotFrame ? spotOrigin : sceneOrigin ) );
     }
     // Room props of our own (loadRoomProps): the interior set's frame.
     if ( !bActorsOnly ) {

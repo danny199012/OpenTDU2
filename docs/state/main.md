@@ -3,6 +3,15 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, car wash alignment solved: the set is 16 m off its own collision)
+
+Owner (build 373 shot): the planter should sit where the bushes are, the wash hangs over the road and needs pulling back, the entrance is where the semicircle enter/exit arrows are.
+
+- **Cause [DATA]**: the bank's Scenery set has no placement; its render bounds (x -19.3..23.1, z -21.9..33.9) are NOT where the bank's own Havok collision (`ecw_ai_sc_*.shk`, lot walls x -20.7..21.6, z -38.2..17.6), the props and the washing scene put the lot. A search over the 4 orientations x translations (34 structural .shk boxes vs the set's vertices, `-logspotcollbounds` + `-dumpwashverts` + `-washfloor`) picks identity with **(-1.5, 0, -16.0)** (mean distance 0.7 m); rot180 / mirrors fit worse. spots.bin also holds a second placement per record (+0x2C, +0x38: the road access point, ~24-27 m on the local +Z side) - not used yet.
+- **Fix**: `WashSetLocal()` (`spot_exterior.h/.cpp`): the Scenery sets of `/ecw_` banks are drawn at `frame * Translation(-1.5, 0, -16)` (`SpotExterior::draw`, the floor collision via `getSetLocal()`, and `IntroCinematic` for the washing scene). Props / collision / car / cameras stay on the spot frame. `-nowashrot` = old placement. The forecourt plate is no longer cut (it lies 6 m clear of the road now): `-dropwashstrip` restores the old strip cut. `-washshift x,z` (spot_exteriors.cpp) still moves the whole spot (default 0).
+- **Verified** (`docs/images/carwash-aligned-s66.webp`, `carwash-aligned-all-s66.webp`): top-down at Ibiza wash 2 / 1 / 3 and Hawai 1 / 3: the lot is clear of the road, the entry / exit pockets meet its front; the drive-in now ends with the car IN the bay facing out, a tiled wall on its left and the canopy above (the owner's 360 shot of the loop). Not verified: the planters vs the bushes at ground level; the other Hawai washes; whether other exterior banks (dealers, houses) have the same set-vs-collision offset (`-logspotcollbounds` shows the bounds for any bank).
+- Test hooks: `-atwashidx`, `-atwashlocal`, `-photoat`, `-logspotcollbounds`, `-dumpwashverts`.
+
 ## Session 2026-11-20 (`main`, photo DoF + Character, Android in CI)
 
 - **Depth of field**: `resources/shaders/photodof.frag` (+ generated `photodof_frag.h`, `tools/compile_shaders.py photodof.frag`): the port's own depth-driven gather blur, NOT the original "crappy" ps_1 (that one only moves the LUT's luminance index, no visible blur, postfx_spec 2.5). Depth = gViewPos B/A decoded as postfx_spec 6.2; `EdenSceneView::applyPhotoDof` runs after the height fog on the finished image (`PhotoGrade::DofIntensity/DofDistance`): distance slider 0..1 -> focus 2..200 m (0.5 = 20 m), intensity -> up to 16 px at 1080 lines. Trap fixed: `bDofApplied` must be cleared BEFORE `applyHeightFog` (the fog reads `finishedSceneColor()` - last frame's DoF output fed back and the image smeared more every frame). `-photodofdebug` shows decoded depth (white = 50 m), `-photodofdebug2` the blur radius.

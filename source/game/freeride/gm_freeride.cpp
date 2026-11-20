@@ -9145,6 +9145,16 @@ void GMFreeRide::addSpotExteriorCollisions() {
                     collision.addCollision( spotCollision, frames[f], true );
                     numTriangles += spotCollision.getNumTriangles();
                     numBoxes += spotCollision.Boxes.size();
+                    if ( CmdLine::HasArg( "-logspotcollbounds" ) ) {
+                        OTDU_LOG_INFO( "spot collision %s bounds (%.1f %.1f %.1f)-(%.1f %.1f %.1f) boxes %zu tris %zu\n", pEntry->Filename.c_str(),
+                                       spotCollision.BoundsMin.x, spotCollision.BoundsMin.y, spotCollision.BoundsMin.z,
+                                       spotCollision.BoundsMax.x, spotCollision.BoundsMax.y, spotCollision.BoundsMax.z,
+                                       spotCollision.Boxes.size(), spotCollision.getNumTriangles() );
+                        for ( const HavokCollision::Box &box : spotCollision.Boxes ) {
+                            const Vector3f c = box.Transform.getTranslation();
+                            OTDU_LOG_INFO( "  box c (%.1f %.1f %.1f) half (%.1f %.1f %.1f)\n", c.x, c.y, c.z, box.HalfExtents.x, box.HalfExtents.y, box.HalfExtents.z );
+                        }
+                    }
                 }
             }
             // The car wash floor: drawn at the spot height (-0.2..0.5 m) the car rests on and absent from the
@@ -9154,7 +9164,7 @@ void GMFreeRide::addSpotExteriorCollisions() {
                 HavokCollision floor;
                 pExterior->collectFloorTriangles( -0.3f, 0.6f, floor );
                 if ( floor.getNumTriangles() > 0 ) {
-                    collision.addCollision( floor, frames[f], true );
+                    collision.addCollision( floor, frames[f] * pExterior->getSetLocal(), true );
                     numTriangles += floor.getNumTriangles();
                     OTDU_LOG_INFO( "FREERIDE: car wash floor (frame %zu): %zu triangles\n", f, floor.getNumTriangles() );
                 }

@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "spot_exteriors.h"
+#include "system/cmd_line.h"
 
 #include "filesystem/gs_file.h"
 #include "render/gs_render.h"
@@ -41,6 +42,19 @@ std::vector<SpotRecord> LoadSpotList( const std::string &island ) {
             if ( gpFile->fileExists( exterior.c_str() ) ) {
                 spot.ExteriorPath = exterior;
             }
+        }
+        // The car washes: the record's position put the building too close to the road (the canopy hung over
+        // it, the planters missed the world's bushes, the entry / exit loops did not meet the lot [owner shots
+        // vs the 360, 2026-11-20]). The bank is drawn optionally moved along its own Z (default 0); every consumer of the spot
+        // (the exterior, its collision, the washing scene's frame) reads this list, so they stay together.
+        // -washshift x,z (metres, bank-local) tunes it, "0,0" = the record as is [INF: measured, not decoded].
+        if ( spot.Bank.size() >= 3 && _strnicmp( spot.Bank.c_str(), "ECW", 3 ) == 0 ) {
+            float shiftX = 0.0f, shiftZ = 0.0f;
+            if ( const char *pShift = CmdLine::GetArgValue( "-washshift" ) ) {
+                sscanf( pShift, "%f,%f", &shiftX, &shiftZ );
+            }
+            spot.Position.x += shiftX * std::cos( spot.Heading ) + shiftZ * std::sin( spot.Heading );
+            spot.Position.z += -shiftX * std::sin( spot.Heading ) + shiftZ * std::cos( spot.Heading );
         }
         spots.push_back( spot );
     }

@@ -16,6 +16,17 @@
 // (spot_exteriors.h) owns the streamed set of them and is what the world
 // viewer and FREERIDE both use to place the buildings on an island.
 struct HavokCollision;
+// The car wash bank's Scenery set has no placement of its own and sits (-1.5, 0, -16.0) m away from the bank's
+// collision (ecw_ai_sc_*.shk), the props and the washing scene: the .shk lot walls span local x -20.7..21.6,
+// z -38.2..17.6, the set's render bounds x -19.3..23.1, z -21.9..33.9, and the 34 structural boxes of the .shk
+// land on the set's geometry at that offset (mean distance 0.7 m; the 180 degree turn and both mirrors fit worse,
+// 16..17 of 24 boxes vs 22) [DATA, measured: -dumpwashverts + -logspotcollbounds]. The collision is what the road,
+// the wash place (1.47, -17.5: between the .shk bay walls at z -13.4 and -22) and the cameras share, so the set is
+// drawn with this matrix on top of the spot frame: the building no longer overhangs the road (6 m clear), the
+// planters meet the bushes and the entry / exit pockets meet the lot. -nowashrot = the old placement.
+Matrix4x4f WashSetLocal();
+bool IsWashBankPath( const std::string &path );
+
 class SpotExterior {
 public:
     SpotExterior() = default;
@@ -37,6 +48,8 @@ public:
     // a building's drawn floor, for the places where the bank's own collision has none (the car wash
     // forecourt: the floor is 0.4 m above the road the car rests on).
     void collectFloorTriangles( float minY, float maxY, HavokCollision &out ) const;
+    // The matrix the Scenery sets are drawn with on top of a frame (identity except the car washes).
+    inline const Matrix4x4f &getSetLocal() const { return setLocal; }
     inline size_t getNumModels() const { return sets.size() + props.size(); }
 
 private:
@@ -46,6 +59,7 @@ private:
     };
 
     std::string path;
+    Matrix4x4f setLocal = Matrix4x4f::Identity();
     Bank bank;
     BankHashcodes hashcodes;
     std::vector<std::unique_ptr<EdenModel>> sets;

@@ -11,6 +11,7 @@ SpotExterior::~SpotExterior() { unload(); }
 bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
     unload();
     path = bankPath;
+    setLocal = IsWashBankPath( path ) ? WashSetLocal() : Matrix4x4f::Identity();
     EdenRenderer *pRenderer = gpRender->getEdenRenderer();
     if ( pRenderer == nullptr || !bank.load( path.c_str() ) ) {
         OTDU_LOG_WARN( "SpotExterior: '%s' could not be loaded\n", path.c_str() );
@@ -34,7 +35,7 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
         const BankEntry *pMaterials = bank.findEntry( pScene->Name.c_str(), "2dm" );
         auto pModel = std::make_unique<EdenModel>();
         pModel->setKeepCollision( path.find( "/ecw_" ) != std::string::npos ); // the car wash floor (collectFloorTriangles)
-        if ( path.find( "/ecw_" ) != std::string::npos && !CmdLine::HasArg( "-hidewashplate" ) && !CmdLine::HasArg( "-keepwashplate" ) ) {
+        if ( path.find( "/ecw_" ) != std::string::npos && CmdLine::HasArg( "-dropwashstrip" ) ) {
             // The forecourt plate is the wash's real floor (y 0 = the road height, a 0.2 m rim): draw it,
             // minus the strip over the road along the front (bank-local z >= 26.3, 6 m) [DATA: the plate
             // mesh is a polygon whose front lip lies over the road band z 24..32].
@@ -162,7 +163,29 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
     return true;
 }
 
+bool IsWashBankPath( const std::string &path ) {
+    return path.find( "/ecw_" ) != std::string::npos;
+}
+
+Matrix4x4f WashSetLocal() {
+    static const bool bOff = CmdLine::HasArg( "-nowashrot" );
+    if ( bOff ) {
+        return Matrix4x4f::Identity();
+    }
+    return Matrix4x4f::Translation( Vector3f( -1.5f, 0.0f, -16.0f ) );
+}
+
 void SpotExterior::collectFloorTriangles( float minY, float maxY, HavokCollision &out ) const {
+    if ( CmdLine::HasArg( "-dumpwashverts" ) ) {
+        if ( FILE *pFile = fopen( "_wash_verts.txt", "w" ) ) {
+            for ( const auto &pSet : sets ) {
+                for ( const Vector3f &v : pSet->getCollisionVertices() ) {
+                    fprintf( pFile, "%.3f %.3f %.3f\n", v.x, v.y, v.z );
+                }
+            }
+            fclose( pFile );
+        }
+    }
     for ( const auto &pSet : sets ) {
         const std::vector<Vector3f> &vertices = pSet->getCollisionVertices();
         const std::vector<uint32_t> &indices = pSet->getCollisionIndices();
@@ -229,7 +252,7 @@ void SpotExterior::unload() {
 void SpotExterior::draw( EdenRenderer &renderer ) const {
     for ( const Matrix4x4f &frame : frames ) {
         for ( const auto &pSet : sets ) {
-            pSet->draw( renderer, frame );
+            pSet->draw( renderer, frame * setLocal );
         }
         for ( const Prop &prop : props ) {
             prop.Model->draw( renderer, frame * prop.Local );
