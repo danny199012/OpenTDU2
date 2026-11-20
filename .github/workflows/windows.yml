@@ -8,7 +8,7 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# The release job publishes the zip; everything else is read-only.
+# The release jobs publish the zip / exe / apk; everything else is read-only.
 permissions:
   contents: write
 
@@ -28,14 +28,18 @@ jobs:
           # would stamp "build 1" for every run.
           fetch-depth: 0
 
-      # The image ships LLVM (clang-cl) and Ninja; this only rescues a future
-      # image that drops one of them.
-      - name: Install build tools (if missing)
+      # The image ships LLVM (clang-cl) and Ninja, but its LLVM can lag the MSVC
+      # STL shipped next to it: in Nov 2026 the image moved to VS 18 (MSVC 14.52)
+      # whose headers static-assert "error STL1000: Unexpected compiler version,
+      # expected Clang 22 or newer" while it still carried Clang 20.1.8 - so
+      # every TU including the STL failed, whatever the commit. LLVM is therefore
+      # always refreshed to the current Chocolatey release (23.x, same
+      # C:\Program Files\LLVM\bin the PATH already points at); Ninja stays a
+      # rescue for a future image that drops it.
+      - name: Install build tools
         shell: powershell
         run: |
-          if (-not (Get-Command clang-cl -ErrorAction SilentlyContinue)) {
-            choco install llvm -y
-          }
+          choco install llvm -y --force
           if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
             choco install ninja -y
           }
@@ -167,7 +171,11 @@ jobs:
     # which the launcher matches against its own build hash
     # (launcher_updater.cpp FillFromGitHub) to decide "is this release newer
     # than me". The v* tag releases above stay the stable channel.
-    # An APK is attached when the android job succeeded; a failed phone build never blocks the Windows release.
+    # Every prerelease carries all three artifacts: the zip (what the launcher's
+    # packaged-build update path downloads - launcher_updater.cpp, the first .zip
+    # asset of a release), the bare opentdu2.exe (for patching an existing
+    # install directly) and the APK (attached when the android job succeeded; a
+    # failed phone build never blocks the Windows release).
     if: ${{ always() && needs.build.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     needs: [ build, android ]
     runs-on: ubuntu-latest
@@ -193,6 +201,7 @@ jobs:
 
       - name: Zip
         run: |
+          cp bin/opentdu2.exe "opentdu2-windows-v0.2.${{ github.run_number }}.exe"
           cd bin
           zip -r "../opentdu2-windows-v0.2.${{ github.run_number }}.zip" .
           cd ..
@@ -220,6 +229,7 @@ jobs:
           prerelease: true
           files: |
             opentdu2-windows-v0.2.${{ github.run_number }}.zip
+            opentdu2-windows-v0.2.${{ github.run_number }}.exe
             apk/*.apk
           fail_on_unmatched_files: false
           generate_release_notes: true
