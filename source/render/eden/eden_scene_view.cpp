@@ -1827,6 +1827,7 @@ void EdenSceneView::renderOffscreen() {
     pRenderer->setScreenTexture( nullptr );
     pRenderer->beginScene( params );
     static const bool bNoSky = CmdLine::HasArg( "-nosky" ); // A/B: the sky dome
+    pRenderer->tagSkyDraws( true );
     if ( !bNoSky && !bShowcase && ( !bMapView || bMapKeepSky ) ) {
         sky.draw( *pRenderer );
         sky.drawMoon( *pRenderer, params, pWeather );
@@ -1836,6 +1837,7 @@ void EdenSceneView::renderOffscreen() {
     if ( !bNoSunFlare && !bShowcase && ( !bMapView || bMapKeepSky ) ) {
         sun.drawHalo( *pRenderer, params, pWeather );
     }
+    pRenderer->tagSkyDraws( false );
     // The billboard clouds of clouds.3dd (-oldclouds). The volumetric layer
     // composites in the blended pass below, after the deferred flush: the sky
     // dome is itself a deferred draw, so anything drawn earlier here would be
@@ -1900,15 +1902,25 @@ void EdenSceneView::renderOffscreen() {
     pRenderer->resumeScene();
     // Blended scene draws (heightfields with their alpha blended borders,
     // glass...) before the haze: the haze covers the whole scene.
-    pRenderer->flushDeferred();
-    // The volumetric clouds composite right after the deferred flush (the dome
-    // is already on screen here) and before the haze: scene depth nearer than
-    // a cloud hides it (mountains, the car and its cockpit), a cloud stays in
-    // front of what is behind it. The cirrus sheet draws first so the deck
-    // occludes it (TDUSC order: cirrus behind the cumulus).
+    // Sky draws first, then the clouds, then every other blended draw: foliage
+    // cards, markers and lamp glows write no depth, so a cloud composited after
+    // them (the old order) painted over them.
+    static const bool bOldCloudOrder = CmdLine::HasArg( "-oldcloudorder" ); // A/B
+    if ( !bOldCloudOrder && !bShowcase ) {
+        pRenderer->flushDeferredSky();
+    } else {
+        pRenderer->flushDeferred();
+    }
+    // The volumetric clouds composite after the dome and before the haze: scene
+    // depth nearer than a cloud hides it (mountains, the car and its cockpit),
+    // a cloud stays in front of what is behind it. The cirrus sheet draws first
+    // so the deck occludes it (TDUSC order: cirrus behind the cumulus).
     if ( !bShowcase ) {
         drawCirrusLayer( params );
         compositeCloudLayer( params );
+    }
+    if ( !bOldCloudOrder && !bShowcase ) {
+        pRenderer->flushDeferred();
     }
     // Port effects (wheel spray, tyre tracks): depth tested against the scene,
     // no depth write, before the haze so they are fogged like everything else.

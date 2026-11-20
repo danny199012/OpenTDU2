@@ -3,6 +3,20 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, clouds composited over foliage / markers - first fix, unverified by eye)
+
+Owner (8 screenshots): clouds paint over trees, 3D markers and lamp glows; also reported, **not touched**: furniture / car collision in dealerships and house props (chairs through a table), Veyron Grand Sport rim + glass oddities, pool reflection (dark blob + terrain in the water), brake lights / glow misaligned.
+
+### What changed
+- Cause [INF]: the cloud composite ran after `flushDeferred`, depth-tested against a copy of the *opaque* depth; blended draws (foliage cards, markers, glows) write no depth, so clouds covered them. `eden_renderer.{h,cpp}`: `tagSkyDraws` / `flushDeferredSky` - dome, moon, stars and halo are tagged and flushed alone; `eden_scene_view.cpp` now does sky -> cirrus -> clouds -> all other blended draws -> haze. `-oldcloudorder` = old behaviour (A/B).
+
+### Verified
+- Build 391 links clean. A/B `-tp 29794,2258` night shot, new vs old: mean pixel diff 0.0 - **no cloud overlapped any blended draw in that frame, so the fix is not proven**.
+
+### Not done / next
+- Check by eye: needs a frame with cloud blobs behind a tree canopy or marker (the owner's shots at X 29794 Z 2258 had them); run with and without `-oldcloudorder`.
+- Pool water, brake-light alignment, dealership/house prop collision (the interior walk has none for scene/prop objects), Veyron rim/glass: each needs its own repro.
+
 ## Session 2026-11-20 (`main`, wind turbine rotors on Ibiza)
 
 Owner: wind turbines drawn as tower + nacelle with no blades (photo-camera shot at X 30493 Y 363 Z 4307 - **Ibiza**, not Hawai; Y is the photo camera's height).

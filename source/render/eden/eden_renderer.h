@@ -225,6 +225,13 @@ public:
     void endScene();
     // Records the deferred blended draws now (back to front).
     void flushDeferred();
+    // Sky draws (dome, moon, stars, halo) are tagged while bTag is true and
+    // flushed on their own, so the volumetric clouds can composite between
+    // them and the rest of the blended draws (foliage cards, markers, flares).
+    void tagSkyDraws( bool bTag ) {
+        bTagSky = bTag;
+    }
+    void flushDeferredSky();
     // Records the kept opaque water draws now (also done by flushDeferred
     // and endScene).
     void flushWater();
@@ -355,7 +362,9 @@ private:
         Matrix4x4f World;
         float Distance;
         std::shared_ptr<EdenDrawParams> pParams;
+        bool bSky = false;
     };
+    bool bTagSky = false;
 
     RenderDevice *pDevice;
     TextureCache *pTextureCache;

@@ -928,6 +928,20 @@ void EdenRenderer::flushWater() {
     waterDraws.clear();
 }
 
+void EdenRenderer::flushDeferredSky() {
+    std::stable_sort( deferredDraws.begin(), deferredDraws.end(),
+                      []( const DeferredDraw &a, const DeferredDraw &b ) { return a.Distance > b.Distance; } );
+    std::vector<DeferredDraw> rest;
+    for ( const DeferredDraw &draw : deferredDraws ) {
+        if ( draw.bSky ) {
+            recordDraw( draw.Mesh, *draw.pMaterial, draw.World, draw.pParams.get() );
+        } else {
+            rest.push_back( draw );
+        }
+    }
+    deferredDraws.swap( rest );
+}
+
 void EdenRenderer::flushDeferred() {
     flushWater();
     std::sort( deferredDraws.begin(), deferredDraws.end(),
@@ -1178,6 +1192,7 @@ void EdenRenderer::draw( const EdenMesh &mesh, const EdenMaterial &material, con
         deferred.World = world;
         const Vector3f position = world.getTranslation();
         deferred.Distance = ( position - scene.CameraPosition ).length();
+        deferred.bSky = bTagSky;
         if ( bOcean || bLateWater || bLateWaterAlpha ) {
             waterDraws.push_back( deferred );
         } else {
