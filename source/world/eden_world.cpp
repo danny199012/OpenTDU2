@@ -3161,6 +3161,24 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
                     pShutter->Name = keepName;
                 }
             }
+            // -logstations: once per sector, every petrol station building node (SB_GAZS_*) with its world centre.
+            static const bool bLogStations = CmdLine::HasArg( "-logstations" );
+            static std::unordered_set<const Sector *> loggedStations;
+            if ( bLogStations && loggedStations.insert( &sector ).second ) {
+                for ( const EdenModel::Item &item : sector.Objects.getItems() ) {
+                    if ( item.Lod != 0 || item.NodeIndex < 0 ) {
+                        continue;
+                    }
+                    const EdenMaterial &m = sector.Objects.getMaterials()[item.MaterialIndex];
+                    if ( m.Name != "SB_GazSB_Metal" && m.Name != "SB_Gazs_A_Metal" && m.Name.find( "Gaz" ) == std::string::npos ) {
+                        continue;
+                    }
+                    const Matrix4x4f toWorld = world * sector.Objects.getNodeTransform( item.NodeIndex );
+                    const Vector3f a = toWorld.transformPoint( item.BoundsMin ), b = toWorld.transformPoint( item.BoundsMax );
+                    OTDU_LOG_INFO( "STATION mat %s centre (%.1f %.1f %.1f) size (%.1f %.1f %.1f)\n", m.Name.c_str(), ( a.x + b.x ) * 0.5f,
+                                   ( a.y + b.y ) * 0.5f, ( a.z + b.z ) * 0.5f, fabsf( b.x - a.x ), fabsf( b.y - a.y ), fabsf( b.z - a.z ) );
+                }
+            }
             static std::unordered_set<const Sector *> loggedMesh;
             if ( pNearMesh != nullptr && loggedMesh.insert( &sector ).second ) {
                 float nx = 0, nz = 0, nr = 0;

@@ -24,6 +24,17 @@ void ServiceStations::load( const std::string &island ) {
         { "ibiza", "OIL Station (East)", 27305.0f, 13962.0f, 17.0f, 0.0f },
         // Owner's screenshot 2026-11-20: car under the canopy, REPAIR shutters behind (F6 overlay X 20338.6, Z 20153.4).
         { "ibiza", "OIL Station (Area 2)", 20338.0f, 20153.0f, 10.5f, 14.0f },
+        // Found by scanning every Ibiza sector for the SB_GazSB building (-logstations; centre of its Metal canopy item,
+        // the pump position and canopy offset not measured: radius is 35 m, so the lot is covered).
+        { "ibiza", "OIL Station (Wilds NW)", 6985.0f, 27068.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (Hills W)", 8143.0f, 26283.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (South Coast)", 15918.0f, 25647.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (South Shore)", 16462.0f, 27583.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (North Hills)", 17903.0f, 9605.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (South West)", 18773.0f, 26650.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (North)", 20407.0f, 5934.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (North East)", 22670.0f, 8336.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (East Coast)", 23303.0f, 19348.0f, 0.0f, 0.0f },
     };
     for ( const BuiltIn &entry : kBuiltIn ) {
         if ( ToLower( entry.Island ) == ToLower( island ) ) {

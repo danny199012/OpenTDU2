@@ -23,6 +23,9 @@ Owner: found another petrol station (F6 X 20338.6 Z 20153.4), wants it wired, sh
 - Trap: headless `-tp x,z` leaves the car at y 1.9 until it settles; pass `-tp x,y,z` (y 56) or the light grid is built at the wrong height.
 - Other stations' LightOffset from top-down `-photoat` shots at the `SB_GazSB_tole` centres (ground y 140 / 70 / 71.5): Area 1 (+3, +22), Car Wash (-2, -22), East (+17, 0). Checked in low-angle night shots: the glow heads and pools sit under each canopy (eyeballed to ~2 m).
 
+- **Station scan** (`-logstations`, one run per candidate sector; raw-string prefilter of the 1165 sector banks found 57 with `SB_Gaz*`): 13 OIL stations (`SB_GazSB_*`, the shuttered type with pumps) on Ibiza, none on Hawai. 9 new ones added to `ServiceStations` (13 total), centre of the Metal canopy item, LightOffset 0 (not measured). A second type, `SB_Gazs_A_*` (wood / stone, `SB_GazS_Volet`), has ~44 small roadside shacks; two looked at from the air are tiny buildings, pumps not confirmed, NOT wired.
+- Night emissive textures: TD_Building has a night window term (slot 6 `gWindowMapTexSampler` x lum(base) x UserVector1.w) - night_lights_camera_glass_spec.md; so a lit version needs a second texture in that slot, not a shader change. Not tried on the station materials.
+
 ### Not done / next
 - Texture pass (needs a light/glow prop mechanism; TD_Building params unknown). Other SB_Gazs_A_* station variants not checked for shutters.
 - Other stations: need F6 positions (or a scan of sector object materials for the pump / REPAIR textures).
