@@ -66,6 +66,6 @@ void WalkController::update( float deltaTime, bool bInputEnabled ) {
     if ( length > 1.0f ) {
         move = move * ( 1.0f / length );
     }
-    const Vector3f target = position + move * ( kWalkSpeedMax * deltaTime );
+    const Vector3f target = position + move * ( kWalkSpeedMax * speedScale * deltaTime );
     position = collide ? collide( position, target ) : target;
 }

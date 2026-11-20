@@ -58,6 +58,7 @@ public:
     // (the thin-surface push side).
     using WorldHook = std::function<bool( Vector3f &body, const Vector3f &bodyPrevious, float &outFloorY )>;
     void setWorldHook( WorldHook hook ) { worldHook = std::move( hook ); }
+    void setSpeedScale( float scale ) { controller.setSpeedScale( scale ); }
     // /:SelItemType of the selection ("garage", "car"...), empty if none.
     const char *getSelectedType( const IntroCinematic &scene ) const;
 

@@ -570,6 +570,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
             const Matrix4x4f originInverse = origin.inverse();
             Vector3f islandBody = origin.transformPoint( body );
             const Vector3f islandPrevious = origin.transformPoint( bodyPrevious );
+            const float startY = islandBody.y;
             // The sector statics: the deepest contact per round, a few rounds
             // (the same resolve law the drive's chassis uses).
             for ( int i = 0; i < 4; i++ ) {
@@ -582,6 +583,12 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
             // The exterior bank's own walls (the caravan shell, the garage
             // building): the walk radius is WalkMode's kRadius.
             islandBody = ResolveSphereHavokCollision( exteriorCollision, islandBody, 0.3f, 4 );
+            // A wall / glass push is horizontal: a thin pane met at an edge resolved UPWARD and lifted the body
+            // onto the roof (owner: "walked into some glass ... pushed me on to the roof"). The step-up to
+            // real stairs is the ground search below, not this push.
+            if ( islandBody.y > startY + 0.02f ) {
+                islandBody.y = startY + 0.02f;
+            }
             // The ground under the pushed body (the terrain, the roads, the
             // deck of the exterior bank); the rotation is about Y only, so
             // the height maps straight down.
@@ -590,6 +597,17 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
             const bool bGround = scene.getSurfaceHeight( islandBody.x, islandBody.z, feetY + 0.4f, height ) &&
                                  height >= feetY - 2.0f;
             body = originInverse.transformPoint( islandBody );
+            // Wading: how deep the pool water is over this ground.
+            float water = 0.0f;
+            wadeDepth = 0.0f;
+            if ( bGround && scene.getWaterSurfaceHeight( islandBody.x, islandBody.z, height + 3.0f, water ) ) {
+                wadeDepth = Max( 0.0f, water - height );
+            }
+            static bool bWasWading = false;
+            if ( ( wadeDepth > 0.05f ) != bWasWading ) {
+                bWasWading = wadeDepth > 0.05f;
+                OTDU_LOG_INFO( "InteriorWalk: %s the pool (water %.2f m over the ground)\n", bWasWading ? "wading in" : "out of", wadeDepth );
+            }
             if ( !bGround ) {
                 return false;
             }
@@ -598,6 +616,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
         } );
     } else {
         walk.setWorldHook( nullptr );
+        wadeDepth = 0.0f;
     }
     // The player avatar (the .sce actor "Avatar" of the shop cinematics).
     const PlayerProfile &profile = GetPlayerProfile();
@@ -997,6 +1016,8 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
         tickFurnitureEdit();
         return eResult::None;
     }
+    // Wading: knee-deep water slows the walk, waist-deep halves it (-nowade = off).
+    walk.setSpeedScale( CmdLine::HasArg( "-nowade" ) ? 1.0f : 1.0f - 0.5f * Clamp( wadeDepth / 1.0f, 0.0f, 1.0f ) );
     walk.update( scene, deltaTime, true );
     updateEmotes( deltaTime );
     if ( bConsumed ) {

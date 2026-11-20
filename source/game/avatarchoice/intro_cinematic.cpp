@@ -2520,12 +2520,36 @@ bool IntroCinematic::focusDisplayCar( int32_t carId, int32_t paintIndex ) {
     return false;
 }
 
+namespace {
+// The exterior's pool water model: one "POOL" mesh under the REFRACT helper (pool_interior_spec 1).
+bool IsWaterSet( const EdenModel &model ) {
+    return model.getScene().findNode( "POOL" ) >= 0;
+}
+} // namespace
+
+bool IntroCinematic::getWaterSurfaceHeight( float x, float z, float maxY, float &outHeight ) {
+    const Matrix4x4f toSpot = spotOrigin.inverse();
+    bool bFound = false;
+    for ( size_t i = 0; i < sets.size() && i < setIsExterior.size(); i++ ) {
+        if ( !setIsExterior[i] || !IsWaterSet( *sets[i] ) ) {
+            continue;
+        }
+        const Vector3f local = toSpot.transformPoint( Vector3f( x, maxY, z ) );
+        float height = 0.0f;
+        if ( sets[i]->getSurfaceHeight( local.x, local.z, local.y, height ) ) {
+            outHeight = spotOrigin.transformPoint( Vector3f( local.x, height, local.z ) ).y;
+            bFound = true;
+        }
+    }
+    return bFound;
+}
+
 bool IntroCinematic::getSurfaceHeight( float x, float z, float maxY, float &outHeight ) {
     bool bFound = view.getWorld().getSurfaceHeight( x, z, maxY, outHeight );
     const Matrix4x4f toSpot = spotOrigin.inverse();
     for ( size_t i = 0; i < sets.size() && i < setIsExterior.size(); i++ ) {
-        if ( !setIsExterior[i] ) {
-            continue;
+        if ( !setIsExterior[i] || ( IsWaterSet( *sets[i] ) && !CmdLine::HasArg( "-solidwater" ) ) ) {
+            continue; // the pool water is not ground: you wade in it
         }
         const Vector3f local = toSpot.transformPoint( Vector3f( x, maxY, z ) );
         float height = 0.0f;
@@ -2542,8 +2566,33 @@ bool IntroCinematic::getSurfaceHeight( float x, float z, float maxY, float &outH
 
 void IntroCinematic::collectExteriorCollisionTriangles( std::vector<Vector3f> &outVertices,
                                                         std::vector<uint32_t> &outIndices ) const {
+    if ( CmdLine::HasArg( "-lognodes" ) ) {
+        static bool bDone = false;
+        for ( size_t i = 0; i < sets.size() && !bDone; i++ ) {
+            if ( i >= setIsExterior.size() || !setIsExterior[i] ) {
+                continue;
+            }
+            if ( IsWaterSet( *sets[i] ) ) {
+                Vector3f lo( 1e9f, 1e9f, 1e9f ), hi( -1e9f, -1e9f, -1e9f );
+                for ( const Vector3f &v : sets[i]->getCollisionVertices() ) {
+                    lo = Vector3f( Min( lo.x, v.x ), Min( lo.y, v.y ), Min( lo.z, v.z ) );
+                    hi = Vector3f( Max( hi.x, v.x ), Max( hi.y, v.y ), Max( hi.z, v.z ) );
+                }
+                OTDU_LOG_INFO( "POOLWATER local bounds (%.2f %.2f %.2f) - (%.2f %.2f %.2f)\n", lo.x, lo.y, lo.z, hi.x, hi.y,
+                               hi.z );
+            }
+            const std::vector<SceneNode> &nodes = sets[i]->getScene().getNodes();
+            for ( size_t n = 0; n < nodes.size(); n++ ) {
+                const Vector3f p = nodes[n].World.getTranslation();
+                OTDU_LOG_INFO( "EXTNODE %zu/%zu '%s' mesh %d parent %d at (%.2f %.2f %.2f)\n", i, n,
+                               nodes[n].Name.c_str(), nodes[n].ObjectHashcode != 0 ? 1 : 0, nodes[n].Parent, p.x, p.y,
+                               p.z );
+            }
+        }
+        bDone = true;
+    }
     for ( size_t i = 0; i < sets.size() && i < setIsExterior.size(); i++ ) {
-        if ( !setIsExterior[i] ) {
+        if ( !setIsExterior[i] || ( IsWaterSet( *sets[i] ) && !CmdLine::HasArg( "-solidwater" ) ) ) {
             continue;
         }
         const std::vector<Vector3f> &vertices = sets[i]->getCollisionVertices();

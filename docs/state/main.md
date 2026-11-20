@@ -3,6 +3,21 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, property walk fixes): vegetation alpha, the glass-to-roof push, pool water is not ground, wading
+
+Owner: vegetation slightly transparent; properties: out-of-bounds, walked into glass and was pushed onto the roof, walk on pool water (wants swimming / getting wet / water reacting), a ring circling the caravan's small pool.
+
+### What changed
+- `eden_renderer.cpp` `EffectiveAlphaRef`: TD_Vegetation* alpha-test reference x0.55 (`-vegalpha <scale>`, 1 = data). Ibiza parked shot: mean pixel diff 2.7 vs 1.0. [INF: the leaf-card alpha mips lose coverage]
+- `interior_walk.cpp` world hook: the push can lift the body at most 2 cm (glass met at an edge resolved upward onto the roof) [INF, not reproduced].
+- `intro_cinematic.cpp`: the pool water is its own exterior model (`POOL` node under `REFRACT`, a TD_Water quad); it no longer counts as ground or collision (`-solidwater` = the old law); `getWaterSurfaceHeight`. `WalkController::setSpeedScale`: wading slows the walk to 50 % at 1 m of water (`-nowade`). Log `InteriorWalk: wading in the pool`. `-lognodes` dumps the exterior nodes + `POOLWATER` bounds.
+
+### Not done / next
+- **The caravan pool is an above-ground tub with a wooden rim** (`-enterhouse EPH_L0C_1254I -nointeriorintro -walkat -6.5,1.8,2.5,0`): the exterior shell blocks entry, so wading was NOT exercised; a deep in-ground pool (house with a terrace pool, e.g. EPH_L3DI) is the test.
+- Wet avatar / ripples around the character: not started (needs a water-interaction pass; nothing in the engine does it yet).
+- The pool ring: there is no ring object in the caravan exterior bank (nodes: EPH_L0C, POOL, REFRACT only) - it would be a port-invented prop (a torus orbiting the pool centre). Say if wanted.
+- Glass push and out-of-bounds: need the owner's property + spot (a repro command).
+
 ## Session 2026-11-20 (`main`, later): clouds fixed, the steering wheel turns, the driver's hands follow, gear-shift reach
 
 Owner: clouds rock back and forth and sit too low; "implement the avatar's driving animations (gears, steering wheel)"; thinks the Android is draw-call bound.

@@ -18,6 +18,8 @@ public:
     void reset( const Vector3f &eyePosition, const Quaternionf &heading );
     void setCollide( CollideFunction function ) { collide = std::move( function ); }
     void update( float deltaTime, bool bInputEnabled );
+    // Wading: 1 on dry land, < 1 in water (the pool).
+    void setSpeedScale( float scale ) { speedScale = scale; }
     // The collision answer for a free move (a camera probe): the allowed position from -> to.
     Vector3f sweep( const Vector3f &from, const Vector3f &to ) const { return collide ? collide( from, to ) : to; }
 
@@ -30,5 +32,6 @@ private:
     Vector3f position;
     float yaw = 0.0f;
     float pitch = 0.0f; // > 0: looking up
+    float speedScale = 1.0f;
     CollideFunction collide;
 };

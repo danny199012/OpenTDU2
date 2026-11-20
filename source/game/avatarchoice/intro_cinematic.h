@@ -414,6 +414,9 @@ public:
     // Also the meshes of the exterior bank the cinematic loads itself (the hotel's drive
     // stands above the island terrain): the highest surface below maxY.
     bool getSurfaceHeight( float x, float z, float maxY, float &outHeight );
+    // The pool water of the exterior (a TD_Water quad in its own "POOL" model, not ground): the surface
+    // height under (x, z) in world space, false where there is no pool.
+    bool getWaterSurfaceHeight( float x, float z, float maxY, float &outHeight );
     void setInstanceHide( const Vector3f &center, float radius ) { view.getWorld().setInstanceHide( center, radius ); }
     // The streamed world (the interior walk's yard collision height callback).
     EdenWorld &getWorld() { return view.getWorld(); }

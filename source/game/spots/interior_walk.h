@@ -169,6 +169,7 @@ private:
     // The house rooms (enterHouse): the two banks and which one is loaded.
     bool bHouse = false;
     bool bInGarage = false;
+    float wadeDepth = 0.0f; // m of pool water over the ground under the walker (the world hook sets it)
     std::string houseSpot;
     GarageMoveMenu garageMove; // the house garage "Move a vehicle" panel (X / M)
     std::string houseIsland; // the streamed world of the living room (the yard)

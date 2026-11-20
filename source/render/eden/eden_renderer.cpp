@@ -1553,6 +1553,18 @@ typename Map::const_iterator FindSmall( const Map &map, const std::string &key )
 }
 } // namespace
 
+// The alpha-test reference of a material. Vegetation (leaf cards) is cut at a lower reference than the data's:
+// the cards' alpha mips fade (a coverage loss that makes the canopy look see-through at range), so the cut
+// keeps more of the leaf. -vegalpha <scale> (default 0.55, 1 = the data's own reference).
+static uint32_t EffectiveAlphaRef( const EdenMaterial &material, const char *pProgramName ) {
+    static const float scale =
+        CmdLine::HasArg( "-vegalpha" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-vegalpha" ) ) ) : 0.55f;
+    if ( material.bAlphaTest && pProgramName != nullptr && strncmp( pProgramName, "TD_Vegetation", 13 ) == 0 ) {
+        return static_cast<uint32_t>( material.AlphaRef * scale );
+    }
+    return material.AlphaRef;
+}
+
 void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &members, float *pRegisters,
                                   uint32_t numRegisters, const EdenMaterial &material, const Matrix4x4f &world,
                                   const EdenDrawParams *pParams, const char *pProgramName, bool bPixel ) {
@@ -1834,7 +1846,7 @@ void EdenRenderer::fillConstants( const std::vector<ShaderConstantMember> &membe
             WriteVector( pOut, Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ) );
             break;
         case CK_AlphaRef: {
-            const float reference = material.AlphaRef / 255.0f;
+            const float reference = EffectiveAlphaRef( material, pProgramName ) / 255.0f;
             WriteVector( pOut, Vector4f( reference, reference, reference, reference ) );
             break;
         }
@@ -2151,7 +2163,7 @@ void EdenRenderer::recordDrawImpl( const EdenMesh &mesh, const EdenMaterial &mat
 
     DrawPacket packet;
     memset( packet.Push, 0, sizeof( packet.Push ) );
-    const uint32_t alphaRef = material.AlphaRef;
+    const uint32_t alphaRef = EffectiveAlphaRef( material, pProgram->Name.c_str() );
     memcpy( packet.Push + kPushAlphaRefOffset, &alphaRef, sizeof( alphaRef ) );
     for ( uint32_t i = 0; i < 16; i++ ) {
         const uint16_t samplerIndex = overrideSamplers[i] != 0 ? overrideSamplers[i] : material.SamplerIndex[i];
