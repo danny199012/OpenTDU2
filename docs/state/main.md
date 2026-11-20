@@ -3,6 +3,10 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, later): Hawai car washes checked
+
+All five Hawai washes top-down (`-island hawai -atwash -atwashidx 0..4 -photoat ...,0,-89,60`, `docs/images/carwash-floor-hawai-s66.webp`): the floor draws, the road strip is cut, no road is covered. The roof canopy touches / hangs a little over the road edge at washes 1 and 5 (building geometry). Owner confirmed (build 362 shots) every wash had the same bare-floor issue.
+
 ## Session 2026-11-20 (`main`, car wash true floor back)
 
 Owner (photo of wash 2 from above): the wash lot shows bare gravel; most of the carwash's true floor is missing; asks to check the other washes for road overlap.
