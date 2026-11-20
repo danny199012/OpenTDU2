@@ -19,9 +19,9 @@ void ServiceStations::load( const std::string &island ) {
         float LightX, LightZ; // canopy centre relative to the entry
     };
     static const BuiltIn kBuiltIn[] = {
-        { "ibiza", "OIL Station (Area 1)", 18961.0f, 18097.0f, 0.0f, 0.0f },
-        { "ibiza", "OIL Station (Car Wash)", 27002.0f, 11622.0f, 0.0f, 0.0f },
-        { "ibiza", "OIL Station (East)", 27305.0f, 13962.0f, 0.0f, 0.0f },
+        { "ibiza", "OIL Station (Area 1)", 18961.0f, 18097.0f, 3.0f, 22.0f },
+        { "ibiza", "OIL Station (Car Wash)", 27002.0f, 11622.0f, -2.0f, -22.0f },
+        { "ibiza", "OIL Station (East)", 27305.0f, 13962.0f, 17.0f, 0.0f },
         // Owner's screenshot 2026-11-20: car under the canopy, REPAIR shutters behind (F6 overlay X 20338.6, Z 20153.4).
         { "ibiza", "OIL Station (Area 2)", 20338.0f, 20153.0f, 10.5f, 14.0f },
     };

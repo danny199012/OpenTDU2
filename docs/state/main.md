@@ -21,7 +21,7 @@ Owner: found another petrol station (F6 X 20338.6 Z 20153.4), wants it wired, sh
 
 - **Forecourt lights** (`gm_freeride.cpp`, next to the traffic light appends): at night, 3x3 grid of warm glow heads (`EdenLampGlowFrame`) + ground pools (`EdenHeadlightFrameCones`, horizontal Direction + PoolAhead/Along/Across, because EdenSurfaceFx only draws a pool from the cone's horizontal heading) around each listed station within 150 m. `ServiceStations::Station::LightOffset` = canopy centre from the entry (Area 2: +10.5, +14, measured from a top-down `-photoat`). Cone Position is put 1 m below ground so the pool's surface query (starts +4.5 m) lands under the canopy roof, not on it. `-nostationlights` removes. Shot: `docs/images/station-lights-s67.webp`.
 - Trap: headless `-tp x,z` leaves the car at y 1.9 until it settles; pass `-tp x,y,z` (y 56) or the light grid is built at the wrong height.
-- Other stations (Area 1 / Car Wash / East) use LightOffset 0 (the listed point): canopy centres not measured yet.
+- Other stations' LightOffset from top-down `-photoat` shots at the `SB_GazSB_tole` centres (ground y 140 / 70 / 71.5): Area 1 (+3, +22), Car Wash (-2, -22), East (+17, 0). Checked in low-angle night shots: the glow heads and pools sit under each canopy (eyeballed to ~2 m).
 
 ### Not done / next
 - Texture pass (needs a light/glow prop mechanism; TD_Building params unknown). Other SB_Gazs_A_* station variants not checked for shutters.
