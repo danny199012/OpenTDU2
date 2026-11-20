@@ -2234,15 +2234,15 @@ bool EdenSceneView::fillCloudLayerParams( EdenClouds::Params &p, const EdenScene
     // cross-fade the same way, weather_spec 6.2).
     const std::string name = ToUpper( pWeather->getString( "clouds_cloud3dname", "CLOUD_B" ) );
     const char kind = name.empty() ? 'B' : name.back();
-    float coverage = 0.5f, darkness = 0.0f, base = 2400.0f, top = 3400.0f;
+    float coverage = 0.5f, darkness = 0.0f, base = 5500.0f, top = 6800.0f;
     if ( kind == 'A' ) {
         coverage = 0.42f;
         darkness = 0.15f;
     } else if ( kind == 'R' ) {
         coverage = 0.86f;
         darkness = 1.0f;
-        base = 1100.0f;
-        top = 2300.0f;
+        base = 3200.0f;
+        top = 4500.0f;
     }
     static const char *pCover = CmdLine::GetArgValue( "-cloudcover" );
     if ( pCover != nullptr ) {
@@ -2263,8 +2263,8 @@ bool EdenSceneView::fillCloudLayerParams( EdenClouds::Params &p, const EdenScene
     // The shared wind model (eden_wind.h) took over the drift the clouds used
     // to compute here (42/21 m/s x clouds_cloud3dSpeed is its base); the
     // TDUSC gust envelope rides on top, so gusts travel through the deck.
-    p.windX = wind.windXZ.x;
-    p.windZ = wind.windXZ.y;
+    p.windX = wind.driftXZ.x; // an offset (m), not a speed: integrated on the CPU
+    p.windZ = wind.driftXZ.y;
     const Vector4f tint = pWeather->getVector4( "clouds_cloud3dcolor", Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ) );
     p.sunColor = Vector3f( params.SunDiffuse.x * ( 0.6f + 0.4f * tint.x ) * 1.15f,
                            params.SunDiffuse.y * ( 0.6f + 0.4f * tint.y ) * 1.15f,

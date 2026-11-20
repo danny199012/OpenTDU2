@@ -21,8 +21,8 @@ constexpr uint32_t kCirrusWidth = 512;    // anisotropic streak noise (R8)
 constexpr uint32_t kCirrusHeight = 256;
 // The cirrus band of volclouds_cirrus.frag (the TDUSC sky puts its cirrus
 // far above the cumulus deck - TopCloud 8000, DownCloud 1500).
-constexpr float kCirrusBandBottom = 6500.0f;
-constexpr float kCirrusBandTop = 7200.0f;
+constexpr float kCirrusBandBottom = 9500.0f;
+constexpr float kCirrusBandTop = 10200.0f;
 // Shared with volclouds*.frag: the march clamps its distances to this, the
 // hit distance travels packed (0..1) and the composite unpacks it.
 constexpr float kMaxMarchDistance = 60000.0f;

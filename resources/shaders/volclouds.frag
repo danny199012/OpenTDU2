@@ -73,7 +73,7 @@ vec2 slabRange( float base, float top, vec3 dir ) {
 
 float density( vec3 p, bool bDetail ) {
     const float h = heightFraction( p.y );
-    const vec3 q = ( p + vec3( pc.SunColor.w, 0.0, pc.Ambient.w ) * pc.CamPos.w ) / kShapeScale;
+    const vec3 q = ( p + vec3( pc.SunColor.w, 0.0, pc.Ambient.w ) ) / kShapeScale;
     // Low-frequency maps (the same noise volume, a large-scale slice): where
     // the clouds cluster (cmap) and how tall each one grows (tmap). A flat
     // base with a per-cloud top is what makes a fair-weather cumulus field
@@ -129,7 +129,7 @@ float densityLayer2( vec3 p, bool bDetail ) {
     const float base2 = pc.Fwd.w + kLayer2Above;
     const float top2 = base2 + kLayer2Thick;
     const float h = clamp( ( p.y - base2 ) / ( top2 - base2 ), 0.0, 1.0 );
-    const vec3 q = ( p + vec3( pc.SunColor.w, 0.0, pc.Ambient.w ) * pc.CamPos.w ) / kLayer2Shape;
+    const vec3 q = ( p + vec3( pc.SunColor.w, 0.0, pc.Ambient.w ) ) / kLayer2Shape;
     const float cmap = texture( uBase, vec3( q.xz * 0.23, 0.37 ) ).r;
     // Broken deck: soft rounded band, denser in the middle of the slab.
     const float profile = smoothstep( 0.0, 0.30, h ) * ( 1.0 - smoothstep( 0.55, 1.0, h ) );

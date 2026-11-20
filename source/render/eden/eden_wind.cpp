@@ -69,6 +69,8 @@ void WindModel::update( float deltaTime, const WeatherPreset *pWeather ) {
     const float shape = 1.0f - expf( -deltaTime / 3.0f );
     windXZ.x += ( target.x - windXZ.x ) * shape;
     windXZ.y += ( target.y - windXZ.y ) * shape;
+    driftXZ.x += windXZ.x * deltaTime;
+    driftXZ.y += windXZ.y * deltaTime;
     phaseAccum += speed() * kPhaseRate * deltaTime;
 }
 

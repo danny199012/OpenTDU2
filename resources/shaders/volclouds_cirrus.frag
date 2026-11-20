@@ -90,7 +90,7 @@ void main() {
     // The drift is unbounded, so the sheet uv wraps (the streak noise tiles
     // seamlessly - integer frequency multiples at generation).
     const vec2 uv = fract( 0.5 + ( pc.CamPos.xz + dir.xz * tEntry +
-                                   vec2( pc.Wind.x, pc.Wind.y ) * pc.CamPos.w ) / kSheetScale );
+                                   vec2( pc.Wind.x, pc.Wind.y ) ) / kSheetScale );
     // Two octaves of the streak noise; the texture is already anisotropic
     // (stretched at generation), the second tap roughens the wisps.
     const float n = 0.65 * texture( uCirrus, uv ).r + 0.35 * texture( uCirrus, uv * 3.0 + vec2( 0.33, 0.71 ) ).r;

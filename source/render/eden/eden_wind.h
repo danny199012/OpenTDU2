@@ -31,6 +31,7 @@ struct WeatherPreset;
 struct WindModel {
     Vector2f windXZ = Vector2f( 42.0f, 21.0f ); // m/s, smoothed world XZ drift
     float gustFactor = 0.0f;                    // 0..1, the gust envelope (grass amplifies with it)
+    Vector2f driftXZ = Vector2f( 0.0f, 0.0f );  // m, the INTEGRATED drift (cloud/cirrus offset; wind*time rocked when the speed pulsed)
     float phaseAccum = 0.0f;                    // rad, the travelling phase (grass v0.z)
 
     void update( float deltaTime, const WeatherPreset *pWeather );
