@@ -1681,6 +1681,10 @@ bool Run( SDL_Window **ppOutWindow ) {
             CmdLine::AddArg( "-drawdistance", "50" );
             CmdLine::AddArg( "-fpslimit", "30" );
             CmdLine::AddArg( "-noclouds", nullptr ); // the volumetric clouds are a heavy GPU pass
+            // The reflection cube map redraws the scene 6 times (10-14 ms of the GPU frame, and the
+            // draw-call spikes to 2000+ when the camera turns): refresh it every 10th frame at most.
+            CmdLine::AddArg( "-cubemapinterval", "10" );
+            CmdLine::AddArg( "-norearfaces", nullptr );
             break;
         case 1:
             CmdLine::AddArg( "-profile", "low" );
