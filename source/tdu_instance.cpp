@@ -790,15 +790,15 @@ void TestDriveGameInstance::mainLoop() {
         if ( const int32_t fpsLimit = GetGameOptions().FpsLimit;
              fpsLimit > 0 && !bFixedTimestep ) {
             const double target = frequency / fpsLimit;
-            while ( static_cast<double>( SDL_GetPerformanceCounter() -
-                                         counter ) < target ) {
-                const double remaining =
-                    ( target - static_cast<double>(
-                                   SDL_GetPerformanceCounter() - counter ) ) /
-                    frequency;
-                if ( remaining > 0.002 ) {
-                    SDL_Delay( 1 );
-                }
+            const double remaining =
+                ( target - static_cast<double>( SDL_GetPerformanceCounter() - counter ) ) / frequency;
+            if ( remaining > 0.0002 ) {
+                // SDL_DelayPrecise hands the core back for the whole wait and
+                // wakes within ~100 us. SDL_Delay(1) oversleeps by several ms on
+                // Android (timer slack), which showed up as an uneven 30 fps
+                // cadence on a 120 Hz panel; the old spin for the last 2 ms kept
+                // a big core busy instead of letting it idle.
+                SDL_DelayPrecise( static_cast<Uint64>( remaining * 1e9 ) );
             }
         }
 

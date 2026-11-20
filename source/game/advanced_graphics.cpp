@@ -29,6 +29,9 @@ std::string UpscalerName( int32_t value ) {
     return value == 5 ? "NVIDIA DLSS (temporal)" : value == 4 ? "Intel XeSS (temporal)" : value == 3 ? "AMD FSR 3 (temporal)" : value == 2 ? "AMD FSR 1.0" : value == 1 ? "Bicubic (Catmull-Rom)" : "Bilinear";
 }
 std::string SharpnessName( int32_t value ) { return value == 0 ? "Off" : std::to_string( value ); }
+std::string TextureFilterName( int32_t value ) {
+    return value <= 1 ? "Trilinear (1 tap)" : value == 2 ? "4x anisotropic" : "16x anisotropic";
+}
 std::string FpsName( int32_t value ) { return value == 0 ? "Unlimited" : std::to_string( value ) + " fps"; }
 std::string WaterClarityName( int32_t value ) {
     if ( value == 0 ) {
@@ -114,6 +117,11 @@ const Row kRows[] = {
       "Sharpening applied after the upscale (AMD RCAS when the filter is FSR 1.0)." },
     { "Edge smoothing (FXAA-like)", &GameOptions::EdgeSmoothing, 0, 1, 1, OnOff,
       "Cheap anti-aliasing pass at the render resolution." },
+    { "Texture filtering", &GameOptions::TextureQuality, 1, 3, 1, TextureFilterName,
+      "Anisotropic filtering of every 3D texture (the retail Video page row): Trilinear samples once, "
+      "4x anisotropic four times, 16x anisotropic sixteen times per pixel. On a phone the road and the "
+      "terrain fill the screen at a grazing angle, so 16x is by far the most expensive sampler setting "
+      "there is there; the Phone preset uses trilinear. Applies immediately." },
     { "Color grading and bloom", &GameOptions::ColorGrading, 0, 1, 1, OnOff,
       "The original 'photoshop' pass: color balance, soft light, bloom, gamma." },
     { "Atmospheric haze", &GameOptions::Haze, 0, 1, 1, OnOff, "Distance haze and fog over the scene." },
@@ -159,6 +167,10 @@ constexpr int32_t kUnitsRow = 1;
 constexpr int32_t kScreenRatioRow = 2;
 constexpr int32_t kUiLayoutRow = 3;
 constexpr int32_t kFovScaleRow = 4;
+// The texture filtering row: the samplers are rebuilt when it changes, so the
+// change is visible at once (ApplyVideoOptions -> setMaxAnisotropy +
+// EdenRenderer::refreshSamplers).
+constexpr int32_t kTextureFilterRow = 10;
 // One extra selectable row after the settings: the self test is an action, not
 // a value, so it is not part of the table above.
 constexpr int32_t kSelfTestRow = kNumRows;
@@ -267,6 +279,16 @@ void AdvancedGraphics::drawUI() {
                     // and the canvas mapping re-read the option per frame)
                     // and keep the quality profile.
                     value = newValue;
+                } else if ( selected == kTextureFilterRow ) {
+                    // Anisotropic level: ApplyVideoOptions rebuilds the
+                    // samplers, so the next frame already samples at the new
+                    // level. -aniso would override it, so clear that too.
+                    value = newValue;
+                    options.AnisoOverride = 0;
+                    // Like every other graphics row: a hand edit makes the
+                    // profile Custom.
+                    options.QualityProfile = 0;
+                    ApplyVideoOptions();
                 } else {
                     value = newValue;
                     // Any hand edit makes the profile Custom.

@@ -3,6 +3,72 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`): Android performance — the 16x anisotropic filter nobody set, a 7.3x texture problem, and the ARM build
+
+Owner: *"we started doing android builds and anyway shape or form you can think of ways to get the game to run well and look good […] not sure if arm optimisations would help and if so maybe looking at rpcs3"* (test device: Honor
+Magic 8 Pro, SD 8 Elite Gen 5 / Adreno 840, 12 GB).
+
+Full write-up: **`docs/android_perf.md`** (instruments, levers, the texture survey, the next steps in order).
+
+### What changed
+
+- **`-aniso <1|2|4|8|16>` + texture filtering in the quality profiles**
+  (`game_options.h/.cpp`): `TextureQuality` (the retail Video row, 1 trilinear /
+  2 4x / 3 16x) was applied but **no profile set it**, so the phone ran 16x
+  anisotropic filtering on every texture — the worst case for a driving game
+  (road + terrain at a grazing angle). High keeps 16x, Medium/Deck/Legion/60 fps
+  4x, **Low 1x**; `-aniso` overrides for a run (`GameOptions::AnisoOverride`,
+  not saved); `ApplyVideoOptions` now logs the level in the `Graphics:` line.
+  The Android launcher's Phone preset passes `-aniso 1` (`otdu_launcher.cpp`).
+- **Advanced settings page: a `Texture filtering` row** (`advanced_graphics.cpp`,
+  index 10, live: `ApplyVideoOptions` → `setMaxAnisotropy` +
+  `refreshSamplers`), so the setting can be flipped on the phone and watched.
+- **`-texcap <px>`** (`texture_cache.cpp`, `createFrom2DB`): drops the mip levels
+  above the cap before decoding/uploading (`firstMip`, cube layer stride kept
+  correct). Measured: FREERIDE spawn VRAM 1695 → 1567 MB at 512, pixels
+  indistinguishable (0.35 / 0.25 / 0.16 mean abs).
+- **`DecodeBlockCompressed` rewritten** (`2db.cpp`): table-driven endpoint
+  expansion, packed RGBA palette, an interior-block fast path that writes a 16-byte
+  row at a time. **Bit-identical** to the old decoder (DXT1/3/5, 14 size classes
+  including non-multiples of 4, harness `_bctest.cpp`), 3.4 → 2.6 ms per 1024²
+  DXT1+DXT5 pair (2.3 → 3.1 GB/s decoded).
+- **`SDL_DelayPrecise` frame limiter** (`tdu_instance.cpp`): the old loop spun a
+  big core for the last 2 ms and `SDL_Delay(1)` oversleeps on Android.
+- **ARM build settings** (`CMakeLists.txt`, `if( ANDROID )`):
+  `-march=armv8.2-a+dotprod+fp16 -ffp-contract=fast -fno-math-errno` (NDK default
+  is armv8-a from 2014), `-flto=thin`; opt-outs `-DOTDU_ANDROID_BASELINE_ARMV8A`,
+  `-DOTDU_ANDROID_ARM_V9` (armv9.2-a+i8mm) and `-DOTDU_ANDROID_LTO`.
+
+### Verified
+
+- Desktop build clean (`cmake --build build-main`, 43 targets) and a FREERIDE run
+  with `-aniso 1 -texcap 512 -showfps -loggputimes`: `Graphics: … texture filter
+  1`, `Texture cache: -texcap 512, dropping mips above it (e.g. 'herb_01'
+  1024x1024 -> 512x512)`, `[perf] vram: 1567 MB` (1695 MB without).
+- Pixel A/B at frame 240 (`_aniso16_ref.ppm` vs `_aniso1_texcap512.ppm`, both
+  1280x720 with the same overlay): mean abs diff 0.82 / 0.67 / 0.47;
+  `-aniso 1` alone 0.75 / 0.62 / 0.42; `-texcap 512` alone 0.35 / 0.25 / 0.16.
+  Screenshots `docs/images/android_aniso1_texcap512.png`, `…_texcap512.png`.
+- **APK**: `gradlew assembleDebug` green; the .so inside `app-debug.apk` is 13.06 MB
+  (was 13.49 MB), ninja's FLAGS line carries `-O3 -DNDEBUG
+  -march=armv8.2-a+dotprod+fp16 -ffp-contract=fast -flto=thin`, and
+  `llvm-nm -D` still shows `JNI_OnLoad` + every `Java_org_libsdl_app_*` export
+  (the LTO question that would have broken the app silently).
+- Texture survey of 500 banks / 2961 textures: widths 64…2048 (only 5 at 2048,
+  568 at 1024); stored 528.8 MB BC → 3834.8 MB RGBA8, **7.3x**.
+
+### Not done / next
+
+- **Nothing measured on the phone yet** — the build is there (build 357) and the
+  next step is the owner's `-showfps -loggputimes` run, read against
+  `docs/android_perf.md` §5.
+- **ASTC/ETC2 transcoding** is the structural fix for the 7.3x (§3 of the doc).
+- `vkCmdClearAttachments` / mid-pass barriers / unnecessary depth stores (GMEM
+  round trips on Adreno), an A/B of the parallel secondary-CB path
+  (`-noparallelrecord`), and moving texture decode off the main thread.
+
+
+
 ## Session 2026-11-19 (`main`): Android port — arm64 APK builds + the integrated launcher start screen
 
 Owner asked to start Android builds (test device: Honor Magic 8 Pro, SD 8 Elite Gen 5 / Adreno 840,

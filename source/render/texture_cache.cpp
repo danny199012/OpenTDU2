@@ -361,6 +361,35 @@ GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *
         numMips = 1; // Volume textures: first slice only for now
     }
 
+    // -texcap <px>: drop the mip levels that are larger than <px> on a side, so
+    // the texture loads (and is sampled) at that size. The retail art is BC
+    // compressed and this cache decodes every block format to RGBA8 on a device
+    // without BC support (Android), i.e. the top mips cost 4-8x their stored
+    // size in VRAM and in sampling bandwidth. A survey of 500 banks (2961
+    // textures, docs/state/main.md 2026-11-20) found the art tops out at 1024
+    // with five 2048s in the whole sample, so -texcap 1024 costs nothing
+    // visible and -texcap 512 halves the big terrain / road textures.
+    uint32_t firstMip = 0;
+    if ( const int32_t cap = CmdLine::GetArgInt( "-texcap", 0 ); cap > 0 ) {
+        while ( firstMip + 1 < numMips &&
+                ( Max( texture.Width >> firstMip, 1u ) > static_cast<uint32_t>( cap ) ||
+                  Max( texture.Height >> firstMip, 1u ) > static_cast<uint32_t>( cap ) ) ) {
+            firstMip++;
+        }
+        if ( firstMip > 0 ) {
+            static bool bLoggedCap = false;
+            if ( !bLoggedCap ) {
+                OTDU_LOG_INFO( "Texture cache: -texcap %d, dropping mips above it (e.g. '%s' %ux%u -> %ux%u)\n", cap,
+                               pName != nullptr ? pName : "?", texture.Width, texture.Height,
+                               Max( texture.Width >> firstMip, 1u ), Max( texture.Height >> firstMip, 1u ) );
+                bLoggedCap = true;
+            }
+        }
+    }
+    const uint32_t baseWidth = Max( texture.Width >> firstMip, 1u );
+    const uint32_t baseHeight = Max( texture.Height >> firstMip, 1u );
+    numMips -= firstMip;
+
     // Cube maps (cubemap, env_lph_l3d, cubemap01, cubecarb...: Depth 6,
     // Flags 0xC4 / 0xC8; 2D textures: Depth 1, 0x84 / 0x88) [DATA]: the
     // texels are face major (face 0 with all its mips, then face 1...;
@@ -369,9 +398,11 @@ GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *
     // D3D]. Vulkan cube faces use the same order and texel orientation as
     // D3D9, and the Eden renderer draws in the original (unmirrored) D3D
     // space: the faces are uploaded as they are.
+    // faceSize covers the whole stored chain (the -texcap skip included), so
+    // getSource's layer stride stays right whatever firstMip is.
     const uint32_t numLayers = bCube ? 6u : 1u;
     uint32_t faceSize = 0;
-    for ( uint32_t i = 0; i < numMips; i++ ) {
+    for ( uint32_t i = 0; i < firstMip + numMips; i++ ) {
         faceSize += CalcMipSize( Max( texture.Width >> i, 1u ), Max( texture.Height >> i, 1u ), texture.Format );
     }
     if ( bCube && faceSize * 6 > texture.TexelsSize ) {
@@ -396,7 +427,7 @@ GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *
 
     if ( bNativeLayout ) {
         for ( uint32_t s = 0; s < numSubresources; s++ ) {
-            const uint32_t i = s % numMips;
+            const uint32_t i = firstMip + s % numMips;
             mipData[s] = getSource( s / numMips, i );
             mipSizes[s] = CalcMipSize( Max( texture.Width >> i, 1u ),
                                        Max( texture.Height >> i, 1u ), texture.Format );
@@ -404,7 +435,7 @@ GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *
     } else {
         converted.resize( numSubresources );
         for ( uint32_t s = 0; s < numSubresources; s++ ) {
-            const uint32_t i = s % numMips;
+            const uint32_t i = firstMip + s % numMips;
             const uint32_t width = Max( texture.Width >> i, 1u );
             const uint32_t height = Max( texture.Height >> i, 1u );
             const uint8_t *pSource = getSource( s / numMips, i );
@@ -426,14 +457,14 @@ GPUTexture *TextureCache::createFrom2DB( const Texture2DB &texture, const char *
             // samples one, so they are not uploaded yet.
             return nullptr;
         }
-        return pDevice->createTexture( VK_IMAGE_VIEW_TYPE_CUBE, texture.Width, texture.Height, 1, 6, numMips, format,
+        return pDevice->createTexture( VK_IMAGE_VIEW_TYPE_CUBE, baseWidth, baseHeight, 1, 6, numMips, format,
                                        mipData.data(), mipSizes.data(), pName );
     }
     if ( bD3D12 ) {
-        return createD3D12Texture( texture.Width, texture.Height, numMips, dxgiFormat,
+        return createD3D12Texture( baseWidth, baseHeight, numMips, dxgiFormat,
                                    mipData.data(), mipSizes.data(), pName );
     }
-    return pDevice->createTexture2D( texture.Width, texture.Height, numMips, format,
+    return pDevice->createTexture2D( baseWidth, baseHeight, numMips, format,
                                      mipData.data(), mipSizes.data(), pName );
 }
 

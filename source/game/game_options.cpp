@@ -107,6 +107,7 @@ void ApplyQualityProfile( GameOptions &options, int32_t profile ) {
         options.OceanReflections = 1;
         options.DrawDistance = 100;
         options.EnvQuality = 3;
+        options.TextureQuality = 3; // 16x anisotropic
         break;
     case 2: // Medium: 85 % scene, half rate water mirror, 85 % draw distance.
         options.VideoWidth = 0;
@@ -124,6 +125,7 @@ void ApplyQualityProfile( GameOptions &options, int32_t profile ) {
         options.OceanReflections = 2;
         options.DrawDistance = 85;
         options.EnvQuality = 2;
+        options.TextureQuality = 2; // 4x anisotropic: half the taps of 16x
         break;
     case 3: // Low: no shadows / reflection / post, 60 % draw distance, cheap HUD.
         options.VideoWidth = 0;
@@ -141,6 +143,7 @@ void ApplyQualityProfile( GameOptions &options, int32_t profile ) {
         options.OceanReflections = 0;
         options.DrawDistance = 60;
         options.EnvQuality = 1;
+        options.TextureQuality = 1; // trilinear
         break;
     case 4: // Steam Deck: 1280x800 panel, 67 % scene (858x536), 60 fps cap.
         options.VideoWidth = 1280;
@@ -158,6 +161,7 @@ void ApplyQualityProfile( GameOptions &options, int32_t profile ) {
         options.OceanReflections = 0;
         options.DrawDistance = 50;
         options.EnvQuality = 1;
+        options.TextureQuality = 2; // 4x
         break;
     case 5: // Legion Go: 2560x1600 panel driven at 1920x1200, 67 % scene
         // (1286x804), static water mirror, 60 fps cap.
@@ -176,6 +180,7 @@ void ApplyQualityProfile( GameOptions &options, int32_t profile ) {
         options.OceanReflections = 0;
         options.DrawDistance = 50;
         options.EnvQuality = 2;
+        options.TextureQuality = 2; // 4x
         break;
     case 6: // 60 fps (desktop): full render resolution, no sun shadows, the
         // water mirror rendered once, 75 % vegetation; the look (grading, haze,
@@ -195,6 +200,7 @@ void ApplyQualityProfile( GameOptions &options, int32_t profile ) {
         options.OceanReflections = 0;
         options.DrawDistance = 75;
         options.EnvQuality = 2;
+        options.TextureQuality = 2; // 4x
         break;
     default: // 0 Custom: keep the player's own values.
         break;
@@ -290,15 +296,28 @@ void LoadGameOptions() {
     if ( const char *pShadowDistance = CmdLine::GetArgValue( "-shadowdistance" ) ) {
         options.ShadowDistance = Clamp( atoi( pShadowDistance ), 50, 150 );
     }
+    // -aniso <1|2|4|8|16>: the exact anisotropic level for this run, overriding
+    // the retail TextureQuality row (the Android launcher passes 1 with the
+    // Phone preset). Anything else falls back to the row.
+    if ( const char *pAniso = CmdLine::GetArgValue( "-aniso" ) ) {
+        const int32_t level = atoi( pAniso );
+        if ( level == 1 || level == 2 || level == 4 || level == 8 || level == 16 ) {
+            options.AnisoOverride = level;
+        } else {
+            OTDU_LOG_WARN( "Unknown -aniso '%s' (1, 2, 4, 8 or 16)\n", pAniso );
+        }
+    }
     // -fov <pct>: the camera FOV scale for this run (like -drawdistance: a
     // headless A/B needs no options.ini edit).
     if ( const char *pFov = CmdLine::GetArgValue( "-fov" ) ) {
         options.FovScale = Clamp( atoi( pFov ), 50, 150 );
     }
     OTDU_LOG_INFO( "Graphics: profile %d, render scale %d %%, draw distance %d %%, shadows %d @ %d %%, "
-                   "water reflections %d, HUD %d, LOD level %d\n",
+                   "water reflections %d, HUD %d, LOD level %d, texture filter %d\n",
                    options.QualityProfile, options.RenderScale, options.DrawDistance, options.Shadows,
-                   options.ShadowDistance, options.OceanReflections, options.HudQuality, options.EnvQuality );
+                   options.ShadowDistance, options.OceanReflections, options.HudQuality, options.EnvQuality,
+                   options.AnisoOverride > 0 ? options.AnisoOverride
+                                             : ( options.TextureQuality <= 1 ? 1 : options.TextureQuality == 2 ? 4 : 16 ) );
 }
 
 void SaveGameOptions() {
@@ -504,14 +523,16 @@ void ApplyVideoOptions() {
     if ( options.VSync >= 0 ) {
         gpRender->getDevice().setVSync( options.VSync != 0 );
     }
-    // Texture filtering: Low = trilinear, Medium = 4x, High = 16x anisotropic.
+    // Texture filtering: Low = trilinear, Medium = 4x, High = 16x anisotropic;
+    // -aniso overrides the level for a run (the Phone preset passes 1).
     {
-        const uint32_t level = options.TextureQuality <= 1 ? 1u : options.TextureQuality == 2 ? 4u : 16u;
+        const uint32_t level = options.AnisoOverride > 0
+                                   ? static_cast<uint32_t>( options.AnisoOverride )
+                                   : ( options.TextureQuality <= 1 ? 1u : options.TextureQuality == 2 ? 4u : 16u );
         RenderDevice &device = gpRender->getDevice();
+        const uint32_t previous = device.getMaxAnisotropy();
         device.setMaxAnisotropy( level );
-        static uint32_t appliedLevel = 1;
-        if ( device.getMaxAnisotropy() != appliedLevel ) {
-            appliedLevel = device.getMaxAnisotropy();
+        if ( device.getMaxAnisotropy() != previous ) {
             if ( EdenRenderer *pEden = gpRender->getEdenRenderer() ) {
                 pEden->refreshSamplers();
             }

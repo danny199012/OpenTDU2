@@ -60,11 +60,20 @@ struct GameOptions {
     static constexpr int32_t kWindowModeBorderless = 1;
     static constexpr int32_t kWindowModeFullscreen = 2;
     int32_t WindowMode = -1;
-    // Kept, not applied yet: the renderer has no MSAA, no per-car or FX
-    // quality tiers and no texture filtering levels.
+    // Kept, not applied yet: the renderer has no MSAA and no per-car or FX
+    // quality tiers.
     int32_t AntiAlias = 0;   // 0 = Off, 1 = On
     int32_t CarQuality = 3;  // 1..3
+    // Texture filtering (the retail Video page row): 1 = trilinear, 2 = 4x,
+    // 3 = 16x anisotropic (ApplyVideoOptions -> RenderDevice::setMaxAnisotropy).
     int32_t TextureQuality = 3;
+    // Exact anisotropic level for a run (OpenTDU2): 0 = derive it from
+    // TextureQuality, otherwise the value -aniso passed (1 / 2 / 4 / 8 / 16).
+    // Not saved to options.ini. The Android Phone preset passes 1: a 16x
+    // anisotropic fetch is the most expensive sampler setting there is on a
+    // phone GPU, and the road / terrain textures are exactly where the driver
+    // spends its 16 taps.
+    int32_t AnisoOverride = 0;
     int32_t FxQuality = 3;
 
     // Gamma page (opts:gama:): slider 0..20, 10 = the retail default look.

@@ -1680,6 +1680,12 @@ bool Run( SDL_Window **ppOutWindow ) {
             CmdLine::AddArg( "-renderscale", "50" );
             CmdLine::AddArg( "-drawdistance", "50" );
             CmdLine::AddArg( "-fpslimit", "30" );
+            // Trilinear filtering: the road and the terrain cover most of the
+            // screen at a grazing angle, so a 16x anisotropic fetch (what the
+            // retail row defaults to) is the most expensive sampler setting
+            // there is on a phone GPU. 4x is the first thing to try if there is
+            // headroom left over (the Advanced settings page changes it live).
+            CmdLine::AddArg( "-aniso", "1" );
             CmdLine::AddArg( "-noclouds", nullptr ); // the volumetric clouds are a heavy GPU pass
             // The reflection cube map redraws the scene 6 times (10-14 ms of the GPU frame, and the
             // draw-call spikes to 2000+ when the camera turns): one face every 2nd frame instead.

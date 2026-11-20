@@ -60,38 +60,58 @@ uint32_t Texture2DB::getMipOffset( uint32_t mipIndex ) const {
 }
 
 namespace {
-void DecodeColorBlock( const uint8_t *pBlock, uint8_t outColors[16][4], bool bForce4Colors ) {
+// 5-bit / 6-bit endpoint expansion (i * 255 / 31 and i * 255 / 63). The two
+// divisions per channel are what made the reference decoder slow: a 1024x1024
+// DXT1 texture is 65536 blocks and each block ran six integer divisions. The
+// tables hold exactly the values the divisions produced (checked bit for bit
+// against the reference decoder), so the decoded pixels do not change.
+struct ExpandTables {
+    uint8_t V5[32];
+    uint8_t V6[64];
+};
+
+constexpr ExpandTables MakeExpandTables() {
+    ExpandTables tables = {};
+    for ( int32_t i = 0; i < 32; i++ ) {
+        tables.V5[i] = static_cast<uint8_t>( ( i * 255 ) / 31 );
+    }
+    for ( int32_t i = 0; i < 64; i++ ) {
+        tables.V6[i] = static_cast<uint8_t>( ( i * 255 ) / 63 );
+    }
+    return tables;
+}
+constexpr ExpandTables kExpand = MakeExpandTables();
+
+void ExpandEndpoint( uint16_t color, uint32_t &outRGBA ) {
+    const uint32_t r = kExpand.V5[( color >> 11 ) & 31];
+    const uint32_t g = kExpand.V6[( color >> 5 ) & 63];
+    const uint32_t b = kExpand.V5[color & 31];
+    outRGBA = r | ( g << 8 ) | ( b << 16 ) | 0xff000000u;
+}
+
+// The four palette entries as RGBA8 packed into a uint32: little endian puts the
+// bytes in R, G, B, A order, which is the destination's layout.
+void DecodeColorBlock( const uint8_t *pBlock, uint32_t palette[4], bool bForce4Colors ) {
     uint16_t c0, c1;
     memcpy( &c0, pBlock, 2 );
     memcpy( &c1, pBlock + 2, 2 );
-    uint32_t indices;
-    memcpy( &indices, pBlock + 4, 4 );
-
-    uint8_t palette[4][4];
-    auto expand = [&]( uint16_t c, uint8_t *pOut ) {
-        pOut[0] = static_cast<uint8_t>( ( ( c >> 11 ) & 31 ) * 255 / 31 );
-        pOut[1] = static_cast<uint8_t>( ( ( c >> 5 ) & 63 ) * 255 / 63 );
-        pOut[2] = static_cast<uint8_t>( ( c & 31 ) * 255 / 31 );
-        pOut[3] = 255;
-    };
-    expand( c0, palette[0] );
-    expand( c1, palette[1] );
+    ExpandEndpoint( c0, palette[0] );
+    ExpandEndpoint( c1, palette[1] );
     if ( c0 > c1 || bForce4Colors ) {
-        for ( int i = 0; i < 3; i++ ) {
-            palette[2][i] = static_cast<uint8_t>( ( 2 * palette[0][i] + palette[1][i] ) / 3 );
-            palette[3][i] = static_cast<uint8_t>( ( palette[0][i] + 2 * palette[1][i] ) / 3 );
-        }
-        palette[2][3] = palette[3][3] = 255;
+        const uint32_t r0 = palette[0] & 0xff, g0 = ( palette[0] >> 8 ) & 0xff, b0 = ( palette[0] >> 16 ) & 0xff;
+        const uint32_t r1 = palette[1] & 0xff, g1 = ( palette[1] >> 8 ) & 0xff, b1 = ( palette[1] >> 16 ) & 0xff;
+        const uint32_t r2 = ( 2 * r0 + r1 ) / 3, g2 = ( 2 * g0 + g1 ) / 3, b2 = ( 2 * b0 + b1 ) / 3;
+        const uint32_t r3 = ( r0 + 2 * r1 ) / 3, g3 = ( g0 + 2 * g1 ) / 3, b3 = ( b0 + 2 * b1 ) / 3;
+        palette[2] = r2 | ( g2 << 8 ) | ( b2 << 16 ) | 0xff000000u;
+        palette[3] = r3 | ( g3 << 8 ) | ( b3 << 16 ) | 0xff000000u;
     } else {
-        for ( int i = 0; i < 3; i++ ) {
-            palette[2][i] = static_cast<uint8_t>( ( palette[0][i] + palette[1][i] ) / 2 );
-            palette[3][i] = 0;
-        }
-        palette[2][3] = 255;
-        palette[3][3] = 0;
-    }
-    for ( int i = 0; i < 16; i++ ) {
-        memcpy( outColors[i], palette[( indices >> ( i * 2 ) ) & 3], 4 );
+        // DXT1's one-bit alpha mode: entry 2 is the average, entry 3 is black
+        // and fully transparent.
+        const uint32_t r2 = ( ( palette[0] & 0xff ) + ( palette[1] & 0xff ) ) / 2;
+        const uint32_t g2 = ( ( ( palette[0] >> 8 ) & 0xff ) + ( ( palette[1] >> 8 ) & 0xff ) ) / 2;
+        const uint32_t b2 = ( ( ( palette[0] >> 16 ) & 0xff ) + ( ( palette[1] >> 16 ) & 0xff ) ) / 2;
+        palette[2] = r2 | ( g2 << 8 ) | ( b2 << 16 ) | 0xff000000u;
+        palette[3] = 0;
     }
 }
 } // namespace
@@ -107,50 +127,89 @@ void DecodeBlockCompressed( const uint8_t *pSource,
     const uint32_t blockSize = bDXT1 ? 8 : 16;
     const uint32_t blocksX = Max( 1u, ( width + 3 ) / 4 );
     const uint32_t blocksY = Max( 1u, ( height + 3 ) / 4 );
+    const bool bHasAlpha = !bDXT1;
 
     for ( uint32_t by = 0; by < blocksY; by++ ) {
+        const bool bRowFull = ( by * 4 + 4 ) <= height;
         for ( uint32_t bx = 0; bx < blocksX; bx++ ) {
+            const bool bInterior = bRowFull && ( bx * 4 + 4 ) <= width;
             const uint8_t *pBlock = pSource + ( by * blocksX + bx ) * blockSize;
-            uint8_t colors[16][4];
-            DecodeColorBlock( pBlock + ( bDXT1 ? 0 : 8 ), colors, !bDXT1 );
+            uint32_t palette[4];
+            DecodeColorBlock( pBlock + ( bDXT1 ? 0 : 8 ), palette, !bDXT1 );
 
+            uint8_t alphas[16];
             if ( bDXT3 ) {
-                for ( int i = 0; i < 16; i++ ) {
-                    uint8_t a = ( pBlock[i / 2] >> ( ( i & 1 ) * 4 ) ) & 0xf;
-                    colors[i][3] = static_cast<uint8_t>( a * 17 );
+                for ( int32_t i = 0; i < 16; i++ ) {
+                    const uint32_t a = ( pBlock[i / 2] >> ( ( i & 1 ) * 4 ) ) & 0xf;
+                    alphas[i] = static_cast<uint8_t>( a * 17 );
                 }
-            } else if ( !bDXT1 ) {
-                uint8_t a0 = pBlock[0];
-                uint8_t a1 = pBlock[1];
+            } else if ( bHasAlpha ) {
+                const uint8_t a0 = pBlock[0];
+                const uint8_t a1 = pBlock[1];
                 uint64_t bits = 0;
-                for ( int i = 0; i < 6; i++ ) {
+                for ( int32_t i = 0; i < 6; i++ ) {
                     bits |= static_cast<uint64_t>( pBlock[2 + i] ) << ( 8 * i );
                 }
-                uint8_t alphas[8];
-                alphas[0] = a0;
-                alphas[1] = a1;
+                uint8_t table[8];
+                table[0] = a0;
+                table[1] = a1;
                 if ( a0 > a1 ) {
-                    for ( int k = 2; k < 8; k++ ) {
-                        alphas[k] = static_cast<uint8_t>( ( ( 8 - k ) * a0 + ( k - 1 ) * a1 ) / 7 );
+                    for ( int32_t k = 2; k < 8; k++ ) {
+                        table[k] = static_cast<uint8_t>( ( ( 8 - k ) * a0 + ( k - 1 ) * a1 ) / 7 );
                     }
                 } else {
-                    for ( int k = 2; k < 6; k++ ) {
-                        alphas[k] = static_cast<uint8_t>( ( ( 6 - k ) * a0 + ( k - 1 ) * a1 ) / 5 );
+                    for ( int32_t k = 2; k < 6; k++ ) {
+                        table[k] = static_cast<uint8_t>( ( ( 6 - k ) * a0 + ( k - 1 ) * a1 ) / 5 );
                     }
-                    alphas[6] = 0;
-                    alphas[7] = 255;
+                    table[6] = 0;
+                    table[7] = 255;
                 }
-                for ( int i = 0; i < 16; i++ ) {
-                    colors[i][3] = alphas[( bits >> ( 3 * i ) ) & 7];
+                for ( int32_t i = 0; i < 16; i++ ) {
+                    alphas[i] = table[( bits >> ( 3 * i ) ) & 7];
                 }
             }
 
-            for ( int py = 0; py < 4; py++ ) {
-                for ( int px = 0; px < 4; px++ ) {
-                    uint32_t x = bx * 4 + px;
-                    uint32_t y = by * 4 + py;
-                    if ( x < width && y < height ) {
-                        memcpy( pDestinationRGBA + ( y * width + x ) * 4, colors[py * 4 + px], 4 );
+            uint32_t indices;
+            // The colour block's index bits sit 4 bytes into it (DXT1: block+4,
+            // DXT2/3/5: block+8+4 = block+12).
+            memcpy( &indices, pBlock + ( bDXT1 ? 4 : 12 ), 4 );
+
+            if ( bInterior ) {
+                // Whole block inside the image: build the 16 pixels as four
+                // 4-pixel rows and store each row as one 16-byte write (the
+                // compiler turns the memcpy into a single 128-bit store).
+                uint32_t colors[16];
+                for ( uint32_t i = 0; i < 16; i++ ) {
+                    uint32_t color = palette[( indices >> ( i * 2 ) ) & 3];
+                    if ( bHasAlpha ) {
+                        color = ( color & 0x00ffffffu ) |
+                                ( static_cast<uint32_t>( alphas[i] ) << 24 );
+                    }
+                    colors[i] = color;
+                }
+                uint8_t *pOut = pDestinationRGBA +
+                                ( static_cast<size_t>( by * 4 ) * width + bx * 4 ) * 4;
+                for ( uint32_t py = 0; py < 4; py++ ) {
+                    memcpy( pOut + static_cast<size_t>( py ) * width * 4, colors + py * 4, 16 );
+                }
+            } else {
+                for ( uint32_t py = 0; py < 4; py++ ) {
+                    if ( by * 4 + py >= height ) {
+                        break;
+                    }
+                    const uint32_t row = by * 4 + py;
+                    uint8_t *pOut = pDestinationRGBA + ( static_cast<size_t>( row ) * width + bx * 4 ) * 4;
+                    const uint32_t rowIndices = indices >> ( py * 8 );
+                    for ( uint32_t px = 0; px < 4; px++ ) {
+                        if ( bx * 4 + px >= width ) {
+                            break;
+                        }
+                        uint32_t color = palette[( rowIndices >> ( px * 2 ) ) & 3];
+                        if ( bHasAlpha ) {
+                            color = ( color & 0x00ffffffu ) |
+                                    ( static_cast<uint32_t>( alphas[py * 4 + px] ) << 24 );
+                        }
+                        memcpy( pOut + px * 4, &color, 4 );
                     }
                 }
             }

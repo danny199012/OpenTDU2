@@ -92,6 +92,39 @@ if( ANDROID )
     # (SDL_RunApp -> SDL_main, source/main.cpp includes SDL_main.h there). The
     # host tools and the Win32 launcher do not exist on this platform.
     add_library( opentdu2 SHARED "${OTDU_SRC_FOLDER}/main.cpp" )
+
+    # ARM tuning (2026-11-20). The NDK's arm64-v8a default is -march=armv8-a,
+    # the 2014 baseline, so none of the ARMv8.1/8.2 instructions are used. Every
+    # phone that can run this port (arm64 only, minSdk 29) is an armv8.2-a core
+    # with the dot product and fp16 extensions (Cortex-A75 / Snapdragon 845 and
+    # newer - the owner's Snapdragon 8 Elite Gen 5 is armv9.2), so let the
+    # compiler use them: 8-lane integer dot products in the block-texture
+    # decoder, fp16 arithmetic, and FMA contraction in the maths-heavy loops
+    # (matrix, culling, skinning, physics contacts). This is where RPCS3's ARM
+    # work landed too: their gains came from the hot kernels using NEON /
+    # dotprod, not from a single flag - the same idea, one level up.
+    # -DOTDU_ANDROID_BASELINE_ARMV8A=ON builds the plain baseline (bisect / old
+    # device); -DOTDU_ANDROID_ARM_V9=ON goes further for an armv9.2 phone
+    # (i8mm + SVE2 + sha3) and is NOT safe on older phones.
+    option( OTDU_ANDROID_BASELINE_ARMV8A "Android: build for the plain armv8-a baseline" OFF )
+    option( OTDU_ANDROID_ARM_V9 "Android: armv9.2-a tuned build (Snapdragon 8 Gen 4+ only)" OFF )
+    if( OTDU_ANDROID_ARM_V9 )
+        set( OTDU_ANDROID_ARCH_FLAGS "-march=armv9.2-a+i8mm" )
+    elseif( NOT OTDU_ANDROID_BASELINE_ARMV8A )
+        set( OTDU_ANDROID_ARCH_FLAGS "-march=armv8.2-a+dotprod+fp16" )
+    endif()
+    if( OTDU_ANDROID_ARCH_FLAGS )
+        target_compile_options( otdu_engine PUBLIC ${OTDU_ANDROID_ARCH_FLAGS} -ffp-contract=fast
+                                                   -fno-math-errno )
+    endif()
+    # Thin LTO: the engine is one static library consumed by one shared object,
+    # so the link can inline across the ~200 translation units (a few percent of
+    # frame time, and a smaller .so). Slower to link, so it is opt-out.
+    option( OTDU_ANDROID_LTO "Android: thin LTO in the release build" ON )
+    if( OTDU_ANDROID_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release" )
+        target_compile_options( otdu_engine PUBLIC -flto=thin )
+        target_link_options( opentdu2 PRIVATE -flto=thin )
+    endif()
 else()
     add_executable( opentdu2 "${OTDU_SRC_FOLDER}/main.cpp" )
 endif()
