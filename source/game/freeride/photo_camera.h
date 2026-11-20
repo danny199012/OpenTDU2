@@ -2,6 +2,8 @@
 
 #include "render/eden/eden_scene_view.h"
 
+class Renderer2D;
+
 // "Take photo" of the pause screen: the movie's free-roam entry list carries
 // `photo`, pushed with /:LockSnapshot (retail m_TakeSnapshot_, see
 // docs/STATE.md and the pause_menu note). It is a free camera around the car:
@@ -29,6 +31,20 @@ public:
     // closes it).
     bool tick( float deltaTime, const Vector3f &carPosition );
     void getCamera( EdenSceneView::Camera &outCamera ) const;
+
+    // Test hook (-photoat x,y,z,yawDeg,pitchDeg[,fovDeg]): opens at a given pose.
+    void openAt( const Vector3f &carPosition, const Vector3f &eye, float yawDegrees, float pitchDegrees, float fovDegrees );
+
+    // The retail photo UI, redrawn natively from the 360 reference shots: the
+    // Move / Zoom / Tilt / Rotate bar on top, Take a Photo / Back / Options at
+    // the bottom, the aiming reticle, and the Options panel (X). Not drawn on
+    // the capture frame (the PNG is the scene alone).
+    void drawUi( Renderer2D &renderer ) const;
+    // True while the Options panel owns the pad (the camera is frozen).
+    inline bool isOptionsOpen() const { return bOptions; }
+    // Options panel values (0..1) - stored, shown, not yet applied to the
+    // post pass [INF: the retail rows are bloom, DOF, contrast, RGB, character].
+    inline bool isCharacterShown() const { return bCharacter; }
 
     inline const std::string &getPrompt() const { return prompt; }
     // White shutter flash, 1 -> 0 after a photo.
@@ -58,4 +74,10 @@ private:
     std::string photoFolder;
     std::string lastPhotoPath;
     std::string prompt;
+    // Options panel
+    bool bOptions = false;
+    int32_t optionRow = 0;
+    float optionValue[7] = { 0.2f, 0.0f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };
+    bool bCharacter = true;
+    void tickOptions();
 };

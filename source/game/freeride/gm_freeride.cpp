@@ -6692,6 +6692,19 @@ void GMFreeRide::tick( float deltaTime ) {
         photoCamera.open( carWorld.getTranslation(), camera );
         photoShotsSeen = photoCamera.getPhotoCount();
     }
+    // -photoat x,y,z,yawDeg,pitchDeg[,fovDeg]: open the photo camera at a pose
+    // once the world has settled (the scripted checks of the photo UI).
+    static const char *pPhotoAt = CmdLine::GetArgValue( "-photoat" );
+    static bool bPhotoAtDone = false;
+    if ( pPhotoAt != nullptr && !bPhotoAtDone && !photoCamera.isOpen() && !pauseMenu.isOpen() && ++photoAtFrames > 90 ) {
+        bPhotoAtDone = true;
+        float v[6] = { 0, 0, 0, 0, 0, 60.0f };
+        sscanf( pPhotoAt, "%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5] );
+        hud.setVisible( false );
+        hud.setHidden( true );
+        photoCamera.openAt( carWorld.getTranslation(), Vector3f( v[0], v[1], v[2] ), v[3], v[4], v[5] );
+        photoShotsSeen = photoCamera.getPhotoCount();
+    }
     if ( photoCamera.isOpen() ) {
         if ( photoCamera.tick( deltaTime, carWorld.getTranslation() ) ) {
             photoCamera.close();
@@ -9334,19 +9347,7 @@ void GMFreeRide::draw() {
     // Photo camera: the HUD is hidden and this bar is the only UI, so the frame
     // (and the PNG the shutter writes) is the scene. Skipped on the capture
     // frame, with the flash.
-    if ( photoCamera.isOpen() && !photoCamera.isCapturing() ) {
-        renderer.begin( 1280.0f, 720.0f );
-        renderer.drawRect( Rect2D( 240.0f, 612.0f, 800.0f, 34.0f ), MakeRGBA( 0, 0, 0, 170 ) );
-        renderer.drawText( gpFlash->getTitleFont(), photoCamera.getPrompt().c_str(), 640.0f, 618.0f, 20.0f,
-                           MakeRGBA( 255, 255, 255 ), eTextAlign::TA_Center );
-        renderer.end();
-        if ( photoCamera.getFlashAlpha() > 0.0f ) {
-            const uint32_t flash = static_cast<uint32_t>( photoCamera.getFlashAlpha() * 255.0f );
-            renderer.begin();
-            renderer.drawRect( Rect2D( -10000.0f, -10000.0f, 20000.0f, 20000.0f ), 0x00ffffffu | ( flash << 24 ) );
-            renderer.end();
-        }
-    }
+    photoCamera.drawUi( renderer );
     if ( caveGateFlash > 0.0f ) {
         // The 88 mph flash of the cave gate.
         const uint32_t flash = static_cast<uint32_t>( Clamp( caveGateFlash, 0.0f, 1.0f ) * 255.0f );

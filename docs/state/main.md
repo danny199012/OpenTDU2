@@ -3,6 +3,22 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, photo mode UI): the 360 photo-mode screens redrawn natively, free camera kept
+
+Owner: wants the real photo-mode UI (360 shots: Move/Zoom/Tilt/Rotate top bar, Take a Photo/Back/Options bottom bar, reticle, Options panel) but the camera must stay free (no locked default radius/height); also: the car wash at the Ibiza forecourt overlaps the road and the car parks in the wrong place (360 shots of the tile-wall bay).
+
+### What changed
+- `photo_camera.{h,cpp}`: `drawUi` draws the retail layout from the reference shots (`docs/images/photomode-ui-s66.webp`, `photomode-options-s66.webp`); X (keyboard O) opens the Options panel (Bloom, DOF intensity/distance, Contrast, R/G/B, Character On/Off; D-pad/arrows move + adjust, A/B close). Values are stored only, NOT applied to the post pass [INF]. Controls follow the retail bar: LS move along the view (free flight, no limits), RS rotate, LT/RT zoom (continuous), LB/RB tilt, D-pad up/down or Q/E vertical. `-photoat x,y,z,yawDeg,pitchDeg[,fovDeg]` opens the camera at a pose after 90 frames (test hook). `gm_freeride.cpp` now calls `photoCamera.drawUi`.
+- The retail movie (`photomode_menu` in MAIN.vmf, `phmo:*` / `phop:*`) is still not driven: the UI is native, matched to the shots.
+
+### Verified
+- `-gm FREERIDE -island ibiza -atwash -photoat "8142,149.5,26281,-167,-5,60" -autoplay "230:press=opt1;260:shot=..."` shows the bars, reticle and Options panel (docs/images). Not verified: pad input (keyboard/headless only); glyph shapes are approximations (no icon art).
+
+### Car wash: NOT fixed - findings
+- `-photoat "8132,200,26228,0,-89,60"` (`carwash-topdown-s66.webp`): same building layout as the owner's 360 top-down (bays / arch / pump canopy; rotated 90 deg), no mirror. The bay canopy and the building end sit where the road continues; in the 360 the road passes clear of the lot. The earlier "retail-accurate placement" conclusion (spec 11) was reached without a 360 reference and may not hold: the 360 road geometry could differ from this PC (TDU World) install.
+- The scene car ends at local (1.47, -17.5) = the data pose (matches C_INTRO_E_1 end), but in the top-down that is ~9 m beyond the arch mouth, outside it, with the wall on the car's right (`carwash-park-s66.webp`); the 360 shot has the car in the bay with a tiled wall on its left.
+- Next: the owner says which wash (3 on Ibiza) the 360 shot is, then compare the road meshes (sector roads vs the bank) at that spot and check whether the exterior set is x-mirrored against the scene frame (`gm_cin_viewer` / `IntroCinematic` spot frame).
+
 ## Session 2026-11-20 (`main`, later 3): the REAL pool ring (Entity__Actor__RotatingActor 'Accessories')
 
 Owner showed the 360 recomp ring (a yellow inflatable ring with a red underside, floating in the caravan tub).

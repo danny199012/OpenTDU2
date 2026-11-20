@@ -463,6 +463,7 @@ private:
     // menu's out animation before it opens.
     PhotoCamera photoCamera;
     PhotoSpots photoSpots;          // the Photographer's viewpoints (photospot.xml + DBPhotograph)
+    int32_t photoAtFrames = 0;
     int32_t photoShotsSeen = 0;     // photoCamera.getPhotoCount() already judged
     float photoHintTimer = 0.0f;
     void judgePhoto( const Vector3f &shotPosition, const Vector3f &shotForward );
