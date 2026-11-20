@@ -20,6 +20,11 @@ namespace WatermarkOverlay {
 // Call once at main-loop start (beside CoordsOverlay::SetVisible).
 void Initialize();
 
+// The last frame's section times (ms), shown under the FPS line with -showfps: where the
+// time goes (update = game logic + streaming, offscreen / main = scene passes, present = the
+// wait for the GPU). Call once per frame after the frame is done.
+void SetFrameTimes( double updateMs, double offscreenMs, double mainMs, double uiMs, double endMs );
+
 // Draws the watermark. Call between ImGui beginFrame / endFrame.
 void Draw();
 

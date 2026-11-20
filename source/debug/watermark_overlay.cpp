@@ -20,9 +20,18 @@ bool gbShowFps = false;
 // Frame-rate readout (-showfps): frames and the worst frame of the last half second.
 float gFpsAccum = 0.0f, gFpsWorst = 0.0f, gFpsShown = 0.0f, gMsShown = 0.0f, gWorstShown = 0.0f;
 int gFpsFrames = 0;
+double gTimes[5] = {};
 } // namespace
 
 namespace WatermarkOverlay {
+
+void SetFrameTimes( double updateMs, double offscreenMs, double mainMs, double uiMs, double endMs ) {
+    gTimes[0] = updateMs;
+    gTimes[1] = offscreenMs;
+    gTimes[2] = mainMs;
+    gTimes[3] = uiMs;
+    gTimes[4] = endMs;
+}
 
 void Initialize() {
     if ( const char *pName = CmdLine::GetArgValue( "-tester" ) ) {
@@ -78,6 +87,8 @@ void Draw() {
     }
     if ( gbShowFps ) {
         ImGui::Text( "FPS %.0f  ·  %.1f ms  ·  worst %.0f ms", gFpsShown, gMsShown, gWorstShown );
+        ImGui::TextDisabled( "update %.0f · offscreen %.0f · main %.0f · ui %.0f · present %.0f ms", gTimes[0], gTimes[1],
+                             gTimes[2], gTimes[3], gTimes[4] );
     }
     if ( !gbSuppressed ) {
         if ( gTesterName.empty() ) {

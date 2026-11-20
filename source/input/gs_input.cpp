@@ -636,6 +636,23 @@ void GSInput::updateGamepad() {
             if ( std::fabs( value ) < 0.12f ) {
                 value = 0.0f;
             }
+#if defined( OTDU_ANDROID )
+            // A Bluetooth pad in DS4 emulation (GameSir G8 Plus) flickers its right trigger
+            // between full and zero while it is held. Rises are instant; a drop takes ~150 ms,
+            // so a short dropout cannot lift the throttle. Triggers only.
+            if ( binding.Axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || binding.Axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER ) {
+                static float held[2] = { 0.0f, 0.0f };
+                static uint64_t lastMs[2] = { 0, 0 };
+                const int slot = binding.Axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER ? 0 : 1;
+                const uint64_t now = SDL_GetTicks();
+                const float dt = lastMs[slot] == 0 ? 0.0f : static_cast<float>( now - lastMs[slot] ) * 0.001f;
+                if ( lastMs[slot] != now ) {
+                    lastMs[slot] = now;
+                    held[slot] = Max( value, held[slot] - dt / 0.15f );
+                }
+                value = held[slot] < 0.12f ? 0.0f : held[slot];
+            }
+#endif
         } else if ( binding.Button >= 0 ) {
             value = SDL_GetGamepadButton( pGamepad, static_cast<SDL_GamepadButton>( binding.Button ) ) ? 1.0f : 0.0f;
         }
