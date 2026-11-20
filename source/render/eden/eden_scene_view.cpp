@@ -1460,7 +1460,23 @@ void EdenSceneView::renderOffscreen() {
         // Parked: a refresh every 500 ms follows the sun / cloud drift.
         const bool bContentChanged = environmentFrame == 0 || moved > 0.5f || yawDelta > 10.0f * kDegToRad;
         const float minGap = bContentChanged ? 0.2f : 0.5f;
-        if ( refreshTimer >= minGap && ( environmentFrame % kCubeMapInterval ) == 0 ) {
+        // -cubemapstagger (the Android Phone preset): ONE face every kCubeMapInterval-th
+        // frame, round robin, instead of all six at once. The same refresh rate costs a
+        // sixth of a frame at a time, so a turning camera no longer causes a 100 ms spike
+        // (the 6-face rebuild = ~1200 extra draws). The faces of one pass are from
+        // slightly different instants - the mix the full refresh above was written to avoid
+        // - which is the price. The "changed" reference only moves after a full round.
+        static const bool bStaggerFaces = CmdLine::HasArg( "-cubemapstagger" );
+        if ( bStaggerFaces ) {
+            if ( ( bContentChanged || refreshTimer >= 0.5f ) && ( environmentFrame % kCubeMapInterval ) == 0 ) {
+                renderEnvironment( params, false );
+                if ( environmentFace == 0 ) {
+                    lastCenter = environmentCenter;
+                    lastYaw = yaw;
+                    refreshTimer = 0.0f;
+                }
+            }
+        } else if ( refreshTimer >= minGap && ( environmentFrame % kCubeMapInterval ) == 0 ) {
             lastCenter = environmentCenter;
             lastYaw = yaw;
             refreshTimer = 0.0f;
