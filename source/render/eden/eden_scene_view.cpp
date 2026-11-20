@@ -328,6 +328,9 @@ bool EdenSceneView::initialize( const char *pIsland, const Vector3f &streamCente
         ocean.setWaterBaseLevel( world.getIslandBoundsMin().y );
     }
     loadClouds( islandFolder );
+    if ( CmdLine::HasArg( "-mininstratio" ) ) {
+        world.setMinInstanceRatio( static_cast<float>( atof( CmdLine::GetArgValue( "-mininstratio" ) ) ) );
+    }
     if ( !volumetricClouds.initialize( gpRender->getDevice() ) ) {
         OTDU_LOG_ERROR( "EdenSceneView: the volumetric clouds failed to initialize (-oldclouds billboards stand in)\n" );
     }
@@ -937,7 +940,10 @@ void EdenSceneView::renderEnvironment( const EdenSceneParams &mainScene, bool bA
         drawClouds( *pRenderer );
         world.setMinInstanceRatio( 0.02f );
         world.draw( *pRenderer, params.CameraPosition );
-        world.setMinInstanceRatio( 0.0f );
+        // -mininstratio <r>: the same screen-size cull (instance radius / distance) for the main view and
+        // the shadow passes, default off. A draw-call lever for the phone: far small vegetation goes first.
+        static const float mainRatio = CmdLine::HasArg( "-mininstratio" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-mininstratio" ) ) ) : 0.0f;
+        world.setMinInstanceRatio( mainRatio );
         drawObjects( *pRenderer, ePass::Environment );
         pRenderer->endScene();
         device.endRenderTarget();
