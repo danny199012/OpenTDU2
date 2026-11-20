@@ -3,9 +3,11 @@
 
 #include "filesystem/gs_file.h"
 #include "flash/gs_flash.h"
+#include "render/eden/eden_postfx.h"
 #include "render/renderer_2d.h"
 #include "game/freeride/chase_camera.h"
 #include "input/gs_input.h"
+#include "system/cmd_line.h"
 #include "render/gs_render.h"
 #include "tdu_instance.h"
 
@@ -56,6 +58,11 @@ void PhotoCamera::open( const Vector3f &carPosition, const EdenSceneView::Camera
             }
         }
     }
+    // -photoopt bloom,dofInt,dofDist,contrast,red,green,blue (0..1): preset Options values (test hook).
+    if ( const char *pOpt = CmdLine::GetArgValue( "-photoopt" ) ) {
+        sscanf( pOpt, "%f,%f,%f,%f,%f,%f,%f", &optionValue[0], &optionValue[1], &optionValue[2], &optionValue[3],
+                &optionValue[4], &optionValue[5], &optionValue[6] );
+    }
     bOpen = true;
     bLooking = false;
     bCaptured = false;
@@ -80,6 +87,7 @@ void PhotoCamera::close() {
     setRelativeMouse( false );
     bOpen = false;
     bOptions = false;
+    GetPhotoGrade().Active = false;
     prompt.clear();
 }
 
@@ -94,6 +102,16 @@ void PhotoCamera::setRelativeMouse( bool bEnable ) {
 bool PhotoCamera::tick( float deltaTime, const Vector3f &carPosition ) {
     if ( !bOpen ) {
         return false;
+    }
+    {
+        // The Options panel drives the photoshop pass (bloom / contrast / red, green, blue).
+        PhotoGrade &grade = GetPhotoGrade();
+        grade.Active = true;
+        grade.Bloom = optionValue[0];
+        grade.Contrast = optionValue[3];
+        grade.Red = optionValue[4];
+        grade.Green = optionValue[5];
+        grade.Blue = optionValue[6];
     }
     // The previous frame's capture is done: the UI comes back.
     bCapturing = false;

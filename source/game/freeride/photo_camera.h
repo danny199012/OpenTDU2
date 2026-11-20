@@ -45,6 +45,7 @@ public:
     // Options panel values (0..1) - stored, shown, not yet applied to the
     // post pass [INF: the retail rows are bloom, DOF, contrast, RGB, character].
     inline bool isCharacterShown() const { return bCharacter; }
+    inline float getOptionValue( int32_t row ) const { return optionValue[row]; }
 
     inline const std::string &getPrompt() const { return prompt; }
     // White shutter flash, 1 -> 0 after a photo.

@@ -3,6 +3,12 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, photo Options -> post pass)
+
+- `PhotoGrade` (`eden_postfx.h`), set each tick by `PhotoCamera` while it is open, read in `EdenPostFx::applyPhotoshop`: Bloom intensity scales `photoshop_bloom_intensity` (x value/0.2), Contrast scales the overlay layer opacity (x value/0.5, capped 1), Red/Green/Blue add (value-0.5)*2 to the midtone color balance [INF: retail mapping not readable; neutral at the defaults]. `-photoopt bloom,dofI,dofD,contrast,r,g,b` presets the values (test).
+- Verified: pixel-diff vs default at `-photoat 19090,150,18210,60,-5,60`: red 1.0 -> (5.5, 0, 0), blue 1.0 -> (0, 0, 4.8), contrast 1.0 -> (8.1, 7.5, 6.9), bloom 1.0 -> (1.7, 1.4, 0.8). Looked at the shots: tints are visible and per channel.
+- NOT done: the two Depth of field rows (still stored only) and the Character row. DoF = the `edrender_pfx_apply_lut` ps_1 "crappy" variant (item 25d6c5d0fd095995, spec[32]=1) with sD = the depth target decoded as in postfx_spec 6.2 and params focus / OoF blurred lum; needs a second apply material in `EdenPostFx` plus the scene depth bound.
+
 ## Session 2026-11-20 (`main`, later): Hawai car washes checked
 
 All five Hawai washes top-down (`-island hawai -atwash -atwashidx 0..4 -photoat ...,0,-89,60`, `docs/images/carwash-floor-hawai-s66.webp`): the floor draws, the road strip is cut, no road is covered. The roof canopy touches / hangs a little over the road edge at washes 1 and 5 (building geometry). Owner confirmed (build 362 shots) every wash had the same bare-floor issue.

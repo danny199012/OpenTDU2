@@ -21,6 +21,14 @@ struct RenderTarget;
 //
 // The D3D9 half pixel offsets of the vertex shaders ("vars".xy) are dropped:
 // Vulkan samples at pixel centers.
+// The photo mode's Options panel (bloom / contrast / red, green, blue), applied to the LUT of the
+// photoshop pass while the photo camera is open. 0.5 (bloom 0.2) is the neutral default.
+struct PhotoGrade {
+    bool Active = false;
+    float Bloom = 0.2f, Contrast = 0.5f, Red = 0.5f, Green = 0.5f, Blue = 0.5f;
+};
+PhotoGrade &GetPhotoGrade();
+
 class EdenPostFx {
 public:
     EdenPostFx();

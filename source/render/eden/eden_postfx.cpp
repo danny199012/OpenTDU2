@@ -186,6 +186,11 @@ void EdenPostFx::drawHaze( EdenRenderer &renderer, GPUTexture *pViewPos, const W
     renderer.draw( mesh, hazeMaterial, Matrix4x4f::Identity(), &params );
 }
 
+PhotoGrade &GetPhotoGrade() {
+    static PhotoGrade grade;
+    return grade;
+}
+
 void EdenPostFx::applyPhotoshop( EdenRenderer &renderer, RenderTarget *pSource, RenderTarget *pDestination,
                                  const WeatherPreset *pWeather ) {
     if ( !bReady || pSource == nullptr || pDestination == nullptr ) {
@@ -222,18 +227,23 @@ void EdenPostFx::applyPhotoshop( EdenRenderer &renderer, RenderTarget *pSource, 
     //    (FUN_00d769e0); gamma 0.8 (brightness option at its default).
     {
         EdenDrawParams params;
+        const PhotoGrade &grade = GetPhotoGrade();
+        // Photo mode Options [INF: the retail mapping is not readable; neutral at the defaults]: contrast
+        // scales the overlay layer (0 off .. x2), red / green / blue shift the midtone balance.
+        const float contrast = grade.Active ? Clamp( grade.Contrast / 0.5f, 0.0f, 2.0f ) : 1.0f;
+        const Vector3f tint = grade.Active ? Vector3f( grade.Red - 0.5f, grade.Green - 0.5f, grade.Blue - 0.5f ) * 2.0f : Vector3f();
         params.Vectors["params"] = Vector4f( param( "photoshop_softlight_opacity", 0.55f ),
                                              param( "photoshop_softlight_brightness", 1.25f ),
-                                             param( "photoshop_overlay_opacity", 0.3f ), 0.0f );
+                                             Min( param( "photoshop_overlay_opacity", 0.3f ) * contrast, 1.0f ), 0.0f );
         params.Arrays["balance__array3"] = { Vector4f( param3( "photoshop_color_balance_shadows" ), 0.0f ),
-                                             Vector4f( param3( "photoshop_color_balance_midtones" ), 0.0f ),
+                                             Vector4f( param3( "photoshop_color_balance_midtones" ) + tint, 0.0f ),
                                              Vector4f( param3( "photoshop_color_balance_hightones" ), 0.0f ) };
         const double black = param( "photoshop_bloom_black_level", 0.5f );
         const double white = param( "photoshop_bloom_white_level", 1.0f );
         const double range = white - black;
         params.Vectors["bloom_params"] =
             Vector4f( static_cast<float>( black ), static_cast<float>( range != 0.0 ? 1.0 / range : 0.0 ),
-                      param( "photoshop_bloom_intensity", 0.25f ), 0.0f );
+                      param( "photoshop_bloom_intensity", 0.25f ) * ( grade.Active ? grade.Bloom / 0.2f : 1.0f ), 0.0f );
         const float gamma = GetPostGamma(); // Options > Gamma (0.8 by default)
         params.Vectors["Gamma"] = Vector4f( gamma, gamma, gamma, gamma );
         pass( renderer, pLut, lutMaterial, {}, params );
