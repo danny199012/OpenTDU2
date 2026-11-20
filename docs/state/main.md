@@ -14,8 +14,13 @@ Owner: found another petrol station (F6 X 20338.6 Z 20153.4), wants it wired, sh
 ### Ruled out
 - The station building is NOT a world instance: only vegetation (V_PALM/V_BUSH) and low walls (SF_WALE*) within 70 m. It is baked in the sector object geometry, so shutters / lights / textures need item-level work on that mesh (find the REPAIR shutter materials, hide or swap them), not an instance swap.
 
+### Update (same day): shutters opened
+- Station = sector Objects node `SB_GAZS_`; materials SB_GazSB_tole / Wall / Detail (signs, canopy stripe) / Ground / Metal / Instc (**the graffiti roller shutters**) / SB_ShopingB (glass shop front). Found with `-lognearmesh x,z,r` and A/B `-hidemat <name>`.
+- `eden_world.cpp draw`: once per sector, the Instc material is replaced by the ShopingB one (lit glass fronts instead of shutters); `-noopenbays` restores. Shot: `docs/images/station-open-bays-s67.webp`. Applies to every SB_GAZS building.
+- Ruled out: `EdenMaterial::Emissive` on the TD_Building shader (no visible change); the material has no WeatherEmissive param.
+
 ### Not done / next
-- Shutters, forecourt lighting, texture pass: start from the sector Objects EdenModel items near (20338, 53, 20153) (log item material names), then hide the shutter items and add emissive/point-light props.
+- Forecourt point lighting and a texture pass (needs a light/glow prop mechanism; TD_Building params unknown). Other SB_Gazs_A_* station variants not checked for shutters.
 - Other stations: need F6 positions (or a scan of sector object materials for the pump / REPAIR textures).
 
 ## Session 2026-11-20 (`main`, later): other exterior banks checked for the car wash's set-vs-collision offset - none has it

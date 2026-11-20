@@ -3140,6 +3140,53 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
                            BuildWetTerrainParams( wetParams, renderer.getSceneParams(), terrainWet ) ? &wetParams : nullptr );
         }
         if ( sector.Objects.isLoaded() && !bNoObjects ) {
+            // -lognearmesh x,z,r: once per sector, every object item (node, material, textures) whose world
+            // box lies within r (flat) of the point: finds the baked petrol station pieces.
+            static const char *pNearMesh = CmdLine::GetArgValue( "-lognearmesh" );
+            static std::unordered_set<const Sector *> stationStyled;
+            if ( stationStyled.insert( &sector ).second ) {
+                // The roller shutters (SB_GazSB_Instc) take the glass shop-front material (SB_ShopingB): the bays
+                // read as open and lit instead of closed and graffitied.
+                EdenMaterial *pShop = nullptr, *pShutter = nullptr;
+                for ( EdenMaterial &m : sector.Objects.getMaterials() ) {
+                    if ( m.Name == "SB_ShopingB" ) {
+                        pShop = &m;
+                    } else if ( m.Name == "SB_GazSB_Instc" ) {
+                        pShutter = &m;
+                    }
+                }
+                if ( pShop != nullptr && pShutter != nullptr && !CmdLine::HasArg( "-noopenbays" ) ) {
+                    const std::string keepName = pShutter->Name;
+                    *pShutter = *pShop;
+                    pShutter->Name = keepName;
+                }
+            }
+            static std::unordered_set<const Sector *> loggedMesh;
+            if ( pNearMesh != nullptr && loggedMesh.insert( &sector ).second ) {
+                float nx = 0, nz = 0, nr = 0;
+                sscanf( pNearMesh, "%f,%f,%f", &nx, &nz, &nr );
+                for ( const EdenModel::Item &item : sector.Objects.getItems() ) {
+                    if ( item.Lod != 0 || item.NodeIndex < 0 ) {
+                        continue;
+                    }
+                    const Matrix4x4f toWorld = world * sector.Objects.getNodeTransform( item.NodeIndex );
+                    const Vector3f a = toWorld.transformPoint( item.BoundsMin ), b = toWorld.transformPoint( item.BoundsMax );
+                    const Vector3f c = ( a + b ) * 0.5f;
+                    const float dx = c.x - nx, dz = c.z - nz;
+                    if ( dx * dx + dz * dz < nr * nr ) {
+                        const EdenMaterial &m = sector.Objects.getMaterials()[item.MaterialIndex];
+                        std::string tex;
+                        for ( uint32_t t = 0; t < m.NumSlots && t < 16; t++ ) {
+                            char buf[24];
+                            snprintf( buf, sizeof( buf ), " %016llx", static_cast<unsigned long long>( m.TextureHashes[t] ) );
+                            tex += buf;
+                        }
+                        OTDU_LOG_INFO( "NEARMESH node '%s' item %zu mat '%s' centre (%.1f %.1f %.1f) size (%.1f %.1f %.1f) tex%s\n",
+                                       sector.Objects.getScene().getNodes()[item.NodeIndex].Name.c_str(), static_cast<size_t>( &item - sector.Objects.getItems().data() ),
+                                       m.Name.c_str(), c.x, c.y, c.z, fabsf( b.x - a.x ), fabsf( b.y - a.y ), fabsf( b.z - a.z ), tex.c_str() );
+                    }
+                }
+            }
             // The sea rises by seaLevelOffset; the foam strip travels up the
             // beach gradient by the same height, plus that height itself so it
             // stays on the sand (see loadSector's FoamTideVector).

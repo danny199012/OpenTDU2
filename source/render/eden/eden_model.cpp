@@ -661,6 +661,11 @@ void EdenModel::draw( EdenRenderer &renderer,
                hiddenItems[itemIndex] ) ) {
             continue;
         }
+        // -hidemat <name>: A/B hide every item of a material (finds which one is a given part).
+        static const char *pHideMat = CmdLine::GetArgValue( "-hidemat" );
+        if ( pHideMat != nullptr && materials[item.MaterialIndex].Name == pHideMat ) {
+            continue;
+        }
         if ( pParams != nullptr ) {
             bool bForcedHidden = false;
             for ( const int32_t node : pParams->ForceHiddenNodes ) {
