@@ -560,6 +560,15 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
             // the drive physics stands on, tunnel / bridge bores included.
             return scene.getWorld().getGroundHeight( x, z, fromY, outHeight );
         } );
+        {
+            Vector3f lo( 1e9f, 1e9f, 1e9f ), hi( -1e9f, -1e9f, -1e9f );
+            for ( const Vector3f &v : exteriorCollision.Vertices ) {
+                lo = Vector3f( Min( lo.x, v.x ), Min( lo.y, v.y ), Min( lo.z, v.z ) );
+                hi = Vector3f( Max( hi.x, v.x ), Max( hi.y, v.y ), Max( hi.z, v.z ) );
+            }
+            OTDU_LOG_INFO( "InteriorWalk: exterior collision bounds (%.1f %.1f %.1f) - (%.1f %.1f %.1f)\n", lo.x, lo.y, lo.z,
+                           hi.x, hi.y, hi.z );
+        }
         const Vector3f spotPosition = scene.getSceneOrigin().getTranslation();
         worldCollision.streamAround( spotPosition, 1 );
         OTDU_LOG_INFO( "InteriorWalk: yard collision: %zu exterior triangle(s), %zu sector triangle(s) around (%.0f, %.0f)\n",

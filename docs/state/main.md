@@ -3,6 +3,24 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, later 2): the yard walk went through the caravan, the pool tub and the garage - the exterior shell was never in the body's frame
+
+Owner: "all properties need outside collision fixing even caravan as can go through the walls and garage"; the real ring should be in the 360 data.
+
+### Cause [measured]
+`IntroCinematic::collectExteriorCollisionTriangles` appended the exterior sets' triangles in the SPOT frame (bounds (-21..12, -0.4..5, -10..9)) while `InteriorWalk`'s world hook resolves the body in the ISLAND frame (the spot is at (10490, 15750)): the exterior shell (caravan walls, garage, pool tub) was ~10 km from the body and never collided. Only the sector statics (`VehicleWorldCollision`) ever pushed.
+
+### Fix
+`intro_cinematic.cpp`: the collected vertices go through `spotOrigin`. `-extcollisionlocal` = the old frame (A/B). `interior_walk.cpp` logs `exterior collision bounds`.
+
+### Verified
+`-enterhouse EPH_L0C_1254I -nointeriorintro -walkat -6.6,1.8,-2.5,<yaw> -logwalk -autoplay "60:hold=walk"`: yaw 0 old frame walks through the pool tub to z 17.2, new frame stops at the tub wall z -0.09; yaw 90 / 180 / 270 all stop within a few metres. The default start still walks (in the room).
+
+### Not done
+- The exterior bank's own Havok collision (`eph_l0c_sc_*.shk` / `.dhk`, 45 KB) is not used for the yard: the render triangles stand in (one-sided/holes possible). Next step: load it with `LoadHavokCollision` in the yard hook setup and merge (frame: spot).
+- Other properties were not walked; the same hook serves all `bWorld` houses, so they should be fixed too - walk the garage door / terrace houses (EPH_L3DI) to confirm.
+- The 360 ring: the 360 `eph_l0c.bnk` (bigfile1, 2.2 MB vs 4.2 MB on PC) extracts but is not a plain BANK (`tdu2_bank.py`: no magic at offset 8, compressed?). Not decoded.
+
 ## Session 2026-11-20 (`main`, property walk fixes): vegetation alpha, the glass-to-roof push, pool water is not ground, wading
 
 Owner: vegetation slightly transparent; properties: out-of-bounds, walked into glass and was pushed onto the roof, walk on pool water (wants swimming / getting wet / water reacting), a ring circling the caravan's small pool.

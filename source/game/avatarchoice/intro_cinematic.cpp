@@ -2725,7 +2725,14 @@ void IntroCinematic::collectExteriorCollisionTriangles( std::vector<Vector3f> &o
             continue;
         }
         const uint32_t base = static_cast<uint32_t>( outVertices.size() );
-        outVertices.insert( outVertices.end(), vertices.begin(), vertices.end() );
+        // The island frame: the set's vertices are in the spot frame (drawn at spotOrigin), the walk hook
+        // resolves the body in the island frame. They were appended unconverted, 10 km from the body, so the
+        // exterior shell (the caravan walls, the garage) never collided [measured: bounds (-21..12) vs
+        // the spot at (10490, 15750)]. -extcollisionlocal = the old frame (A/B).
+        static const bool bLocal = CmdLine::HasArg( "-extcollisionlocal" );
+        for ( const Vector3f &vertex : vertices ) {
+            outVertices.push_back( bLocal ? vertex : spotOrigin.transformPoint( vertex ) );
+        }
         outIndices.reserve( outIndices.size() + indices.size() );
         for ( const uint32_t index : indices ) {
             outIndices.push_back( base + index );
