@@ -365,7 +365,6 @@ private:
         bool bSky = false;
     };
     bool bTagSky = false;
-
     RenderDevice *pDevice;
     TextureCache *pTextureCache;
     EdenShaderSystem shaderSystem;

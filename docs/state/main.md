@@ -3,6 +3,25 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, pool water: the dark blob was the walker's own head)
+
+Owner: "odd pool reflection behaviour in pools" (dark blob with hair texture in the water of a house pool, terrain-like shapes).
+
+**Reproduced**: `-gm FREERIDE -skipcine -nopad -fixedtimestep -enterhouse EPH_L0C_1254I -nointeriorintro -walkat -6.6,1.8,-0.3,0 -autoplay "100:look=0,60;500:shot=..."` (caravan tub). `docs/images/pool-refraction-walker-before.webp`.
+
+### What changed
+- `intro_cinematic.cpp` `setMirrorPlayer`: a first-person walker no longer feeds the pool's REFRACT layer (`view.setRefractionActors(false)`); the intro's swimmers keep it. `-refractwalker` = old behaviour.
+- Debug flags: `-showrefract` (blit the GSReflection RT instead of the scene), `-noreflactors` (skip the actor mirror layers), `-logprojectors` (node world bounds per projector).
+
+### Verified
+- `-showrefract` before the fix: the RT held the basin + the walker's head seen from inside (teeth / tongue) + a ladder. With `-norefractactors` the head is gone; with the fix the pool shows only water + basin (`docs/images/pool-refraction-walker-after.webp`).
+
+### Ruled out
+- `-noactorreflect`-style actor mirror layer (`-noreflactors`): identical frame. Forcing the refraction layer two-sided: identical frame. Not the projectors' geometry (POOL basin bounds y 7.53..8.37 match the tub).
+
+### Not done / next
+- The owner's shot was a house with an in-ground pool (dining table, ladder, lifebuoy) and also showed green terrain-like shapes in the water; the tub repro shows no terrain, so that second symptom may be the same head/body (other avatar parts) or an EPH_L3DI-specific thing - recheck with `-enterhouse EPH_L3DI_5067I` and `-showrefract`.
+
 ## Session 2026-11-20 (`main`, clouds composited over foliage / markers - first fix, unverified by eye)
 
 Owner (8 screenshots): clouds paint over trees, 3D markers and lamp glows; also reported, **not touched**: furniture / car collision in dealerships and house props (chairs through a table), Veyron Grand Sport rim + glass oddities, pool reflection (dark blob + terrain in the water), brake lights / glow misaligned.

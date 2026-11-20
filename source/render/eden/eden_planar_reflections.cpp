@@ -149,6 +149,15 @@ uint32_t EdenPlanarReflections::registerScene( const EdenModel &model, const Mat
             // FUN_00dd63e0: object of the current projector.
             if ( pCurrent != nullptr && pCurrent->Nodes.size() < kMaxObjects ) {
                 pCurrent->Nodes.push_back( nodeIndex );
+                static const bool bLogProj = CmdLine::HasArg( "-logprojectors" );
+                if ( bLogProj ) {
+                    const Matrix4x4f nw = world * model.getNodeTransform( nodeIndex );
+                    const Vector3f a = nw.transformPoint( boundsMin ), b = nw.transformPoint( boundsMax );
+                    OTDU_LOG_INFO( "GSReflection: '%s' node '%s' world corners (%.2f %.2f %.2f) .. (%.2f %.2f %.2f) "
+                                   "local bounds y %.2f..%.2f\n",
+                                   pCurrent->Name.c_str(), node.Name.c_str(), a.x, a.y, a.z, b.x, b.y, b.z,
+                                   boundsMin.y, boundsMax.y );
+                }
             }
             continue;
         }
@@ -288,8 +297,9 @@ void EdenPlanarReflections::render( EdenRenderer &renderer, const EdenSceneParam
     // plane — for the living-room floor (y = 37.49) that is the whole
     // outdoors, pool and terrain included — is mirrored to the wrong side
     // and lands over the rest of the screen as giant displaced blobs.
+    static const bool bNoActorLayers = CmdLine::HasArg( "-noreflactors" ); // A/B
     for ( const Projector &projector : projectors ) {
-        if ( !projector.bActorLayer || !drawActors ) {
+        if ( !projector.bActorLayer || !drawActors || bNoActorLayers ) {
             continue;
         }
         device.clearRenderTargetDepth();

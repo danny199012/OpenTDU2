@@ -1390,6 +1390,14 @@ void IntroCinematic::setMirrorPlayer( const Vector3f &floorPosition, float headi
         return;
     }
     bMirrorPlayer = true;
+    // The first-person walker's body stands under the camera: in the pool's
+    // refraction layer it showed as a dark blob (the head seen from inside).
+    // Swimmers of the intro keep the layer; a walker is not one.
+    // -refractwalker restores the old look (A/B).
+    static const bool bKeepWalkerRefraction = CmdLine::HasArg( "-refractwalker" );
+    if ( !bKeepWalkerRefraction ) {
+        view.setRefractionActors( false );
+    }
     if ( !bPlayerEmote ) {
         playerEmoteFloor = floorPosition;
         playerEmoteHeading = headingY;

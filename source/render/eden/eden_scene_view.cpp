@@ -2168,6 +2168,11 @@ void EdenSceneView::draw() {
     } else if ( bShowCloudHist && volumetricClouds.getHistoryColor() != nullptr ) {
         pColor = volumetricClouds.getHistoryColor();
     }
+    // -showrefract: the GSReflection screen-sized target (refraction / mirror layers).
+    static const bool bShowRefract = CmdLine::HasArg( "-showrefract" );
+    if ( bShowRefract && planarReflections.isActive() && planarReflections.getTexture() != nullptr ) {
+        pColor = planarReflections.getTexture();
+    }
     static const bool bShowShadow = CmdLine::HasArg( "-showshadowbuffer" );
     if ( bShowShadow && shadows.getScreenShadow() != nullptr ) {
         pColor = &shadows.getScreenShadow()->Color;
