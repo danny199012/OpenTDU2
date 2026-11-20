@@ -3,6 +3,16 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, finger layers hand_size / hand_open)
+
+Owner: "Add the finger layers hand_open and hand_size" (and offered to record the 360 recomp for a video comparison; also reported wind turbines without blades - not touched here).
+
+- **Trap fixed**: `avatarsdriver.bnk` holds same-named clips of other sets - `findEntry("hand_size.anm")` returned `animsike\man\hand_size.anm` (18 tracks, none on the car driver's skeleton). The loader now takes the entry under `anims\car\` (`seated_avatar.cpp`, `loadClip`). The car hand_size has 41 tracks, both hands' fingers, 1.0 s.
+- **hand_size [DATA]**: t 0..0.5 an open flat hand (57 deg mean finger rotation away from turn-mid), 0.75 -> 37 deg, 1.0 -> 24 deg: a closing sweep, so the sample time = grip size. The game's time is not decoded [INF]: constant 1.0 (the closest to the turn.xan fist; `-handgrip <0..1>` to look, `-nohandsize` off). Effect at the rim is small (mean pixel diff 0.16 vs off): the turn.xan fist already is that grip.
+- **hand_open**: 21 right-hand finger tracks, one pose; blended in with the shift ramp (`-nohandopen` off). Not visible in the shots (the right hand is the far hand, no camera angle sees it) - NOT verified visually; the later gear_seq_up finger tracks also overwrite part of it.
+- Evidence `docs/images/driver-fingers-s68.webp`. `-logdriveclips` prints the hand_size sweep numbers.
+- Next: a camera on the right hand during a shift (`-shifttest 1 -shifttestat 80`) to see hand_open; the owner's 360-recomp video would settle the grip time / angle map.
+
 ## Session 2026-11-20 (`main`): the scene editor, M1 + M2 (owner request: "a tool like blender but easy to use, headless, AI can use it; design buildings, interiors, props from what's in the game; attach/detach; map editor with spline roads")
 
 Task: the approved plan's first two milestones — the in-engine scene editor shell + the AI/headless command interface. M3 (spline roads), M4 (interiors), M5 (native bank export) follow.

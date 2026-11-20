@@ -104,7 +104,7 @@ private:
     int32_t shiftDirection = 0; // +1 up, -1 down (the last change)
     // The game's driving clips (avatarsdriver.bnk anims\car\*.anm, referenced by
     // driveiklayer0..5.bas) [DATA]: layer 0 turn, layer 4 hand_open, layer 5 gear_*.
-    EdenAnimation turnClip, handOpenClip, gearSeqUp, gearSeqDown, gearLeverUp, gearLeverDown;
+    EdenAnimation turnClip, handSizeClip, handOpenClip, gearSeqUp, gearSeqDown, gearLeverUp, gearLeverDown;
     bool bDriveClips = false;
     float steerFraction = 0.0f; // wheel angle / lock, -1..1
     float shiftPlay = -1.0f;    // s into the playing gear clip (< 0: none)

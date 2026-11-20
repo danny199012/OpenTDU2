@@ -27,11 +27,23 @@ bool SeatedAvatar::load( EdenAvatarLibrary &library, const char *pConfigId, eSea
     bDriveClips = false;
     if ( seat == eSeat::Driver && !CmdLine::HasArg( "-noclipdrive" ) ) {
         auto loadClip = [&]( EdenAnimation &clip, const char *pName ) {
-            const BankEntry *pClipEntry = driverBank.findEntry( pName );
+            // The bank holds same-named clips of other sets (anims\bike\man\hand_size.anm is the bike's, 18 tracks
+            // on bones the car driver does not have): take the one under anims\car\ [DATA].
+            const BankEntry *pClipEntry = nullptr;
+            for ( const BankEntry &entry : driverBank.getEntries() ) {
+                std::string path = entry.Path;
+                for ( char &ch : path ) {
+                    ch = static_cast<char>( tolower( static_cast<unsigned char>( ch ) ) );
+                }
+                if ( StringCmpI( entry.Filename.c_str(), pName ) == 0 && path.find( "anims\\car\\" ) != std::string::npos ) {
+                    pClipEntry = &entry;
+                    break;
+                }
+            }
             return pClipEntry != nullptr && clip.parse( pClipEntry->pData, pClipEntry->Size );
         };
         const bool w = avatar.isWoman();
-        bDriveClips = loadClip( turnClip, "turn.anm" ) && loadClip( handOpenClip, "hand_open.anm" ) &&
+        bDriveClips = loadClip( turnClip, "turn.anm" ) && loadClip( handOpenClip, "hand_open.anm" ) && loadClip( handSizeClip, "hand_size.anm" ) &&
                       loadClip( gearSeqUp, w ? "gear_seq_up-w.anm" : "gear_seq_up.anm" ) &&
                       loadClip( gearSeqDown, w ? "gear_seq_down-w.anm" : "gear_seq_down.anm" ) &&
                       loadClip( gearLeverUp, "gear_lever_up.anm" ) && loadClip( gearLeverDown, "gear_lever_down.anm" );
@@ -41,6 +53,7 @@ bool SeatedAvatar::load( EdenAvatarLibrary &library, const char *pConfigId, eSea
             const EdenSkeleton &sk = avatar.getSkeleton();
             const std::pair<const char *, const EdenAnimation *> list[] = { { "turn", &turnClip },
                                                                             { "hand_open", &handOpenClip },
+                                                                            { "hand_size", &handSizeClip },
                                                                             { "gear_seq_up", &gearSeqUp },
                                                                             { "gear_seq_down", &gearSeqDown },
                                                                             { "gear_lever_up", &gearLeverUp },
@@ -49,6 +62,18 @@ bool SeatedAvatar::load( EdenAvatarLibrary &library, const char *pConfigId, eSea
                 std::string bones;
                 for ( size_t i = 0; i < c.second->getTrackCount(); i++ ) {
                     bones += std::to_string( sk.findBone( c.second->getTrackBone( i ) ) ) + ",";
+                }
+                if ( std::string( c.first ) == "hand_size" ) {
+                    std::string all;
+                    for ( uint32_t b = 0; b < sk.getNumBones(); b++ ) {
+                        char tmp[24];
+                        snprintf( tmp, sizeof tmp, "%u:%08x ", b, sk.getHash( b ) );
+                        all += tmp;
+                    }
+                    OTDU_LOG_INFO( "DRIVECLIP skeleton %s\n", all.c_str() );
+                    for ( size_t i = 0; i < c.second->getTrackCount(); i++ ) {
+                        OTDU_LOG_INFO( "DRIVECLIP hand_size track %zu bone hash %08x keys %zu\n", i, c.second->getTrackBone( i ), c.second->getTrackKeys( i ) );
+                    }
                 }
                 OTDU_LOG_INFO( "DRIVECLIP %s dur %.3f loop %.3f tracks %zu bones %s\n", c.first,
                                c.second->getDuration(), c.second->getLoopDuration(), c.second->getTrackCount(),
@@ -71,6 +96,29 @@ bool SeatedAvatar::load( EdenAvatarLibrary &library, const char *pConfigId, eSea
                     const Vector3f pl = wm[sk.findBone( EdenNameHash4( "Hand_L" ) )].getTranslation();
                     OTDU_LOG_INFO( "DRIVECLIP %s f=%.2f HandR (%.3f %.3f %.3f) HandL (%.3f %.3f %.3f)\n", c.first, f, pr.x, pr.y, pr.z, pl.x, pl.y, pl.z );
                 }
+            }
+            for ( float f : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f } ) {
+                std::vector<BoneTransform> base( sk.getNumBones() );
+                for ( uint32_t b = 0; b < sk.getNumBones(); b++ ) {
+                    base[b] = sk.getBindLocal( b );
+                }
+                turnClip.sample( sk, 0.5f * turnClip.getDuration(), false, base );
+                std::vector<BoneTransform> sized = base;
+                handSizeClip.sample( sk, f * handSizeClip.getDuration(), false, sized );
+                float sum = 0.0f;
+                int32_t n = 0;
+                for ( size_t i = 0; i < handSizeClip.getTrackCount(); i++ ) {
+                    const int32_t b = sk.findBone( handSizeClip.getTrackBone( i ) );
+                    if ( b < 0 ) {
+                        continue;
+                    }
+                    const Quaternionf &q0 = base[b].Rotation;
+                    const Quaternionf &q1 = sized[b].Rotation;
+                    const float d = std::abs( q0.x * q1.x + q0.y * q1.y + q0.z * q1.z + q0.w * q1.w );
+                    sum += 2.0f * acosf( std::min( 1.0f, d ) ) * 57.2958f;
+                    n++;
+                }
+                OTDU_LOG_INFO( "DRIVECLIP hand_size f=%.2f vs turn-mid: mean finger rotation diff %.1f deg over %d bones\n", f, n ? sum / n : 0.0f, n );
             }
             const char *pHands[] = { "Hand_R", "Hand_L", "ForeArm_R" };
             const float fr[] = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f };
@@ -130,6 +178,13 @@ void SeatedAvatar::update( const CinematicCar &car, const Matrix4x4f &carWorld,
     steerFraction = Clamp( driveWheelAngle / 1.5708f, -1.0f, 1.0f );
     if ( bClips ) {
         turnClip.sample( skeleton, ( 0.5f + 0.5f * steerFraction ) * turnClip.getDuration(), false, locals );
+        // Layer 2 (driveiklayer2.bas, weight 1.0): hand_size = the finger grip. A pose clip whose sample
+        // time sets the grip size; the game's time is not decoded, so the rim grip is a constant fraction
+        // of the clip [INF] (-handgrip <0..1> to look at it).
+        static const float gripFraction = CmdLine::HasArg( "-handgrip" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-handgrip" ) ) ) : 1.0f;
+        if ( !CmdLine::HasArg( "-nohandsize" ) ) {
+            handSizeClip.sample( skeleton, gripFraction * std::max( handSizeClip.getDuration(), handSizeClip.getLoopDuration() ), false, locals );
+        }
     }
     if ( pOverride != nullptr && overrideWeight > 0.0f ) {
         std::vector<BoneTransform> clip = locals;
@@ -187,6 +242,20 @@ void SeatedAvatar::update( const CinematicCar &car, const Matrix4x4f &carWorld,
                 const float t = shiftDirection > 0 ? shiftPlay : dur - shiftPlay; // down plays it reversed [INF]
                 const float w = Clamp( std::min( shiftPlay, dur - shiftPlay ) / 0.2f, 0.0f, 1.0f );
                 shiftBlend = w * w * ( 3.0f - 2.0f * w );
+                // Layer 4: hand_open (21 finger tracks, a 0.2 s looping pose) opens the right hand as it
+                // reaches the lever, weighted with the shift ramp [INF: the game's weight law].
+                if ( !CmdLine::HasArg( "-nohandopen" ) ) {
+                    std::vector<BoneTransform> open = locals;
+                    handOpenClip.sample( skeleton, 0.0f, false, open );
+                    std::vector<BoneTransform> blendedOpen;
+                    BlendPoses( locals, open, shiftBlend, blendedOpen );
+                    for ( size_t i = 0; i < handOpenClip.getTrackCount(); i++ ) {
+                        const int32_t b = skeleton.findBone( handOpenClip.getTrackBone( i ) );
+                        if ( b >= 0 ) {
+                            locals[b] = blendedOpen[b];
+                        }
+                    }
+                }
                 std::vector<BoneTransform> clip = locals;
                 gearSeqUp.sample( skeleton, t, false, clip );
                 std::vector<BoneTransform> mixed;
