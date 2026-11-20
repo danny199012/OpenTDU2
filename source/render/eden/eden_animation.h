@@ -46,6 +46,18 @@ public:
     bool parse( const uint8_t *pData, size_t size );
 
     inline float getDuration() const { return duration; }
+    inline float getLoopDuration() const { return loopDuration; }
+    inline size_t getTrackCount() const { return tracks.size(); }
+    inline uint32_t getTrackBone( size_t i ) const { return tracks[i].BoneHash; }
+    inline size_t getTrackKeys( size_t i ) const { return tracks[i].Rotation.Times.size() + tracks[i].Translation.Times.size(); }
+    inline bool hasTrack( uint32_t boneHash ) const {
+        for ( const Track &t : tracks ) {
+            if ( t.BoneHash == boneHash ) {
+                return true;
+            }
+        }
+        return false;
+    }
     // Overwrites the animated channels of 'locals' (bind pose for the
     // others) at clip time t (wrapped by the clip duration when bLoop).
     void sample( const EdenSkeleton &skeleton, float time, bool bLoop, std::vector<BoneTransform> &locals ) const;

@@ -85,6 +85,11 @@ the LR model the seat adjustment finds no node.
 | 6 Back_L | (0, −0.20, 0.01) | (0, −0.22, −0.02) |
 | 11 Back_R / 12, 13 PsgFoot | (0, −0.2, 0.04) / (0, 0, 0.03) / 0 | (0, −0.19, 0.08) / (0, 0, 0.1) / (0, 0, 0.04) |
 
+### 1.4 Clip decode (session 2026-11-20, `-logdriveclips`) [DATA]
+- turn.anm: 1.04 s, 73 tracks, one lock-to-lock sweep: t=0 right lock (Hand_R at the rim bottom, avatar model (-0.015, 0.21, 0.41)), 0.5 straight (= stance_turn, hands (+-0.186, 0.38, 0.476)), 1.0 left lock (Hand_R at the top). The rim moves +-90 deg over the clip.
+- gear_seq_up 1.0 s (26 tracks): right arm + fingers, Hand_R (-0.554, 0.140, -0.117) -> (-0.600, 0.199, -0.116) at mid -> back. gear_seq_down 1.0 s (27 tracks): the left arm mirrored (Hand_L +0.554). gear_lever_up / down 0.2 s (22 tracks), hand_open dur 0 / loop 0.2 (21 finger tracks).
+- Implementation: `SeatedAvatar` (clips first, layer-6 IK last). The angle -> time map and the shift ramps are [INF]; `-noclipdrive` keeps the old procedural IK. The 2012 dev build has no readable driving code (its anim_blend_drive loader belongs to the bike avatar class).
+
 ## 2. Code path [CODE]
 - Enter car FUN_00b7ffe0: car (`+0x1c54 = 100`) vs bike (99). FUN_00b86c00 → FUN_00b964b0 fills the avatar's
   27 (node, offset entry) pairs at +0x1a94 (HR node by name hash, else LR via FUN_008bb130). Seat group

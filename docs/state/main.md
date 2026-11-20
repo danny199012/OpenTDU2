@@ -3,6 +3,30 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, clip-driven seated driver)
+
+Task: replace the procedural driver IK (hand goals on the wheel + 0.6 s reach to GEAR_LR) by the game's own driving clips.
+
+### What changed
+- `seated_avatar.cpp/.h`: loads `turn.anm`, `hand_open`, `gear_seq_up/down` (`-w` for the woman), `gear_lever_up/down` from `avatarsdriver.bnk`. Layer 0: `turn.anm` sampled at `(0.5 + 0.5 * clamp(wheel/1.5708)) * 1.04 s` over the base pose (the wheel angle comes from `GMFreeRide::updateSteeringWheel`, positive = left, unchanged). Layer 5: a gear change plays `gear_seq_up` (both directions, reversed for down) 1.0 s with 0.2 s ramps, blended onto the arm tracks, then the layer-6 IK runs after the clips (right-hand goal -> Gear node blended by the ramp + the clip's hand lift). `-noclipdrive` = the old procedural path (kept as fallback).
+- `eden_animation.h`: `getLoopDuration / getTrackCount / getTrackBone / hasTrack`.
+- Flags: `-logdriveclips` (durations, tracks, hand positions along each clip), `-shifttest <+1/-1> [-shifttestat N]` (plays a shift on update N; photo mode freezes updates ~91, so N=80 catches the reach), `-logshift`.
+
+### Data [DATA] (`-logdriveclips`, driver_seat_spec 1.4)
+- turn.anm = ONE lock-to-lock sweep, 1.04 s: t=0 right lock (right hand at the rim bottom), 0.5 straight (= stance_turn), 1.0 left lock (right hand at the top); the rim covers only +-90 deg, the game's wheel goes +-270 deg, so beyond the clip lock the hand IK carries the hands.
+- gear_seq_up (1.0 s): RIGHT arm + fingers, hand at (-0.55, 0.14, -0.12) with a 6 cm lift and back; gear_seq_down: the same for the LEFT arm mirrored (+0.55) = the right-hand-drive twin. So up / down are NOT shift directions; a LHD car uses seq_up for both [INF].
+- gear_lever_up / down (0.2 s): finger / wrist only, hand near the pelvis (partial clips) - unused for now.
+- hand_open: 21 finger tracks, dur 0 loop 0.2.
+
+### Verified
+- Side view of the cabin (profile `avatar_config = AVT_Male` in `C:	emp\otdu2-clip-userdata`): `docs/images/driver-clips-s68.webp` - wheel 0 / +1.5 / -1.5 rad and mid shift. Clip vs `-noclipdrive` at -1.5: mean pixel diff 7.0 (poses differ). `-logshift`: blend 0 -> 1 -> 0 over 1.0 s, lift 0 -> 0.059 m.
+
+### Ruled out
+- The 2012 dev build has no readable driving code: its avatar class (`anim_blend_drive` loader at 0x8c5bc5, array +0x250 x 0x18) is the BIKE avatar; the car weights / timings are not in it. The angle -> clip-time map and the ramps are [INF].
+
+### Not done / next
+- Finger layers (hand_size, hand_open at the gear lever), gear_lever_* use, an owner look: the shift motion is subtle (the Gear node is near the wheel). Built and tested in a git worktree `C:\OpenTDU2-clip` (branch `clipdrive`) because the main tree's untracked `scene_editor/` WIP did not compile; merged into main afterwards.
+
 ## Session 2026-11-20 (`main`): fourth Ibiza OIL station wired; `-lognearinst`
 
 Owner: found another petrol station (F6 X 20338.6 Z 20153.4), wants it wired, shutters removed, lighting and better textures; unsure where the others are.
