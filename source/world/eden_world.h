@@ -361,6 +361,18 @@ private:
         Bank SectorBank;
         Heightfield Terrain;
         EdenModel Objects;
+        // Rotating actors of the sector's nested _sc bank (entities.xmb Entity__Actor__RotatingActor: the wind
+        // turbine rotors, fu_eolea_act): the mesh is a separate model the sector objects do not contain.
+        struct RotorActor {
+            std::unique_ptr<EdenModel> Model;
+            Vector3f Position; // sector local
+            Quaternionf Orientation;
+            Vector3f Scale;
+            float Speed = 0.0f; // rad / s (RotationSpeed of entities.xmb)
+            float Phase = 0.0f;
+        };
+        Bank RotorBank;
+        std::vector<RotorActor> Rotors;
         // The up-facing triangles of the tunnel / bridge nodes (BuildCarveGround):
         // soup indices into Objects' collision copy (three per triangle) bucketed
         // by 8 m XZ cell (sector local, CellKey) - the ground the drive physics

@@ -3,6 +3,23 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, wind turbine rotors on Ibiza)
+
+Owner: wind turbines drawn as tower + nacelle with no blades (photo-camera shot at X 30493 Y 363 Z 4307 - **Ibiza**, not Hawai; Y is the photo camera's height).
+
+### What changed
+- `source/world/eden_world.cpp` / `.h`: each sector bank nests a `<sector>_sc` bank [DATA]. Its `entities.xmb` holds `Entity__Actor__RotatingActor` (`orient_pos_scale` = quaternion + position + scale in sector-local coordinates, `RotationSpeed` 3.0 rad/s for `FU_EoleA_act*`, 1.2 for `FU_EoleD_act*`, `WindCoeff`/`MinAngle`/`MaxAngle`/`Pause` all 0) and the rotor model `decors/ibiza/objects/furnitures/fu_eole/fu_eolea_act_<hash>.3DD/.3DG/.2DM` (one node `FU_Eole`, a flat 46 x 43 m disc, thin along its local Y = the shaft axis). The tower + nacelle (`FU_EOLEA`, materials `FU_Eole_Pill/Concret/Metal/Door`) are the only turbine pieces in the sector `-o` bank, so the port never had the blades. Now `loadSector` loads the nested bank, builds one model per rotor entity, and `drawSectors` draws it at the entity pose spun about its local Y (`world * T*R * spin(Y) * S`; matrices are column-vector, `A*B` applies B first). Phase = index * 1.7 rad [INF]. Speed is the entity's own RotationSpeed [DATA], clock is wall time.
+- Flags: `-norotors` (A/B), `-logeole` (prints `ROTOR` entity rows and `ROTORITEM` model bounds), `-rotortest` (identity orientation, a debug aid).
+
+### Verified
+- `-gm FREERIDE -island ibiza -tp 30493,4307 -skipcine -nopad -photoat 30493,363,4307,75,-10,60 -autoplay "400:shot=..."`: all four visible turbines now carry three blades (`docs/images/wind-turbine-rotors-ibiza.webp`; before: bare nacelles, identical camera). 6 rotor entities in sector-0-3-4-7.
+
+### Ruled out
+- Not a world instance (only `EL_AG_*`/`EL_MP_*` pole models) and not culled/hidden: no blade geometry exists in the sector objects; `-lognearinst` / `-lognearmesh` show only `FU_EOLEA` items 1-5.
+
+### Not done / next
+- Hawai has `fu_eole` references too (sector-6-2-1-3): not looked at, the same loader should handle it. Night shading of the blades not compared with retail. Rotor orientation handedness verified by eye on Ibiza only; spin direction unknown [INF]. Other `Entity__Actor__*` classes of the `_sc` banks (the nested banks' other props) are still ignored.
+
 ## Session 2026-11-20 (`main`, scene editor M4 — interior-bank composition + walk-mode entry)
 
 The scene editor roadmap's M4 ("interior-bank composition + walk-mode entry"), continuing M3 (roads, last commit). Task: place the game's own walkable rooms in a scene, compose furniture into them, and walk them first person to feel the composition.

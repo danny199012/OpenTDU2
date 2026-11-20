@@ -16,6 +16,7 @@
 #include "render/texture_cache.h"
 #include "system/cmd_line.h"
 #include "core/watchdog.h"
+#include <chrono>
 #include "core/xmb.h"
 #include "core/crypto/cpr.h"
 #include "render/eden/eden_weather.h"
@@ -2057,6 +2058,66 @@ bool EdenWorld::loadSector( const SectorId &id ) {
                            materialSetup );
     applyVisibility( pSector->Objects );
     stage( "objects" );
+    // Rotating actors (the wind turbine rotors): the sector bank nests a "<sector>_sc" bank whose entities.xmb lists
+    // Entity__Actor__RotatingActor (orient_pos_scale, mesh, RotationSpeed) and carries the rotor model
+    // (fu_eolea_act). The sector objects hold only the tower + nacelle. [DATA] -norotors skips.
+    if ( !CmdLine::HasArg( "-norotors" ) ) {
+        for ( const BankEntry *pNested : pSector->SectorBank.findEntriesByExtension( "bnk" ) ) {
+            std::vector<uint8_t> copy( pNested->pData, pNested->pData + pNested->Size );
+            if ( !pSector->RotorBank.loadFromMemory( std::move( copy ), pNested->Name.c_str() ) ) {
+                continue;
+            }
+            const BankEntry *pEntities = pSector->RotorBank.findEntry( "entities.xmb" );
+            XmbDocument entities;
+            if ( pEntities == nullptr || !entities.load( pEntities->pData, pEntities->Size ) ) {
+                continue;
+            }
+            XmbValue root = entities.getRoot()["ExportType_Entity"];
+            const uint32_t numRotors = root.getArraySize( "ArrayOf_Entity__Actor__RotatingActor" );
+            if ( numRotors == 0 ) {
+                continue;
+            }
+            const std::vector<const BankEntry *> scenes = pSector->RotorBank.findEntriesByExtension( "3dd" );
+            for ( uint32_t i = 0; i < numRotors; i++ ) {
+                XmbValue actor = root.getArrayElement( "ArrayOf_Entity__Actor__RotatingActor", i );
+                XmbValue mat = actor["orient_pos_scale"];
+                XmbValue rot = mat["rot"], pos = mat["pos"], scl = mat["scale"];
+                Sector::RotorActor rotor;
+                rotor.Orientation = Quaternionf( rot["X"].asFloat(), rot["Y"].asFloat(), rot["Z"].asFloat(), rot["W"].asFloat() );
+                rotor.Position = Vector3f( pos["X"].asFloat(), pos["Y"].asFloat(), pos["Z"].asFloat() );
+                rotor.Scale = Vector3f( scl["X"].asFloat( 1.0f ), scl["Y"].asFloat( 1.0f ), scl["Z"].asFloat( 1.0f ) );
+                rotor.Speed = actor["RotationSpeed"].asFloat();
+                rotor.Phase = static_cast<float>( i ) * 1.7f;
+                if ( CmdLine::HasArg( "-logeole" ) ) {
+                    OTDU_LOG_INFO( "ROTOR %u '%s' pos (%.2f %.2f %.2f) rot (%.3f %.3f %.3f %.3f) scale (%.2f %.2f %.2f) speed %.3f wind %.3f angle %.2f..%.2f pause %.2f\n", i,
+                                   actor["__Name"].asString().c_str(), rotor.Position.x, rotor.Position.y, rotor.Position.z, rot["X"].asFloat(),
+                                   rot["Y"].asFloat(), rot["Z"].asFloat(), rot["W"].asFloat(), rotor.Scale.x, rotor.Scale.y, rotor.Scale.z,
+                                   rotor.Speed, actor["WindCoeff"].asFloat(), actor["MinAngle"].asFloat(), actor["MaxAngle"].asFloat(),
+                                   actor["Pause"].asFloat() );
+                }
+                // Every turbine of the sector shares the one rotor model (the first 3dd of the nested bank).
+                if ( !scenes.empty() ) {
+                    const BankEntry *pScene = scenes[0];
+                    const BankEntry *pGeometry = pSector->RotorBank.findEntry( pScene->Name.c_str(), "3dg" );
+                    const BankEntry *pMaterials = pSector->RotorBank.findEntry( pScene->Name.c_str(), "2dm" );
+                    rotor.Model = std::make_unique<EdenModel>();
+                    if ( pGeometry == nullptr ||
+                         !rotor.Model->load( *pRenderer, *pScene, *pGeometry, pMaterials, &libraryMaterials, path, nullptr, materialSetup ) ) {
+                        continue;
+                    }
+                    applyVisibility( *rotor.Model );
+                    if ( CmdLine::HasArg( "-logeole" ) && i == 0 ) {
+                        for ( const EdenModel::Item &it : rotor.Model->getItems() ) {
+                            OTDU_LOG_INFO( "ROTORITEM node %d lod %d mat '%s' (%.2f %.2f %.2f)-(%.2f %.2f %.2f)\n", it.NodeIndex, static_cast<int>( it.Lod ),
+                                           rotor.Model->getMaterials()[it.MaterialIndex].Name.c_str(), it.BoundsMin.x, it.BoundsMin.y, it.BoundsMin.z,
+                                           it.BoundsMax.x, it.BoundsMax.y, it.BoundsMax.z );
+                        }
+                    }
+                    pSector->Rotors.push_back( std::move( rotor ) );
+                }
+            }
+        }
+    }
     if ( modelLoadedCallback && pSector->Objects.isLoaded() ) {
         modelLoadedCallback( pSector->Objects );
     }
@@ -3280,6 +3341,24 @@ void EdenWorld::draw( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
             sector.Objects.setFoamOffset( sector.FoamTideVector * seaLevelOffset +
                                           Vector3f( 0.0f, seaLevelOffset, 0.0f ) );
             sector.Objects.draw( renderer, world );
+            // Wind turbine rotors: a slow spin about the shaft axis [DATA: the rotor mesh is a flat disc, thin along its local Y; speed RotationSpeed of the entity].
+            for ( Sector::RotorActor &rotor : sector.Rotors ) {
+                if ( rotor.Model == nullptr || !rotor.Model->isLoaded() ) {
+                    continue;
+                }
+                static const auto rotorT0 = std::chrono::steady_clock::now();
+                const float rotorClock = std::chrono::duration<float>( std::chrono::steady_clock::now() - rotorT0 ).count();
+                const float angle = rotor.Phase + rotor.Speed * rotorClock;
+                const float c = cosf( angle ), sn = sinf( angle );
+                Matrix4x4f spin = Matrix4x4f::Identity();
+                spin.m[0][0] = c;
+                spin.m[0][2] = -sn;
+                spin.m[2][0] = sn;
+                spin.m[2][2] = c;
+                const Matrix4x4f actorWorld = world * Matrix4x4f::FromRotationTranslation( rotor.Orientation, rotor.Position ) * spin * Matrix4x4f::Scale( rotor.Scale );
+                static const bool bRotorTest = CmdLine::HasArg( "-rotortest" );
+                rotor.Model->draw( renderer, bRotorTest ? Matrix4x4f::Scale( rotor.Scale ) * Matrix4x4f::Translation( rotor.Position ) * world : actorWorld );
+            }
         }
         if ( !bNoObjects && !bNoInstances ) {
             drawInstances( renderer, sector, cameraPosition );
