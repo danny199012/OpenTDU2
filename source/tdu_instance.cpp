@@ -839,6 +839,9 @@ void TestDriveGameInstance::mainLoop() {
             mainMsSum += mainMs;
             uiMsSum += uiMs;
             endMsSum += endMs;
+            if ( EdenRenderer *pEdenStats = pRender->getEdenRenderer() ) {
+                WatermarkOverlay::SetDrawCalls( pEdenStats->getNumDrawCalls() );
+            }
             WatermarkOverlay::SetFrameTimes( updateMs, offscreenMs, mainMs, uiMs, endMs, frameMs );
             updateMsMax = Max( updateMsMax, updateMs );
             drawMsMax = Max( drawMsMax, drawMs );

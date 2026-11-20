@@ -22,9 +22,14 @@ float gFpsAccum = 0.0f, gFpsWorst = 0.0f, gFpsShown = 0.0f, gMsShown = 0.0f, gWo
 int gFpsFrames = 0;
 double gTimes[6] = {};
 std::string gGpuSummary;
+unsigned gDrawCalls = 0;
 } // namespace
 
 namespace WatermarkOverlay {
+
+void SetDrawCalls( unsigned count ) {
+    gDrawCalls = count;
+}
 
 void SetGpuSummary( const char *pText ) {
     gGpuSummary = pText != nullptr ? pText : "";
@@ -97,6 +102,7 @@ void Draw() {
         ImGui::Text( "FPS %.0f  ·  %.1f ms  ·  worst %.0f ms", gFpsShown, gMsShown, gWorstShown );
         ImGui::TextDisabled( "update %.0f · offscreen %.0f · main %.0f · ui %.0f · present %.0f · wait %.0f ms", gTimes[0], gTimes[1],
                              gTimes[2], gTimes[3], gTimes[4], gTimes[5] );
+        ImGui::TextDisabled( "draw calls %u", gDrawCalls );
         if ( !gGpuSummary.empty() ) {
             ImGui::PushTextWrapPos( ImGui::GetCursorPosX() + DpiScaled( 640.0f, 0.0f ).x );
             ImGui::TextDisabled( "%s", gGpuSummary.c_str() );
