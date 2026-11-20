@@ -11,6 +11,21 @@ Owner (recording of the retail game): with an existing profile retail loads stra
 - Verified headless (`-no3d -fixedtimestep -autoplay "300:press=validate"`): empty userdata -> `New profile screen (nickname pre-filled '')`; `profile.sav` name only -> `profile 'Tester' found - New profile dialog skipped`; with `-playername Zed` -> `'Zed'` skipped; story_step 1 -> skipped + `progression found -> continue` + FREERIDE; first run + `-playername Zed` -> dialog pre-filled 'Zed'.
 - Not done: the owner's video was not frame-compared (retail title -> loading timing); a retail "profile selection" page for several profiles does not exist here.
 
+## Session 2026-11-20 (`main`, shift reach on every car)
+
+Owner (from the 360-recomp video): retail shows no shift on the Audi R8, a reach to the lever on an older red manual car; "the shift animation on every car".
+
+### What changed
+- `seated_avatar.cpp`: when the car has no `GEAR_LR` node the right-hand lever goal is `HAND_LR_R` + (-0.16, -0.16, -0.01) in car space [INF], x mirrored by the seat side. `-nogearfallback` = old behaviour. `-logshiftnodes` logs per car: GEAR_LR present + position, IKOffsetDB Gear offset, HAND/FOOT/BACK nodes, seat position, any node named GEAR/SHIFT/LEVER/KNOB/PADDLE. `CinematicCar::findNodeNames`. `-listcars` (gm_freeride) prints the PC-valid DB car names (173).
+### Data [DATA]
+- Of 122 cars that loaded in the sweep: 50 have `GEAR_LR` (all with IKOffsetDB Gear offset 0 or small), **72 have none - including the California** (so the port never reached there); HAND/FOOT/BACK nodes exist on all. IKOffsetDB Gear offset is non-zero on 40 cars (20 without a node) - it is an offset on the node, not a position. Two cars (117, 374) carry a node called plain `GEAR` (not the lever node).
+- gear - seat (car space) median (-0.35, 0.32, 0.47) std 0.11 / 0.07 / 0.08; gear - HAND_LR_R median (-0.16, -0.16, -0.01) std 0.10 / 0.06 / 0.05 (the one used). Driver seat x > 0 on 49 of 50.
+### Verified
+- California side view from the passenger side, `-shifttest 1 -shifttestat 80`: with the fallback the right hand leaves the wheel, with `-nogearfallback` it stays: `docs/images/driver-shift-fallback-s69.webp`.
+### Not done / next
+- How retail decides lever vs hands-on-wheel (R8) is not found (no DB gearbox field / node difference read); every car animates now. The mirror / door hides the lever from the driver side; a cleaner overhead shot needs a better `-photoat` pose. Offset is [INF] per car: a car-by-car check of the lever reach in play is owed.
+- Worked in a worktree (`C:\OpenTDU2-shift`, build dir `build`) because another session's uncommitted scene_editor work broke the main build; delete it with `git worktree remove ../OpenTDU2-shift`.
+
 ## Session 2026-11-20 (`main`, finger layers hand_size / hand_open)
 
 Owner: "Add the finger layers hand_open and hand_size" (and offered to record the 360 recomp for a video comparison; also reported wind turbines without blades - not touched here).

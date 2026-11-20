@@ -89,6 +89,7 @@ private:
     float overrideWeight = 1.0f;
     CarIKOffsets offsets;
     int32_t offsetsCar = -2;
+    int32_t loggedNodesCar = -3; // -logshiftnodes: once per car
     Matrix4x4f world;
     std::vector<Matrix4x4f> worldBones;
     std::vector<Matrix4x4f> skin;

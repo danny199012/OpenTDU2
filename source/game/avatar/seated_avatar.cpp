@@ -161,6 +161,28 @@ void SeatedAvatar::update( const CinematicCar &car, const Matrix4x4f &carWorld,
             OTDU_LOG_WARN( "SeatedAvatar: no IKOffsetDB record for car %d (offsets 0)\n", offsetsCar );
         }
     }
+    if ( bDriver && CmdLine::HasArg( "-logshiftnodes" ) && loggedNodesCar != offsetsCar ) {
+        loggedNodesCar = offsetsCar;
+        Matrix4x4f n;
+        const bool gear = car.getNodeModelTransform( "GEAR_LR", n );
+        const Vector3f gp = gear ? n.getTranslation() : Vector3f();
+        const Vector3f go = offsets.Node[CarIKOffsets::Gear];
+        OTDU_LOG_INFO( "SHIFTNODES car %d ikdb %d GEAR_LR %d (%.3f %.3f %.3f) off (%.3f %.3f %.3f) HAND_R %d HAND_L %d FOOT_R %d FOOT_L %d BACK_L %d\n",
+                       offsetsCar, offsets.bValid ? 1 : 0, gear ? 1 : 0, gp.x, gp.y, gp.z, go.x, go.y, go.z,
+                       car.getNodeModelTransform( "HAND_LR_R", n ) ? 1 : 0, car.getNodeModelTransform( "HAND_LR_L", n ) ? 1 : 0,
+                       car.getNodeModelTransform( "FOOT_LR_R", n ) ? 1 : 0, car.getNodeModelTransform( "FOOT_LR_L", n ) ? 1 : 0,
+                       car.getNodeModelTransform( "BACK_LR_L", n ) ? 1 : 0 );
+        OTDU_LOG_INFO( "SHIFTNODES car %d seat (%.3f %.3f %.3f) rot x(%.2f %.2f %.2f) wheel-hand R (%.3f %.3f %.3f)\n", offsetsCar, seatNode.getTranslation().x,
+                       seatNode.getTranslation().y, seatNode.getTranslation().z, seatNode.transformVector( Vector3f( 1, 0, 0 ) ).x,
+                       seatNode.transformVector( Vector3f( 1, 0, 0 ) ).y, seatNode.transformVector( Vector3f( 1, 0, 0 ) ).z,
+                       car.getNodeModelTransform( "HAND_LR_R", n ) ? n.getTranslation().x : 0.0f,
+                       car.getNodeModelTransform( "HAND_LR_R", n ) ? n.getTranslation().y : 0.0f, car.getNodeModelTransform( "HAND_LR_R", n ) ? n.getTranslation().z : 0.0f );
+        for ( const char *pSub : { "GEAR", "SHIFT", "LEVER", "KNOB", "PADDLE" } ) {
+            for ( const std::string &name : car.findNodeNames( pSub ) ) {
+                OTDU_LOG_INFO( "SHIFTNODES car %d node '%s' (%s)\n", offsetsCar, name.c_str(), pSub );
+            }
+        }
+    }
     const EdenSkeleton &skeleton = avatar.getSkeleton();
     std::vector<BoneTransform> locals( skeleton.getNumBones() );
     for ( uint32_t b = 0; b < skeleton.getNumBones(); b++ ) {
@@ -312,7 +334,22 @@ void SeatedAvatar::update( const CinematicCar &car, const Matrix4x4f &carWorld,
     if ( bDriver ) {
         if ( goal( "HAND_LR_R", CarIKOffsets::HandR, false, target, true ) ) {
             Vector3f lever;
-            if ( shiftBlend > 0.0f && goal( "GEAR_LR", CarIKOffsets::Gear, false, lever ) ) {
+            // 72 of 122 audited cars have no GEAR_LR node (the California among them) [DATA,
+            // -logshiftnodes]; the owner wants every car to shift. Fallback lever [INF]: the rest
+            // hand position + (-0.16, -0.16, -0.01) in car space (x toward the car's centre line),
+            // the median of gear - HAND_LR_R over the 50 cars that have the node (std 0.10 / 0.06 /
+            // 0.05 m). -nogearfallback = the node-only behaviour.
+            bool bLever = shiftBlend > 0.0f && goal( "GEAR_LR", CarIKOffsets::Gear, false, lever );
+            if ( shiftBlend > 0.0f && !bLever && !CmdLine::HasArg( "-nogearfallback" ) ) {
+                Matrix4x4f handNode;
+                if ( car.getNodeModelTransform( "HAND_LR_R", handNode ) ) {
+                    const float side = seatNode.getTranslation().x < 0.0f ? -1.0f : 1.0f;
+                    const Vector3f gearModel = handNode.getTranslation() + Vector3f( -0.16f * side, -0.16f, -0.01f );
+                    lever = seatInverse.transformPoint( gearModel );
+                    bLever = true;
+                }
+            }
+            if ( bLever ) {
                 target = target + ( lever - target ) * shiftBlend + shiftLift * shiftBlend;
             }
             SolveTwoBoneIK( skeleton, locals, bone( "Arm_R" ), bone( "ForeArm_R" ), bone( "IK_Right_Hand" ), target,

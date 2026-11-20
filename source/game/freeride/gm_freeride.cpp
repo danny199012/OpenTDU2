@@ -2036,6 +2036,11 @@ void GMFreeRide::setupVehicle() {
     }
     // -vehcheck: the speed audit of the whole roster (0-100 / top speed against
     // the DB; docs/re/vehicle_physics_spec.md 7.2). -car limits it to one car.
+    if ( CmdLine::HasArg( "-listcars" ) && gpDatabase != nullptr ) {
+        for ( const std::string &n : gpDatabase->getCarFileNames() ) {
+            OTDU_LOG_INFO( "CARLIST %s\n", n.c_str() );
+        }
+    }
     if ( CmdLine::HasArg( "-vehcheck" ) ) {
         RunVehicleSpeedCheck();
     }

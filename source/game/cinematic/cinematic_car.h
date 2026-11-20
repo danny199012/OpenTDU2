@@ -299,6 +299,9 @@ public:
     // are folded, e.g. DVRSEAT_LR); false if absent.
     bool getNodeModelTransform( const char *pName,
                                 Matrix4x4f &outTransform ) const;
+    // Names of the car nodes containing pSub (case-insensitive; names that are only a hash
+    // are listed as hex). For the -logshiftnodes audit.
+    std::vector<std::string> findNodeNames( const char *pSub ) const;
     // Overwrites the model space transform of a car node (the steering wheel);
     // false if absent.
     bool setNodeModelTransform( const char *pName, const Matrix4x4f &transform );

@@ -3592,6 +3592,27 @@ bool CinematicCar::getNodeModelTransform( const char *pName,
     return true;
 }
 
+std::vector<std::string> CinematicCar::findNodeNames( const char *pSub ) const {
+    std::vector<std::string> out;
+    if ( !car.isLoaded() ) {
+        return out;
+    }
+    std::string sub = pSub;
+    for ( char &c : sub ) {
+        c = static_cast<char>( toupper( static_cast<unsigned char>( c ) ) );
+    }
+    for ( const SceneNode &n : car.getScene().getNodes() ) {
+        std::string name = n.Name;
+        for ( char &c : name ) {
+            c = static_cast<char>( toupper( static_cast<unsigned char>( c ) ) );
+        }
+        if ( name.find( sub ) != std::string::npos ) {
+            out.push_back( n.Name );
+        }
+    }
+    return out;
+}
+
 bool CinematicCar::setNodeModelTransform( const char *pName, const Matrix4x4f &transform ) {
     if ( !car.isLoaded() ) {
         return false;
