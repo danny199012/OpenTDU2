@@ -1672,6 +1672,7 @@ bool Run( SDL_Window **ppOutWindow ) {
         }
         if ( state.bShowFps ) {
             CmdLine::AddArg( "-showfps", nullptr );
+            CmdLine::AddArg( "-loggputimes", nullptr ); // the GPU pass times appear under the FPS line
         }
         switch ( state.quality ) {
         case 0: // Phone: the Low profile at half scene resolution, near draw distance, 30 fps cap

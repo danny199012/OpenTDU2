@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "render_device.h"
+#include "debug/watermark_overlay.h"
 #include "debug/build_stamp.h"
 #include "system/cmd_line.h"
 #include "build_info.h"
@@ -2128,6 +2129,7 @@ void RenderDevice::readGpuPasses() {
     }
     line += "  ms";
     OTDU_LOG_INFO( "%s\n", line.c_str() );
+    WatermarkOverlay::SetGpuSummary( line.c_str() + 7 ); // without the "[perf] "
     gpuNumAverages = 0;
 }
 

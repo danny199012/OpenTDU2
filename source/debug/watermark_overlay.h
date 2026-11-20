@@ -25,6 +25,9 @@ void Initialize();
 // wait for the GPU). Call once per frame after the frame is done.
 void SetFrameTimes( double updateMs, double offscreenMs, double mainMs, double uiMs, double endMs, double frameMs );
 
+// GPU pass times from the render device (-loggputimes), shown under the frame times.
+void SetGpuSummary( const char *pText );
+
 // Draws the watermark. Call between ImGui beginFrame / endFrame.
 void Draw();
 
