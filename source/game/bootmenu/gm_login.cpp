@@ -388,6 +388,16 @@ void GMLogin::tick( float deltaTime ) {
         }
         break;
     case LS_Profile:
+        if ( subState == 0 && IsProfileLoaded() && !GetPlayerProfile().Name.empty() &&
+             !CmdLine::HasArg( "-newprofile" ) ) {
+            // Retail loads straight in when a profile exists (the owner's
+            // recording): the New profile dialog is for a first run only
+            // [DATA: video 2026-11-20]. -playername already renamed it.
+            OTDU_LOG_INFO( "LOGIN: profile '%s' found - New profile dialog skipped\n",
+                           GetPlayerProfile().Name.c_str() );
+            setState( LS_SaveCheck );
+            break;
+        }
         if ( subState == 0 ) {
             enterProfileScreen();
             subState = 1;

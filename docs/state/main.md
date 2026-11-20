@@ -3,6 +3,14 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, LOGIN skips the New profile dialog when a profile exists)
+
+Owner (recording of the retail game): with an existing profile retail loads straight in; the port always asked for details.
+
+- `source/game/bootmenu/gm_login.cpp` (`LS_Profile`): when `IsProfileLoaded()` and the profile has a name (and no `-newprofile` / `-newgame`... only `-newprofile` skips the skip), press start goes straight to `LS_SaveCheck` (continue to FREERIDE if story step >= 1, else the no-data popup). The dialog is first-run only. `-playername` is applied after `LoadProfile()` in `tdu_instance.cpp`, so it renames the existing profile and still pre-fills the dialog on a first run.
+- Verified headless (`-no3d -fixedtimestep -autoplay "300:press=validate"`): empty userdata -> `New profile screen (nickname pre-filled '')`; `profile.sav` name only -> `profile 'Tester' found - New profile dialog skipped`; with `-playername Zed` -> `'Zed'` skipped; story_step 1 -> skipped + `progression found -> continue` + FREERIDE; first run + `-playername Zed` -> dialog pre-filled 'Zed'.
+- Not done: the owner's video was not frame-compared (retail title -> loading timing); a retail "profile selection" page for several profiles does not exist here.
+
 ## Session 2026-11-20 (`main`, finger layers hand_size / hand_open)
 
 Owner: "Add the finger layers hand_open and hand_size" (and offered to record the 360 recomp for a video comparison; also reported wind turbines without blades - not touched here).
