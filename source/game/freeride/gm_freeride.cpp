@@ -9169,6 +9169,26 @@ void GMFreeRide::addSpotExteriorCollisions() {
                     OTDU_LOG_INFO( "FREERIDE: car wash floor (frame %zu): %zu triangles\n", f, floor.getNumTriangles() );
                 }
             }
+            if ( CmdLine::HasArg( "-logbankoffsets" ) ) {
+                // The Scenery set's render bounds vs the bank's own collision bounds (bank frame): a set that
+                // sits elsewhere than its collision is drawn off its building (the car wash was 16 m off).
+                Vector3f cMin( 1e9f, 1e9f, 1e9f ), cMax( -1e9f, -1e9f, -1e9f );
+                for ( const BankEntry *pEntry : pExterior->getBank().findEntriesByExtension( "shk" ) ) {
+                    HavokCollision c;
+                    if ( LoadHavokCollision( pEntry->pData, pEntry->Size, c, true ) && c.getNumTriangles() + c.Boxes.size() > 0 ) {
+                        cMin = Vector3f( Min( cMin.x, c.BoundsMin.x ), Min( cMin.y, c.BoundsMin.y ), Min( cMin.z, c.BoundsMin.z ) );
+                        cMax = Vector3f( Max( cMax.x, c.BoundsMax.x ), Max( cMax.y, c.BoundsMax.y ), Max( cMax.z, c.BoundsMax.z ) );
+                    }
+                }
+                if ( cMax.x > cMin.x && f == 0 ) {
+                    const Vector3f rMin = pExterior->getRenderBoundsMin(), rMax = pExterior->getRenderBoundsMax();
+                    OTDU_LOG_INFO( "BANKOFFSET %s render (%.1f %.1f %.1f)-(%.1f %.1f %.1f) coll (%.1f %.1f %.1f)-(%.1f %.1f %.1f) centre delta (%.1f %.1f %.1f) size delta (%.1f %.1f)\n",
+                                   pExterior->getPath().c_str(), rMin.x, rMin.y, rMin.z, rMax.x, rMax.y, rMax.z, cMin.x, cMin.y, cMin.z,
+                                   cMax.x, cMax.y, cMax.z, ( cMin.x + cMax.x - rMin.x - rMax.x ) * 0.5f, ( cMin.y + cMax.y - rMin.y - rMax.y ) * 0.5f,
+                                   ( cMin.z + cMax.z - rMin.z - rMax.z ) * 0.5f, ( cMax.x - cMin.x ) - ( rMax.x - rMin.x ),
+                                   ( cMax.z - cMin.z ) - ( rMax.z - rMin.z ) );
+                }
+            }
             if ( numTriangles + numBoxes > 0 ) {
                 OTDU_LOG_INFO( "FREERIDE: building collision %s (frame %zu at %.0f, %.0f): %zu triangles, %zu boxes\n",
                                pExterior->getPath().c_str(), f, frames[f].getTranslation().x,

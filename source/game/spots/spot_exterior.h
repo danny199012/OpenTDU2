@@ -50,6 +50,9 @@ public:
     void collectFloorTriangles( float minY, float maxY, HavokCollision &out ) const;
     // The matrix the Scenery sets are drawn with on top of a frame (identity except the car washes).
     inline const Matrix4x4f &getSetLocal() const { return setLocal; }
+    // Union of the Scenery sets' bounds, bank frame (before setLocal).
+    inline const Vector3f &getRenderBoundsMin() const { return renderBoundsMin; }
+    inline const Vector3f &getRenderBoundsMax() const { return renderBoundsMax; }
     inline size_t getNumModels() const { return sets.size() + props.size(); }
 
 private:
@@ -60,6 +63,7 @@ private:
 
     std::string path;
     Matrix4x4f setLocal = Matrix4x4f::Identity();
+    Vector3f renderBoundsMin, renderBoundsMax;
     Bank bank;
     BankHashcodes hashcodes;
     std::vector<std::unique_ptr<EdenModel>> sets;

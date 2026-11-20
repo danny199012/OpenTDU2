@@ -145,6 +145,8 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
             }
         }
     }
+    renderBoundsMin = boundsMin;
+    renderBoundsMax = boundsMax;
     if ( CmdLine::HasArg( "-logspotitems" ) ) {
         for ( const auto &pSet : sets ) {
             for ( const EdenModel::Item &item : pSet->getItems() ) {

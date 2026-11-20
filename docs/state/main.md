@@ -3,6 +3,10 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, later): other exterior banks checked for the car wash's set-vs-collision offset - none has it
+
+`-logbankoffsets` (`gm_freeride.cpp`) prints `BANKOFFSET <bank> render (...) coll (...) centre delta size delta` per streamed building. Swept via `-tpdestination` (Ferrari dealer, Any dealer, Tuning shop, Race school, Clothes shop, Airport, Casino) on Ibiza + Hawai: dealers (ecd_ferr / audi / bri2 / ital), houses (eph_l0c / l1bi / l1c / ephot), shops, edi, ere, enc_pac, ech, ehd: render and collision bounds agree to 0.0 m in x and z. Differences exist only where the collision is smaller than the render (egamha -3.5 x -5.7, etnr / etun 1 m, elandcaa, airports' extra runway collision) - bounds, not a rigid shift. The wash (-1.5, 0, -16) offset is specific to `ecw_`. Not swept: every house variant / the Hawai-only banks not near those destinations.
+
 ## Session 2026-11-20 (`main`, car wash alignment solved: the set is 16 m off its own collision)
 
 Owner (build 373 shot): the planter should sit where the bushes are, the wash hangs over the road and needs pulling back, the entrance is where the semicircle enter/exit arrows are.
