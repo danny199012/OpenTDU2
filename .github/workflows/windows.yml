@@ -35,11 +35,13 @@ jobs:
       # every TU including the STL failed, whatever the commit. LLVM is therefore
       # always refreshed to the current Chocolatey release (23.x, same
       # C:\Program Files\LLVM\bin the PATH already points at); Ninja stays a
-      # rescue for a future image that drops it.
+      # rescue for a future image that drops it. Note choco upgrade, not
+      # install --force: on an image that baked llvm 20.1.8 in, install
+      # --force just reinstalls 20.1.8.
       - name: Install build tools
         shell: powershell
         run: |
-          choco install llvm -y --force
+          choco upgrade llvm -y --no-progress
           if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
             choco install ninja -y
           }
