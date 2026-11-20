@@ -2040,6 +2040,9 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
             continue;
         }
         Matrix4x4f local = prop.Local;
+        if ( prop.bRotating ) {
+            local = local * Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), prop.RotAngle ) );
+        }
         for ( const Playing *pPlaying : order ) {
             const CinematicScene *pScene = nullptr;
             float sceneTime = 0.0f;
@@ -2555,6 +2558,20 @@ bool IsWaterSet( const EdenModel &model ) {
 void IntroCinematic::tickPoolRing( float deltaTime ) {
     if ( CmdLine::HasArg( "-noring" ) ) {
         return;
+    }
+    // The retail ring: the exterior bank's RotatingActor 'Accessories' (the BOUEE mesh, material waterwing) turns
+    // about its origin (the pool centre) at RotationSpeed; its mesh is off the origin, so it circles the pool.
+    // RotationSpeed 2.2 is read as degrees / s (a 164 s lap) [INF: the unit]; -ringspeed <x> scales it.
+    static const float speedScale = CmdLine::HasArg( "-ringspeed" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-ringspeed" ) ) ) : 1.0f;
+    bool bRetailRing = false;
+    for ( Prop &prop : props ) {
+        if ( prop.bRotating ) {
+            bRetailRing = true;
+            prop.RotAngle += prop.RotationSpeed * speedScale * ( kPI / 180.0f ) * deltaTime;
+        }
+    }
+    if ( bRetailRing && !CmdLine::HasArg( "-fakering" ) ) {
+        return; // the data's ring replaces the port-invented one
     }
     if ( !poolRing.bTried ) {
         poolRing.bTried = true;
@@ -3406,7 +3423,7 @@ void IntroCinematic::loadBankModels( const Bank &bank, const BankHashcodes &hash
           { "ArrayOf_Entity__Actor", "ArrayOf_Entity__Actor__SlotMachineSpinner", "ArrayOf_Entity__Actor__SlotMachineTrigger",
             "ArrayOf_Entity__Actor__CasinoFlashScreen", "ArrayOf_Entity__Actor__CasinoFlashScreen__CasinoFlashScreenRanking",
             "ArrayOf_Entity__Actor__CasinoFlashScreen__CasinoFlashScreenJackpot", "ArrayOf_Entity__Actor__Neon",
-            "ArrayOf_Entity__Actor__NeonSlotMachine" } ) {
+            "ArrayOf_Entity__Actor__NeonSlotMachine", "ArrayOf_Entity__Actor__RotatingActor" } ) {
     if ( !bSpinners && strcmp( pActorArray, "ArrayOf_Entity__Actor" ) != 0 ) {
         continue;
     }
@@ -3570,6 +3587,16 @@ void IntroCinematic::loadBankModels( const Bank &bank, const BankHashcodes &hash
             }
         }
         prop.bExterior = bSkipInteriorLods;
+        if ( strcmp( pActorArray, "ArrayOf_Entity__Actor__RotatingActor" ) == 0 ) {
+            prop.bRotating = true;
+            prop.RotationSpeed = actor["RotationSpeed"].asFloat();
+            prop.WindCoeff = actor["WindCoeff"].asFloat();
+            prop.MinAngle = actor["MinAngle"].asFloat();
+            prop.MaxAngle = actor["MaxAngle"].asFloat();
+            prop.Pause = actor["Pause"].asFloat();
+            OTDU_LOG_INFO( "IntroCinematic: rotating actor '%s' speed %.3f wind %.3f angle %.1f..%.1f pause %.2f\n",
+                           prop.Name.c_str(), prop.RotationSpeed, prop.WindCoeff, prop.MinAngle, prop.MaxAngle, prop.Pause );
+        }
         // The gate doors of the scene bank copy the exterior's leaves (same bank coordinates [DATA]):
         // they follow the house, not the offset scene frame.
         prop.bKeepSpotFrame = StringCmpI( prop.Name.substr( 0, 4 ).c_str(), "door" ) == 0;

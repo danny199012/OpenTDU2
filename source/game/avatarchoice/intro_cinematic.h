@@ -575,6 +575,11 @@ private:
         const void *pHeldCinematic = nullptr;
         Matrix4x4f World;
         bool bExterior = false; // an actor of the exterior bank (spot frame)
+        // Entity__Actor__RotatingActor (the caravan pool's BOUEE ring): turns about its own vertical axis
+        // (the mesh sits off the origin, so it circles) [DATA: RotationSpeed, WindCoeff, Min/MaxAngle, Pause].
+        bool bRotating = false;
+        float RotationSpeed = 0.0f, WindCoeff = 0.0f, MinAngle = 0.0f, MaxAngle = 0.0f, Pause = 0.0f;
+        float RotAngle = 0.0f;
         bool bKeepSpotFrame = false; // a house door of the scene bank: stays on the exterior when the scene is offset
         std::vector<Matrix4x4f> WorldBones, Skin;
         EdenAvatarLighting Lighting;

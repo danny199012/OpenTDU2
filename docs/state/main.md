@@ -3,6 +3,14 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-20 (`main`, later 3): the REAL pool ring (Entity__Actor__RotatingActor 'Accessories')
+
+Owner showed the 360 recomp ring (a yellow inflatable ring with a red underside, floating in the caravan tub).
+
+- It IS in the PC data: the exterior bank's `eph_l0c_sc_4BFB820359AB7775.3DD/.3DG` (materials `waterwing`, node `BOUEE`) is the mesh of the `Entity__Actor__RotatingActor` 'Accessories' placed at the pool centre (-6.51, 0.97, 2.61) (spot frame), RotationSpeed 2.2, WindCoeff 0, Min/MaxAngle 0..0, Pause 0 [DATA]. The loader never read that array.
+- `intro_cinematic.cpp`: `ArrayOf_Entity__Actor__RotatingActor` is now a prop array; `Prop::bRotating` + `RotAngle` turn it about its own Y; its mesh is off the origin, so it circles the pool. RotationSpeed read as **degrees/s** (164 s lap) [INF: the unit - if the 360 ring moves faster, it is `-ringspeed <x>`]. The port-invented ring is retired when the real one loads (`-fakering` brings it back; `-noring` hides both).
+- Verified: build 364 headless, the ring crosses the top of the frame between frames 200 and 500 (`-ringspeed 40`). Not compared against the 360 shot side by side (the walk start moved after the collision fix).
+
 ## Session 2026-11-20 (`main`, later 2): the yard walk went through the caravan, the pool tub and the garage - the exterior shell was never in the body's frame
 
 Owner: "all properties need outside collision fixing even caravan as can go through the walls and garage"; the real ring should be in the 360 data.
