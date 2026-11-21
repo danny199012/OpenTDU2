@@ -404,3 +404,15 @@ loader) and the writer of the `Licence%02d` name, and at the `GMScreenShots` / `
   cone exists: it looked in the wrong bank). Next: load `RS_Separ_A_act` like the scene editor's "actor" objects do
   (`scene_objects.cpp` resolves a name through worldactors' `entities.xmb`), look at its size, and swap it in for the
   barrel in `GMFreeRide::buildCourseMarkers`.
+
+### 12.2 The 360 reference clips (2026-11-21, `reference/licence_school_360/`)
+- **The result cart text is the game's loc** [DATA + capture]: 1625 "You failed the test. Try again! With practice, you will
+  master it.", 1626 "Well done! You've succeeded! Let's go on to the next test.", 1628 "Well done, you've obtained the
+  §LICENSENAME§ license. You can now access new championship(s)." (dev code picks 0x659 / 0x65a / 0x65b by the flags).
+  The movie's `openCarts` shows `message2` only when `_root.IsRacingSchool` is true and `Message2 != 'empty'`; the port never
+  set `IsRacingSchool`, which is why the fail cart was blank (spec 9's "icon-only" guess was wrong). Now set, with
+  `IsTestScore`, and the text from the loc ids (`license_result_screen.cpp`). Retail's fail cart shows only "Final time";
+  the port still shows "Ref. score" beside it (label is static in the clip) - not fixed.
+- **The licence card shows the player's portrait** (the same fixed per-avatar picture as the pause card) with name,
+  "Tests 6/6", "License approved", the stamp and `411 14 38 42 6116` (clip 01) - so the photo is not generated at the win
+  scene's flash; the port's frame grab (12.1) is the wrong source. The rest of the findings are in the clips' `NOTES.md`.

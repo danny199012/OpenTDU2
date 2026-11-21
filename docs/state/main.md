@@ -4,6 +4,11 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, the 360 licence-school clips -> the result cart text)
+
+- Reviewed `reference/licence_school_360/` (GLM's cuts + NOTES.md). Fixed first: the licence result carts were blank because the port never set `/:IsRacingSchool`; with it, `Message2` shows the game's own loc 1625 / 1626 / 1628 text and the cart reads like retail (`license_result_screen.cpp`; checked with `-licensetest RSC4T01 -licenseforce fail|pass`). Spec `licenses_spec.md` 12.2.
+- Open from the clips (not started): slalom cone hit = instant fail; the school's own cars per test (`VMod`: Delta / Esprit / Mustang with liveries); per-test weather + time of day (T04 rain, T06 night); the penalty readout (T06 `PeCr=100`, `PeLv=1`); retail fail cart shows no "Ref. score"; the licence card's photo + the photo source (a fixed per-avatar portrait, not the win-scene frame).
+
 ## Session 2026-11-21 (`main`, story start money + the pause card's house count)
 
 Owner: "starting a new game the cash start money is $100 but it should be $27,000 ... added when you waken up by Tess ... the caravan is free ... but it seems the caravan isn't counted in the pause menu."

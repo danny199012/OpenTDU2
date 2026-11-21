@@ -1,6 +1,7 @@
 ﻿#include "shared.h"
 #include "license_result_screen.h"
 
+#include "database/gs_database.h"
 #include "flash/flash_localization.h"
 #include "flash/gs_flash.h"
 #include "input/gs_input.h"
@@ -77,8 +78,26 @@ void LicenseResultScreen::open( const Info &info ) {
     // (LicenceName, nb_tests_done / nb_tests_total) and the menu's switches.
     player.setVariable( "/:TestName", info.TestName );
     player.setVariable( "/:TestDesc", info.TestDesc );
-    player.setVariable( "/:Message", info.Message );
-    player.setVariable( "/:Message2", info.Message );
+    // The cart's sentence is the game's own text [DATA: loc 1625 "You failed the test. Try again! ...", 1626 "Well done!
+    // You've succeeded! Let's go on to the next test.", 1628 "Well done, you've obtained the §LICENSENAME§ license ..."; CODE-dev
+    // 0xb5cb1b picks 0x659 / 0x65a / 0x65b by the failed / licensed flags; the 360 capture shows both carts with text].
+    std::string message = info.Message;
+    const uint32_t locId = !info.bPassed ? 1625u : ( info.Licensed == 1 ? 1628u : 1626u );
+    if ( gpDatabase != nullptr ) {
+        if ( const char *pText = gpDatabase->getString( locId ); pText != nullptr && pText[0] != '\0' ) {
+            message = pText;
+            const size_t mark = message.find( "\xC2\xA7LICENSENAME\xC2\xA7" ); // the §LICENSENAME§ placeholder
+            if ( mark != std::string::npos ) {
+                message.replace( mark, 15, info.LicenceName );
+            }
+        }
+    }
+    // The movie's own switches (openCarts: with IsRacingSchool true the scores panel hides and Message2 shows; the 360's
+    // school carts show the sentence AND "Final time" [CODE-dev: /:IsRacingSchool, /:IsTestScore]).
+    player.setVariableBool( "/:IsRacingSchool", true );
+    player.setVariableBool( "/:IsTestScore", true );
+    player.setVariable( "/:Message", message );
+    player.setVariable( "/:Message2", message );
     player.setVariable( "/:final_score", FormatPanelTime( info.Time ) );
     player.setVariable( "/:BaseTime", FormatPanelTime( info.Time ) );
     player.setVariable( "/:ref_score", FormatPanelTime( info.Target ) );
