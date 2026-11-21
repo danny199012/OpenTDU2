@@ -5,6 +5,8 @@ appends its entry at the top of this file**, newest first, in the
 
 ## Session 2026-11-21 (`main`, Veyron rims: checked, no defect reproduced)
 
+**Correction (owner):** my test cars were wrong, not the dealer. `-car` kept the California's rims (code comment said so), so every shot above showed the wrong wheels. Fixed: `-car` now takes the car's `_default_rims` DBRims row (log `-car 'X' takes its database rims ...`; `-oldcarrims` = old). Veyron Super Sport now draws the orange thin-spoke rim (`bugatti/veyron_super_sport_f_01`). The dealer/drive path already used the DB rims. The rim-defect check above is void for the Super Sport; re-check the face between spokes (dark disc visible) against retail.
+
 Owner list item "odd rim issue with Bugatti Super Sport, possibly other cars": **not reproduced, nothing changed in the rim code**. The owner's screenshot text was lost to a context cut, so the exact oddity is unknown.
 
 ### What changed

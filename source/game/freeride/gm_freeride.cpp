@@ -656,6 +656,23 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     // (the rims keep the California's; the tyre radius comes from the DB).
     if ( const char *pCar = CmdLine::GetArgValue( "-car" ) ) {
         carDesc.FileName = pCar;
+        // The car's own default rims (colour, design, size) unless -oldcarrims: the test car used to
+        // keep the California's rims, which made every -car shot show the wrong wheels.
+        if ( !CmdLine::HasArg( "-oldcarrims" ) && gpDatabase != nullptr ) {
+            XmbValue dbRoot = gpDatabase->getDocument().getRoot();
+            for ( uint32_t i = 0; i < dbRoot.getArraySize( "DBCarPhysicsData" ); i++ ) {
+                XmbValue record = dbRoot.getArrayElement( "DBCarPhysicsData", i );
+                std::string name = record["_car_file_name"].asString();
+                if ( _stricmp( name.c_str(), pCar ) == 0 ) {
+                    CinematicCar::Desc dbDesc;
+                    if ( CinematicCar::DescFromDatabase( record["_id_car"].asInt( -2 ), dbDesc ) ) {
+                        carDesc = dbDesc;
+                        OTDU_LOG_INFO( "FREERIDE: -car '%s' takes its database rims %s\n", pCar, carDesc.RimFront.c_str() );
+                    }
+                    break;
+                }
+            }
+        }
     } else {
         // The car the player picked in a house garage or drove out of a dealer
         // (PlayerProfile::DrivenCarId); an unknown / no longer owned id keeps
