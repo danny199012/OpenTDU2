@@ -4,6 +4,12 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, the school card + the instructors' voice lines)
+
+- The school desk showed the Asphalt card for every school: the port's AVM1 `StringExtract` returned "" for index 0 (Flash clamps to the first char), so r_school's `SetCurLicence` never picked `state_c`. Fixed (`flash_player.cpp`); `-schoolmenu C` = "Classic License" C4. `SchoolScreen::fillCard` fills the name, the tests done, the number, the date; the portrait binds when a photo exists.
+- `school_voice.*`: the end-of-test line of the school's instructor (pack_racingschool__<lang>.bnk) plays under the result cart.
+- Open: the car-anchored end-of-test cinematic (spec 12.5), the portrait source, the stored obtainment date, hearing the lines (log only).
+
 ## Session 2026-11-21 (`main`, follow-up: the leave reload, the liveries hunt)
 
 - Verified the leave-the-school reload end to end (`-schoolleavetest`, `leaveSchoolInSchoolCar`): school Delta -> school -> the player's California at ERS_C, 0 stalls.

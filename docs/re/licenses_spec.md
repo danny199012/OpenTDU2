@@ -455,3 +455,21 @@ of tests 1, 3 and 5 (the files carry no time of day), and the barrel for the con
 - **A bug seen on the way**: `-schoolmenu C` opens the desk with the **Asphalt** card (A7 / A6) although `GetSchoolLicenses('C', 0)` has the C4 licence
   (`DBLicense[3]`); the card also has no photo / name / "Tests n/6" yet (retail: "Classic License", C4 badge, the portrait, the stamp). Start at
   `SchoolScreen::fillLicences` and the movie's `li0_gp1` / `LiGpFrame` frame names.
+
+### 12.5 The school card, and the instructors' end-of-test lines (2026-11-21, `main`)
+- **Why school C showed the Asphalt card** [CODE: the movie's own script + the port's AVM1]: r_school's `SetCurLicence` takes the card variant from the first letter of
+  `li<n>_gp1` (`StringExtract( gp1, 0, 1 )` -> `licence/state_<letter>`). SWF 4 `substring` is 1-based and the Flash player clamps an index below 1
+  to the first character; the port's `A_StringExtract` returned "" for index 0, so every school fell back to the default `state_a` art (A looked right
+  by accident). Fixed in `flash_player.cpp` (an AVM1 law, so other movies that extract with index 0 change too). `-schoolmenu C` now opens
+  "Classic License" with the C4 badge.
+- **The card fields** (`SchoolScreen::fillCard`, [CODE-dev 0xb915c0]): `/:LicencePlayerName` (the profile name), `/:LicenceNumber` (`411 14 38 42 6116`),
+  `/:nb_tests_done` / `/:nb_tests_total`, `/:LicenceDate` (today's when the licence is obtained - the port stores no obtainment date - blank before) and
+  the portrait bound to `licence/state_<a|b|c>/lure` when `Licence00.png` exists (the photo source is still the open question, 12.1). Verified:
+  Danny, "Tests 2 / 6", "License in progress". `-dumpschool <depth>` dumps the movie's clip tree at the first card.
+- **The instructors' line**: `school_voice.*` plays `rs<letter>_endtest_win_01..02` / `_loose_01..04` of `pack_racingschool__<lang>.bnk` under the result cart
+  (Marco A, Jane B, Todd C; 2.3-3.1 s clips; one picked at random [INF]); `-noschoolvoice` skips it. Verified by log (load + play), not by ear.
+- **Not done: the end-of-test cinematic itself.** The pack's `M_<SCHOOL>_WIN_nn` / `_LOOSE_nn` (7.4 s, 2 shots) and the 8 s `_LOOP` ones are anchored to the
+  car (cameras within a metre of the origin, three actors: the avatar and the instructor in the cabin - the 360 fail clip shows the windscreen shot
+  with two figures inside, then the loop under the menu). Playing them needs a car-anchored scene player in the world (the avatar + the NPC rig in the
+  car's seats, `loadOccupants`, the `.sce` placed at the car pose) - the garage / car wash scenes run in their own frame instead. Start at
+  `IntroCinematic::setCinematicOrigin` with the car's pose and the NPC animations `rs?_wintest*_<npc>.anm` of the same pack.

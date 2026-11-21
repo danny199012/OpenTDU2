@@ -1,6 +1,7 @@
 #include "shared.h"
 #include "gm_freeride.h"
 #include "game/freeride/licence_photo.h"
+#include "game/freeride/school_voice.h"
 #include "debug/coords_overlay.h"
 
 #include "audio/gs_audio.h"
@@ -4446,6 +4447,10 @@ void GMFreeRide::openLicenseResult( const std::string &test, bool bPassed, Licen
         hud.showGoal( info.TestName + ": " + info.Message );
         return;
     }
+    // The instructor's end-of-test line (pack_racingschool: Marco / Jane / Todd, win / loose) under the cart.
+    if ( test.size() > 2 ) {
+        SchoolVoice::PlayEndOfTest( test[2], bPassed );
+    }
     OTDU_LOG_INFO( "FREERIDE: licence result screen for %s (%s)\n", test.c_str(), bPassed ? "passed" : "failed" );
 }
 
@@ -4455,6 +4460,7 @@ void GMFreeRide::tickLicenseResult( float deltaTime ) {
     if ( choice == LicenseResultScreen::eChoice::None ) {
         return;
     }
+    SchoolVoice::Stop(); // the line ends with the cart
     licenseResult.close();
     const std::string test = resultTest;
     switch ( choice ) {

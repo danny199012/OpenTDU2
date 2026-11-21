@@ -42,6 +42,8 @@ public:
 private:
     void onCommand( const std::string &command );
     void fillLicences();
+    // The card under the cursor: the player's name, the tests done, the date / number, the portrait (spec 12.5).
+    void fillCard();
     void fillTests();
     int32_t currentLicence();
     void setTestDescription();

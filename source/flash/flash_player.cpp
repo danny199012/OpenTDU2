@@ -2419,7 +2419,9 @@ FlashPlayer::Value FlashPlayer::execute( Clip *pClip, uint32_t offset, uint32_t 
         case A_StringExtract:
         case A_MBStringExtract: {
             const int32_t count = static_cast<int32_t>( pop().toNumber() );
-            const int32_t index = static_cast<int32_t>( pop().toNumber() ) - 1;
+            // SWF 4 substring is 1-based and the player clamps an index below 1 to the first character: r_school's
+            // SetCurLicence extracts the licence's school letter with index 0 (docs/re/licenses_spec.md 12.5).
+            const int32_t index = Max( static_cast<int32_t>( pop().toNumber() ) - 1, 0 );
             const std::string s = pop().toString();
             if ( index >= 0 && index < static_cast<int32_t>( s.size() ) ) {
                 push( Value::MakeString( s.substr( index, Max( count, 0 ) ) ) );

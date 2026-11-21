@@ -4,6 +4,8 @@
 #include "flash/flash_localization.h"
 #include "flash/gs_flash.h"
 #include "game/freeride/ig2_challenge.h"
+#include "game/freeride/licence_photo.h"
+#include "game/player_profile.h"
 #include "input/gs_input.h"
 #include "system/cmd_line.h"
 
@@ -174,11 +176,42 @@ void SchoolScreen::fillLicences() {
     }
     player.setVariableNumber( "/:nb_licences", static_cast<double>( licenses.size() ) );
     player.setVariableNumber( "/:num_licence", startLicence );
-    // The licence date of the card: today's [INF: the retail date source is ENC].
-    time_t now = time( nullptr );
-    char date[16];
-    strftime( date, sizeof( date ), "%d%b%Y", localtime( &now ) );
-    player.setVariable( "/:LicenceDate", ToUpper( date ) );
+    fillCard();
+}
+
+void SchoolScreen::fillCard() {
+    if ( licenses.empty() ) {
+        return;
+    }
+    const LicenseInfo &license = *licenses[currentLicence()];
+    const PlayerProfile &profile = GetPlayerProfile();
+    // The card's own text variables [CODE-dev 0xb915c0: /:LicencePlayerName, /:LicenceNumber (the constant text), /:LicenceDate
+    // (day, month, year of the obtainment; blank before), /:nb_tests_done / /:nb_tests_total; the 360 clips show all of them].
+    player.setVariable( "/:LicencePlayerName", profile.Name.empty() ? "Player" : profile.Name );
+    player.setVariable( "/:LicenceNumber", "411 14 38 42 6116" );
+    int32_t done = 0;
+    for ( const std::string &name : license.Challenges ) {
+        done += IsTestPassed( name ) ? 1 : 0;
+    }
+    player.setVariableNumber( "/:nb_tests_done", done );
+    player.setVariableNumber( "/:nb_tests_total", static_cast<double>( license.Challenges.size() ) );
+    // The date: today's when the licence is obtained [INF: the port keeps no obtainment date yet], blank before.
+    if ( IsLicenseObtained( license ) ) {
+        time_t now = time( nullptr );
+        char date[16];
+        strftime( date, sizeof( date ), "%d%b%Y", localtime( &now ) );
+        player.setVariable( "/:LicenceDate", ToUpper( date ) );
+    } else {
+        player.setVariable( "/:LicenceDate", " " );
+    }
+    // The portrait on the school's card (state_a / b / c by the school letter) [CODE-dev: .../licence/state_x/lure].
+    if ( GPUTexture *pPhoto = LicencePhoto::GetTexture(); pPhoto != nullptr ) {
+        const char letter = license.Challenges.empty() || license.Challenges[0].size() < 3
+                                ? 'a'
+                                : static_cast<char>( tolower( static_cast<unsigned char>( license.Challenges[0][2] ) ) );
+        player.setBitmapOverride( std::string( "/licences/licence/state_" ) + letter + "/lure", pPhoto, 0.17f, 0.0f, 0.70f,
+                                  1.0f );
+    }
 }
 
 int32_t SchoolScreen::currentLicence() {
@@ -257,6 +290,16 @@ void SchoolScreen::onCommand( const std::string &command ) {
     if ( CmdLine::HasArg( "-loglicenses" ) ) {
         OTDU_LOG_INFO( "SchoolScreen: FSCommand '%s' (num_licence %s, num_test %s)\n", command.c_str(),
                        player.getVariable( "/:num_licence" ).c_str(), player.getVariable( "/:num_test" ).c_str() );
+    }
+    if ( command == "rsch:dili" ) {
+        fillCard(); // the licence under the cursor changed
+    }
+    if ( command == "rsch:dili" && CmdLine::HasArg( "-dumpschool" ) ) {
+        static bool bDumped = false;
+        if ( !bDumped ) {
+            bDumped = true;
+            player.dumpClips( "/", CmdLine::GetArgInt( "-dumpschool", 6 ) ); // the card's clip tree and text variables
+        }
     }
     if ( command == "sbdd" ) {
         ApplyFlashLocalization( player );
