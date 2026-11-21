@@ -172,6 +172,7 @@ private:
     void resolveSteeringWheel();
     void updateSteeringWheel( float deltaTime );
     bool bPassengerSeated = false;
+    bool bSchoolInstructor = false; // the passenger is the school instructor of a test (unloaded when the test is left)
     void loadOccupants();
     void unloadOccupants();
 

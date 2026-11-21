@@ -3836,8 +3836,18 @@ void GMFreeRide::placeCar( const Vector3f &target, float heading ) {
     } else if ( !view.getWorld().getSurfaceHeight( target.x, target.z, target.y + 30.0f, surfaceY ) ) {
         surfaceY = target.y;
     }
-    const Vector3f position( target.x, surfaceY + 0.6f, target.z );
-    vehicle.reset( position, Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), heading ), Vector3f( 0.0f, 0.0f, 0.0f ) );
+    // The delivery's rule: the model origin fitted on the ground (the plane of the four wheels), the body frame the model
+    // lift under it. (It used to drop the car from 0.6 m: floating in the school preview, which re-places the car every
+    // frame, and a bounce at every test start.)
+    Vector3f position( target.x, surfaceY + 0.05f, target.z );
+    Quaternionf orientation = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), heading );
+    if ( car.isLoaded() ) {
+        const Matrix4x4f fitted = car.fitOnGround( Vector3f( target.x, surfaceY, target.z ), Conjugate( orientation ),
+                                                   [this]( float x, float z, float y, float &outHeight ) { return surfaceHeight( x, z, y, outHeight ); } );
+        orientation = QuaternionFromMatrix( fitted );
+        position = fitted.getTranslation() + Matrix4x4f::FromQuaternion( orientation ).transformVector( Vector3f( 0.0f, 0.05f - vehicle.getModelLift(), 0.0f ) );
+    }
+    vehicle.reset( position, orientation, Vector3f( 0.0f, 0.0f, 0.0f ) );
     carWorld = vehicle.getWorldMatrix();
     chase.reset( position, Vector3f( sinf( heading ), 0.0f, cosf( heading ) ) );
     lastSectorKey = INT32_MIN;
@@ -3891,6 +3901,15 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
     placeCar( licenseTest.getStartPosition(), licenseTest.getStartHeading() );
     hud.closeEnterSpot();
     const std::string title = licenseTest.getChallenge().getTitle();
+    // The school's instructor rides beside the player in every test (Marco asphalt, Jane dirt, Todd classic: SPT_ NPCs).
+    if ( test.size() > 2 && tolower( static_cast<unsigned char>( test[0] ) ) == 'r' && tolower( static_cast<unsigned char>( test[1] ) ) == 's' &&
+         bDriverSeated && !bPassengerSeated && !CmdLine::HasArg( "-noinstructor" ) ) {
+        const char low = static_cast<char>( tolower( static_cast<unsigned char>( test[2] ) ) );
+        const char *pConfig = low == 'a' ? "SPT_Marco_Luzzini" : low == 'b' ? "SPT_Jane_Omahan" : "SPT_Todd_Bishop";
+        bPassengerSeated = passenger.load( avatars, pConfig, SeatedAvatar::eSeat::Passenger, driverBank );
+        bSchoolInstructor = bPassengerSeated;
+        OTDU_LOG_INFO( "FREERIDE: test instructor '%s' %s\n", pConfig, bPassengerSeated ? "seated" : "not loaded" );
+    }
     startRaceOpponents( test );
     // The overtaking test traffic (VEHI): the Lancia Deltas of the school, driving the course at their own speeds.
     schoolTraffic.stop();
@@ -4628,6 +4647,11 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
         const std::string title = licenseTest.getChallenge().getTitle();
         if ( bCancel ) {
             licenseTest.abandon();
+            if ( bSchoolInstructor ) {
+                passenger.unload();
+                bPassengerSeated = false;
+                bSchoolInstructor = false;
+            }
         }
         OTDU_LOG_INFO( "FREERIDE: the pre-test presentation ended (%s)\n", bCancel ? "cancelled" : "started" );
         return;
@@ -4635,6 +4659,20 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
     licenseResult.tick( deltaTime ); // the banner movie
     testIntro.tick( deltaTime );
     placeCar( testIntro.getCarPosition(), testIntro.getCarHeading() );
+    // The occupants follow the re-placed car (they stayed where the car was before: the avatar sat outside it).
+    if ( bDriverSeated ) {
+        driver.update( car, carWorld );
+    }
+    if ( bPassengerSeated ) {
+        passenger.update( car, carWorld );
+    }
+    if ( CmdLine::HasArg( "-logintro" ) ) {
+        static int32_t introFrames = 0;
+        if ( ( introFrames++ % 30 ) == 0 ) {
+            OTDU_LOG_INFO( "INTRO replay (%.2f, %.2f, %.2f) car (%.2f, %.2f, %.2f)\n", testIntro.getCarPosition().x, testIntro.getCarPosition().y,
+                           testIntro.getCarPosition().z, carWorld.getTranslation().x, carWorld.getTranslation().y, carWorld.getTranslation().z );
+        }
+    }
     testIntro.getCamera( camera );
     view.setCamera( camera );
     view.tick( deltaTime );
@@ -4934,6 +4972,35 @@ void GMFreeRide::buildCourseMarkers() {
         const Vector3f a = decor.Position, b = decors[i + 1].Position;
         const Vector3f along( b.x - a.x, 0.0f, b.z - a.z );
         const float length = along.length();
+        if ( raceGates.hasModel( RaceGates::eModel::Separator ) && !CmdLine::HasArg( "-barrelcones" ) ) {
+            // The retail cone line: the school's separators (low red / white barrier blocks) end to end [DATA: the actors
+            // RS_Separ_A / B_act; capture: red and white blocks alternate]. The block's long axis is its x or z extent.
+            const Vector3f mn = raceGates.getSeparatorMin(), mx = raceGates.getSeparatorMax();
+            const bool bLongX = ( mx.x - mn.x ) > ( mx.z - mn.z );
+            const float blockLength = Max( 0.5f, bLongX ? mx.x - mn.x : mx.z - mn.z );
+            const float lineHeading = headingOf( along ) - ( bLongX ? 1.5707963f : 0.0f );
+            const float cx = ( mn.x + mx.x ) * 0.5f, cz = ( mn.z + mx.z ) * 0.5f;
+            const Vector3f unit = length > 1e-3f ? along * ( 1.0f / length ) : Vector3f( 0.0f, 0.0f, 1.0f );
+            const int32_t blocks = Max( 1, static_cast<int32_t>( std::round( length / blockLength ) ) );
+            for ( int32_t n = 0; n < blocks; n++ ) {
+                RaceGates::Marker marker;
+                const float distance = ( static_cast<float>( n ) + 0.5f ) * ( length / static_cast<float>( blocks ) );
+                marker.Position = a + unit * distance;
+                snapToGround( marker.Position );
+                // the model's centre on the line point
+                const float sh = std::sin( lineHeading ), ch = std::cos( lineHeading );
+                marker.Position.x -= cx * ch + cz * sh;
+                marker.Position.z -= -cx * sh + cz * ch;
+                marker.Heading = lineHeading;
+                marker.Model = RaceGates::eModel::Separator;
+                marker.Variant = n & 1;
+                markers.push_back( marker );
+                numCones++;
+            }
+            numLines++;
+            i++;
+            continue;
+        }
         const int32_t count = Max( 2, static_cast<int32_t>( std::round( length / kConeSpacing ) ) + 1 );
         for ( int32_t n = 0; n < count; n++ ) {
             RaceGates::Marker marker;
@@ -6039,7 +6106,10 @@ void GMFreeRide::loadOccupants() {
     if ( CmdLine::HasArg( "-noseated" ) || !car.isLoaded() ) {
         return;
     }
-    const std::string &config = GetPlayerProfile().AvatarConfig;
+    std::string config = GetPlayerProfile().AvatarConfig;
+    if ( config.empty() && CmdLine::GetArgValue( "-avatar" ) != nullptr ) { // a test run without a saved profile
+        config = CmdLine::GetArgValue( "-avatar" );
+    }
     if ( config.empty() ) {
         return;
     }
@@ -6073,6 +6143,7 @@ void GMFreeRide::unloadOccupants() {
     driverBank.unload();
     bDriverSeated = false;
     bPassengerSeated = false;
+    bSchoolInstructor = false;
 }
 
 void GMFreeRide::setShadowConfig( const std::string &name ) {

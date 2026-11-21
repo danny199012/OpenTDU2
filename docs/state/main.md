@@ -4,6 +4,24 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, school test 1 polish: grounded car, Todd, red/white barriers)
+
+Owner: test 1 preview showed the avatar outside the car, the car floating, never grounded and bouncing; camera pans in the countdown; "should be the little barrier things not barrels"; "Todd should be in the car with you during all tests".
+
+### What changed
+- `GMFreeRide::placeCar` - fits the car on the ground with the delivery's rule (`CinematicCar::fitOnGround` + body frame = model lift under it) instead of dropping it from +0.6 m. That was the floating car in the preview (re-placed every frame) and the bounce / sway at the start.
+- `tickTestIntro` - updates the driver and passenger with the re-placed car (the avatar stayed where the car had been: outside it).
+- `SchoolTestIntro` - `LookAtRotation` pitch sign was inverted (the car sat at the bottom edge of the preview shots).
+- Todd (`SPT_Todd_Bishop`; Marco / Jane by test letter) sits as passenger for every school test (`startLicenseTest`, `-noinstructor`); unloaded on cancel / end scene.
+- Cone lines (DEC2 1->2 / 4->5) are now the school's separators `RS_Separ_A_act` / `B_act` (worldactors, 2.36 x 0.78 x 0.91 m, red / white alternating) end to end (`RaceGates::eModel::Separator`, `-barrelcones` = the old barrels). Single DEC2 cones (type 0) and slalom poles stay barrels.
+- Test runs without a saved profile: `-avatar AVT_Male_Intro` now seats the driver in FREERIDE too; `-logintro` prints replay vs car height.
+
+### Verified
+- `-licensetest RSC4T01 -avatar AVT_Male_Intro`: the preview car sits on the road with the 07 livery, hands on the wheel in the cockpit, `test instructor 'SPT_Todd_Bishop' seated`, red / white blocks along the cone lines, steady countdown 3-2-1 frames (mean diff 3-5, digits + smoke).
+
+### Not done / next
+- The livery needs `<userdata>/school_liveries/500.png` (copied from the 360 capture, not in the repo): if it is missing the Delta is plain. Todd's seat pose / look is unchecked from outside the car. The retail traffic cones (orange) are still barrels. Countdown pans: the likely cause (the 0.6 m drop) is fixed; not confirmed on the owner's pad run.
+
 ## Session 2026-11-21 (`main`, more school-test digging: cockpit + HUD by place)
 
 - From the clips: pad tests are driven in the cockpit with a minimal HUD and the hourglass countdown; road tests keep chase + minimap and show the target under the timer. Built (spec 12.12): cockpit view for pad tests, `time_cd` / `ref_score`, no minimap on pads, no goal pill. `-noschoolhud` reverts.

@@ -8,6 +8,7 @@
 #include "render/eden/eden_scene_view.h"
 #include "render/gs_render.h"
 #include "render/texture_cache.h"
+#include "world/eden_world.h"
 
 namespace {
 const char *ModelName( RaceGates::eModel model ) {
@@ -143,6 +144,31 @@ bool RaceGates::load( EdenSceneView &view, const std::string &island ) {
             loadPart( actor, parts[static_cast<int32_t>( eModel::Trajectory )] );
         }
     }
+    // The separators (RS_Separ_A_act / _B_act) from the world's worldactors bank [DATA: licenses_spec 12.1].
+    pSeparator[0] = pSeparator[1] = nullptr;
+    {
+        EdenWorld &world = view.getWorld();
+        const char *names[2] = { "RS_Separ_A_act", "RS_Separ_B_act" };
+        for ( int32_t v = 0; v < 2; v++ ) {
+            for ( const auto &entry : world.getActorNames() ) {
+                if ( StringCmpI( entry.second.c_str(), names[v] ) != 0 ) {
+                    continue;
+                }
+                EdenModel *pModel = world.getActorModelPtr( entry.first );
+                if ( pModel != nullptr && pModel->isLoaded() ) {
+                    pSeparator[v] = pModel;
+                    if ( v == 0 ) {
+                        separatorMin = pModel->getBoundsMin();
+                        separatorMax = pModel->getBoundsMax();
+                    }
+                    OTDU_LOG_INFO( "RaceGates: %s: bounds (%.2f, %.2f, %.2f) - (%.2f, %.2f, %.2f)\n", names[v], pModel->getBoundsMin().x,
+                                   pModel->getBoundsMin().y, pModel->getBoundsMin().z, pModel->getBoundsMax().x, pModel->getBoundsMax().y,
+                                   pModel->getBoundsMax().z );
+                }
+                break;
+            }
+        }
+    }
     int32_t numLoaded = 0;
     for ( const Part &part : parts ) {
         numLoaded += part.Model ? 1 : 0;
@@ -156,6 +182,7 @@ void RaceGates::unload() {
     for ( Part &part : parts ) {
         part = Part();
     }
+    pSeparator[0] = pSeparator[1] = nullptr;
     gates.clear();
     markers.clear();
     if ( bLoaded && gpRender != nullptr ) {
@@ -212,6 +239,13 @@ void RaceGates::draw( EdenRenderer &renderer ) const {
         part.Model->draw( renderer, frame * Matrix4x4f::Scale( Vector3f( scale, 1.0f, 1.0f ) ) * part.Local );
     }
     for ( const Marker &marker : markers ) {
+        if ( marker.Model == eModel::Separator ) {
+            if ( pSeparator[marker.Variant & 1] != nullptr ) {
+                pSeparator[marker.Variant & 1]->draw( renderer, Matrix4x4f::Translation( marker.Position ) *
+                                                Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), marker.Heading ) ) );
+            }
+            continue;
+        }
         const Part &part = parts[static_cast<int32_t>( marker.Model )];
         if ( !part.Model ) {
             continue;

@@ -578,3 +578,6 @@ Owner note: later in the game the Mustang appears with a front lip and rear lips
 
 ### 12.15 Test 5 has no barrels (2026-11-21, `main`)
 Owner (retail test 5): no barrels at the start; just overtake the 3 cars and reach the finish. `rsc4t05.ig2` holds one DEC2 cone line (1 -> 2) at the start box; on a test with traffic (VEHI) the port no longer draws the DEC2 lines (`-overtakecones` restores them). Verified headless: `-licensetest RSC4T05 -licensepark` logs 0 markers. [INF] the 3D look and a driven run are not checked.
+
+### 12.16 Test 1: separators, Todd, grounding (2026-11-21, `main`)
+Capture (`02_RSC4T01_First_step.mp4`): the cone lines are low red / white blocks (the `RS_Separ_A_act` / `_B_act` actors, 2.36 x 0.78 x 0.91 m) end to end, alternating; the player's hands are on the wheel; orange cones stand at the start. The port draws the separators on the DEC2 lines, seats the instructor (Todd for the classic school) beside the player in every test, and grounds the car like the delivery does (`placeCar`). See `docs/state/main.md`.

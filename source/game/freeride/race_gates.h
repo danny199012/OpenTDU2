@@ -34,7 +34,7 @@ public:
     // Trajectory: the 'Trajectory' actor (a flat strip with the arrow texture
     // and its Arrow_Orange / Arrow_Red .UVA scroll); BrakingZone: the type 7
     // checkpoint 'BrakingZone_01' (the sf_target mesh, "stop" texture) [DATA].
-    enum class eModel : int32_t { Start, Finish, Checkpoint, Barrels, Radar, Trajectory, BrakingZone, Count };
+    enum class eModel : int32_t { Start, Finish, Checkpoint, Barrels, Radar, Trajectory, BrakingZone, Separator, Count };
 
     struct Gate {
         Vector3f Position;
@@ -55,11 +55,18 @@ public:
         eModel Model = eModel::Barrels;
         float Length = 0.0f;
         float Width = 0.0f;
+        int32_t Variant = 0; // the separator: 0 A, 1 B
     };
     void setMarkers( const std::vector<Marker> &newMarkers ) { markers = newMarkers; }
     inline void clearMarkers() { markers.clear(); }
     inline const std::vector<Marker> &getMarkers() const { return markers; }
-    inline bool hasModel( eModel model ) const { return static_cast<bool>( parts[static_cast<int32_t>( model )].Model ); }
+    inline bool hasModel( eModel model ) const {
+        return model == eModel::Separator ? pSeparator[0] != nullptr : static_cast<bool>( parts[static_cast<int32_t>( model )].Model );
+    }
+    // The racing school's separator (the low red / white barrier of the cone lines): the worldactors actor RS_Separ_A_act, owned by
+    // the world. Its extent in the marker's frame (x across, z along) at scale 1.
+    inline Vector3f getSeparatorMin() const { return separatorMin; }
+    inline Vector3f getSeparatorMax() const { return separatorMax; }
     // The model's extent along z at scale 1 (the trajectory strip's length).
     float getModelLength( eModel model ) const;
 
@@ -93,6 +100,8 @@ private:
     bool bLoaded = false;
     std::string path;
     Bank bank;
+    EdenModel *pSeparator[2] = { nullptr, nullptr }; // RS_Separ_A_act (red), RS_Separ_B_act (white)
+    Vector3f separatorMin, separatorMax;
     Part parts[static_cast<int32_t>( eModel::Count )];
     std::vector<Gate> gates;
     std::vector<Marker> markers;

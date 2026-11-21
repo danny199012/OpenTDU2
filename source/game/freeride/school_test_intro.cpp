@@ -18,7 +18,7 @@ Quaternionf LookAtRotation( const Vector3f &from, const Vector3f &to ) {
     const float yaw = std::atan2( d.x, d.z );
     const float pitch = std::atan2( d.y, flat );
     const Quaternionf qy( 0.0f, std::sin( -yaw * 0.5f ), 0.0f, std::cos( -yaw * 0.5f ) );
-    const Quaternionf qx( std::sin( pitch * 0.5f ), 0.0f, 0.0f, std::cos( pitch * 0.5f ) );
+    const Quaternionf qx( -std::sin( pitch * 0.5f ), 0.0f, 0.0f, std::cos( pitch * 0.5f ) );
     return qy * qx;
 }
 } // namespace
