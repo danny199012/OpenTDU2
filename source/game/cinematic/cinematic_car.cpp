@@ -731,10 +731,32 @@ bool CinematicCar::load( const Desc &requested ) {
         textures.loadBankTextures( rimBank, rimOwner.c_str() );
         rim.setKeepParsedGeometry( requested.bKeepParsedGeometry );
         rim.load( *pRenderer, rimBank, nullptr, nullptr, rimOwner.c_str() );
+        if ( CmdLine::HasArg( "-logrimmat" ) ) {
+            for ( const EdenModel::Item &it : rim.getItems() ) {
+                OTDU_LOG_INFO( "Rim item node %d lod %u mat %u verts %u bounds (%.3f %.3f %.3f)-(%.3f %.3f %.3f)\n",
+                               it.NodeIndex, it.Lod, it.MaterialIndex, it.NumVertices, it.BoundsMin.x, it.BoundsMin.y,
+                               it.BoundsMin.z, it.BoundsMax.x, it.BoundsMax.y, it.BoundsMax.z );
+            }
+            const auto &nodes = rim.getScene().getNodes();
+            for ( size_t n = 0; n < nodes.size(); n++ ) {
+                OTDU_LOG_INFO( "Rim node %zu '%s'\n", n, nodes[n].Name.c_str() );
+            }
+        }
         // The rims of several cars (One-77...) are wound the other way round
         // than their culling state: closed meshes, drawn without culling.
         for ( EdenMaterial &material : rim.getMaterials() ) {
             material.CullMode = 1;
+            if ( CmdLine::HasArg( "-logrimmat" ) ) {
+                OTDU_LOG_INFO( "Rim material '%s' shader %016llx blend %d/%d atest %d ref %d slots %u\n", material.Name.c_str(),
+                               static_cast<unsigned long long>( material.ShaderSetGUID ), material.SrcBlend, material.DstBlend,
+                               material.bAlphaTest ? 1 : 0, material.AlphaRef, material.NumSlots );
+                for ( uint32_t s = 0; s < material.NumSlots; s++ ) {
+                    OTDU_LOG_INFO( "   slot %u type %016llx tex %016llx %s\n", s,
+                                   static_cast<unsigned long long>( material.SlotTypes[s] ),
+                                   static_cast<unsigned long long>( material.TextureHashes[s] ),
+                                   material.pTextures[s] ? "bound" : "MISSING" );
+                }
+            }
         }
     }
     if ( desc.RimRear != desc.RimFront &&
@@ -779,6 +801,10 @@ bool CinematicCar::load( const Desc &requested ) {
              name.find( "BREAKI" ) != std::string::npos ||
              name.find( "EADLI" ) != std::string::npos ||
              name.find( "EVERS" ) != std::string::npos ||
+             // WLR_xx: the low resolution wheel (an alpha-tested flat disc, radius = the tire's, textured with the
+             // LOD wheel picture) of the far LODs. The full rim + tire are drawn here, and on the Veyron Super
+             // Sport the disc hid the rim's spokes (grey disc, orange ring and stubs only). -keepwlr = old.
+             ( name.rfind( "WLR_", 0 ) == 0 && !CmdLine::HasArg( "-keepwlr" ) ) ||
              name.rfind( "?A_", 0 ) == 0 ) {
             hiddenRoots.push_back( static_cast<int32_t>( i ) );
         }
@@ -1455,12 +1481,53 @@ bool CinematicCar::load( const Desc &requested ) {
                      nodes[i].Name != brakeNames[1] ) {
                     continue;
                 }
+                if ( CmdLine::HasArg( "-logrimmat" ) ) {
+                    const Matrix4x4f &bt = car.getNodeTransform( static_cast<int32_t>( i ) );
+                    const Matrix4x4f &rt = car.getNodeTransform( node );
+                    for ( const EdenModel::Item &bi : car.getItems() ) {
+                        if ( bi.NodeIndex == static_cast<int32_t>( i ) ) {
+                            OTDU_LOG_INFO( "BRAKEITEM %s mat %u verts %u bounds (%.3f %.3f %.3f)-(%.3f %.3f %.3f)\n",
+                                           nodes[i].Name.c_str(), bi.MaterialIndex, bi.NumVertices, bi.BoundsMin.x,
+                                           bi.BoundsMin.y, bi.BoundsMin.z, bi.BoundsMax.x, bi.BoundsMax.y, bi.BoundsMax.z );
+                        }
+                    }
+                    OTDU_LOG_INFO( "BRAKEPOS %s x %.3f (axis %.2f %.2f %.2f) | %s x %.3f (axis %.2f %.2f %.2f)\n",
+                                   nodes[i].Name.c_str(), bt.m[3][0], bt.m[0][0], bt.m[0][1], bt.m[0][2],
+                                   rimName.c_str(), rt.m[3][0], rt.m[0][0], rt.m[0][1], rt.m[0][2] );
+                }
                 car.setNodeTransform(
                     static_cast<int32_t>( i ),
                     up * car.getNodeTransform( static_cast<int32_t>( i ) ) );
                 OTDU_LOG_INFO( "CinematicCar: brake node '%s' lifted %.3f m "
                                "with the wheel '%s'\n",
                                nodes[i].Name.c_str(), lift, rimName.c_str() );
+            }
+        }
+    }
+    if ( CmdLine::HasArg( "-logrimmat" ) ) {
+        const std::vector<SceneNode> &allNodes = car.getScene().getNodes();
+        for ( const EdenModel::Item &it : car.getItems() ) {
+            const std::string &nn = allNodes[static_cast<size_t>( it.NodeIndex )].Name;
+            if ( nn.find( "_FR" ) != std::string::npos || nn.find( "DISC" ) != std::string::npos ||
+                 nn.find( "FORK" ) != std::string::npos ) {
+                if ( nn.compare( 0, 3, "WLR" ) == 0 ) {
+                    const EdenMaterial &wm = car.getMaterials()[it.MaterialIndex];
+                    OTDU_LOG_INFO( "WLRMAT shader %016llx blend %d/%d atest %d ref %d cull %d depthw %d slots %u\n",
+                                   static_cast<unsigned long long>( wm.ShaderSetGUID ), wm.SrcBlend, wm.DstBlend,
+                                   wm.bAlphaTest ? 1 : 0, wm.AlphaRef, wm.CullMode, wm.bDepthWrite ? 1 : 0, wm.NumSlots );
+                    for ( uint32_t k = 0; k < wm.NumSlots; k++ ) {
+                        OTDU_LOG_INFO( "   WLR slot %u %s = %s %s\n", k, IdentifierToString( wm.SlotTypes[k] ).c_str(),
+                                       IdentifierToString( wm.TextureHashes[k] ).c_str(), wm.pTextures[k] ? "ok" : "missing" );
+                    }
+                    for ( const auto &pr : wm.Parameters ) {
+                        OTDU_LOG_INFO( "   WLR param %s = %.3f %.3f %.3f %.3f\n", IdentifierToString( pr.first ).c_str(),
+                                       pr.second.x, pr.second.y, pr.second.z, pr.second.w );
+                    }
+                }
+                OTDU_LOG_INFO( "WHEELITEM %s mat %u '%s' verts %u bounds (%.3f %.3f %.3f)-(%.3f %.3f %.3f)\n", nn.c_str(),
+                               it.MaterialIndex, car.getMaterials()[it.MaterialIndex].Name.c_str(), it.NumVertices,
+                               it.BoundsMin.x, it.BoundsMin.y, it.BoundsMin.z, it.BoundsMax.x, it.BoundsMax.y,
+                               it.BoundsMax.z );
             }
         }
     }
@@ -1759,6 +1826,19 @@ void CinematicCar::setRimDiameters( int32_t frontInch, int32_t rearInch ) {
             ( "T_" + std::to_string( rimDiameterFront ) + "P" ).c_str() );
         tireNodeRear = tire.getScene().findNode(
             ( "T_" + std::to_string( rimDiameterRear ) + "P" ).c_str() );
+    }
+    if ( tire.isLoaded() && tireNodeFront >= 0 && CmdLine::HasArg( "-logrimmat" ) ) {
+        for ( const EdenModel::Item &it : tire.getItems() ) {
+            if ( it.NodeIndex == tireNodeFront ) {
+                OTDU_LOG_INFO( "Tire material %u '%s' blend %d/%d atest %d\n", it.MaterialIndex,
+                               tire.getMaterials()[it.MaterialIndex].Name.c_str(),
+                               tire.getMaterials()[it.MaterialIndex].SrcBlend, tire.getMaterials()[it.MaterialIndex].DstBlend,
+                               tire.getMaterials()[it.MaterialIndex].bAlphaTest ? 1 : 0 );
+                OTDU_LOG_INFO( "Tire item node %d mat %u bounds (%.3f %.3f %.3f)-(%.3f %.3f %.3f)\n", it.NodeIndex,
+                               it.MaterialIndex, it.BoundsMin.x, it.BoundsMin.y, it.BoundsMin.z, it.BoundsMax.x,
+                               it.BoundsMax.y, it.BoundsMax.z );
+            }
+        }
     }
     OTDU_LOG_INFO( "CinematicCar: rims %d\" / %d\", tire nodes %d / %d, tire "
                    "radius %.3f m\n",
@@ -3620,6 +3700,13 @@ bool CinematicCar::DescFromDatabase( int32_t carId, Desc &outDesc ) {
             outDesc.RimRear =
                 path + "/" +
                 ToLower( rimDesc["_rsc_file_name_rear"].asString() );
+            if ( CmdLine::HasArg( "-logrimmat" ) ) {
+                OTDU_LOG_INFO( "RIMROW %s: tires_thickness %.4f width_motion %.4f / %.4f largeur %.1f/%.1f spokes %d\n",
+                               outDesc.RimFront.c_str(), rimDesc["_tires_thickness"].asFloat( -1.0f ),
+                               rimDesc["_width_motion_front"].asFloat( -1.0f ), rimDesc["_width_motion_rear"].asFloat( -1.0f ),
+                               rimDesc["_largeur_front"].asFloat( -1.0f ), rimDesc["_largeur_rear"].asFloat( -1.0f ),
+                               static_cast<int>( rimDesc["_nb_spokes"].asInt( -1 ) ) );
+            }
             outDesc.DiameterFront =
                 static_cast<int32_t>( rimDesc["_diameter_front"].asInt( 18 ) );
             // Tire: rim radius + sidewall (width x aspect ratio, "245/40").
