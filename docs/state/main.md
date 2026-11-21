@@ -4,6 +4,12 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, the school penalty)
+
+Owner: "start with the penalty system ... before starting each test there is a banner top left ... a run being made ... blackscreens to loop again".
+- Penalty built from `events_config.cpr` + `DBEnvironnement` (spec 12.8): off-road points -> seconds, base + penalty = final, the cart's Basic time / Penalty / Final rows, the HUD penalty gauge with its value.
+- The pre-test demo (the banner + a run of the course, looping) is decoded from the 360 clip: see the next entry once built.
+
 ## Note 2026-11-21 (`main`, owner confirmation of the start money)
 
 - Owner: the $27,000 start money is what a fresh, unmodified 360 recomp new game gave (1:1 real game); it covers the $20,000 Lancia start car, or one of each of the three start cars with change left. `kStoryStartMoney` stays $27,000, now confirmed [owner, 360 recomp]. The second reference set is in `reference/intro_story_360_female/` (14 clips + NOTES.md, silent audio); its notes show $7,850 later in the story and a $57,850 Delta at the used dealer, which is a different purchase from the start-car pick.

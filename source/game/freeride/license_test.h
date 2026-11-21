@@ -40,6 +40,17 @@ public:
     // 3, 2, 1 while counting down (0 = "GO!"), -1 otherwise.
     int32_t getCountdownNumber() const;
     inline float getTime() const { return time; }
+    // The school penalty (docs/re/licenses_spec.md 12.8): points accrue off the road (EVENTS PENALTY coefficients); the
+    // time penalty is points / PtsCntPenaltyLevel0n * PenaltyTimeLevel0n seconds, added to the base time for the final score.
+    // The level comes from the file's PeLv, the off-road rule from offR (> 0).
+    inline bool hasPenalty() const { return penaltyLevel > 0 && offRoadPenalty; }
+    inline int32_t getPenaltyLevel() const { return penaltyLevel; }
+    void addPenaltyPoints( float points );
+    inline float getPenaltyPoints() const { return penaltyPoints; }
+    // The points that fill the penalty gauge (the level's PtsCntPenaltyLevel).
+    float getPenaltyPointsMax() const;
+    float getPenaltySeconds() const;
+    inline float getFinalTime() const { return time + getPenaltySeconds(); }
     // The next gate to pass: its position and its index in getChallenge().getGates().
     bool getNextGate( Vector3f &outPosition, int32_t &outIndex ) const;
     // The gates to pass in order (a circuit: every gate then the start line,
@@ -98,6 +109,9 @@ private:
     bool bTimeLimit = true;
     int32_t gatesPerLap = 0;
     float lapStart = 0.0f;
+    int32_t penaltyLevel = 0;
+    bool offRoadPenalty = false;
+    float penaltyPoints = 0.0f;
     std::vector<float> passTimes; // race time at each step passed
     std::vector<float> lapStarts; // race time each lap started at
     std::vector<GateEvent> events;

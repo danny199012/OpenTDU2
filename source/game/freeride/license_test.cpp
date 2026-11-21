@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "license_test.h"
+#include "database/gs_database.h"
 
 namespace {
 constexpr float kCountdown = 3.0f;
@@ -8,6 +9,23 @@ constexpr float kCountdown = 3.0f;
 constexpr float kAttemptDistance = 25.0f;
 constexpr float kGateSlack = 1.0f; // metres beyond the half width still counted [INF: the car's width]
 constexpr float kSlalomClear = 1.0f; // a slalom pole: the car's centre at least this far on the open side [INF: half a car]
+
+// DBEnvironnement's named constants (_variable / _value), e.g. PenaltyTimeLevel01 = 10, PtsCntPenaltyLevel01 = 100 [DATA].
+float GetPenaltyLevelValue( const char *pPrefix, int32_t level, float fallback ) {
+    if ( gpDatabase == nullptr ) {
+        return fallback;
+    }
+    char name[48];
+    snprintf( name, sizeof( name ), "%s%02d", pPrefix, level );
+    const XmbValue root = gpDatabase->getDocument().getRoot();
+    for ( uint32_t i = 0; i < root.getArraySize( "DBEnvironnement" ); i++ ) {
+        XmbValue row = root.getArrayElement( "DBEnvironnement", i );
+        if ( row["_variable"].asString() == name ) {
+            return static_cast<float>( row["_value"].asDouble() );
+        }
+    }
+    return fallback;
+}
 } // namespace
 
 const char *LicenseResultText( LicenseTest::eResult result ) {
@@ -28,6 +46,9 @@ bool LicenseTest::start( const std::string &challengeName ) {
         return false;
     }
     bTimeLimit = true;
+    penaltyLevel = static_cast<int32_t>( challenge.getValue( "PeLv", 0 ) );
+    offRoadPenalty = challenge.getValue( "offR", 0 ) > 0;
+    penaltyPoints = 0.0f;
     if ( challenge.getMode() == Ig2Challenge::ModeSpeed ) {
         OTDU_LOG_WARN( "LicenseTest: %s is a speed challenge: its scoring is not decoded\n", challengeName.c_str() );
         return false;
@@ -188,7 +209,7 @@ void LicenseTest::tick( float deltaTime, const Vector3f &carPosition ) {
                     // trap score is not decoded) [INF].
                     const int32_t targetMs = challenge.getTargetMs();
                     const bool bTimed = challenge.getMode() == Ig2Challenge::ModeTimeAttack;
-                    finish( !bTimed || targetMs <= 0 || time * 1000.0f <= static_cast<float>( targetMs ) ? eResult::Passed
+                    finish( !bTimed || targetMs <= 0 || getFinalTime() * 1000.0f <= static_cast<float>( targetMs ) ? eResult::Passed
                                                                                                           : eResult::TooSlow );
                     return;
                 }
@@ -261,13 +282,30 @@ bool LicenseTest::takeGateEvent( GateEvent &outEvent ) {
     return true;
 }
 
+void LicenseTest::addPenaltyPoints( float points ) {
+    if ( hasPenalty() && stage == eStage::Running ) {
+        penaltyPoints += points;
+    }
+}
+
+float LicenseTest::getPenaltyPointsMax() const {
+    return GetPenaltyLevelValue( "PtsCntPenaltyLevel", penaltyLevel, 100.0f );
+}
+
+float LicenseTest::getPenaltySeconds() const {
+    if ( !hasPenalty() ) {
+        return 0.0f;
+    }
+    return penaltyPoints / Max( getPenaltyPointsMax(), 1.0f ) * GetPenaltyLevelValue( "PenaltyTimeLevel", penaltyLevel, 10.0f );
+}
+
 bool LicenseTest::takeResult( eResult &outResult, float &outTime ) {
     if ( !bResultPending ) {
         return false;
     }
     bResultPending = false;
     outResult = result;
-    outTime = time;
+    outTime = getFinalTime();
     stage = eStage::Idle;
     return true;
 }

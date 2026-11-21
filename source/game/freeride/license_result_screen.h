@@ -42,6 +42,7 @@ public:
         std::string LicenceName; // "A7"
         float Time = 0.0f;       // seconds
         float Target = 0.0f;     // seconds (timG)
+        float Penalty = 0.0f;    // seconds added to the base time (Time is the final score); > 0 shows the penalty rows
         int32_t TestsDone = 0;
         int32_t TestsTotal = 0;
     };

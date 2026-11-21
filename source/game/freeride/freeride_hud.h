@@ -191,6 +191,9 @@ public:
         int32_t Laps = 0;
     };
     void setRaceHud( const RaceHud &race );
+    // The school's penalty readout (the generic gauge in its 'penalty' mode, retail "Penalty -00'41" under the race timer):
+    // fill 0..1 of the level's points, seconds the time penalty so far. bVisible false hides it.
+    void setPenaltyGauge( bool bVisible, float fill01, float seconds );
     // The race position (HUD.vmf /HUD/position: 'open', the cart's mode icon
     // 'race', /:Pos + /:Exp the rank and its ordinal suffix, /:NbPlayers the
     // field) [DATA: the movie's elements]. position <= 0 hides it.
@@ -368,6 +371,9 @@ private:
     float discoveryTimer_ = -1.0f;
     int32_t countdownNumber_ = -1;
     bool bViolationGaugeShown_ = false;
+    bool bPenaltyGaugeShown_ = false;
+    uint32_t penaltyGaugeFrame_ = ~0u;
+    std::string penaltyGaugeText_;
     std::string violationGaugeMode_;  // 'infringement' / 'escape' (the label the icon + bar show)
     uint32_t violationGaugeFrame_ = ~0u;
     float violationGaugeHide_ = 0.0f; // seconds until the closed gauge clip is hidden

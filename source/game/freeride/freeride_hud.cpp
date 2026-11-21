@@ -1605,6 +1605,46 @@ void FreeRideHud::setChaseHud( bool bChase, float awareness01, float escape01, b
     }
 }
 
+void FreeRideHud::setPenaltyGauge( bool bVisible, float fill01, float seconds ) {
+    static const char *kGauge = "/HUD/gauge_content/gauge";
+    if ( !hud.isLoaded() || hud.findClip( kGauge ) == nullptr || bViolationGaugeShown_ ) {
+        return;
+    }
+    if ( !bVisible ) {
+        if ( bPenaltyGaugeShown_ ) {
+            bPenaltyGaugeShown_ = false;
+            hud.gotoLabel( kGauge, "close", true );
+        }
+        return;
+    }
+    if ( !bPenaltyGaugeShown_ ) {
+        bPenaltyGaugeShown_ = true;
+        penaltyGaugeFrame_ = ~0u;
+        penaltyGaugeText_.clear();
+        hud.setVariableBool( "/:isNoCursor", false ); // the cursor carries the value text (/:Score_driving)
+        hud.setClipVisible( "/HUD/gauge_content", true );
+        hud.setClipVisible( "/HUD/gauge_content/gauge", true );
+        hud.setClipVisible( "/HUD/gauge_content/gauge2", false );
+        hud.gotoLabel( kGauge, "open", true );
+        hud.gotoLabel( "/HUD/gauge_content/gauge/content/ic", "penalty", false );
+        hud.gotoLabel( "/HUD/gauge_content/gauge/content/bar", "penalty", false );
+    }
+    const uint32_t frame = static_cast<uint32_t>( ( 1.0f - Clamp( fill01, 0.0f, 1.0f ) ) * 999.0f + 0.5f );
+    if ( frame != penaltyGaugeFrame_ ) {
+        penaltyGaugeFrame_ = frame;
+        hud.gotoFrame( "/HUD/gauge_content/gauge/content", frame, false );
+    }
+    // "-00'41": the retail readout (the time still to be added, minutes'seconds hundredths).
+    const int32_t centis = static_cast<int32_t>( Max( 0.0f, seconds ) * 100.0f + 0.5f );
+    char text[24];
+    snprintf( text, sizeof( text ), "-%02d'%02d", ( centis / 100 ) % 100, centis % 100 );
+    if ( penaltyGaugeText_ != text ) {
+        penaltyGaugeText_ = text;
+        hud.setVariable( "/:Score_driving", text );
+        hud.setVariable( "/:PenaltyValue", text );
+    }
+}
+
 void FreeRideHud::setRaceTimer( bool bVisible, float seconds, int32_t checkpoint, int32_t count ) {
     if ( !bVisible ) {
         bRaceTimerShown_ = false;

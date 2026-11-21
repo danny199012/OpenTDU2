@@ -4105,6 +4105,22 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         }
     }
     licenseTest.tick( deltaTime, vehicle.getWorldMatrix().getTranslation() );
+    // The school's off-road penalty (docs/re/licenses_spec.md 12.8): the EVENTS PENALTY coefficients per second - 1.5 with some
+    // wheels off the tarmac, 2.0 with all of them [DATA events_config.cpr; INF: the rate is per second].
+    if ( licenseTest.hasPenalty() && licenseTest.getStage() == LicenseTest::eStage::Running ) {
+        int32_t numContact = 0, numOff = 0;
+        for ( const VehicleDynamics::WheelState &wheel : vehicle.getWheels() ) {
+            if ( wheel.bContact ) {
+                numContact++;
+                numOff += wheel.Surface != 0 ? 1 : 0;
+            }
+        }
+        float rate = numOff == 0 ? 0.0f : ( numOff >= numContact ? 2.0f : 1.5f );
+        if ( const char *pForce = CmdLine::GetArgValue( "-penaltyrate" ) ) { // test hook: points per second whatever the surface
+            rate = static_cast<float>( atof( pForce ) );
+        }
+        licenseTest.addPenaltyPoints( rate * deltaTime );
+    }
     // A school test: a pole or cone under the car's footprint is an instant fail.
     if ( licenseTest.getStage() == LicenseTest::eStage::Running && !coursePoles.empty() &&
          courseMarkersFor == licenseTest.getChallenge().getName() && !CmdLine::HasArg( "-nocones" ) &&
@@ -4156,6 +4172,10 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
             race.Laps = licenseTest.getLapCount();
             hud.setRaceHud( race );
         }
+        if ( licenseTest.hasPenalty() ) {
+            hud.setPenaltyGauge( true, licenseTest.getPenaltyPoints() / licenseTest.getPenaltyPointsMax(),
+                                 licenseTest.getPenaltySeconds() );
+        }
         LicenseTest::GateEvent event;
         while ( licenseTest.takeGateEvent( event ) ) {
             hud.showCheckpointPassed( event.Time, event.bHasSplit, event.Split );
@@ -4170,6 +4190,7 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         hud.showCountdown( -1 );
         hud.setRaceTimer( false, 0.0f, 0, 0 );
         hud.setRaceHud( FreeRideHud::RaceHud() );
+        hud.setPenaltyGauge( false, 0.0f, 0.0f );
         const std::string test = licenseTest.getChallenge().getName();
         const std::string title = licenseTest.getChallenge().getTitle();
         // A race with opponents is won in first place; behind the winner it is
@@ -4421,6 +4442,7 @@ void GMFreeRide::openLicenseResult( const std::string &test, bool bPassed, Licen
     info.TestDesc = licenseTest.getChallenge().getDescription();
     info.Message = LicenseResultText( result );
     info.Time = time;
+    info.Penalty = licenseTest.getPenaltySeconds();
     info.Target = licenseTest.getChallenge().getTargetMs() / 1000.0f;
     for ( const LicenseInfo &license : GetLicenses() ) {
         auto it = std::find( license.Challenges.begin(), license.Challenges.end(), test );

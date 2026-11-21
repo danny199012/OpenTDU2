@@ -499,3 +499,16 @@ The actors now play the pack's clips: `SchoolEndScene::getActorClip` reads the a
 (`Avatar` -> driver, `Instructor_` -> passenger). Verified: the driver and instructor move between the 3.2 s and later frames. Not done: the blend between keys, FaceFX / voice sync,
 the seat meshes (`Exclude ... DrvSeat_HR / PsgSeat_HR`), a win-scene look, and `-logendscene` shows one key whose clip is named `none`. `-logendscene` dumps the objects and the heading keys.
 Test setup note: the shared `C:/temp/otdu2-win-userdata` profile has an empty `avatar_config`, so no driver / instructor is seated there; use a copy with `avatar_config = AVT_Male_Intro`.
+
+### 12.8 The school penalty (2026-11-21, `main`)
+What the data says, and what the port does with it:
+- **Rules** [DATA, `scenarics/events_config.cpr` (decrypts with `tools/x360/licence_dump.py`)]: an `EVENTS` `PENALTY` mode with `complete_offroad_coeff` 2.0, `partial_offroad_coeff` 1.5,
+  `collision_coeff` 0.05, `road_collision_coeff` 0.025, `max_collision_points` 10. **Levels** [DATA, `DBEnvironnement`]: `PenaltyTimeLevel01..03` = 10 s,
+  `PtsCntPenaltyLevel01..03` = 100 / 55 / 25 points (and the Speed / Score twins: 20 and 500). The file's `PeLv` picks the level, `offR` > 0 turns the off-road rule on (T06: 1 / 1).
+- **The model** [INF]: points accrue per second at the coefficient (some wheels off the tarmac = 1.5, all of them = 2.0); the time penalty = points / `PtsCntPenaltyLevel0n` * `PenaltyTimeLevel0n`
+  seconds. It fits the 360 capture (T06 penalty 0.41 s = ~4.1 points, i.e. a few seconds of partial off-road). Collisions (`collision_coeff`) are not accrued: the port has no impact magnitude to feed them.
+- **Built** (`LicenseTest::addPenaltyPoints` / `getPenaltySeconds` / `getFinalTime`, `GMFreeRide::tickLicenseTest`): per-wheel `Surface != 0` (dirt / grass) counts as off the road; the final score
+  is base + penalty (the time-attack target compares against it); the result cart shows `/:BaseTime`, `/:penalty` ("+00 : 01 : 20") and `/:IsPenalty` (its own "Basic time / Penalty / Final time" rows,
+  like the 360 T06 cart); the HUD shows the generic gauge in its `penalty` mode ("Penalty" + hand icon + bar, the value in the cursor text `/:Score_driving`, `FreeRideHud::setPenaltyGauge`).
+  Evidence: `docs/images/school_penalty_hud.png`; `-licensetest RSC4T06 -penaltyrate 2 -licenseforce fail -licenseforceafter 6`: Basic time 6.00 + Penalty 1.20 = Final 7.20 (12 points / 100 * 10 s).
+  `-penaltyrate <points/s>` is the test hook (any surface). Not done: collisions, the HUD value sign / format against retail beyond "-00'41", the bar fill direction.

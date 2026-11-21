@@ -99,7 +99,11 @@ void LicenseResultScreen::open( const Info &info ) {
     player.setVariable( "/:Message", message );
     player.setVariable( "/:Message2", message );
     player.setVariable( "/:final_score", FormatPanelTime( info.Time ) );
-    player.setVariable( "/:BaseTime", FormatPanelTime( info.Time ) );
+    // Base time + penalty = final (the 360 T06 cart: Base 146"95 + Penalty +00"62 = Final 147"57) [CODE-dev: /:basetime, /:penalty, /:IsPenalty].
+    player.setVariable( "/:BaseTime", FormatPanelTime( info.Time - info.Penalty ) );
+    player.setVariable( "/:basetime", FormatPanelTime( info.Time - info.Penalty ) );
+    player.setVariable( "/:penalty", "+" + FormatPanelTime( info.Penalty ) );
+    player.setVariableBool( "/:IsPenalty", info.Penalty > 0.0f );
     player.setVariable( "/:ref_score", FormatPanelTime( info.Target ) );
     player.setVariable( "/:LicenceName", info.LicenceName );
     player.setVariable( "/:nb_tests_done", std::to_string( info.TestsDone ) );
