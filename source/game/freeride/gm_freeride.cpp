@@ -434,6 +434,9 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             OTDU_LOG_INFO( "FREERIDE: handoff at '%s' entrance (%.1f, %.1f, %.1f) on %s\n", handoff.EntranceSpot.c_str(),
                            entrance.x, entrance.y, entrance.z, islandName.c_str() );
         }
+        testCarOverride = handoff.CarId;
+        pendingStartTest = handoff.StartTest;
+        pendingOpenSchool = handoff.OpenSchoolTest;
         handoff = StoryHandoff();
     }
     // The save's own position wins over the house exit: the car comes back exactly where it
@@ -682,6 +685,9 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
                 }
             }
         }
+    } else if ( testCarOverride >= 0 && CinematicCar::DescFromDatabase( testCarOverride, carDesc ) ) {
+        // A racing school test: the school's own car (VMod), loaded with the world as the retail does per test.
+        OTDU_LOG_INFO( "FREERIDE: the school's car %d '%s'\n", testCarOverride, carDesc.FileName.c_str() );
     } else {
         // The car the player picked in a house garage or drove out of a dealer
         // (PlayerProfile::DrivenCarId); an unknown / no longer owned id keeps
@@ -3832,6 +3838,32 @@ void GMFreeRide::placeCar( const Vector3f &target, float heading ) {
 }
 
 void GMFreeRide::startLicenseTest( const std::string &test ) {
+    // A school test runs in the school's own car (VMod: the Delta / Esprit / Mustang with the school's liveries); the
+    // model cannot be swapped under a running world (car_delivery.md), so the world reloads with it - retail loads the
+    // world per test too [the 360 capture]. A different car than the one loaded now -> FREERIDE again, which starts it.
+    if ( test.size() > 2 && tolower( static_cast<unsigned char>( test[0] ) ) == 'r' &&
+         tolower( static_cast<unsigned char>( test[1] ) ) == 's' && !CmdLine::HasArg( "-noschoolcar" ) ) {
+        Ig2Challenge probe;
+        if ( probe.load( test ) && !probe.getGates().empty() ) {
+            const int32_t wanted = static_cast<int32_t>( probe.getCarId() );
+            const int32_t loaded = testCarOverride >= 0 ? testCarOverride : car.getIdCar();
+            if ( wanted >= 0 && wanted != loaded ) {
+                const Ig2Gate &first = probe.getGates()[0];
+                StoryHandoff &handoff = GetStoryHandoff();
+                handoff = StoryHandoff();
+                handoff.bSet = true;
+                handoff.Position = first.Position;
+                handoff.Yaw = std::atan2( first.Forward.x, first.Forward.z );
+                handoff.Island = islandName;
+                handoff.CarId = wanted;
+                handoff.StartTest = test;
+                OTDU_LOG_INFO( "FREERIDE: %s needs the school's car %d (loaded %d): the world reloads\n", test.c_str(), wanted, loaded );
+                interior.exit();
+                pGameInstance->setNextGameMode( eGameMode::GM_FreeRide );
+                return;
+            }
+        }
+    }
     if ( !licenseTest.start( test ) ) {
         interior.showMessage( "This test could not be loaded." );
         return;
@@ -3840,6 +3872,16 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
     // the one the player drives: the test's own (VMod) needs the runtime car
     // change (-switchcar, car_delivery.md) [INF].
     interior.exit();
+    // A school test sets its own weather (rswh); a race or a duel keeps the island's.
+    {
+        const std::string &name = licenseTest.getChallenge().getName();
+        if ( name.size() > 2 && tolower( static_cast<unsigned char>( name[0] ) ) == 'r' &&
+             tolower( static_cast<unsigned char>( name[1] ) ) == 's' && !CmdLine::HasArg( "-notestweather" ) ) {
+            applyTestWeather( static_cast<int32_t>( licenseTest.getChallenge().getValue( "rswh", 0 ) ) );
+        } else {
+            restoreTestWeather();
+        }
+    }
     placeCar( licenseTest.getStartPosition(), licenseTest.getStartHeading() );
     hud.closeEnterSpot();
     const std::string title = licenseTest.getChallenge().getTitle();
@@ -4062,6 +4104,16 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         }
     }
     licenseTest.tick( deltaTime, vehicle.getWorldMatrix().getTranslation() );
+    // A school test: a pole or cone under the car's footprint is an instant fail.
+    if ( licenseTest.getStage() == LicenseTest::eStage::Running && !coursePoles.empty() &&
+         courseMarkersFor == licenseTest.getChallenge().getName() && !CmdLine::HasArg( "-nocones" ) &&
+         licenseTest.getChallenge().getName().size() > 2 &&
+         tolower( static_cast<unsigned char>( licenseTest.getChallenge().getName()[0] ) ) == 'r' &&
+         tolower( static_cast<unsigned char>( licenseTest.getChallenge().getName()[1] ) ) == 's' && carHitsCoursePole() ) {
+        OTDU_LOG_INFO( "FREERIDE: %s: a cone was hit at %.1f s - failed\n", licenseTest.getChallenge().getName().c_str(),
+                       licenseTest.getTime() );
+        licenseTest.end( LicenseTest::eResult::HitCone );
+    }
     if ( opponents.isActive() && opponentsHold <= 0.0f ) {
         tickRaceOpponents( deltaTime, licenseTest.getStage() == LicenseTest::eStage::Running, licenseTest.getTime() );
         if ( licenseTest.getStage() == LicenseTest::eStage::Countdown || licenseTest.getStage() == LicenseTest::eStage::Running ) {
@@ -4272,6 +4324,9 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
                 pActiveDuel = nullptr;
             }
         }
+        if ( result == LicenseTest::eResult::Abandoned ) {
+            restoreTestWeather();
+        }
         if ( bLicenceTest && result != LicenseTest::eResult::Abandoned ) {
             const bool bLicenceNew =
                 !bLicenceWasObtained && pTestLicence != nullptr && IsLicenseObtained( *pTestLicence );
@@ -4455,6 +4510,7 @@ void GMFreeRide::openSchool( char letter, const std::string &test ) {
 }
 
 void GMFreeRide::returnToSchool( const std::string &test ) {
+    restoreTestWeather();
     // RS<letter>...: the school spot ERS_<letter> stands beside its tests
     // (docs/re/licenses_spec.md 1) [DATA].
     const char letter = test.size() > 2 ? static_cast<char>( toupper( test[2] ) ) : 'A';
@@ -4467,7 +4523,92 @@ void GMFreeRide::returnToSchool( const std::string &test ) {
     openSchool( letter, test );
 }
 
+void GMFreeRide::applyTestWeather( int32_t kind ) {
+    const std::vector<WeatherPreset> &presets = gameWeathers.getPresets();
+    if ( presets.empty() ) {
+        return;
+    }
+    if ( !bTestWeather ) {
+        bTestWeatherWasRunning = weatherCycle.isRunning();
+    }
+    const int32_t targetHour = kind == 2 ? 23 : 15;
+    const WeatherPreset *pBest = nullptr;
+    int32_t bestDistance = 1 << 30;
+    for ( const WeatherPreset &preset : presets ) {
+        int32_t distance = std::abs( preset.Hour - targetHour );
+        distance = Min( distance, 24 - distance );
+        if ( distance < bestDistance ) {
+            bestDistance = distance;
+            pBest = &preset;
+        }
+    }
+    if ( pBest == nullptr ) {
+        return;
+    }
+    intemperyWeather = *pBest;
+    // Rain: the first of the preset's blocks that carries rain; otherwise the loader's clear + cloudy merge.
+    intemperyWeather.ActiveIntempery = -1;
+    if ( kind == 1 ) {
+        // The block with the most rain (rain_alpha) that is not the storm's heaviest: the test's "full rain".
+        float bestRain = 0.001f;
+        for ( size_t i = 0; i < intemperyWeather.Intemperies.size(); i++ ) {
+            auto it = intemperyWeather.Intemperies[i].find( "rain_alpha" );
+            const float rain = it != intemperyWeather.Intemperies[i].end() ? it->second.x : 0.0f;
+            OTDU_LOG_INFO( "FREERIDE: test weather block %zu rain_alpha %.3f\n", i, rain );
+            if ( rain > bestRain ) {
+                bestRain = rain;
+                intemperyWeather.ActiveIntempery = static_cast<int32_t>( i );
+            }
+        }
+    }
+    weatherCycle.setPinned( pBest );
+    bBlending = false;
+    pWeather = &intemperyWeather;
+    view.setWeather( pWeather );
+    bTestWeather = true;
+    OTDU_LOG_INFO( "FREERIDE: test weather %d: preset '%s' (%02d:%02d) intempery %d\n", kind, pBest->Name.c_str(), pBest->Hour,
+                   pBest->Minutes, intemperyWeather.ActiveIntempery );
+}
+
+void GMFreeRide::restoreTestWeather() {
+    if ( !bTestWeather ) {
+        return;
+    }
+    bTestWeather = false;
+    if ( bTestWeatherWasRunning ) {
+        weatherCycle.clearPin(); // the clock runs again; the next tick blends to the real weather
+        OTDU_LOG_INFO( "FREERIDE: test weather released\n" );
+    }
+}
+
+bool GMFreeRide::carHitsCoursePole() const {
+    // The car's footprint in its own frame (half width 0.8 m, half length 2.2 m [INF: a school hatch / coupe]) against a
+    // pole of 0.15 m radius: a car centred 1 m from a pole (LicenseTest's kSlalomClear) still clears it.
+    constexpr float kHalfWidth = 0.80f, kHalfLength = 2.2f, kPoleRadius = 0.15f;
+    const Matrix4x4f &world = carWorld;
+    const Vector3f centre = world.getTranslation();
+    const Vector3f forward( world.m[2][0], 0.0f, world.m[2][2] );
+    const Vector3f right( world.m[0][0], 0.0f, world.m[0][2] );
+    const float forwardLength = forward.length(), rightLength = right.length();
+    if ( forwardLength < 0.1f || rightLength < 0.1f ) {
+        return false;
+    }
+    for ( const Vector3f &pole : coursePoles ) {
+        if ( std::abs( pole.y - centre.y ) > 2.5f ) {
+            continue; // another level (a road above the pad)
+        }
+        const float dx = pole.x - centre.x, dz = pole.z - centre.z;
+        const float along = ( dx * forward.x + dz * forward.z ) / forwardLength;
+        const float side = ( dx * right.x + dz * right.z ) / rightLength;
+        if ( std::abs( along ) < kHalfLength + kPoleRadius && std::abs( side ) < kHalfWidth + kPoleRadius ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool GMFreeRide::startLicenceWinScene( const std::string &test ) {
+    restoreTestWeather();
     const char letter = test.size() > 2 ? static_cast<char>( toupper( test[2] ) ) : 'A';
     const std::string spot = std::string( "ERS_" ) + letter;
     if ( !interior.enter( spot, islandName ) ) {
@@ -4505,6 +4646,7 @@ void GMFreeRide::tickLicenceWinScene() {
 void GMFreeRide::buildCourseMarkers() {
     const Ig2Challenge &challenge = licenseTest.getChallenge();
     courseMarkersFor = challenge.getName();
+    coursePoles.clear();
     std::vector<RaceGates::Marker> markers;
     auto snapToGround = [this]( Vector3f &position ) {
         VehicleWorldCollision::Hit hit;
@@ -4529,6 +4671,7 @@ void GMFreeRide::buildCourseMarkers() {
             marker.Heading = headingOf( gate.Forward );
             marker.Model = RaceGates::eModel::Barrels;
             markers.push_back( marker );
+            coursePoles.push_back( marker.Position );
             numPoles++;
         }
     }
@@ -4549,6 +4692,7 @@ void GMFreeRide::buildCourseMarkers() {
                 marker.Position = decor.Position;
                 snapToGround( marker.Position );
                 markers.push_back( marker );
+                coursePoles.push_back( marker.Position );
                 numCones++;
             }
             continue;
@@ -6724,6 +6868,20 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         switch ( interiorResult ) {
         case InteriorWalk::eResult::Leave: {
+            // Out of the school in a school car: the world reloads with the player's own car at the school's door.
+            if ( testCarOverride >= 0 && interiorKind == "rschool" ) {
+                StoryHandoff &handoff = GetStoryHandoff();
+                handoff = StoryHandoff();
+                handoff.bSet = true;
+                handoff.Island = islandName;
+                handoff.EntranceSpot = interior.getSpotBank();
+                handoff.Position = carWorld.getTranslation();
+                OTDU_LOG_INFO( "FREERIDE: out of the school: the world reloads with the player's car at '%s'\n",
+                               handoff.EntranceSpot.c_str() );
+                interior.exit();
+                pGameInstance->setNextGameMode( eGameMode::GM_FreeRide );
+                return;
+            }
             // A car picked in the house garage: FREERIDE again at the house's
             // road-side entrance in it (the mode loads the profile's car at
             // enter; the runtime model swap is the known device wedge).
@@ -8518,6 +8676,11 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         // Test: -licensetest <RSA7T01 ...> drives a licence test straight away;
         // -schoolmenu <A|B|C> opens a school's desk without the spot.
+        if ( !pendingStartTest.empty() && ++pendingFrames == 90 ) {
+            const std::string pending = pendingStartTest;
+            pendingStartTest.clear();
+            startLicenseTest( pending );
+        }
         static int32_t licenseFrames = 0;
         if ( const char *pTest = CmdLine::GetArgValue( "-licensetest" ) ) {
             if ( ++licenseFrames == 120 ) {

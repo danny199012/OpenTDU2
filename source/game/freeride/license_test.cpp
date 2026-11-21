@@ -18,6 +18,7 @@ const char *LicenseResultText( LicenseTest::eResult result ) {
     case LicenseTest::eResult::OutOfTime: return "Out of time";
     case LicenseTest::eResult::Abandoned: return "Abandoned";
     case LicenseTest::eResult::Beaten: return "Beaten";
+    case LicenseTest::eResult::HitCone: return "Hit a cone";
     default: return "";
     }
 }

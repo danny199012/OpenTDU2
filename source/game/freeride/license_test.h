@@ -18,7 +18,7 @@ public:
     enum class eStage { Idle, Countdown, Running, Finished };
     // Beaten: a race with opponents finished behind the winner (set by the
     // game mode from RaceOpponents' ranking; a race is won in 1st place [INF]).
-    enum class eResult { None, Passed, TooSlow, MissedGate, OutOfTime, Abandoned, Beaten };
+    enum class eResult { None, Passed, TooSlow, MissedGate, OutOfTime, Abandoned, Beaten, HitCone };
 
     bool start( const std::string &challengeName );
     void tick( float deltaTime, const Vector3f &carPosition );

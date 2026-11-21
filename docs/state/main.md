@@ -4,6 +4,13 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, school tests: cone fail, per-test weather and icons, the school's cars)
+
+- Decoded (`licenses_spec.md` 12.3): the ig2 keys `rswh` (weather 0/1/2), `rsl1` (place), `rsl2` (type icon), `VMod`, and `PeLv`/`offR`/`OrMd` (the off-road penalty of T06).
+- `license_test.*`, `gm_freeride.*`: a cone / pole under the car = instant fail (`eResult::HitCone`); `applyTestWeather` / `restoreTestWeather` (`WeatherCycle::clearPin`); a test with another car reloads FREERIDE with it (`StoryHandoff::CarId` / `StartTest`), leaving the school in a school car reloads with the player's car; `school_screen.cpp` icons from the keys. Flags `-nocones`, `-notestweather`, `-noschoolcar`.
+- Verified headless: straight drive through RSC4T02 fails at 7.0 s; `-licensewarp` still passes; RSC4T04 rain and RSC4T06 night in 3D; RSC4T01 reloads into the green Delta, starts, passes, "Next test" RSC4T02 keeps the car.
+- Not run: the leave-the-school reload, Esprit / Mustang tests, liveries (plain model), the off-road penalty amounts, per-test time of day for T01 / T03 / T05.
+
 ## Session 2026-11-21 (`main`, the 360 licence-school clips -> the result cart text)
 
 - Reviewed `reference/licence_school_360/` (GLM's cuts + NOTES.md). Fixed first: the licence result carts were blank because the port never set `/:IsRacingSchool`; with it, `Message2` shows the game's own loc 1625 / 1626 / 1628 text and the cart reads like retail (`license_result_screen.cpp`; checked with `-licensetest RSC4T01 -licenseforce fail|pass`). Spec `licenses_spec.md` 12.2.

@@ -71,6 +71,11 @@ struct StoryHandoff {
     bool bStory = false;   // the story drive (the Solar Crown goal), not a plain return
     std::string Island;    // the island the drive resumes on ("" = -island / ibiza): the Hawai story scenes
     std::string EntranceSpot; // non-empty: resume at this spots.bin spot's road-side entrance, not Position
+    // The racing school's own cars (licenses_spec 12.3): FREERIDE loads this _id_car instead of the profile's (the model
+    // cannot be swapped at runtime), starts StartTest on it, or - OpenSchoolTest - walks back into the school.
+    int32_t CarId = -1;
+    std::string StartTest;
+    std::string OpenSchoolTest;
 };
 StoryHandoff &GetStoryHandoff();
 

@@ -416,3 +416,25 @@ loader) and the writer of the `Licence%02d` name, and at the `GMScreenShots` / `
 - **The licence card shows the player's portrait** (the same fixed per-avatar picture as the pause card) with name,
   "Tests 6/6", "License approved", the stamp and `411 14 38 42 6116` (clip 01) - so the photo is not generated at the win
   scene's flash; the port's frame grab (12.1) is the wrong source. The rest of the findings are in the clips' `NOTES.md`.
+
+### 12.3 The test files' school keys, cones, weather and cars (2026-11-21, `main`)
+The six C4 files (`rsc4t01..06.ig2`) differ in these MDSC keys, and the 360 capture agrees on every one [DATA]:
+
+| key | T01 .. T06 | meaning |
+|---|---|---|
+| `rswh` | 0 0 0 1 0 2 | the test's weather: 0 sun, 1 rain, 2 night (the school list's `meteo` icons) |
+| `rsl1` | 0 0 1 0 1 1 | the place icon: 0 the school grounds (cone), 1 the road (sign) |
+| `rsl2` | 7 3 0 7 4 9 | the type icon: 0 turn, 3 slalom, 4 overtaking, 7 braking, 9 circuit (the other ids follow the icon strings' order [INF]) |
+| `VMod` | 500 500 501 501 502 502 | the school's own car (Delta / Esprit / Mustang) |
+| `PeLv` / `offR` / `OrMd` | 0 / 0 / 0 ... 1 / 1 / 4 on T06 only | the **off-road penalty**: T06 (the road circuit) adds time for leaving the road (the HUD's "Penalty" readout, dev `OFF_ROAD : State / Penalty`) [INF from the keys; the amounts (`PeCr` 100) are not decoded] |
+
+Built in the port: the list icons read these keys (`school_screen.cpp`); a school test pins the weather (`rswh`: clear 15:00 / rain block 3 at 15:00 / 23:00,
+`applyTestWeather`, `-notestweather`) and releases it at the school; **a pole or cone under the car's footprint fails the test at once**
+("Hit a cone"; the slalom poles and DEC2 cones, `carHitsCoursePole`, `-nocones`; the owner's capture: a cone hit is an instant fail; the footprint is
+[INF]); and a test whose `VMod` differs from the loaded car **reloads FREERIDE with it** (the StoryHandoff's `CarId` / `StartTest`: the model cannot be
+swapped at runtime, car_delivery.md, and retail loads the world per test), leaving the school in a school car reloads with the player's own car at
+the door (`-noschoolcar` keeps the old one-car behaviour). Evidence: `-licensetest RSC4T02` driven straight: "a cone was hit at 7.0 s"; `-licensewarp`
+through the openings still passes; RSC4T04 rain and RSC4T06 night (3D shots); RSC4T01 loads the green Delta (`Delta_Integrale_Evo_2`) after one reload.
+Not done: the schools' liveries (retail's Delta wears red / white stripes, roundels and "Classic Racing School" text; the port shows the plain
+model), the leave-the-school reload and the Esprit / Mustang rows were not run end to end, the off-road penalty itself, the afternoon / dusk times
+of tests 1, 3 and 5 (the files carry no time of day), and the barrel for the cone model (`RS_Separ_A_act`, 12.1).

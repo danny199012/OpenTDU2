@@ -205,14 +205,26 @@ void SchoolScreen::fillTests() {
         const std::string line = ( testsClip == "/" ? "/" : testsClip + "/" ) + "line" + std::to_string( i ) + ":";
         std::string title = bLoaded ? challenge.getTitle() : name;
         player.setVariable( line + "t_name", title.empty() ? name : title );
-        player.setVariable( line + "type", bLoaded ? TestType( challenge ) : "turn" );
-        // Weather: the tests are driven in the island's weather [INF]: sun.
-        player.setVariable( line + "meteo", "sun" );
+        // The .ig2's own keys [DATA, the 360 capture agrees on all six C4 tests]: rsl2 the type icon, rsl1 the place (0 the
+        // school grounds, 1 the road), rswh the weather (0 sun, 1 rain, 2 night). The type ids beyond the five seen
+        // (0 turn, 3 slalom, 4 overtaking, 7 braking, 9 circuit) follow the icon strings' order [INF]; a file without the
+        // keys keeps the old guess from the title and the course.
+        static const char *const kTypeIcons[] = { "turn",   "turn90",   "turn180", "slalom", "overtaking", "acceleration",
+                                                  nullptr,  "braking",  "mixed",   "circuit", "obstacles" };
+        const int32_t typeId = bLoaded ? static_cast<int32_t>( challenge.getValue( "rsl2", -1 ) ) : -1;
+        const char *pTypeIcon = typeId >= 0 && typeId < static_cast<int32_t>( sizeof( kTypeIcons ) / sizeof( kTypeIcons[0] ) )
+                                    ? kTypeIcons[typeId]
+                                    : nullptr;
+        player.setVariable( line + "type", pTypeIcon != nullptr ? std::string( pTypeIcon )
+                                                                : ( bLoaded ? TestType( challenge ) : "turn" ) );
+        const int32_t weatherId = bLoaded ? static_cast<int32_t>( challenge.getValue( "rswh", 0 ) ) : 0;
+        player.setVariable( line + "meteo", weatherId == 1 ? "rain" : weatherId == 2 ? "night" : "sun" );
         bool bRoad = false;
         for ( const Ig2Gate &gate : challenge.getGates() ) {
             bRoad = bRoad || gate.bRoad;
         }
-        player.setVariable( line + "place", bRoad ? "road" : "r_school" );
+        const int32_t placeId = bLoaded ? static_cast<int32_t>( challenge.getValue( "rsl1", -1 ) ) : -1;
+        player.setVariable( line + "place", ( placeId >= 0 ? placeId == 1 : bRoad ) ? "road" : "r_school" );
         player.setVariableBool( line + "done", IsTestPassed( name ) );
         if ( first < 0 && !IsTestPassed( name ) ) {
             first = static_cast<int32_t>( i );

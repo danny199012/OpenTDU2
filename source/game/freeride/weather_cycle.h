@@ -70,6 +70,8 @@ public:
     inline bool isRunning() const { return !bPinned; }
     // `-weather` / `-night`: one preset stays, the clock stands still.
     void setPinned( const WeatherPreset *pPreset );
+    // Back to the running clock after a pin (a school test's own weather): the next tick re-picks the preset.
+    void clearPin();
 
 private:
     const WeatherLibrary *pLibrary = nullptr;

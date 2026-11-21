@@ -223,6 +223,12 @@ void WeatherCycle::setPinned( const WeatherPreset *pNewPreset ) {
     lastMinuteOfDay = hour * 60 + minute;
 }
 
+void WeatherCycle::clearPin() {
+    bPinned = false;
+    presetIndex = -1;
+    lastBlock = -1;
+}
+
 WeatherCycle::Tick WeatherCycle::tick( float deltaTime ) {
     Tick result;
     result.pPreset = pPreset;

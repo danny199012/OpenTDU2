@@ -194,6 +194,11 @@ private:
     // a house garage pick changes the profile's, and leaving the house then
     // reloads the mode in the new car.
     int32_t drivenCarIdAtEnter = -1;
+    // A school car run (the hand-off's CarId): the car this run was loaded with, the test / school desk to open once the
+    // world is up (frames counted in the tick).
+    int32_t testCarOverride = -1;
+    std::string pendingStartTest, pendingOpenSchool;
+    int32_t pendingFrames = 0;
     // The car's dynamic dirt / mud / water state (CarDirt): driven in
     // tickSurfaceFx, applied to the paint by CinematicCar::applySurfaceState,
     // emptied by the car wash.
@@ -395,6 +400,16 @@ private:
     // the DEC2 cone lines and the racing line (-noracingline) with its
     // braking zones (docs/re/licenses_spec.md 10).
     std::string courseMarkersFor;
+    // The poles / cones of a school course (the slalom poles and the DEC2 cones, XZ): touching one fails the test
+    // [the owner's 360 capture: "a cone hit is an instant fail"; INF: the footprint test].
+    std::vector<Vector3f> coursePoles;
+    bool carHitsCoursePole() const;
+    // A school test's own weather (the .ig2's rswh: 0 sun, 1 rain, 2 night [DATA; the 360 capture: T04 rain, T06 night]):
+    // the cycle is pinned to an afternoon / night preset for the run and set free again at the school.
+    void applyTestWeather( int32_t kind );
+    void restoreTestWeather();
+    bool bTestWeather = false;
+    bool bTestWeatherWasRunning = false;
     void buildCourseMarkers();
     // The AI opponents of a race ('R' files): the championship's DBLicense
     // _bot_n drivers in their own cars (game/freeride/race_opponents.h,
