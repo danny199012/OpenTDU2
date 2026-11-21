@@ -4,6 +4,13 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, digging for the real banner: RESULTS.vmf preview_in + the .rly demo)
+
+Owner: "dig for the real banners ... as much as possible 1:1 accurate".
+- Found with the dev exe (`xref.py` + `disas.py`): `GMCompDrivingSchool`'s handler `0xb5d730` opens RESULTS.vmf label `preview_in`; the `/desc` clip is the banner (type / place / meteo icons, `/:TestName`, `/:TestDesc`) and the Help / OK / Cancel bar. The port now shows the real clip (spec 12.10).
+- The demonstration is the test's recorded run `ig2/replays/<test>.rly`: decoded the header, the 5 Hz keyframe poses and the timestep chunk (1/90 s, 15:00) (spec 12.11); the demo car now follows the retail recording (18.68 s, the same length as the clip).
+- Open: the retail camera cuts, the racing line (second .rly section), the Help page, the in-between frames / inputs, the VehicleInfo liveries.
+
 ## Session 2026-11-21 (`main`, the school penalty)
 
 Owner: "start with the penalty system ... before starting each test there is a banner top left ... a run being made ... blackscreens to loop again".

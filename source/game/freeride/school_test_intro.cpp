@@ -47,8 +47,25 @@ bool SchoolTestIntro::start( const std::vector<Vector3f> &newPath, const Info &n
     return true;
 }
 
+bool SchoolTestIntro::startReplay( const std::string &testName, const Info &newInfo ) {
+    stop();
+    if ( !replay.load( testName ) ) {
+        return false;
+    }
+    info = newInfo;
+    bReplay = true;
+    runTime = replay.getDuration();
+    loopTime = runTime + kHold + kFade;
+    time = 0.0f;
+    loops = 0;
+    bActive = true;
+    tick( 0.0f );
+    return true;
+}
+
 void SchoolTestIntro::stop() {
     bActive = false;
+    bReplay = false;
     path.clear();
     cumulative.clear();
 }
@@ -75,6 +92,12 @@ void SchoolTestIntro::tick( float deltaTime ) {
     if ( time >= loopTime ) {
         time = std::fmod( time, loopTime );
         loops++;
+    }
+    if ( bReplay ) {
+        Vector3f forward, up;
+        replay.sample( Min( time, runTime ), carPosition, forward, up );
+        carHeading = std::atan2( forward.x, forward.z );
+        return;
     }
     const float run = Clamp( ( time - kWait ) / runTime, 0.0f, 1.0f );
     // Ease in / out so the car leaves and arrives like a driven one.

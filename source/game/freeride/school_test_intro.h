@@ -2,6 +2,8 @@
 
 #include "render/eden/eden_scene_view.h"
 
+#include "game/freeride/test_replay.h"
+
 #include <string>
 #include <vector>
 
@@ -24,6 +26,8 @@ public:
     };
     // path: the car's way (the start pose first, then the gates in order).
     bool start( const std::vector<Vector3f> &path, const Info &info );
+    // The retail demonstration: the test's recorded run (ig2/replays) drives the car instead of the gate path.
+    bool startReplay( const std::string &testName, const Info &info );
     void stop();
     inline bool isActive() const { return bActive; }
     // false: RESULTS.vmf's own banner is drawn (preview_in), only the fade is drawn here.
@@ -43,6 +47,8 @@ private:
     Vector3f pointAt( float distance, Vector3f &outForward ) const;
 
     bool bActive = false;
+    TestReplay replay;
+    bool bReplay = false;
     bool bNativeBanner = true;
     Info info;
     std::vector<Vector3f> path;

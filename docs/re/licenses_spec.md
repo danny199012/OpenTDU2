@@ -533,3 +533,14 @@ movie's `/desc` clip is the banner of the 360 clip: `/:TestName`, `/:TestDesc`, 
 matches the 360 frame. The demonstration itself is a **replay**: strings `GMCompDrivingSchool replay trajectory` (`0xb5c210`) and `DrivingSchoolReplay`, the handler compares the replay time to the
 replay length (`[edi+0x44]`) to restart it, and `ig2/replays/rsc4t0n.rly` exist for every test - so the demo run (and the retail racing line) come from those files, not from the gate path the port drives now.
 Inspector flags added: `-dumpflashlabels` / `-dumpflashactions` (every loaded movie's root labels / action strings), `-resultlabel <label> -dumpresults <depth>` (open any RESULTS.vmf label on a result).
+
+### 12.11 The test replays (`ig2/replays/<test>.rly`) and the retail demonstration (2026-11-21, `main`)
+[DATA, decoded from `rsc4t01.rly`, same layout in the other 58 files]: `u32 version (18)`, `u32 end of the recording data (31953)`, `u32 XMB size`, the XMB `ReplayBaseParams` (chunk sizes / rates / counts, `FrameCount` 1681,
+`VehicleInfo[0].Id` = the car id 500), `u32 car chunk size (1011)` + the car chunk, `MatrixChunkNumberUsed` (94) matrix chunks of `MatrixChunkSize` (105) bytes - one per `MatrixChunkRate` (18) frames - then
+`InputChunkNumberUsed` (561) input chunks of 11 bytes (one per 3 frames), then `FrameCount` timestep chunks of 8 bytes: **`float dt = 1/90 s` and `float time of day = 54000` (15:00)**. 1681 frames * 1/90 = **18.68 s**, the length of the
+360 demonstration. A matrix chunk: 4 header bytes (`01 f4 01 00`), then **at +9 the car's x y z as unaligned floats** (T01: 11902.4 5.72 16040.1 = the start line, matching the port's world) and **at +25 three 8-byte rows of int16 / 32767 = the car's
+x, y, z axes** (z = forward: -0.10, -0.01, -0.995 at the start). So the keyframes give the whole drive at 5 Hz; the in-between frames (the packed deltas, 105 - 45 bytes) and the input chunks (steering / pedals) are not decoded. The
+35 920 bytes after the recording data (offset `hdr[1]`) are another section (starts `03 00 00 00 31 02 00 00 ...` then a position + 1.0) - not read; a lead for the retail racing line.
+Built: `TestReplay` (`test_replay.*`) reads the keyframes; `SchoolTestIntro::startReplay` drives the car from them (`-noreplaydemo` falls back to the gate path), the loop is the recording + the black fade. Evidence: log
+"TestReplay: ... 94 keyframe(s), 18.68 s, car 500, clock 54000 s"; the car brakes into the zone at the end like the capture (`docs/images/school_test_replay_demo.png`). Tools: `tools/rly/rly_probe.py`, `rly_ts.py`.
+Not done: the retail camera cuts (the clip's cuts are not in the .rly - likely the test's camera data), the racing line from the second section, the Help page (`hsysID = preview`), the per-frame deltas (the demo is 5 Hz linear).

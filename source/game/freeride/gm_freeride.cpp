@@ -3908,7 +3908,7 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
             info.Description = licenseTest.getChallenge().getDescription();
             info.Weather = static_cast<int32_t>( licenseTest.getChallenge().getValue( "rswh", 0 ) );
             info.Place = static_cast<int32_t>( licenseTest.getChallenge().getValue( "rsl1", 0 ) );
-            if ( testIntro.start( path, info ) ) {
+            if ( ( !CmdLine::HasArg( "-noreplaydemo" ) && testIntro.startReplay( name, info ) ) || testIntro.start( path, info ) ) {
                 std::string typeName, placeName, meteoName;
                 SchoolTestIconNames( licenseTest.getChallenge(), typeName, placeName, meteoName );
                 testIntro.setNativeBanner( CmdLine::HasArg( "-nativebanner" ) ||
