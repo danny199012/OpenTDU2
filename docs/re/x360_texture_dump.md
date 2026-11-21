@@ -33,3 +33,11 @@ Delta / Esprit / Mustang models once their UVs are mapped. The decal sheet is th
   are not in any 512x512 `DXT4_5` of the three dumps - they may be other sizes / formats, or composed from this sheet and the car colours; not found yet.
 - **Video Replay** (owner, 2026-11-21): the replay plays the whole run back, with a control bar (previous, rewind, pause, fast-forward, eject; `LB` / `RB` + "Auto. Selection" camera cycling; elapsed / total time; gear and speed) and a very large set of cameras
   (passenger side, wheel, back seat, cockpit ...). The test `.rly` files (12.11) use the same replay format; their second section (35 920 bytes after the recording data, it starts `3, 561, 3, 2` then a position) is the lead for the replay cameras.
+
+## The three school liveries are three separate 1024x1024 `DXT4_5` sheets (owner screenshots 2026-11-21 + a colour scan of the dumps)
+Owner's camera-mode screenshots: the three school cars share one design - the winged "Classic Racing School" logo on the bonnet, the "Racing School" script on the sill / door, a roof roundel, stripes on the bonnet / roof / boot - in
+different colours and numbers: **Delta green + cream, roundel 07; Esprit red + white, roundel 70; Mustang dark maroon + cream door panel, roundel 71** (the 3 in the clips' notes was a misreading).
+Found by scanning every DXT texture of both dumps for the cream / maroon / red colours: **`cac46988...` = Esprit "70" (opaque, dark-red paint baked in), `0af8145e...` = Delta "07" (73 % transparent: a decal over the car paint; its 512x512 form
+`5add44e3...` is the same art), `58b5ef8a...` = Mustang "71" (opaque dark maroon)** - all in `test1` and `test2`; copied as PNG to `E:\TDU2-texdump\school_liveries\` (`docs/images/x360_school_liveries_three_sheets.webp`).
+Each sheet is the car body's unwrap with its own layout (the Mustang's bonnet stripes, roof roundel and door panel; the Esprit's repeated roundels / sill script), so they cannot be one shared sheet. Next: do the PC models (Delta_Integrale_Evo_2,
+Esprit, Mustang_Fastback_68) carry a matching UV set? If so the sheets can be applied as the body's livery layer in the port.
