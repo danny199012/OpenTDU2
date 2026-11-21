@@ -18,7 +18,7 @@ Owner screenshots: the first-person walker standing inside a dining table / chai
 
 ### Ruled out / not done
 - Per-item AABBs for furniture (the meshes are per material, not per object). SHOP-mode show cars (`addShowCar`, the SHOPSCAR rail camera): I first added them and they blocked the walker where no car was drawn, so they are NOT part of collision; the owner's dealer walk is the `placeDisplayCars` one.
-- Walking is only checked on the two houses and the Audi dealer; chairs the walker can sit... no. Unchecked: other houses / the garage room, Hawai dealers, stairs (a stair step inside the band might now block; the shk floor is used as the reference), tiny items on table tops (they are in the band only when above 0.42 m).
+- Walking is only checked on the two houses and the Audi dealer. Unchecked: other houses / the garage room, Hawai dealers, stairs (a stair step inside the band might now block; the shk floor is used as the reference), tiny items on table tops (they are in the band only when above 0.42 m).
 - Rims: only cars with `WLR_` nodes were affected (the 5 Veyrons, Zonda Cinque, F430 Scuderia; `AC_427` and `Buggy1` also carry them and were not checkable: `AC_427` is not a DB `_car_file_name`).
 
 ## Session 2026-11-21 (`main`, Veyron rims: checked, no defect reproduced)
