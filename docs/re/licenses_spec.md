@@ -438,3 +438,20 @@ through the openings still passes; RSC4T04 rain and RSC4T06 night (3D shots); RS
 Not done: the schools' liveries (retail's Delta wears red / white stripes, roundels and "Classic Racing School" text; the port shows the plain
 model), the leave-the-school reload and the Esprit / Mustang rows were not run end to end, the off-road penalty itself, the afternoon / dusk times
 of tests 1, 3 and 5 (the files carry no time of day), and the barrel for the cone model (`RS_Separ_A_act`, 12.1).
+
+### 12.4 Follow-up: the leave reload, the liveries, and what else the data holds (2026-11-21, `main`)
+- **Leave reload verified**: `-gm FREERIDE -licensetest RSC4T01 -schoolleavetest` reloads into the school's Delta, walks into the school, and out: "the world
+  reloads with the player's car at 'ERS_C'", the red California on the school's road, 0 stalls, no device wedge. `-schoolleavetest` is the test hook.
+- **No livery data was found** [DATA, negative]: cars 500 / 501 / 502 share the files of the ordinary Delta Integrale Evo 2 / Esprit S3 / Mustang Fastback 68
+  (`DBCarPhysicsData` rows 256 / 255 / 257, category 17); `DBCarsAndColors` has **no rows** for `_car` 500-502 (the Delta's rows belong to id 355 / 0x163);
+  the three car banks hold only the stock maps; `colors.bnk`, `common_car.bnk` and the 26 `DBStickersBanks` banks have nothing school-named. The
+  retail stripes / roundels / "Classic Racing School" text (360 clips) must come from a sticker layout or a paint the shipped tables do not list - not
+  invented here; the port shows the plain car.
+- **A bank the port does not use**: `scenarics/packs/pack_racingschool.bnk` (+ `__us`) holds the **end-of-test cinematics** (`M_CLASSIC_/DIRT_/ASPHALT_WIN_nn`
+  and `_LOOSE_nn`, `totem_WinLoose`), the NPC animations (Marco `rsa_*`, Jane `rsb_*`, Todd `rsc_wintest_todd` ...), the avatar's win / lose
+  animations (`rsa_wintest-m/-w`, `rsa_loosetest-m/-w`), FaceFX (`rsc-m/-w`) and the voice lines `sound/voices/us/rs{a,b,c}/rs?_endtest_win|loose_nn`.
+  Retail plays a cinematic with the instructor's line after a test; the port goes straight to the cart. Next: read the pack's entities.xmb / the
+  `.cin` timelines (`otdu2_cine_tool list` it) and play one under the result cart.
+- **A bug seen on the way**: `-schoolmenu C` opens the desk with the **Asphalt** card (A7 / A6) although `GetSchoolLicenses('C', 0)` has the C4 licence
+  (`DBLicense[3]`); the card also has no photo / name / "Tests n/6" yet (retail: "Classic License", C4 badge, the portrait, the stamp). Start at
+  `SchoolScreen::fillLicences` and the movie's `li0_gp1` / `LiGpFrame` frame names.

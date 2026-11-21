@@ -4,6 +4,12 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, follow-up: the leave reload, the liveries hunt)
+
+- Verified the leave-the-school reload end to end (`-schoolleavetest`, `leaveSchoolInSchoolCar`): school Delta -> school -> the player's California at ERS_C, 0 stalls.
+- Liveries: not in the data (spec 12.4) - searched `DBCarPhysicsData`, `DBCarsAndColors` (no rows for ids 500-502), the car banks, `colors.bnk`, `common_car.bnk`, the sticker banks. Left as the plain car, nothing invented.
+- Found, not built: `pack_racingschool.bnk` end-of-test cinematics + the instructors' voice lines (the port skips them); `-schoolmenu C` shows the Asphalt card (bug, no photo / name on the card).
+
 ## Session 2026-11-21 (`main`, school tests: cone fail, per-test weather and icons, the school's cars)
 
 - Decoded (`licenses_spec.md` 12.3): the ig2 keys `rswh` (weather 0/1/2), `rsl1` (place), `rsl2` (type icon), `VMod`, and `PeLv`/`offR`/`OrMd` (the off-road penalty of T06).

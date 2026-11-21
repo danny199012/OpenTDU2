@@ -4509,6 +4509,22 @@ void GMFreeRide::openSchool( char letter, const std::string &test ) {
     }
 }
 
+bool GMFreeRide::leaveSchoolInSchoolCar() {
+    if ( testCarOverride < 0 || interiorKind != "rschool" ) {
+        return false;
+    }
+    StoryHandoff &handoff = GetStoryHandoff();
+    handoff = StoryHandoff();
+    handoff.bSet = true;
+    handoff.Island = islandName;
+    handoff.EntranceSpot = interior.getSpotBank();
+    handoff.Position = carWorld.getTranslation();
+    OTDU_LOG_INFO( "FREERIDE: out of the school: the world reloads with the player's car at '%s'\n", handoff.EntranceSpot.c_str() );
+    interior.exit();
+    pGameInstance->setNextGameMode( eGameMode::GM_FreeRide );
+    return true;
+}
+
 void GMFreeRide::returnToSchool( const std::string &test ) {
     restoreTestWeather();
     // RS<letter>...: the school spot ERS_<letter> stands beside its tests
@@ -6316,6 +6332,13 @@ void GMFreeRide::ensureModPropsLoaded() {
 }
 
 void GMFreeRide::tick( float deltaTime ) {
+    // -schoolleavetest (test): 240 frames into the school of a school car world, walks out (the exit selectable's path).
+    if ( CmdLine::HasArg( "-schoolleavetest" ) && interior.isActive() && interiorKind == "rschool" ) {
+        static int32_t inSchoolFrames = 0;
+        if ( ++inSchoolFrames == 240 && leaveSchoolInSchoolCar() ) {
+            return;
+        }
+    }
     if ( !bLoaded ) {
         return;
     }
@@ -6868,18 +6891,7 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         switch ( interiorResult ) {
         case InteriorWalk::eResult::Leave: {
-            // Out of the school in a school car: the world reloads with the player's own car at the school's door.
-            if ( testCarOverride >= 0 && interiorKind == "rschool" ) {
-                StoryHandoff &handoff = GetStoryHandoff();
-                handoff = StoryHandoff();
-                handoff.bSet = true;
-                handoff.Island = islandName;
-                handoff.EntranceSpot = interior.getSpotBank();
-                handoff.Position = carWorld.getTranslation();
-                OTDU_LOG_INFO( "FREERIDE: out of the school: the world reloads with the player's car at '%s'\n",
-                               handoff.EntranceSpot.c_str() );
-                interior.exit();
-                pGameInstance->setNextGameMode( eGameMode::GM_FreeRide );
+            if ( leaveSchoolInSchoolCar() ) {
                 return;
             }
             // A car picked in the house garage: FREERIDE again at the house's
@@ -8680,6 +8692,13 @@ void GMFreeRide::tick( float deltaTime ) {
             const std::string pending = pendingStartTest;
             pendingStartTest.clear();
             startLicenseTest( pending );
+        }
+        // -schoolleavetest (test): in a school car world, walks into the school (frame 200).
+        if ( CmdLine::HasArg( "-schoolleavetest" ) && testCarOverride >= 0 ) {
+            static int32_t leaveFrames = 0;
+            if ( ++leaveFrames == 200 ) {
+                returnToSchool( "RSC4T01" );
+            }
         }
         static int32_t licenseFrames = 0;
         if ( const char *pTest = CmdLine::GetArgValue( "-licensetest" ) ) {
