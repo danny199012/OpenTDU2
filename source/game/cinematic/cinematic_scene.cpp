@@ -207,6 +207,35 @@ bool CinematicScene::parseScene( const uint8_t *pData, size_t size ) {
                 for ( uint32_t k = 0; k < numKeys * track.NumComponents && keySize >= 4; k++ ) {
                     track.Values.push_back( ReadAt<float>( pChunk, valuesOffset + k * 4 ) );
                 }
+                if ( track.Id == kTrackPosition && track.NumComponents == 4 && track.Values.size() == track.Times.size() * 4 ) {
+                    // Some position keys carry a leading dword (0, 1, 0xffffffff or a NaN pattern: a flag [INF]) before x y z; read as
+                    // 3 components they shifted every value by one (the NaN x of the school's cabin close-ups, 2026-11-21).
+                    std::vector<float> xyz;
+                    for ( size_t k = 0; k < track.Times.size(); k++ ) {
+                        memcpy( &track.Parent, &track.Values[k * 4], 4 );
+                        xyz.insert( xyz.end(), track.Values.begin() + k * 4 + 1, track.Values.begin() + k * 4 + 4 );
+                    }
+                    track.bParented = true;
+                    track.Values = std::move( xyz );
+                    track.NumComponents = 3;
+                }
+                if ( track.Id == kTrackRotation && track.NumComponents == 4 && track.Values.size() == track.Times.size() * 4 ) {
+                    // A look-at camera (the school's cabin close-ups): the first dword of a key is a small integer - the 1-based
+                    // index of the actor it looks at (1 Avatar, 2 PLAYER_CAR ... in the scene's actor order) - then the
+                    // target's offset x y z [INF: decoded from the data: offset (0.07, 0.76, -0.09) on the seated driver =
+                    // his head, ~0 on the car; fixed 2026-11-21].
+                    uint32_t raw = 0;
+                    memcpy( &raw, &track.Values[0], 4 );
+                    if ( raw >= 1 && raw <= 255 ) {
+                        std::vector<float> xyz;
+                        for ( size_t k = 0; k < track.Times.size(); k++ ) {
+                            xyz.insert( xyz.end(), track.Values.begin() + k * 4 + 1, track.Values.begin() + k * 4 + 4 );
+                        }
+                        track.LookAtActor = raw;
+                        track.Values = std::move( xyz );
+                        track.NumComponents = 3;
+                    }
+                }
                 object.Tracks.push_back( std::move( track ) );
             }
             trackOffset += trackSize;
@@ -498,6 +527,8 @@ Quaternionf QuaternionFromRotationMatrix( const Matrix4x4f &m ) {
 }
 } // namespace
 
+static const float kLookPitchSign = 1.0f;
+
 bool Cinematic::getCamera( const std::vector<CinematicScene> &scenes, float time, Vector3f &outPosition,
                            Quaternionf &outRotation, float &outFov ) const {
     const Shot *pShot = getShot( time );
@@ -515,6 +546,24 @@ bool Cinematic::getCamera( const std::vector<CinematicScene> &scenes, float time
     // The scene origin rotates the camera too (meeting_tess: ~140 degrees about Y; the
     // Eden heading composes as q_camera * conj( q_origin ), like the house frame).
     outRotation = pCamera->sampleRotation( localTime ) * Conjugate( QuaternionFromRotationMatrix( scene.getOrigin() ) );
+    const CinematicScene::Track *pRotation = pCamera->findTrack( CinematicScene::kTrackRotation );
+    if ( pRotation != nullptr && pRotation->LookAtActor > 0 && pRotation->NumComponents == 3 && !pRotation->Values.empty() ) {
+        uint32_t actorIndex = 0;
+        for ( const CinematicScene::Object &object : scene.getObjects() ) {
+            if ( object.ClassHash == CinematicScene::kClassActor && ++actorIndex == pRotation->LookAtActor ) {
+                const Vector3f offset( pRotation->Values[0], pRotation->Values[1], pRotation->Values[2] );
+                const Vector3f target = scene.getOrigin().transformPoint( object.samplePosition( localTime ) + offset );
+                const Vector3f d = target - outPosition;
+                const float flat = std::sqrt( d.x * d.x + d.z * d.z );
+                const float yaw = std::atan2( d.x, d.z );
+                const float pitch = std::atan2( d.y, flat );
+                const Quaternionf qy( 0.0f, std::sin( -yaw * 0.5f ), 0.0f, std::cos( -yaw * 0.5f ) );
+                const Quaternionf qx( std::sin( kLookPitchSign * pitch * 0.5f ), 0.0f, 0.0f, std::cos( pitch * 0.5f ) );
+                outRotation = qy * qx * Conjugate( QuaternionFromRotationMatrix( scene.getOrigin() ) );
+                break;
+            }
+        }
+    }
     outFov = pCamera->sampleFloat( CinematicScene::kTrackFov, localTime, 60.0f ) * kDegToRad;
     return true;
 }

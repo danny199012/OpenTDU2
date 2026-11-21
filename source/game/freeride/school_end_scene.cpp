@@ -51,6 +51,35 @@ bool SchoolEndScene::loadPlay( const std::string &name, Play &out ) {
                 return false;
             }
         }
+        if ( CmdLine::HasArg( "-logendscene" ) ) {
+            for ( const CinematicScene::Object &object : scene.getObjects() ) {
+                const CinematicScene::Track *pPos = object.findTrack( CinematicScene::kTrackPosition );
+                OTDU_LOG_INFO( "EndScene %s: %s %s hash %08x parent %s%08x\n", name.c_str(), object.isCamera() ? "camera" : "actor",
+                               object.Name.c_str(), object.NameHash, pPos != nullptr && pPos->bParented ? "" : "(none) ",
+                               pPos != nullptr ? pPos->Parent : 0u );
+                if ( pPos != nullptr && !pPos->Values.empty() && object.isCamera() ) {
+                    const Vector3f v = object.samplePosition( pPos->Times[0] );
+                    const CinematicScene::Track *pRot = object.findTrack( CinematicScene::kTrackRotation );
+                    const Quaternionf q = object.sampleRotation( pPos->Times[0] );
+                    OTDU_LOG_INFO( "  pos %.3f %.3f %.3f keys %d, heading comps %d q %.3f %.3f %.3f %.3f\n", v.x, v.y, v.z,
+                                   static_cast<int>( pPos->Times.size() ), pRot != nullptr ? static_cast<int>( pRot->NumComponents ) : 0,
+                                   q.x, q.y, q.z, q.w );
+                    if ( pRot != nullptr ) {
+                        for ( size_t k = 0; k < pRot->Times.size(); k++ ) {
+                            char line[256];
+                            int n = snprintf( line, sizeof( line ), "t %.2f:", pRot->Times[k] );
+                            for ( uint32_t c = 0; c < pRot->NumComponents && n < 200; c++ ) {
+                                const float f = pRot->Values[k * pRot->NumComponents + c];
+                                uint32_t raw;
+                                memcpy( &raw, &f, 4 );
+                                n += snprintf( line + n, sizeof( line ) - n, " %g(%08x)", f, raw );
+                            }
+                            OTDU_LOG_INFO( "    rot key %zu %s\n", k, line );
+                        }
+                    }
+                }
+            }
+        }
         out.Scenes.push_back( std::move( scene ) );
     }
     return !out.Scenes.empty();
@@ -106,6 +135,7 @@ bool SchoolEndScene::start( char letter, bool bWon, const Matrix4x4f &carWorld )
 void SchoolEndScene::stop() {
     main = Play();
     loop = Play();
+    clips.clear();
     if ( !bank.getEntries().empty() ) {
         bank.unload();
     }
@@ -156,4 +186,70 @@ bool SchoolEndScene::getCamera( EdenSceneView::Camera &outCamera ) const {
     outCamera.Near = 0.1f;
     outCamera.Far = 40000.0f;
     return true;
+}
+
+const EdenAnimation *SchoolEndScene::getClip( const Play &play, uint32_t refIndex, const CinematicScene &scene ) {
+    if ( refIndex >= scene.getReferences().size() ) {
+        return nullptr;
+    }
+    const std::string stem = FileStem( scene.getReferences()[refIndex].Name );
+    auto it = clips.find( stem );
+    if ( it != clips.end() ) {
+        return it->second.get();
+    }
+    std::unique_ptr<EdenAnimation> pClip;
+    if ( const BankEntry *pEntry = bank.findEntry( stem.c_str(), "anm" ) ) {
+        pClip = std::make_unique<EdenAnimation>();
+        if ( !pClip->parse( pEntry->pData, pEntry->Size ) ) {
+            pClip.reset();
+        }
+    }
+    if ( pClip == nullptr && CmdLine::HasArg( "-logendscene" ) ) {
+        OTDU_LOG_INFO( "SchoolEndScene: clip '%s' not in the pack\n", stem.c_str() );
+    }
+    const EdenAnimation *pResult = pClip.get();
+    clips[stem] = std::move( pClip );
+    return pResult;
+}
+
+const EdenAnimation *SchoolEndScene::getActorClip( const char *pActor, float &outClipTime ) {
+    if ( !bActive || pActor == nullptr ) {
+        return nullptr;
+    }
+    const Play &play = bLooping ? loop : main;
+    const float cinTime = Min( time, play.Cin.getDuration() - 1e-3f );
+    const Cinematic::Shot *pShot = play.Cin.getShot( cinTime );
+    if ( pShot == nullptr || pShot->Scene >= play.Scenes.size() ) {
+        return nullptr;
+    }
+    const CinematicScene &scene = play.Scenes[pShot->Scene];
+    const float sceneTime = pShot->getSceneTime( cinTime );
+    const size_t length = strlen( pActor );
+    for ( const CinematicScene::Object &object : scene.getObjects() ) {
+        const bool bPrefix = length > 0 && pActor[length - 1] == '_';
+        if ( object.isCamera() || ( bPrefix ? object.Name.compare( 0, length, pActor ) != 0 : object.Name != pActor ) ) {
+            continue;
+        }
+        const CinematicScene::Track *pTrack = nullptr;
+        for ( const CinematicScene::Track &track : object.Tracks ) {
+            if ( track.Id == 0xdcd2e210 ) { // "Animation"
+                pTrack = &track;
+            }
+        }
+        if ( pTrack == nullptr || pTrack->NumComponents < 10 || pTrack->Times.empty() || sceneTime < pTrack->Times[0] ) {
+            return nullptr;
+        }
+        size_t key = 0;
+        for ( size_t k = 0; k < pTrack->Times.size(); k++ ) {
+            if ( pTrack->Times[k] <= sceneTime ) {
+                key = k;
+            }
+        }
+        const float *pKey = &pTrack->Values[key * pTrack->NumComponents];
+        uint32_t ref = 0;
+        memcpy( &ref, &pKey[0], 4 );
+        outClipTime = pKey[2] - pKey[7] + ( sceneTime - pTrack->Times[key] );
+        return getClip( play, ref, scene );
+    }
+    return nullptr;
 }

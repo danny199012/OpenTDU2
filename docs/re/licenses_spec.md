@@ -484,3 +484,18 @@ an actor's head bone [INF] - so those shots fall back to the loop's exterior cam
 `rsa_loosetest-m/-w`, `rsc_loosetest_todd` ... and the FaceFX / voice Fx) are not played - the port's seated driver and passenger stand still; and the `.sce` hides the
 car's seat meshes (`Exclude ... DrvSeat_HR / PsgSeat_HR`), not done. Next: animate the two actors from the pack's `.anm` files (the scene's `Animation` track values index its
 REFS; `FadeFreeride::draw` is the sampling template) and resolve the head-bone parenting of the close-up cameras.
+
+### 12.7 The cabin close-ups are look-at cameras (2026-11-21, `main`)
+The "NaN x" of 12.6 was a parser bug, not a head-bone parenting [DATA]. In these scenes (`cam_<school>_loose_01/02`, `_win_01/02`) a **Position key is 4 floats - a leading
+flag dword (0, 1, 0xffffffff, a NaN pattern) then x y z** - and was read as 3, shifting every value by one; the **Heading key is a look-at record: a small integer
+(1, 2) then a 3-float offset**, not a quaternion [INF, from the values]. The integer is the 1-based index of the actor in the scene's actor order (1 `Avatar`, 2
+`PLAYER_CAR`, 3 `Instructor_*`) and the offset is in the target's space: `(0.07, 0.76, -0.09)` on the Avatar = the seated driver's head, ~0 on the car. So
+`cam_*_loose_02` sits at (-0.88, 0.81, 2.30) [scene frame] looking at the driver's head through the windscreen and `cam_*_loose_01` at (-0.80, 0.88, 4.07) looking at the car.
+`CinematicScene` now repacks both (`Track::LookAtActor`) and `Cinematic::getCamera` builds the look-at rotation (yaw about Y, then pitch; the pitch sign was checked by
+eye). Evidence: `docs/images/school_end_scene_windscreen.png` (two figures behind the glass), `school_end_scene_loop.png`. Other scenes with 4-float position keys are repacked
+the same way (no NaN positions remain in a dump of every cinematic).
+The actors now play the pack's clips: `SchoolEndScene::getActorClip` reads the actor's `Animation` track as `IntroCinematic::sampleAnimationTrack` does (key fields 0 ref,
+2 clip start, 7 blend-in), looks the clip up in `pack_racingschool.bnk` by the REFS name, and `GMFreeRide` feeds it to `SeatedAvatar::setOverride` under the result cart
+(`Avatar` -> driver, `Instructor_` -> passenger). Verified: the driver and instructor move between the 3.2 s and later frames. Not done: the blend between keys, FaceFX / voice sync,
+the seat meshes (`Exclude ... DrvSeat_HR / PsgSeat_HR`), a win-scene look, and `-logendscene` shows one key whose clip is named `none`. `-logendscene` dumps the objects and the heading keys.
+Test setup note: the shared `C:	emp\otdu2-win-userdata` profile has an empty `avatar_config`, so no driver / instructor is seated there; use a copy with `avatar_config = AVT_Male_Intro`.

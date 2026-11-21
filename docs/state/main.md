@@ -4,6 +4,12 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, end-of-test cinematic: the cabin close-ups + the actors' clips)
+
+- The close-up cameras were mis-parsed, not head-parented: 4-float position keys (flag + x y z) and look-at heading keys (actor index + target offset). Fixed in `cinematic_scene.cpp` (`Track::LookAtActor`, look-at rotation in `Cinematic::getCamera`); the windscreen shot now shows the driver and the instructor behind the glass (`docs/images/school_end_scene_windscreen.png`). Spec `licenses_spec.md` 12.7.
+- `SchoolEndScene::getActorClip` + the result-cart branch of `GMFreeRide::tick` play the pack's `.anm` clips on the driver ("Avatar") and the instructor.
+- Open: seat meshes hidden, FaceFX / voice sync, key blends, the 'none' clip ref, a win-scene look (only fail checked by eye), the penalty rule, `RS_Separ_A/B_act` poles, the R_SCHOOL photo.
+
 ## Session 2026-11-21 (`main`, the end-of-test cinematic, first version)
 
 - `school_end_scene.*` + `GMFreeRide::startEndOfTestScene`: the racing-school pack's camera at the car under the result cart (main scene then the loop), the instructor seated as passenger. Verified in 3D with forced pass / fail (`-licensetest RSC4T01 -licenseforce pass|fail`): the exterior shot of the school Delta beside the cart. `-noendscene`.

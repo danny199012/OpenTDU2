@@ -36,6 +36,9 @@ public:
         uint32_t NumComponents = 0;
         std::vector<float> Times;
         std::vector<float> Values; // NumComponents per key (raw dwords)
+        uint32_t Parent = 0;       // Position track with a leading dword: the actor the keys are relative to [INF]
+        uint32_t LookAtActor = 0;  // Heading track of a look-at camera: the 1-based actor it looks at (Values = x y z offset)
+        bool bParented = false;
     };
 
     // Actor property track (id 0xd3593709): { u16 0; u16 1; u32 Size; u32 Id;

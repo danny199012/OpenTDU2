@@ -3,7 +3,10 @@
 #include "filesystem/bank.h"
 #include "game/cinematic/cinematic_audio.h"
 #include "game/cinematic/cinematic_scene.h"
+#include "render/eden/eden_animation.h"
 #include "render/eden/eden_scene_view.h"
+#include <map>
+#include <memory>
 
 #include <string>
 #include <vector>
@@ -24,6 +27,9 @@ public:
     // True while the main cinematic (not the loop) plays.
     inline bool isMain() const { return !bLooping; }
     bool getCamera( EdenSceneView::Camera &outCamera ) const;
+    // The clip the cinematic plays on an actor now (the Animation track, as IntroCinematic::sampleAnimationTrack reads it):
+    // pActor matches the actor's name (exact, or the prefix when it ends with '_'). nullptr before the first key.
+    const EdenAnimation *getActorClip( const char *pActor, float &outClipTime );
 
 private:
     struct Play {
@@ -31,6 +37,8 @@ private:
         std::vector<CinematicScene> Scenes;
     };
     bool loadPlay( const std::string &name, Play &out );
+    const EdenAnimation *getClip( const Play &play, uint32_t refIndex, const CinematicScene &scene );
+    std::map<std::string, std::unique_ptr<EdenAnimation>> clips;
 
     Bank bank;
     Play main, loop;

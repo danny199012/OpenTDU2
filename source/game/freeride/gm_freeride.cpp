@@ -4534,6 +4534,7 @@ void GMFreeRide::stopEndOfTestScene() {
         return;
     }
     endScene.stop();
+    driver.setOverride( nullptr, 0.0f );
     passenger.unload();
     bPassengerSeated = false;
 }
@@ -6567,6 +6568,19 @@ void GMFreeRide::tick( float deltaTime ) {
         if ( endScene.isActive() ) {
             endScene.tick( deltaTime );
             endScene.getCamera( camera ); // the pack's shot at the car
+            // The cinematic's actors: the driver ("Avatar") and the instructor play the pack's win / fail clips.
+            if ( bDriverSeated ) {
+                float clipTime = 0.0f;
+                const EdenAnimation *pClip = endScene.getActorClip( "Avatar", clipTime );
+                driver.setOverride( pClip, clipTime );
+                driver.update( car, carWorld );
+            }
+            if ( bPassengerSeated ) {
+                float clipTime = 0.0f;
+                const EdenAnimation *pClip = endScene.getActorClip( "Instructor_", clipTime );
+                passenger.setOverride( pClip, clipTime );
+                passenger.update( car, carWorld );
+            }
         }
         view.setCamera( camera );
         view.tick( deltaTime );
