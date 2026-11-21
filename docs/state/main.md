@@ -4,6 +4,11 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, more school-test digging: cockpit + HUD by place)
+
+- From the clips: pad tests are driven in the cockpit with a minimal HUD and the hourglass countdown; road tests keep chase + minimap and show the target under the timer. Built (spec 12.12): cockpit view for pad tests, `time_cd` / `ref_score`, no minimap on pads, no goal pill. `-noschoolhud` reverts.
+- Still open (listed in spec 12.12): TIME REMAINING banner, Video Replay, replay traffic, liveries, the retail pre-test camera cuts, the racing line.
+
 ## Session 2026-11-21 (`main`, digging for the real banner: RESULTS.vmf preview_in + the .rly demo)
 
 Owner: "dig for the real banners ... as much as possible 1:1 accurate".

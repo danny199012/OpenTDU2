@@ -3919,7 +3919,11 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
             }
         }
     }
-    hud.showGoal( title.empty() ? test : title );
+    // (A school test shows no goal pill: the flag counter owns that corner in the 360 clips.)
+    if ( !( test.size() > 2 && tolower( static_cast<unsigned char>( test[0] ) ) == 'r' && tolower( static_cast<unsigned char>( test[1] ) ) == 's' ) ) {
+        hud.showGoal( title.empty() ? test : title );
+    }
+    applySchoolCamera();
     OTDU_LOG_INFO( "FREERIDE: licence test %s from (%.1f, %.1f, %.1f), car %d (test car %d)\n", test.c_str(),
                    licenseTest.getStartPosition().x, licenseTest.getStartPosition().y, licenseTest.getStartPosition().z,
                    car.getIdCar(), licenseTest.getChallenge().getCarId() );
@@ -4202,6 +4206,22 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
             race.Checkpoints = licenseTest.getGatesPerLap();
             race.Lap = licenseTest.getLap();
             race.Laps = licenseTest.getLapCount();
+            // The school's HUD (the 360 clips): pad tests (rsl1 0) count the limit down on the hourglass and show no minimap;
+            // a test whose target equals its limit (T01 / T02 / T04) is limit-driven, the others show the target under the timer.
+            {
+                const Ig2Challenge &challenge = licenseTest.getChallenge();
+                const std::string &cname = challenge.getName();
+                if ( cname.size() > 2 && tolower( static_cast<unsigned char>( cname[0] ) ) == 'r' &&
+                     tolower( static_cast<unsigned char>( cname[1] ) ) == 's' && !CmdLine::HasArg( "-noschoolhud" ) ) {
+                    const float target = challenge.getTargetMs() / 1000.0f, limit = challenge.getLimitMs() / 1000.0f;
+                    if ( limit > 0.0f && std::fabs( target - limit ) < 0.05f ) {
+                        race.Limit = limit;
+                    } else {
+                        race.Target = target;
+                    }
+                    race.bHideMinimap = challenge.getValue( "rsl1", 0 ) == 0;
+                }
+            }
             hud.setRaceHud( race );
         }
         if ( licenseTest.hasPenalty() ) {
@@ -4223,6 +4243,7 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         hud.setRaceTimer( false, 0.0f, 0, 0 );
         hud.setRaceHud( FreeRideHud::RaceHud() );
         hud.setPenaltyGauge( false, 0.0f, 0.0f );
+        restoreSchoolCamera();
         const std::string test = licenseTest.getChallenge().getName();
         const std::string title = licenseTest.getChallenge().getTitle();
         // A race with opponents is won in first place; behind the winner it is
@@ -4509,6 +4530,26 @@ void GMFreeRide::openLicenseResult( const std::string &test, bool bPassed, Licen
     OTDU_LOG_INFO( "FREERIDE: licence result screen for %s (%s)\n", test.c_str(), bPassed ? "passed" : "failed" );
 }
 
+void GMFreeRide::applySchoolCamera() {
+    const Ig2Challenge &challenge = licenseTest.getChallenge();
+    const std::string &name = challenge.getName();
+    if ( name.size() > 2 && tolower( static_cast<unsigned char>( name[0] ) ) == 'r' &&
+         tolower( static_cast<unsigned char>( name[1] ) ) == 's' && challenge.getValue( "rsl1", 0 ) == 0 &&
+         !CmdLine::HasArg( "-noschoolhud" ) && savedCameraMode < 0 ) {
+        const int32_t mode = chase.getMode();
+        if ( chase.setMode( 23 ) ) {
+            savedCameraMode = mode;
+        }
+    }
+}
+
+void GMFreeRide::restoreSchoolCamera() {
+    if ( savedCameraMode >= 0 ) {
+        chase.setMode( savedCameraMode );
+        savedCameraMode = -1;
+    }
+}
+
 void GMFreeRide::tickTestIntro( float deltaTime ) {
     if ( vehicleAudio.isEngineOn() ) {
         VehicleAudio::Params muted;
@@ -4522,11 +4563,10 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
         licenseResult.closePreview();
         placeCar( licenseTest.getStartPosition(), licenseTest.getStartHeading() );
         licenseTest.setHold( false );
+        applySchoolCamera();
         const std::string title = licenseTest.getChallenge().getTitle();
         if ( bCancel ) {
             licenseTest.abandon();
-        } else {
-            hud.showGoal( title.empty() ? licenseTest.getChallenge().getName() : title );
         }
         OTDU_LOG_INFO( "FREERIDE: the pre-test presentation ended (%s)\n", bCancel ? "cancelled" : "started" );
         return;

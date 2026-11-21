@@ -1681,6 +1681,18 @@ void FreeRideHud::setRaceHud( const RaceHud &race ) {
                 hud.setClipVisible( "/HUD/laps", false );
             }
         }
+        if ( bTimeCdShown_ ) {
+            bTimeCdShown_ = false;
+            hud.setClipVisible( "/HUD/time_cd", false );
+        }
+        if ( bRefScoreShown_ ) {
+            bRefScoreShown_ = false;
+            hud.setClipVisible( "/HUD/ref_score", false );
+        }
+        if ( bMinimapHiddenByRace_ ) {
+            bMinimapHiddenByRace_ = false;
+            hud.setClipVisible( "/HUD/minimap", true );
+        }
         raceTimeText_.clear();
         raceCheckpointShown_ = -1;
         raceLapShown_ = -1;
@@ -1718,6 +1730,39 @@ void FreeRideHud::setRaceHud( const RaceHud &race ) {
             hud.setVariable( "/:Gap", "" );
         }
         OTDU_LOG_INFO( "FreeRideHud: race HUD open (%d checkpoint(s), %d lap(s))\n", race.Checkpoints, race.Laps );
+    }
+    // The limit-driven timer (the school's pad tests: hourglass, the time left counts down) and the target under the
+    // count-up timer (the laurel) [DATA: the 360 clips; clips /HUD/time_cd + /HUD/ref_score of HUD.vmf].
+    if ( race.Limit > 0.0f && hud.findClip( "/HUD/time_cd" ) != nullptr ) {
+        if ( !bTimeCdShown_ ) {
+            bTimeCdShown_ = true;
+            hud.setClipVisible( "/HUD/time_cd", true );
+            hud.gotoLabel( "/HUD/time_cd", "open", true );
+            if ( bHasTime ) {
+                hud.setClipVisible( "/HUD/time", false );
+            }
+        }
+        setCountdown( Max( 0.0f, race.Limit - race.Seconds ) );
+    } else if ( race.Target > 0.0f && hud.findClip( "/HUD/ref_score" ) != nullptr ) {
+        if ( !bRefScoreShown_ ) {
+            bRefScoreShown_ = true;
+            hud.setClipVisible( "/HUD/ref_score", true );
+            hud.gotoLabel( "/HUD/ref_score", "open", true );
+            const uint32_t ms = static_cast<uint32_t>( race.Target * 1000.0f + 0.5f );
+            char text[16];
+            snprintf( text, sizeof( text ), "%02u", ms / 60000u );
+            hud.setVariable( "/:MinRef", text );
+            snprintf( text, sizeof( text ), "%02u", ( ms % 60000u ) / 1000u );
+            hud.setVariable( "/:SecRef", text );
+            snprintf( text, sizeof( text ), "%02u", ( ms % 1000u ) / 10u );
+            hud.setVariable( "/:CentRef", text );
+        }
+    }
+    if ( race.bHideMinimap && !bMinimapHiddenByRace_ && hud.findClip( "/HUD/minimap" ) != nullptr ) {
+        bMinimapHiddenByRace_ = true;
+    }
+    if ( bMinimapHiddenByRace_ ) {
+        hud.setClipVisible( "/HUD/minimap", false );
     }
     // mm:ss.cc (the movie's three fields; the separators are its own art).
     const int32_t total = Max( 0, static_cast<int32_t>( race.Seconds * 100.0f ) );

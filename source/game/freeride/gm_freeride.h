@@ -392,6 +392,10 @@ private:
     // The school test's pre-test presentation (banner + demonstration run looping until A / B).
     SchoolTestIntro testIntro;
     void tickTestIntro( float deltaTime );
+    // The school's pad tests are driven from the cockpit (the 360 clips): the view is set at the start and given back at the end.
+    void applySchoolCamera();
+    void restoreSchoolCamera();
+    int32_t savedCameraMode = -1;
     void startEndOfTestScene( char letter, bool bWon );
     void stopEndOfTestScene();
     // The licence win scene (irs_*'s C_WIN_LICENSE, licenses_spec 12): a licence just obtained walks into the school

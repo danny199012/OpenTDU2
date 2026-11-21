@@ -544,3 +544,16 @@ x, y, z axes** (z = forward: -0.10, -0.01, -0.995 at the start). So the keyframe
 Built: `TestReplay` (`test_replay.*`) reads the keyframes; `SchoolTestIntro::startReplay` drives the car from them (`-noreplaydemo` falls back to the gate path), the loop is the recording + the black fade. Evidence: log
 "TestReplay: ... 94 keyframe(s), 18.68 s, car 500, clock 54000 s"; the car brakes into the zone at the end like the capture (`docs/images/school_test_replay_demo.png`). Tools: `tools/rly/rly_probe.py`, `rly_ts.py`.
 Not done: the retail camera cuts (the clip's cuts are not in the .rly - likely the test's camera data), the racing line from the second section, the Help page (`hsysID = preview`), the per-frame deltas (the demo is 5 Hz linear).
+
+### 12.12 The school HUD and camera differ by place (2026-11-21, `main`, from the 360 clips 02 / 03 / 06 / 07 and the dev build)
+[DATA, 360 clips] **Pad tests** (`rsl1` 0: T01 / T02 / T04) are driven **from the cockpit** (the driver view with the hands on the wheel) with a minimal HUD: the flag counter `n / N` top left, the red **hourglass
+timer counting the time left down** top right (00'25"00 ... on T02), the gate split under the counter (0'10"40), the speed as digits (mph) bottom right - no minimap, no gauge, no goal pill. **Road tests** (`rsl1` 1: T03 / T05 / T06) keep
+the chase camera, the minimap and the speedometer, a count-up timer with a stopwatch icon and **the target time under it (the laurel, 00'37"00 on T05)**, and the Penalty gauge on T06. The rule that picks the timer: a test whose target
+equals its limit (`timG` == `CtDw`: T01 23 / 23, T02 25 / 25, T04 33 / 33) is limit-driven (hourglass countdown), the others count up with the target shown [INF: fits all six clips].
+Built: `GMFreeRide::applySchoolCamera` / `restoreSchoolCamera` (driver view 23 for pad tests, given back at the end), `FreeRideHud::RaceHud::Limit / Target / bHideMinimap` (the HUD's `/HUD/time_cd` countdown, `/HUD/ref_score` target, minimap
+hidden), no goal pill for a school test; `-noschoolhud` turns all of it off. Evidence: pad test T01 in the cockpit with the hourglass counting down, road test T05 with the target under the timer.
+Dev build ([CODE] `0xb5c210`): the school mode records the player's own run in a replay object named "GMCompDrivingSchool replay trajectory" (the result menu's Video Replay; locked in the 360 capture) and finds the world's `Trajectory` entity
+(the racing line) by name, setting two flags on it.
+**Still not implemented** (seen in the clips, not built): the in-test "TIME REMAINING" banner and the 6..1 seconds count (`/HUD/time_out`, `/:time_out_rs`), the per-gate split time + green / red gap row for the school (the HUD rows exist; the
+port shows them but the clip's layout - split under the counter - is not compared), Video Replay (the player's run playback), the school cars' liveries (not in the data, 12.4), traffic in the T05 demonstration (the replay's car chunk holds the traffic cars [INF]),
+the instructor / driver standing at the car before the tests, the retail camera cuts of the pre-test presentation and the racing line from the second `.rly` section (12.11).

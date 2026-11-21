@@ -189,6 +189,9 @@ public:
         int32_t Checkpoints = 0;
         int32_t Lap = 0;        // 1-based; Laps <= 1 hides the lap counter
         int32_t Laps = 0;
+        float Limit = 0.0f;      // > 0: the limit-driven timer (the red hourglass counts the time left down) [the 360 school clips]
+        float Target = 0.0f;     // > 0 with Limit 0: the target time under the timer (the laurel, /HUD/ref_score)
+        bool bHideMinimap = false; // the school grounds tests show no minimap
     };
     void setRaceHud( const RaceHud &race );
     // The school's penalty readout (the generic gauge in its 'penalty' mode, retail "Penalty -00'41" under the race timer):
@@ -372,6 +375,9 @@ private:
     int32_t countdownNumber_ = -1;
     bool bViolationGaugeShown_ = false;
     bool bPenaltyGaugeShown_ = false;
+    bool bTimeCdShown_ = false;
+    bool bRefScoreShown_ = false;
+    bool bMinimapHiddenByRace_ = false;
     uint32_t penaltyGaugeFrame_ = ~0u;
     std::string penaltyGaugeText_;
     std::string violationGaugeMode_;  // 'infringement' / 'escape' (the label the icon + bar show)
