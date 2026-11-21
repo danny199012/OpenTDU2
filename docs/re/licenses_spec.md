@@ -362,3 +362,26 @@ use `Photo/%02d%02d%02d%02d%02d%02d%c.JPG` (a separate path). Cinematic `C_WIN_L
 function's owner (`0xb915c0` looks it up by name). **Not found yet**: what writes `Licence00.jpg` (the camera shot
 taken in the win scene) and when `C_WIN_LICENSE` is triggered; start at `--callers 0x40453b` (the caller of the
 loader) and the writer of the `Licence%02d` name, and at the `GMScreenShots` / `PhotoDisplay` code.
+
+### 12.1 The win scene and the photo (follow-up, same session)
+
+- **The scene is real data and already extractable** [DATA]: each school interior bank has `irs_<a|b|c>_sc_M_WIN_LICENSE`
+  (A 15.51 s / 6 shots, B 12.25 s / 3, C 16.29 s / 6; `otdu2_cine_tool list <interior>/irs_a.bnk`). The interior's own
+  entity list names it (`IRS_A` -> `C_WIN_LICENSE`, beside `C_LIFE`, `Marco_Luzzini`, `D_RacingSchool`). Only the `M_`
+  (male) timeline exists; there is no female variant in the data.
+- **Its messages** [DATA, irs_a]: `play` t0; `zcne` 0-12.6 and 1.97-15.6; `zcde` 0-1.97; **`phfl` at 12.6 s (open end)
+  and 15.12 s (0.37 s)**. `phfl` (read as "photo flash" [INF]) is the camera-flash cue: the shot is taken at 12.6 s on
+  the cam_win_03 / cam_win_04 close-ups (fov 20), and the 0.37 s flash at 15.12 s ends the scene.
+- **The game code reacts to the cue** [CODE]: the school movie's message handler (dev `0xb920b6`) compares the message
+  to `'phfl'` (`0x7068666c`), looks up the licence being awarded and stores a state (`+0x1bba58 = 1`,
+  `+0x1bba5c` = an id from the licence); the card then reads the saved picture (`Licence00.jpg`, `0xa6c2f0`). The
+  write of the JPEG itself was **not** found: the screenshot writers present are `ScreenShotTaker.cpp` / `ScreenShotLoader.cpp`
+  (`%s\%d.jpg`, `0xa7679c`) and the map-screenshot manager, not an obvious `Licence` writer [INF: the `phfl` flash
+  captures the frame to the profile photo].
+- **The port has none of this**: no `avatar_photo` / `IsPhotoLoaded` anywhere in `source/`, and the win cinematic is
+  never played. To build it: play `irs_x_sc_M_WIN_LICENSE` on the last test's pass (instead of the result screen), grab
+  the frame at the `phfl` message into `<userdata>/Licence00.jpg`, feed it to the ID card's `avatar_photo/lure`
+  (pause menu `data_extd/idcard`) and to the licence card.
+- **Penalty not yet traced**: the result function at dev `0xb5c83d` only formats it (`+` prefix, text via `0x1d25260`);
+  the accumulator lives in the test object (`[ebp+0x14]+0x70`). Next: find what increments it
+  (`--callers` on the getter used at `0xb5c8cd`) and the speed-gauge tests' `speed_min` at `0xb5fa05`.
