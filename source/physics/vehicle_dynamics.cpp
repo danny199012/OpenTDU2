@@ -898,7 +898,13 @@ void VehicleDynamics::updateGearboxController( float dt, float forwardSpeed ) {
         static const bool bNoHillHold = CmdLine::HasArg( "-nohillhold" );
         const bool bParked = std::abs( forwardSpeed ) < kHillHoldSpeed && velocity.dot( velocity ) < kHillHoldSpeed * kHillHoldSpeed * 4.0f;
         const bool bRollingBack = forwardSpeed < -0.3f; // neutral / drive and no pedal: the car must not run away backwards
-        bHillHold = !bNoHillHold && gearbox.Type == 0 && ( gearbox.State == 3 || ( gearbox.State == 4 && bRollingBack ) ) &&
+        static int32_t dbgCount = 0;
+        if ( CmdLine::HasArg( "-loghillhold" ) && ( dbgCount++ % 20 ) == 0 ) {
+            OTDU_LOG_INFO( "HILLHOLD type %d state %d gear %d pedal %.2f idle %.2f brake %.2f aid %x fwd %.2f hold %d\n", gearbox.Type,
+                           gearbox.State, gearbox.Gear, engine.Pedal, idlePosition, aidBrakePosition, aidFlags, forwardSpeed,
+                           bHillHold ? 1 : 0 );
+        }
+        bHillHold = !bNoHillHold && gearbox.Type == 0 && ( gearbox.State == 3 || gearbox.State == 4 ) &&
                     engine.Pedal <= idlePosition && aidBrakePosition == 0.0f && ( aidFlags & 8u ) == 0 &&
                     ( bParked || bRollingBack );
     }
