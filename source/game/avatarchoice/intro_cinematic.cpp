@@ -246,11 +246,87 @@ bool IntroCinematic::load( const Setup &newSetup ) {
             }
         }
     }
+    buildFurnitureCollision();
+    shellBoxCount = collision.Boxes.size();
+    shellCapsuleCount = collision.Capsules.size();
     applyShadowConfig( "CINE_DEFAULT" );
     camera = EdenSceneView::Camera();
     camera.Position = housePosition;
     bLoaded = true;
     return true;
+}
+
+// The walk collision of the room's furniture. The room's .shk holds the shell (walls, floor, a few fixed boxes) only: the
+// tables, chairs, sofas, beds ... of a house (and the display plinths of a shop) are baked into the interior bank's meshes
+// (one mesh per material for the whole room) with no collision data, so the walker stood inside the dining table [owner
+// screenshot, EPH_L2E]. The room's own triangles are added to the walk collision where they can touch the walker's body
+// sphere: opaque triangles whose height band over the .shk floor overlaps the sphere (0.4 m step-up .. head). Foliage
+// (alpha-tested leaf cards) and glass (blended) stay walk-through; the thin decor (frames, rugs below the step-up) are
+// below / flat enough not to matter. -nofurniturecollision = the old walk-through, -logfurniture = the counts.
+void IntroCinematic::buildFurnitureCollision() {
+    if ( CmdLine::HasArg( "-nofurniturecollision" ) || ( collision.Indices.empty() && collision.Boxes.empty() ) ) {
+        return;
+    }
+    constexpr float kBandLow = 0.42f;  // WalkMode kStepUp (0.4) + a margin: lower things are stepped over
+    constexpr float kBandHigh = 1.55f; // the body sphere's top (kStepUp + 2 x kRadius) + a margin
+    const size_t shellTriangles = collision.Indices.size() / 3;
+    size_t considered = 0, kept = 0;
+    for ( size_t si = 0; si < sets.size() && si < setIsExterior.size(); si++ ) {
+        if ( setIsExterior[si] ) {
+            continue;
+        }
+        EdenModel &model = *sets[si];
+        const std::vector<Vector3f> &vertices = model.getCollisionVertices();
+        const std::vector<uint32_t> &indices = model.getCollisionIndices();
+        if ( indices.empty() ) {
+            continue;
+        }
+        const auto &materials = model.getMaterials();
+        for ( const EdenModel::Item &item : model.getItems() ) {
+            if ( item.CollisionCount == 0 || item.MaterialIndex >= materials.size() ) {
+                continue;
+            }
+            const EdenMaterial &material = materials[item.MaterialIndex];
+            if ( material.bAlphaTest || material.isBlended() ) {
+                continue;
+            }
+            for ( uint32_t t = 0; t + 2 < item.CollisionCount; t += 3 ) {
+                const uint32_t i0 = indices[item.CollisionFirst + t];
+                const uint32_t i1 = indices[item.CollisionFirst + t + 1];
+                const uint32_t i2 = indices[item.CollisionFirst + t + 2];
+                const Vector3f &a = vertices[i0];
+                const Vector3f &b = vertices[i1];
+                const Vector3f &c = vertices[i2];
+                considered++;
+                const Vector3f centre = ( a + b + c ) * ( 1.0f / 3.0f );
+                float floorY = 0.0f;
+                if ( !FindHavokFloor( collision, Vector3f( centre.x, centre.y + 0.2f, centre.z ), 0.0f, 4.0f, floorY ) ) {
+                    continue;
+                }
+                const float lowY = Min( a.y, Min( b.y, c.y ) ) - floorY;
+                const float highY = Max( a.y, Max( b.y, c.y ) ) - floorY;
+                if ( highY < kBandLow || lowY > kBandHigh ) {
+                    continue;
+                }
+                // A flat floor / ceiling / table-top slab in the band is kept (a table top is what stops the walker);
+                // only slivers are dropped.
+                const float area2 = ( b - a ).cross( c - a ).length();
+                if ( area2 < 1e-4f ) {
+                    continue;
+                }
+                const uint32_t base = static_cast<uint32_t>( collision.Vertices.size() );
+                collision.Vertices.push_back( a );
+                collision.Vertices.push_back( b );
+                collision.Vertices.push_back( c );
+                collision.Indices.push_back( base );
+                collision.Indices.push_back( base + 1 );
+                collision.Indices.push_back( base + 2 );
+                kept++;
+            }
+        }
+    }
+    OTDU_LOG_INFO( "IntroCinematic: furniture collision: %zu of %zu room triangle(s) added to the %zu-triangle shell\n", kept,
+                   considered, shellTriangles );
 }
 
 void IntroCinematic::unload() {
@@ -2152,12 +2228,59 @@ bool IntroCinematic::addDisplayCar( const CinematicCar::Desc &desc, const std::s
         display.bEnvironment = true;
     }
     displayCars.push_back( std::move( display ) );
+    refreshDisplayCarCollision();
     return true;
+}
+
+// The display cars as walk obstacles (owner screenshot: the walker stood inside a dealership's Veyron). A parked car is
+// its body bounds as an oriented box on its rest pose; a turntable car (it sweeps its whole footprint) is a vertical
+// capsule of its bounding radius. Rebuilt whole (the shell's own boxes / capsules come first and stay).
+// -nocarcollision = the old walk-through.
+void IntroCinematic::refreshDisplayCarCollision() {
+    if ( CmdLine::HasArg( "-nocarcollision" ) ) {
+        return;
+    }
+    collision.Boxes.resize( Min( collision.Boxes.size(), shellBoxCount ) );
+    collision.Capsules.resize( Min( collision.Capsules.size(), shellCapsuleCount ) );
+    for ( const DisplayCar &display : displayCars ) {
+        Vector3f lo, hi;
+        if ( !display.Car || !display.Car->getBodyBounds( lo, hi ) ) {
+            if ( CmdLine::HasArg( "-logfurniture" ) ) {
+                OTDU_LOG_INFO( "DISPLAYCAR '%s': no body bounds (BODY_HR)\n", display.PosCam.c_str() );
+            }
+            continue;
+        }
+        const Vector3f centreLocal = ( lo + hi ) * 0.5f;
+        // The body bounds start at the underside: the box covers the body, not the tires' contact patch.
+        const Vector3f half = ( hi - lo ) * 0.5f;
+        if ( display.SpinRate != 0.0f ) {
+            const Vector3f centre = display.RestLocal.transformPoint( centreLocal );
+            const Vector3f pivot = display.Pivot;
+            HavokCollision::Capsule capsule;
+            const float radius = std::sqrt( half.x * half.x + half.z * half.z );
+            capsule.Radius = radius;
+            capsule.A = Vector3f( pivot.x, centre.y - half.y * 0.5f, pivot.z );
+            capsule.B = Vector3f( pivot.x, centre.y + half.y * 0.5f, pivot.z );
+            collision.Capsules.push_back( capsule );
+            continue;
+        }
+        HavokCollision::Box box;
+        box.Transform = display.RestLocal * Matrix4x4f::Translation( centreLocal );
+        box.HalfExtents = half;
+        box.ConvexRadius = 0.0f;
+        collision.Boxes.push_back( box );
+        if ( CmdLine::HasArg( "-logfurniture" ) ) {
+            const Vector3f c = box.Transform.getTranslation();
+            OTDU_LOG_INFO( "DISPLAYCAR box '%s' centre (%.2f %.2f %.2f) half (%.2f %.2f %.2f)\n", display.PosCam.c_str(), c.x,
+                           c.y, c.z, half.x, half.y, half.z );
+        }
+    }
 }
 
 void IntroCinematic::spinLastDisplayCar( float radiansPerSecond ) {
     if ( !displayCars.empty() ) {
         displayCars.back().SpinRate = radiansPerSecond;
+        refreshDisplayCarCollision();
     }
 }
 
@@ -3358,7 +3481,7 @@ void IntroCinematic::loadBankModels( const Bank &bank, const BankHashcodes &hash
         const BankEntry *pGeometry = bank.findEntry( pScene->Name.c_str(), "3dg" );
         const BankEntry *pMaterials = bank.findEntry( pScene->Name.c_str(), "2dm" );
         auto pModel = std::make_unique<EdenModel>();
-        pModel->setKeepCollision( bSkipInteriorLods ); // exterior: ground of the cinematics placed on it
+        pModel->setKeepCollision( bSkipInteriorLods || !CmdLine::HasArg( "-nofurniturecollision" ) ); // exterior: ground of the cinematics placed on it; interior: the furniture the walker bumps into
         if ( pGeometry == nullptr ||
              !pModel->load( *pRenderer, *pScene, *pGeometry, pMaterials, pLibrary, bank.getPath().c_str() ) ) {
             return nullptr;

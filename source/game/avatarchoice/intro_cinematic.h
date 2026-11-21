@@ -872,6 +872,9 @@ private:
     bool buildInCarFallback();
     void loadPnjs( const XmbDocument &entities );
     void loadVolumes( const XmbDocument &entities );
+    void buildFurnitureCollision();
+    void refreshDisplayCarCollision();
+    size_t shellBoxCount = 0, shellCapsuleCount = 0; // the room shell's own boxes / capsules (display cars come after)
     const EdenAnimation *getAnimation( uint64_t hashcode );
     // The .sce object of an entity / a name in the current scene of a
     // playing cinematic (scene time out).

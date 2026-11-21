@@ -3,6 +3,24 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-21 (`main`, walker collision: house furniture + dealership display cars)
+
+Owner screenshots: the first-person walker standing inside a dining table / chairs (house EPH_L2E, Ibiza 29839,2203) and inside a dealership's Veyron (spec card up, camera in the cabin).
+
+### What changed
+- `intro_cinematic.cpp` `buildFurnitureCollision`: [DATA] the interior banks bake the whole room into ONE mesh per material (no per-furniture items: `-logfurniture` showed `dark_wood_01` etc. spanning 10 m) and the room `.shk` holds only the shell (EPH_L2E: 51 triangles + 18 boxes). The room's own opaque triangles (no alpha-test / blend) whose height band over the shk floor overlaps the body sphere (0.42 .. 1.55 m above the floor) are appended to `collision` (EPH_L2E 1965 of 15461, EPH_L3DI 2392 of 9477, Audi dealer 2060 of 23465). Interior sets now keep their CPU collision copy (`setKeepCollision`). `-nofurniturecollision` = old.
+- `refreshDisplayCarCollision`: every `addDisplayCar` car is an oriented box of its `BODY_HR` bounds on its rest pose (a turntable car: a vertical capsule of its bounding radius); rebuilt whole after the shell's `shellBoxCount / shellCapsuleCount`. `-nocarcollision` = old.
+- `-logfurniture` logs the counts and each car box.
+
+### Verified
+- `-enterhouse EPH_L2E_0345I -nointeriorintro -walkat 4,1.8,-6,0 -autoplay "60:hold=walk"`: stops at z -4.28 at the dining table (chairs in front) vs walking on to z 2.11 with `-nofurniturecollision` (the owner's table). `docs/images/walk-collision-furniture-cars.webp` (top row house old / new, bottom row dealer old / new).
+- `-gm FREERIDE -island ibiza -atspot ECD_AUDI_1276I -nativedealer -walkat -12.17,1.8,-0.57,121 -autoplay "300:press=validate;420:hold=walk"`: stops beside the display car (x -8.81) vs through it (x -4.46) with `-nocarcollision`. The reception desk now blocks too.
+
+### Ruled out / not done
+- Per-item AABBs for furniture (the meshes are per material, not per object). SHOP-mode show cars (`addShowCar`, the SHOPSCAR rail camera): I first added them and they blocked the walker where no car was drawn, so they are NOT part of collision; the owner's dealer walk is the `placeDisplayCars` one.
+- Walking is only checked on the two houses and the Audi dealer; chairs the walker can sit... no. Unchecked: other houses / the garage room, Hawai dealers, stairs (a stair step inside the band might now block; the shk floor is used as the reference), tiny items on table tops (they are in the band only when above 0.42 m).
+- Rims: only cars with `WLR_` nodes were affected (the 5 Veyrons, Zonda Cinque, F430 Scuderia; `AC_427` and `Buggy1` also carry them and were not checkable: `AC_427` is not a DB `_car_file_name`).
+
 ## Session 2026-11-21 (`main`, Veyron rims: checked, no defect reproduced)
 
 **Root cause found (owner's reference screenshot):** the car model's `WLR_xx` nodes (material `WLR_FR_01`, alpha-tested flat disc of the tyre's radius, textured with the LOD wheel picture) are the *low-resolution wheel* of the far LODs. The LOD0 draw never hid them, so a grey disc sat over the real rim (Veyron SS: orange ring + stubs only; the Grand Sport had the same disc, its alpha just let more through). `cinematic_car.cpp` now hides `WLR_*` nodes with the other LOD duplicates (`BODY_MR/LR`, `HARDTOP_*`); `-keepwlr` = old. Verified `docs/images/veyron-wlr-rims-fixed.webp`: SS shows the 10-fork... multi-spoke orange wheel with Bugatti hub badge, drilled rotor and BUGATTI caliper; the Grand Sport its own white/silver wheel. Ruled out first: rotor depth (`-rimx` shifts only moved the rim), tyre disc `T_F_01` (`-notire` left the grey disc), kept-geometry spoke/rotor depth analysis. New diagnostics: `-logrimmat` (rim items/materials, tyre items, brake/wheel items, DBRims row), `-photoatrel`. Only cars with `WLR_` nodes are affected (Veyrons found; California has none).
