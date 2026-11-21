@@ -473,3 +473,14 @@ of tests 1, 3 and 5 (the files carry no time of day), and the barrel for the con
   with two figures inside, then the loop under the menu). Playing them needs a car-anchored scene player in the world (the avatar + the NPC rig in the
   car's seats, `loadOccupants`, the `.sce` placed at the car pose) - the garage / car wash scenes run in their own frame instead. Start at
   `IntroCinematic::setCinematicOrigin` with the car's pose and the NPC animations `rs?_wintest*_<npc>.anm` of the same pack.
+
+### 12.6 The end-of-test cinematic, first version (2026-11-21, `main`)
+Built (`school_end_scene.*`, `GMFreeRide::startEndOfTestScene`): under the result cart the pack's camera takes over, anchored to the car (the scene origin = the car
+world matrix; `cam_<school>_03` is in that frame: 4.4 m ahead, 2.5 m to the passenger side, 1 m up, yaw -160 deg - verified: the shot frames the car from its front
+left), the school's instructor rides as the seated passenger (`SPT_Marco_Luzzini` / `SPT_Jane_Omahan` / `SPT_Todd_Bishop`, DBPNJ rows 66 / 64 / 72), the 7.4 s main
+cinematic plays once (`M_<SCHOOL>_<WIN|LOOSE>_nn`, one of the numbered ones at random [INF]) and the 8 s `_LOOP` repeats until the menu answers. `-noendscene` skips it.
+What differs from retail: the cabin close-ups (`cam_*_loose_01/02`, `win_01`...) have a **NaN x, sit 0.8 m below the car origin and carry an identity heading** - keyed to
+an actor's head bone [INF] - so those shots fall back to the loop's exterior camera; the cinematic's actors (`Avatar`, `Instructor_*`, animations
+`rsa_loosetest-m/-w`, `rsc_loosetest_todd` ... and the FaceFX / voice Fx) are not played - the port's seated driver and passenger stand still; and the `.sce` hides the
+car's seat meshes (`Exclude ... DrvSeat_HR / PsgSeat_HR`), not done. Next: animate the two actors from the pack's `.anm` files (the scene's `Animation` track values index its
+REFS; `FadeFreeride::draw` is the sampling template) and resolve the head-bone parenting of the close-up cameras.

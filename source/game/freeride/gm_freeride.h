@@ -34,6 +34,7 @@ struct RenderTarget;
 #include "game/freeride/freeride_hud.h"
 #include "game/freeride/gps_guidance.h"
 #include "game/freeride/photo_camera.h"
+#include "game/freeride/school_end_scene.h"
 #include "game/freeride/dealer_menu.h"
 #include "game/freeride/estate_menu.h"
 #include "game/freeride/paint_menu.h"
@@ -384,6 +385,11 @@ private:
     void returnToSchool( const std::string &test );
     // Out of the school in a school car: the world reloads with the player's own car at the school's door.
     bool leaveSchoolInSchoolCar();
+    // The end-of-test cinematic under the result cart (school_end_scene.h): the pack's camera at the car, the school's
+    // instructor seated beside the player.
+    SchoolEndScene endScene;
+    void startEndOfTestScene( char letter, bool bWon );
+    void stopEndOfTestScene();
     // The licence win scene (irs_*'s C_WIN_LICENSE, licenses_spec 12): a licence just obtained walks into the school
     // and plays it; its "phfl" cue takes the photo (LicencePhoto), its end opens the school desk.
     bool startLicenceWinScene( const std::string &test );

@@ -4450,6 +4450,7 @@ void GMFreeRide::openLicenseResult( const std::string &test, bool bPassed, Licen
     // The instructor's end-of-test line (pack_racingschool: Marco / Jane / Todd, win / loose) under the cart.
     if ( test.size() > 2 ) {
         SchoolVoice::PlayEndOfTest( test[2], bPassed );
+        startEndOfTestScene( test[2], bPassed );
     }
     OTDU_LOG_INFO( "FREERIDE: licence result screen for %s (%s)\n", test.c_str(), bPassed ? "passed" : "failed" );
 }
@@ -4461,6 +4462,7 @@ void GMFreeRide::tickLicenseResult( float deltaTime ) {
         return;
     }
     SchoolVoice::Stop(); // the line ends with the cart
+    stopEndOfTestScene();
     licenseResult.close();
     const std::string test = resultTest;
     switch ( choice ) {
@@ -4513,6 +4515,27 @@ void GMFreeRide::openSchool( char letter, const std::string &test ) {
     if ( !test.empty() ) {
         schoolMenu.openAtTest( test );
     }
+}
+
+void GMFreeRide::startEndOfTestScene( char letter, bool bWon ) {
+    if ( CmdLine::HasArg( "-noendscene" ) || !endScene.start( letter, bWon, carWorld ) ) {
+        return;
+    }
+    // The instructor rides beside the player (Marco asphalt, Jane dirt, Todd classic: the SPT_ NPCs) [DATA: DBPNJ].
+    const char low = static_cast<char>( tolower( static_cast<unsigned char>( letter ) ) );
+    const char *pConfig = low == 'a' ? "SPT_Marco_Luzzini" : low == 'b' ? "SPT_Jane_Omahan" : "SPT_Todd_Bishop";
+    passenger.unload();
+    bPassengerSeated = bDriverSeated && passenger.load( avatars, pConfig, SeatedAvatar::eSeat::Passenger, driverBank );
+    OTDU_LOG_INFO( "FREERIDE: end-of-test scene, instructor '%s' %s\n", pConfig, bPassengerSeated ? "seated" : "not loaded" );
+}
+
+void GMFreeRide::stopEndOfTestScene() {
+    if ( !endScene.isActive() ) {
+        return;
+    }
+    endScene.stop();
+    passenger.unload();
+    bPassengerSeated = false;
 }
 
 bool GMFreeRide::leaveSchoolInSchoolCar() {
@@ -6541,6 +6564,10 @@ void GMFreeRide::tick( float deltaTime ) {
             vehicleAudio.update( muted, deltaTime );
         }
         tickLicenseResult( deltaTime );
+        if ( endScene.isActive() ) {
+            endScene.tick( deltaTime );
+            endScene.getCamera( camera ); // the pack's shot at the car
+        }
         view.setCamera( camera );
         view.tick( deltaTime );
         return;

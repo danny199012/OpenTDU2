@@ -4,6 +4,11 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, the end-of-test cinematic, first version)
+
+- `school_end_scene.*` + `GMFreeRide::startEndOfTestScene`: the racing-school pack's camera at the car under the result cart (main scene then the loop), the instructor seated as passenger. Verified in 3D with forced pass / fail (`-licensetest RSC4T01 -licenseforce pass|fail`): the exterior shot of the school Delta beside the cart. `-noendscene`.
+- Not done (spec 12.6): the cabin close-ups (actor-keyed cameras fall back to the exterior one), the actors' animations, the seat meshes, the face / voice sync.
+
 ## Session 2026-11-21 (`main`, the school card + the instructors' voice lines)
 
 - The school desk showed the Asphalt card for every school: the port's AVM1 `StringExtract` returned "" for index 0 (Flash clamps to the first char), so r_school's `SetCurLicence` never picked `state_c`. Fixed (`flash_player.cpp`); `-schoolmenu C` = "Classic License" C4. `SchoolScreen::fillCard` fills the name, the tests done, the number, the date; the portrait binds when a photo exists.
