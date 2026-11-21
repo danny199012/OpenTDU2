@@ -4998,8 +4998,24 @@ void CinematicCar::draw( EdenRenderer &renderer,
                                  renderer.getSceneParams().CameraPosition )
                                    .length();
         static const int32_t forcedLod = CmdLine::GetArgInt( "-carlod", -1 );
+        // "Inside" = the camera is at the car (cockpit / hood / bumper / photo views) and not just
+        // within 5 m: a walker beside a display car, or a camera next to the player's car, used to flip
+        // the car to the inside LOD and its glass to the clear inside tint (the dark windscreen
+        // "disappeared" on approach). The test is the body box grown by 0.15 m (the walker's capsule
+        // keeps 0.3 m from a car); -oldinsidelod restores the bare 5 m rule. [INF]
+        static const bool bOldInsideLod = CmdLine::HasArg( "-oldinsidelod" );
+        bool bNearCar = distance < 5.0f;
+        if ( bNearCar && !bOldInsideLod ) {
+            Vector3f bMin, bMax;
+            if ( getBodyBounds( bMin, bMax ) ) {
+                const Vector3f local = RigidInverse( world ).transformPoint( renderer.getSceneParams().CameraPosition );
+                const float grow = 0.15f;
+                bNearCar = local.x > bMin.x - grow && local.x < bMax.x + grow && local.y > bMin.y - grow &&
+                           local.y < bMax.y + grow && local.z > bMin.z - grow && local.z < bMax.z + grow;
+            }
+        }
         bInterior = interior.isLoaded() && !interiorDrawnNodes.empty() &&
-                    ( forcedLod >= 0 ? forcedLod == 4 : distance < 5.0f );
+                    ( forcedLod >= 0 ? forcedLod == 4 : bNearCar );
         static const bool bLogLod = CmdLine::HasArg( "-logcar" );
         if ( bLogLod && bInterior != bLastInterior ) {
             OTDU_LOG_INFO( "CinematicCar: camera %.2f m, LOD %d\n", distance,
