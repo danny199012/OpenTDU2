@@ -9,7 +9,7 @@
 // toggles, frame rate limit). The retail pages are
 // Flash movies whose rows are fixed, so this page is native (Dear ImGui) and
 // is opened from the Video or Controls page with Y / Triangle
-// (MENU_OPTION_2), or with F2. Left / Right
+// (MENU_OPTION_2), or with F10. Left / Right
 // change a row, Up / Down pick one, Back / OK close it and save.
 // Upscaler slots: bilinear, bicubic and FSR 1.0 exist; FSR 3 / XeSS / DLSS (temporal) are the
 // next entries (docs/re/advanced_graphics.md).

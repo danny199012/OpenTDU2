@@ -89,7 +89,7 @@ const Row kRows[] = {
     // The unit system of every driving readout (game/units.h). The retail game
     // picks it from the language profile and has no readable menu row for it
     // [INF], so the port puts it here — the native page the pause menu's
-    // Options screen opens with Y / Triangle (Video or Controls page) or F2.
+    // Options screen opens with Y / Triangle (Video or Controls page) or F10.
     { "Speed units", &GameOptions::Units, 0, 1, 1, UnitsName,
       "The unit system of the driving readouts: the speedometer digits, the odometer, the GPS / detector "
       "distances and the fuel range. Metric is km/h and km, Imperial is mph and miles. The car's own gauge "
@@ -220,8 +220,8 @@ void AdvancedGraphics::drawUI() {
         ImGui::Text( "Y / Triangle: Advanced settings (speed units, graphics)" );
         ImGui::End();
     }
-    if ( gpInput != nullptr && gpInput->wasKeyPressed( SDL_SCANCODE_F2 ) ) {
-        // F2 toggles it anywhere (in the world the game keeps taking the
+    if ( gpInput != nullptr && gpInput->wasKeyPressed( SDL_SCANCODE_F10 ) ) {
+        // F10 toggles it anywhere (was F2, which the coordinates overlay owns) (in the world the game keeps taking the
         // keys too: the pause menu entry is the clean one).
         if ( bOpen ) {
             close();

@@ -4,6 +4,20 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, tunnel pop-in: the Z pre-pass wrote depth for the carved terrain; debug keys moved)
+
+Owner: tunnels look blocked off (lamps / pillars missing) until you drive in; also "F2 is used for a lot".
+
+### Found / changed
+- **Cause [DATA, A/B]**: `-tp 21228,33,22268 -heading 199` (Ibiza tunnel mouth, z 22268). `-noocclusion` and `-noterrain` both showed the pillars; default did not. `EdenRenderer::getZPassMaterial` forces `bDepthWrite = true`, so the carved heightfield quads (main pass: no depth write, `Terrain.Materials[1]`) wrote depth in the pre-pass and the occlusion grid saw a plug over the mouth. `eden_renderer.cpp`: no Z-pass for a material without depth write (`-zpassnodepthwrite` = old behaviour).
+- Keys: F2 = coordinates overlay only; Advanced graphics -> **F10** (`advanced_graphics.cpp`); debug panels -> **F9** (was F1, `tdu_instance.cpp`). The scene editor / world viewer keep their own F2.
+
+### Verified
+- same shot, default vs `-noocclusion`: mean pixel difference 0.0 after the fix (pillars + lamps visible in both).
+
+### Not done
+- Other tunnels not re-checked; the 2-3 frame lag of the grid is unchanged. If one still pops, try `-noprunecarve` / `-noocclusion` there.
+
 ## Session 2026-11-21 (`main`, the kerb rollover: a stale tyre force on an unloaded wheel)
 
 Owner: "fix the R8 kerb rollover properly".

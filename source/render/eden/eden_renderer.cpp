@@ -2430,7 +2430,13 @@ const EdenMaterial *EdenRenderer::getZPassMaterial( const EdenMaterial &material
         return it->second.second.get();
     }
     std::unique_ptr<EdenMaterial> pZPass;
-    if ( material.pProgram != nullptr && material.Spec[EdenShaderSystem::S_PASS_Z] == 0 ) {
+    // A material that does not write depth in the main pass (the carved heightfield
+    // cells over a tunnel / bridge) must not write it in the pre-pass either: its
+    // depth plugged the tunnel mouth in the occlusion grid and the lamps / pillars
+    // inside were culled until the car drove in (-zpassnodepthwrite = old behaviour).
+    static const bool bOldZPass = CmdLine::HasArg( "-zpassnodepthwrite" );
+    if ( material.pProgram != nullptr && material.Spec[EdenShaderSystem::S_PASS_Z] == 0 &&
+         ( material.bDepthWrite || bOldZPass ) ) {
         pZPass = std::make_unique<EdenMaterial>( material );
         pZPass->Spec[EdenShaderSystem::S_PASS_Z] = 1;
         updateProgram( *pZPass );

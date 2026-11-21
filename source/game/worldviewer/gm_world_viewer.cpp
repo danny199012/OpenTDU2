@@ -613,7 +613,7 @@ void GMWorldViewer::drawUI() {
     ImGui::Separator();
     ImGui::TextDisabled( "RMB (or LMB outside panel): look, Tab: capture mouse" );
     ImGui::TextDisabled( "WSAD / arrows: move, E/Space up, Q/Ctrl down" );
-    ImGui::TextDisabled( "Shift: x2, wheel: base speed, F2: panel, F1: debug" );
+    ImGui::TextDisabled( "Shift: x2, wheel: base speed, F2: panel, F9: debug" );
     ImGui::TextDisabled( "F5-F8: Ibiza / Hawai / Casino / Eden" );
     ImGui::End();
 }

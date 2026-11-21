@@ -602,7 +602,8 @@ void TestDriveGameInstance::pumpEvents() {
             pRender->onWindowResized();
             break;
         case SDL_EVENT_KEY_DOWN:
-            if ( event.key.scancode == SDL_SCANCODE_F1 && !event.key.repeat ) {
+            // F9: the debug panels (was F1).
+            if ( event.key.scancode == SDL_SCANCODE_F9 && !event.key.repeat ) {
                 bShowDebugUI = !bShowDebugUI;
             }
             if ( event.key.scancode == SDL_SCANCODE_F2 && !event.key.repeat ) {
