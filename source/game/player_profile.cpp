@@ -51,6 +51,14 @@ FreeRideShopRequest &GetFreeRideShopRequest() {
     return request;
 }
 
+int32_t CountCardHouses( const PlayerProfile &profile ) {
+    int32_t count = 0;
+    for ( const std::string &owned : profile.OwnedHouses ) {
+        count += ( owned == kCaravanSpot || owned == kIntroHouseSpot ) ? 0 : 1;
+    }
+    return count;
+}
+
 void ProfileAddMoney( int32_t amount, bool bPending, int32_t reason ) {
     // FUN_00abe0e0 [CODE]: statistics +0xf05c[reason] += amount (reason <
     // 0x1c); bPending 0: money = max(money + amount, 0); bPending 1:
@@ -790,7 +798,7 @@ void LoadProfile() {
     // The owned-house count drives the Game Progress page (retail keeps the
     // counter in sync with the houses).
     if ( !profile.OwnedHouses.empty() ) {
-        profile.NbHouses = static_cast<int32_t>( profile.OwnedHouses.size() );
+        profile.NbHouses = CountCardHouses( profile );
     }
     OTDU_LOG_INFO( "Profile: loaded '%s' (name '%s', story step %d)\n",
                    ProfilePath().string().c_str(), profile.Name.c_str(),

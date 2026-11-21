@@ -361,7 +361,15 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     GameMode::enter( pInstance );
     // FUN_00b10da0 case 3 (0xc0c0): profile+0x58 = 2, current car 0x183.
     // Only raises the step: a loaded save already past it keeps its progress.
+    const int32_t storyStepBefore = GetPlayerProfile().StoryStep;
     GetPlayerProfile().StoryStep = Max( GetPlayerProfile().StoryStep, 2 );
+    if ( storyStepBefore < 2 && !CmdLine::HasArg( "-nostartmoney" ) ) {
+        // Tess wakes the player: the story's start money (owner: "$27,000 when you wake up", the retail value is not
+        // in the readable data [INF]). Once - a save already past the step keeps what it has.
+        GetPlayerProfile().Money += kStoryStartMoney;
+        OTDU_LOG_INFO( "FREERIDE: story start money +$%d (now $%d)\n", kStoryStartMoney, GetPlayerProfile().Money );
+        SaveProfile( "story start money" );
+    }
     // The story's own house grants follow the step (the caravan at step 10):
     // a save that is already there gets it on entry, so the house is reachable
     // without the realtor.

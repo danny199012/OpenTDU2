@@ -91,7 +91,7 @@ struct PlayerProfile {
     // yet; they are stored so the features that do can fill them in.
     int32_t Money = 0;
     int32_t NbCars = 1;
-    int32_t NbHouses = 1;
+    int32_t NbHouses = 0; // the card's count: the houses BOUGHT - the story's caravan is not counted (CountCardHouses)
     int32_t Points[4] = { 0, 0, 0, 0 }; // Racing, Cruising, Collection, Social
     // Explored road links per island (index into the island road graph, see
     // MapScreen::loadRoads); retail keeps this in PlayerLevels / RoadLock.
@@ -301,6 +301,17 @@ std::map<int32_t, TunerCarParts> OwnedCarTunerParts;
 };
 
 PlayerProfile &GetPlayerProfile();
+
+// The story's free home (DBHouse "Caravan"). It counts as owned (home, garage, progression) but not on the pause
+// card: the owner's retail capture at the C4 championship stage shows "0 houses" with the caravan already given.
+inline constexpr const char *kCaravanSpot = "EPH_L0C_1254I";
+// The house the story opens in (first_outro.cpp's kHouseSpot; the profile owns it from the start [INF]): the story's, so
+// it is not counted on the card either.
+inline constexpr const char *kIntroHouseSpot = "EPH_L3DI_5067I";
+// The houses the pause card's counter shows: OwnedHouses without the story's two (the caravan, the opening house).
+int32_t CountCardHouses( const PlayerProfile &profile );
+// The money a new story starts with, paid when Tess wakes the player [owner-reported retail value, not in the data].
+inline constexpr int32_t kStoryStartMoney = 27000;
 
 // FUN_00abe0e0: reason statistics; bPending false adds to the money (clamped
 // >= 0), true to the pending amount (shown by the money counter).

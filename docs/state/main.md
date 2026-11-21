@@ -4,6 +4,21 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, story start money + the pause card's house count)
+
+Owner: "starting a new game the cash start money is $100 but it should be $27,000 ... added when you waken up by Tess ... the caravan is free ... but it seems the caravan isn't counted in the pause menu."
+
+### What changed
+- `GMFreeRide::enter`: when the story step rises from below 2 (the wake-up by Tess) the profile gets `kStoryStartMoney` = $27,000 once (saved at once; `-nostartmoney` skips). **The value is the owner's [INF]**: the dev exe's only `27000` immediate is a network port (0x6978 at `0xa00ee5`), not money, and no data table holds it. I never reproduced a $100 start: a fresh profile read $0.
+- `PlayerProfile::NbHouses` (the card's counter) now excludes the story's two houses (`kCaravanSpot`, `kIntroHouseSpot`; `CountCardHouses`): the owner's retail capture at the C4 stage shows $7,850 / 0 houses / 1 car with the caravan long given. Default 0 (was 1, which counted the opening house). The caravan still counts as owned (home, garage, COLLECTION_HOUSES progression).
+
+### Verified
+- Fresh profile -> pause card $27,000 / 0 houses; seeded save (step 1) gets the grant once (second run none); a retail-like save (step 10, $7,850, both houses owned) shows $7,850 / 0 houses, no grant.
+
+### Not done / next
+- The caravan is still handed over at story step 10 (arrival), not at the wake-up: the owner says retail gives it then; unverified, left alone (home / GPS flow depends on it). Ask for the video timestamp.
+- A save older than this build with story step >= 2 keeps its money (no retroactive grant).
+
 ## Session 2026-11-21 (`main`, licence win scene + photo on the pause-menu ID card, found in the dev build)
 
 Owner: "the dev build ... find the true licence test data ... upon completing there should be a scene that plays out and your character gets his picture taken which then shows up on the profile card in pause menu."

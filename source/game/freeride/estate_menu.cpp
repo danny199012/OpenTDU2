@@ -56,12 +56,12 @@ void EstateMenu::buy( const HouseRow &house ) {
     } else {
         profile.Money -= house.BuyPrice;
         profile.OwnedHouses.push_back( house.SpotName );
-        profile.NbHouses = static_cast<int32_t>( profile.OwnedHouses.size() );
+        profile.NbHouses = CountCardHouses( profile );
         message = "Bought: " + house.Name;
         PlayFrontEndCue( "valid" );
         OTDU_LOG_INFO( "Estate: bought '%s' (spot '%s') for $%d (money now $%d, %d house(s))\n", house.Name.c_str(),
                        house.SpotName.c_str(), house.BuyPrice, profile.Money, profile.NbHouses );
-        AwardCollectionMilestones( "COLLECTION_HOUSES", profile.NbHouses ); // 1, 3, 6, 10, 15 houses [DATA]
+        AwardCollectionMilestones( "COLLECTION_HOUSES", static_cast<int32_t>( profile.OwnedHouses.size() ) ); // the caravan counts here // 1, 3, 6, 10, 15 houses [DATA]
         // The cars that did not fit in the old garages move into the new house now (HouseGarageCars places every
         // owned car that stands in no garage, the home house first).
         HouseGarageCars( profile.HomeHouse );
@@ -94,7 +94,7 @@ void EstateMenu::sell( const HouseRow &house ) {
         return;
     }
     profile.OwnedHouses.erase( found );
-    profile.NbHouses = static_cast<int32_t>( profile.OwnedHouses.size() );
+    profile.NbHouses = CountCardHouses( profile );
     profile.Money += house.SellPrice;
     if ( profile.HomeHouse == house.SpotName ) {
         profile.HomeHouse = profile.OwnedHouses.front();

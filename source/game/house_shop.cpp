@@ -105,7 +105,7 @@ bool GrantHouse( const char *pSpotName, bool bSetHome ) {
     const bool bHomeChanged = bSetHome && profile.HomeHouse != pSpotName;
     if ( !bOwned ) {
         profile.OwnedHouses.push_back( pSpotName );
-        profile.NbHouses = static_cast<int32_t>( profile.OwnedHouses.size() );
+        profile.NbHouses = CountCardHouses( profile );
     }
     if ( bSetHome ) {
         profile.HomeHouse = pSpotName;
