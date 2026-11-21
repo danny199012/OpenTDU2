@@ -4,6 +4,23 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, the kerb rollover: a stale tyre force on an unloaded wheel)
+
+Owner: "fix the R8 kerb rollover properly".
+
+### Found
+- The old `-vehtest` edge case (road over a 1 m ditch) is a drop-off, not a kerb strike. New `-vehtest` **kerbstrike** cases: height function 0 everywhere, a 0.15 m thick closed kerb box (0.10 / 0.20 / 0.30 m) as static triangles 2.5 m to the right, steer into it at 60 / 100 km/h (`-logkerb` prints the wheel loads / lateral forces of one case). Baseline: **H3 flipped in 5 of 12 runs (a 10 cm kerb at 100 km/h included), Q7 rolled to 56 deg, R8 up to 14 deg** (and the R8 edge case flipped).
+- Cause (not the chassis collision: scaling the contact lever and tilting the normals both did nothing for H3 / Q7 - ruled out): `tyreTorque` returned early for a wheel in contact with **Load <= 0** (the top of a kerb just touched, a rebound) WITHOUT updating the tyre state, so `state.LateralForce` kept the LAST loaded step's value (18.7 kN on an H3 wheel) and the chassis applied it every step at hub height with the wheel carrying no load: a constant 18 kN side force on one corner rolled the car.
+
+### What changed
+- `vehicle_dynamics.cpp` `tyreTorque`: an unloaded tyre zeroes its lateral / longitudinal force and slipping coefficient (`-oldstaletyre` = the old behaviour, for the A/B). `gm_freeride.cpp`: the kerbstrike harness + `-logkerb`.
+
+### Verified (`-vehtest`)
+- Kerb flips H3 5 -> 0 (max roll 90 -> 10.8 deg), Q7 56 -> 8.4 deg, R8 14.2 deg max; the R8 ditch-edge flip is gone too (0 flips on every car tried: R8_V10, H3, Q7_V12, ML63_AMG). 0-100 / top / 100-0 unchanged (R8 4.13 s / 325 km/h / 28.1 m; H3 8.88 s). `-oldstaletyre` reproduces the flips.
+
+### Not done / next
+- The harness kerb is a thin wall; a rounded real kerb and a wheel hitting its face (the rays only look down, the tyre does not collide with a vertical face) are not modelled. Pitch-over on a jump landing was not looked at.
+
 ## Session 2026-11-21 (`main`, scene editor polish: rotation, snapped duplicate, road surface / grade / bank, undo, drive test)
 
 Owner: "Rotation gizmo and a ground-snapped duplicate; undo for road edits; a surface picker per slab or road; banked or sloped road sections; a live drive-test button - could these be implemented".

@@ -615,6 +615,16 @@ float VehicleDynamics::engineTorque( float w ) const {
 float VehicleDynamics::tyreTorque( size_t i, float omega, bool bUpdateState ) {
     WheelState &state = wheelStates[i];
     if ( !state.bContact || state.Load <= 0.0f ) {
+        // An unloaded tyre (a contact with no normal force: a rebound, the top of a kerb just touched) carries NO
+        // force. The state used to keep the LAST loaded step's lateral force and the chassis kept applying it at hub
+        // height: 18 kN of stale side force on an H3 wheel that had left the road rolled it over (a 10 cm kerb at
+        // 100 km/h). -oldstaletyre restores that.
+        static const bool bOldStale = CmdLine::HasArg( "-oldstaletyre" );
+        if ( bUpdateState && !bOldStale ) {
+            state.LateralForce = 0.0f;
+            state.LongitudinalForce = 0.0f;
+            state.SlippingCoefficient = 0.0f;
+        }
         return 0.0f;
     }
     const ContactFrame &frame = contactFrames[i];
@@ -1807,6 +1817,7 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
             position += contact.Normal * Min( contact.Depth * 0.8f, kMaxDepenetration );
             const Vector3f com = position + Rotate( orientation, centerOfMass );
             const Vector3f arm = contact.Point - com;
+            const Vector3f impulsePoint = contact.Point;
             const Vector3f pointVelocity = velocity + angularVelocity.cross( arm );
             const float approach = pointVelocity.dot( contact.Normal );
             {
@@ -1826,7 +1837,7 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
             const Vector3f armCrossNormal = arm.cross( contact.Normal );
             const float effective = 1.0f / mass + contact.Normal.dot( worldInverseInertia( armCrossNormal ).cross( arm ) );
             const float j = -( 1.0f + 0.05f ) * approach / Max( effective, 1e-6f );
-            applyImpulse( contact.Normal * j, contact.Point );
+            applyImpulse( contact.Normal * j, impulsePoint );
             // Damage: the impact record magnitude is the contact force, impulse / dt [INF: the dev
             // build's record +0x14 is a Havok contact value; this scale puts a 30 km/h wall hit
             // in "scratched", 50 in "deformed" and 100 in "broken"]. Every world contact is a
@@ -1866,7 +1877,7 @@ void VehicleDynamics::resolveChassisCollision( float dt, const VehicleWorldColli
             if ( tangentSpeed > 1e-3f ) {
                 tangent = tangent * ( 1.0f / tangentSpeed );
                 const float jt = Min( tangentSpeed / Max( effective, 1e-6f ), 0.3f * j );
-                applyImpulse( tangent * -jt, contact.Point );
+                applyImpulse( tangent * -jt, impulsePoint );
             }
         }
         if ( !bAny ) {

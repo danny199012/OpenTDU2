@@ -1690,6 +1690,64 @@ void RunVehicleTest( const VehicleDynamics &templateVehicle ) {
                            v.getPosition().z, v.getSpeedKmh(), bFlipped ? " FLIPPED" : "" );
         }
     }
+    // Kerb strike: flat ground everywhere (no ditch), a thin kerb wall 2.5 m to the right of the start line,
+    // the car steers into it at an angle (the questions the ditch test below cannot answer: does a low
+    // obstacle tip the car over). -vehtest only.
+    for ( const float kerbHeight : { 0.10f, 0.20f, 0.30f } ) {
+        for ( const float targetKmh : { 60.0f, 100.0f } ) {
+            for ( const float steer : { -0.3f, -1.0f } ) {
+                VehicleWorldCollision kerbWorld;
+                kerbWorld.setHeightFunction( []( float, float, float, float &outHeight ) {
+                    outHeight = 0.0f;
+                    return true;
+                } );
+                {
+                    // The kerb: a closed box 0.15 m thick, x 2.5 .. 2.65, z -20 .. 800, as static triangles (the mod props
+                    // `solid` route: two sided, what a placed wall is).
+                    const float x0 = 2.5f, x1 = 2.65f, z0 = -20.0f, z1 = 800.0f;
+                    const std::vector<Vector3f> verts = { { x0, 0.0f, z0 }, { x1, 0.0f, z0 }, { x1, 0.0f, z1 }, { x0, 0.0f, z1 },
+                                                          { x0, kerbHeight, z0 }, { x1, kerbHeight, z0 }, { x1, kerbHeight, z1 }, { x0, kerbHeight, z1 } };
+                    const std::vector<uint32_t> idx = { 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2 };
+                    kerbWorld.addStaticTriangles( verts, idx );
+                }
+                v = templateVehicle;
+                const float spawnY = 0.12f + Max( v.getWheelDescs().empty() ? 0.0f : v.getWheelDescs()[0].Radius - 0.34f, 0.0f );
+                v.reset( Vector3f( 0.0f, spawnY, 0.0f ), Quaternionf(), Vector3f( 0.0f, 0.0f, targetKmh / 3.6f ) );
+                input = VehicleDynamics::Input();
+                for ( int32_t i = 0; i < 60; i++ ) {
+                    input.Throttle = Clamp( ( targetKmh - v.getSpeedKmh() ) * 0.2f + 0.3f, 0.0f, 1.0f );
+                    v.step( dt, input, kerbWorld );
+                }
+                float rollMax = 0.0f;
+                bool bFlipped = false;
+                for ( int32_t i = 0; i < 5 * 60; i++ ) {
+                    const float t = i * dt;
+                    input.Throttle = Clamp( ( targetKmh - v.getSpeedKmh() ) * 0.2f + 0.3f, 0.0f, 1.0f );
+                    input.Steering = t < 0.6f ? steer : 0.0f;
+                    v.step( dt, input, kerbWorld );
+                    const Vector3f upAxis = v.getOrientation().rotate( Vector3f( 0.0f, 1.0f, 0.0f ) );
+                    const Vector3f sideAxis = v.getOrientation().rotate( Vector3f( 1.0f, 0.0f, 0.0f ) );
+                    rollMax = Max( rollMax, std::abs( std::asin( Clamp( sideAxis.y, -1.0f, 1.0f ) ) * 57.29578f ) );
+                    bFlipped = bFlipped || upAxis.y < 0.5f;
+                    static const bool bLogKerb = CmdLine::HasArg( "-logkerb" );
+                    if ( bLogKerb && kerbHeight == 0.10f && targetKmh == 100.0f && steer == -0.3f && t > 0.3f && t < 1.6f && ( i % 3 ) == 0 ) {
+                        const std::vector<VehicleDynamics::WheelState> &w = v.getWheels();
+                        std::string loads;
+                        for ( const VehicleDynamics::WheelState &ws : w ) {
+                            char b[80];
+                            snprintf( b, sizeof( b ), " [%d L%.0f lat%.0f c%.2f]", ws.bContact ? 1 : 0, ws.Load, ws.LateralForce, ws.Compression );
+                            loads += b;
+                        }
+                        OTDU_LOG_INFO( "KERBLOG t %.2f x %.2f y %.2f roll %.1f vx %.1f yawrate %.2f%s\n", t, v.getPosition().x, v.getPosition().y,
+                                       std::asin( Clamp( sideAxis.y, -1.0f, 1.0f ) ) * 57.29578f, v.getVelocity().x, 0.0f, loads.c_str() );
+                    }
+                }
+                OTDU_LOG_INFO( "VEHTEST kerbstrike '%s': %.2f m kerb, %.0f km/h, steer %+.1f -> peak roll %.1f deg, end x %.1f %.0f km/h%s\n",
+                               setup.Db.FileName.c_str(), kerbHeight, targetKmh, steer, rollMax, v.getPosition().x, v.getSpeedKmh(),
+                               bFlipped ? " FLIPPED" : "" );
+            }
+        }
+    }
     // Road-edge test: a 7 m road with a thin kerb box (0.15 / 0.30 m) on each side over a ditch 1 m lower. The
     // car steers full lock at an edge for 1 s, then straight, at 60 / 100 km/h; the question the flat tests
     // cannot answer: does leaving the road roll the car, and does the damping table change it.
