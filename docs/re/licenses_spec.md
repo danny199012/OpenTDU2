@@ -498,4 +498,4 @@ The actors now play the pack's clips: `SchoolEndScene::getActorClip` reads the a
 2 clip start, 7 blend-in), looks the clip up in `pack_racingschool.bnk` by the REFS name, and `GMFreeRide` feeds it to `SeatedAvatar::setOverride` under the result cart
 (`Avatar` -> driver, `Instructor_` -> passenger). Verified: the driver and instructor move between the 3.2 s and later frames. Not done: the blend between keys, FaceFX / voice sync,
 the seat meshes (`Exclude ... DrvSeat_HR / PsgSeat_HR`), a win-scene look, and `-logendscene` shows one key whose clip is named `none`. `-logendscene` dumps the objects and the heading keys.
-Test setup note: the shared `C:	emp\otdu2-win-userdata` profile has an empty `avatar_config`, so no driver / instructor is seated there; use a copy with `avatar_config = AVT_Male_Intro`.
+Test setup note: the shared `C:/temp/otdu2-win-userdata` profile has an empty `avatar_config`, so no driver / instructor is seated there; use a copy with `avatar_config = AVT_Male_Intro`.
