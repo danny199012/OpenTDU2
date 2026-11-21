@@ -512,3 +512,14 @@ What the data says, and what the port does with it:
   like the 360 T06 cart); the HUD shows the generic gauge in its `penalty` mode ("Penalty" + hand icon + bar, the value in the cursor text `/:Score_driving`, `FreeRideHud::setPenaltyGauge`).
   Evidence: `docs/images/school_penalty_hud.png`; `-licensetest RSC4T06 -penaltyrate 2 -licenseforce fail -licenseforceafter 6`: Basic time 6.00 + Penalty 1.20 = Final 7.20 (12 points / 100 * 10 s).
   `-penaltyrate <points/s>` is the test hook (any surface). Not done: collisions, the HUD value sign / format against retail beyond "-00'41", the bar fill direction.
+
+### 12.9 The pre-test presentation (2026-11-21, `main`; owner: "a banner in top left ... a run being made ... blackscreens to loop again")
+[DATA, the 360 clip `02_RSC4T01_First_step.mp4`]: after the test loads, the screen shows a banner top left (the test icon, the title, the objective text, the place and weather icons) and the
+"Help / A OK / B Cancel" bar, over a **demonstration**: the school car drives the course along the racing line (cuts: behind the car at the start, the cockpit, the chase view, a wide shot
+over the barriers), the picture fades to black at the end of the run and the demonstration starts again, until A (the test starts: fade, start line, 3-2-1) or B (cancel).
+Built (`school_test_intro.*`, `GMFreeRide::tickTestIntro`): the car is moved along the start pose and the gates of one lap (smoothed heading, ~17 m/s), camera cuts behind-start / chase / a low side shot / a
+wide high shot, a black fade at both ends of the ~12 s loop, the banner drawn natively (title, place / weather text, the objective wrapped), the bottom bar; `LicenseTest::setHold` holds the countdown;
+A (`IA_MenuValidate`) starts, B (`IA_MenuBack`) abandons. Evidence: `docs/images/school_test_intro.png`; headless `-licensetest RSC4T01 -introstart` (starts after the first loop) reaches "3 2 1".
+Flags: `-nointro` skips it; the scripted hooks (`-licenseforce`, `-licensewarp`, `-licensepark`) skip it unless `-testintro`; `-introstart` starts after one loop.
+Differences from retail: the banner is plain rectangles and text (the retail toast has the test's icon and weather / place icons - the school list's icons could be reused); the demo car is the player's own car
+placed along the gate path (the retail run follows the racing line and shows the school car with its liveries); the retail cockpit shot is replaced by a side shot; the cuts and the times are the port's own.

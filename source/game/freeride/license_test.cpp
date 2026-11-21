@@ -49,6 +49,7 @@ bool LicenseTest::start( const std::string &challengeName ) {
     penaltyLevel = static_cast<int32_t>( challenge.getValue( "PeLv", 0 ) );
     offRoadPenalty = challenge.getValue( "offR", 0 ) > 0;
     penaltyPoints = 0.0f;
+    bHold = false;
     if ( challenge.getMode() == Ig2Challenge::ModeSpeed ) {
         OTDU_LOG_WARN( "LicenseTest: %s is a speed challenge: its scoring is not decoded\n", challengeName.c_str() );
         return false;
@@ -136,6 +137,9 @@ void LicenseTest::abandon() {
 
 void LicenseTest::tick( float deltaTime, const Vector3f &carPosition ) {
     if ( stage == eStage::Countdown ) {
+        if ( bHold ) {
+            return;
+        }
         countdown -= deltaTime;
         if ( countdown <= 0.0f ) {
             stage = eStage::Running;

@@ -35,6 +35,7 @@ struct RenderTarget;
 #include "game/freeride/gps_guidance.h"
 #include "game/freeride/photo_camera.h"
 #include "game/freeride/school_end_scene.h"
+#include "game/freeride/school_test_intro.h"
 #include "game/freeride/dealer_menu.h"
 #include "game/freeride/estate_menu.h"
 #include "game/freeride/paint_menu.h"
@@ -388,6 +389,9 @@ private:
     // The end-of-test cinematic under the result cart (school_end_scene.h): the pack's camera at the car, the school's
     // instructor seated beside the player.
     SchoolEndScene endScene;
+    // The school test's pre-test presentation (banner + demonstration run looping until A / B).
+    SchoolTestIntro testIntro;
+    void tickTestIntro( float deltaTime );
     void startEndOfTestScene( char letter, bool bWon );
     void stopEndOfTestScene();
     // The licence win scene (irs_*'s C_WIN_LICENSE, licenses_spec 12): a licence just obtained walks into the school

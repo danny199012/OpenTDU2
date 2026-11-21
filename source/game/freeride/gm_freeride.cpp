@@ -3886,8 +3886,36 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
     placeCar( licenseTest.getStartPosition(), licenseTest.getStartHeading() );
     hud.closeEnterSpot();
     const std::string title = licenseTest.getChallenge().getTitle();
-    hud.showGoal( title.empty() ? test : title );
     startRaceOpponents( test );
+    // A school test opens with its presentation (the retail banner + the demonstration of the course, looping until A / B);
+    // the scripted test hooks skip it unless -testintro.
+    {
+        const std::string &name = licenseTest.getChallenge().getName();
+        const bool bSchool = name.size() > 2 && tolower( static_cast<unsigned char>( name[0] ) ) == 'r' &&
+                             tolower( static_cast<unsigned char>( name[1] ) ) == 's';
+        const bool bScripted = CmdLine::HasArg( "-licenseforce" ) || CmdLine::HasArg( "-licensewarp" ) || CmdLine::HasArg( "-licensepark" );
+        if ( bSchool && !CmdLine::HasArg( "-nointro" ) && ( !bScripted || CmdLine::HasArg( "-testintro" ) ) ) {
+            std::vector<Vector3f> path{ licenseTest.getStartPosition() };
+            const int32_t perLap = licenseTest.getGatesPerLap();
+            for ( int32_t step = 0; step < perLap; step++ ) {
+                const int32_t gate = licenseTest.getSequenceGate( static_cast<size_t>( step ) );
+                if ( gate >= 0 ) {
+                    path.push_back( licenseTest.getChallenge().getGates()[gate].Position );
+                }
+            }
+            SchoolTestIntro::Info info;
+            info.Title = title.empty() ? test : title;
+            info.Description = licenseTest.getChallenge().getDescription();
+            info.Weather = static_cast<int32_t>( licenseTest.getChallenge().getValue( "rswh", 0 ) );
+            info.Place = static_cast<int32_t>( licenseTest.getChallenge().getValue( "rsl1", 0 ) );
+            if ( testIntro.start( path, info ) ) {
+                licenseTest.setHold( true );
+                OTDU_LOG_INFO( "FREERIDE: %s: the pre-test presentation (%zu waypoint(s))\n", test.c_str(), path.size() );
+                return;
+            }
+        }
+    }
+    hud.showGoal( title.empty() ? test : title );
     OTDU_LOG_INFO( "FREERIDE: licence test %s from (%.1f, %.1f, %.1f), car %d (test car %d)\n", test.c_str(),
                    licenseTest.getStartPosition().x, licenseTest.getStartPosition().y, licenseTest.getStartPosition().z,
                    car.getIdCar(), licenseTest.getChallenge().getCarId() );
@@ -4475,6 +4503,34 @@ void GMFreeRide::openLicenseResult( const std::string &test, bool bPassed, Licen
         startEndOfTestScene( test[2], bPassed );
     }
     OTDU_LOG_INFO( "FREERIDE: licence result screen for %s (%s)\n", test.c_str(), bPassed ? "passed" : "failed" );
+}
+
+void GMFreeRide::tickTestIntro( float deltaTime ) {
+    if ( vehicleAudio.isEngineOn() ) {
+        VehicleAudio::Params muted;
+        muted.bEngineOn = false;
+        vehicleAudio.update( muted, deltaTime );
+    }
+    const bool bStart = gpInput->wasPressed( eInputAction::IA_MenuValidate ) || CmdLine::HasArg( "-introstart" ) && testIntro.getLoops() >= 1;
+    const bool bCancel = gpInput->wasPressed( eInputAction::IA_MenuBack );
+    if ( bStart || bCancel ) {
+        testIntro.stop();
+        placeCar( licenseTest.getStartPosition(), licenseTest.getStartHeading() );
+        licenseTest.setHold( false );
+        const std::string title = licenseTest.getChallenge().getTitle();
+        if ( bCancel ) {
+            licenseTest.abandon();
+        } else {
+            hud.showGoal( title.empty() ? licenseTest.getChallenge().getName() : title );
+        }
+        OTDU_LOG_INFO( "FREERIDE: the pre-test presentation ended (%s)\n", bCancel ? "cancelled" : "started" );
+        return;
+    }
+    testIntro.tick( deltaTime );
+    placeCar( testIntro.getCarPosition(), testIntro.getCarHeading() );
+    testIntro.getCamera( camera );
+    view.setCamera( camera );
+    view.tick( deltaTime );
 }
 
 void GMFreeRide::tickLicenseResult( float deltaTime ) {
@@ -6575,6 +6631,12 @@ void GMFreeRide::tick( float deltaTime ) {
         view.setMapView( true, mapScreen.getTransition() < 0.55f );
         view.setCamera( camera );
         view.tick( deltaTime );
+        return;
+    }
+    // The school test's presentation: the demonstration drives the car along the course under the banner; A starts the test, B
+    // cancels it.
+    if ( testIntro.isActive() ) {
+        tickTestIntro( deltaTime );
         return;
     }
     // The licence test result screen (RESULTS.vmf): the world is frozen behind
@@ -9964,9 +10026,10 @@ void GMFreeRide::draw() {
     // docs/images/retail-pause-freeride.webp / retail-options-screen.png: no
     // minimap, gauge or zone badge behind the menu) [DATA].
     if ( !pauseMenu.isOpen() && !mapScreen.isOpen() && !interior.isActive() && !licenseResult.isOpen() &&
-         !schoolScreen.isOpen() ) {
+         !schoolScreen.isOpen() && !testIntro.isActive() ) {
         hud.draw( renderer, &collision );
     }
+    testIntro.draw( renderer, gpFlash != nullptr ? gpFlash->getTitleFont() : nullptr );
     licenseResult.draw( renderer );
     pauseMenu.draw( renderer );
     dealer.draw( renderer );

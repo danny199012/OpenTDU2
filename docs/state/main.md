@@ -8,7 +8,8 @@ appends its entry at the top of this file**, newest first, in the
 
 Owner: "start with the penalty system ... before starting each test there is a banner top left ... a run being made ... blackscreens to loop again".
 - Penalty built from `events_config.cpr` + `DBEnvironnement` (spec 12.8): off-road points -> seconds, base + penalty = final, the cart's Basic time / Penalty / Final rows, the HUD penalty gauge with its value.
-- The pre-test demo (the banner + a run of the course, looping) is decoded from the 360 clip: see the next entry once built.
+- The pre-test presentation is built (spec 12.9, `school_test_intro.*`): banner + the demo run along the gates + black-fade loop until A / B; the retail cuts / icons are not decoded (the banner is native rectangles and text). Flags `-nointro`, `-testintro`, `-introstart`; scripted hooks skip it.
+- Open: the penalty from collisions, the banner's icons, the racing-line demo with the school car's own livery, the cockpit shot, a real play-through with a pad.
 
 ## Note 2026-11-21 (`main`, owner confirmation of the start money)
 

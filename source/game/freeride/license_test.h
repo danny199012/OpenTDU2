@@ -31,6 +31,8 @@ public:
     // 11 km course takes, so it cannot be the race's limit [INF].
     inline void setTimeLimit( bool bEnabled ) { bTimeLimit = bEnabled; }
 
+    // Holds the start countdown (the school's pre-test presentation runs first).
+    inline void setHold( bool bNewHold ) { bHold = bNewHold; }
     inline eStage getStage() const { return stage; }
     inline bool isActive() const { return stage != eStage::Idle; }
     inline const Ig2Challenge &getChallenge() const { return challenge; }
@@ -110,6 +112,7 @@ private:
     int32_t gatesPerLap = 0;
     float lapStart = 0.0f;
     int32_t penaltyLevel = 0;
+    bool bHold = false;
     bool offRoadPenalty = false;
     float penaltyPoints = 0.0f;
     std::vector<float> passTimes; // race time at each step passed
