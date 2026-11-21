@@ -205,6 +205,7 @@ public:
     // M5 next slice: the library / actor placements append as .pmi records
     // to the landing sectors' banks (copied into the overlay).
     void exportPmiToGame();
+    void exportBankToGame( const std::string &bankName );
     // Roads: the doc's splines -> <mods>/roads/<island>.json (what the game
     // modes load), one road baked as a props OBJ + placement line, and the
     // island's roads file imported into a fresh document (editable).

@@ -51,3 +51,37 @@ bool BuildObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pOb
 // Destroys the device resources of the draws (buffers, textures) and clears
 // the list. Null-safe: gpRender may already be gone at shutdown.
 void UnloadObjDraws( std::vector<ObjMeshDraw> &draws );
+
+// --- the parse half (the .3dg authoring of the composed bank build) ---------
+
+// One material of a .mtl (the fields the port uses; `d` / `Tr` fold into Alpha).
+struct ObjMaterialDesc {
+    std::string Name;
+    std::string Texture; // map_Kd, relative to the .obj folder
+    Vector4f Diffuse = Vector4f( 1.0f, 1.0f, 1.0f, 1.0f );
+    float Alpha = 1.0f; // below 1 the material is alpha blended (glass)
+};
+
+// One `usemtl` group: the mesh already in the port's draw convention (X
+// mirrored, winding reversed - the same law the OBJ draw route applies at
+// load), one interleaved vertex per position/uv/normal triple, triangle list.
+struct ObjVertex {
+    float Position[ 3 ];
+    float Normal[ 3 ];
+    float UV[ 2 ];
+};
+struct ObjGroupDesc {
+    std::string Material; // the .mtl material name ("" when the file had none)
+    std::vector<ObjVertex> Vertices;
+    std::vector<uint32_t> Indices;
+};
+
+// Parses the OBJ text (+ the .mtl text when it has one): one group per
+// `usemtl`, outGroups in file order. False when there is no triangle at all.
+bool ParseObjMeshes( const std::string &objText, const std::string &mtlText, std::vector<ObjGroupDesc> &outGroups,
+                     std::vector<ObjMaterialDesc> &outMaterials );
+
+// Convenience: reads <folder>/<name>.obj (+ its .mtl) through the VFS and
+// parses it. False when the OBJ is missing or has no triangle.
+bool LoadObjMeshes( const char *pFolder, const char *pObjName, std::vector<ObjGroupDesc> &outGroups,
+                    std::vector<ObjMaterialDesc> &outMaterials );

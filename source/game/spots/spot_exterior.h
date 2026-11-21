@@ -56,6 +56,13 @@ public:
     // a building's drawn floor, for the places where the bank's own collision has none (the car wash
     // forecourt: the floor is 0.4 m above the road the car rests on).
     void collectFloorTriangles( float minY, float maxY, HavokCollision &out ) const;
+    // The authored test-area banks' drive surface (composed banks carry no
+    // .shk): every up-facing triangle of the kept collision, bank frame, with
+    // the item's material name mapped to an explicit tyre surface
+    // (contains "dirt" -> dirt, "grass" -> grass, else tarmac) and the
+    // surface's reference friction. isTestAreaBank says which.
+    bool isTestAreaBank() const { return path.find( "/testarea" ) != std::string::npos; }
+    void collectDriveTriangles( float minY, float maxY, HavokCollision &out ) const;
     // The matrix the Scenery sets are drawn with on top of a frame (identity except the car washes).
     inline const Matrix4x4f &getSetLocal() const { return setLocal; }
     // Union of the Scenery sets' bounds, bank frame (before setLocal).

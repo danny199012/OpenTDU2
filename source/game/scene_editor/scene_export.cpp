@@ -5,7 +5,13 @@
 #include "filesystem/bank_write.h"
 #include "filesystem/gs_file.h"
 #include "game/scene_editor/scene_interior.h"
+#include "game/cinematic/cinematic_audio.h"
+#include "game/spots/obj_mesh.h"
+#include "core/xmb_write.h"
 #include "render/eden/eden_model.h"
+#include "render/eden/eden_renderer.h"
+#include "render/image_file.h"
+#include "render/render_resources_write.h"
 #include "world/eden_world.h"
 #include "world/pmi.h"
 #include "world/pmi_write.h"
@@ -598,5 +604,602 @@ SceneExportResult SceneExportPmi( const SceneDocument &document, const EdenWorld
     } else {
         OTDU_LOG_WARN( "SceneExport: pmi: %s\n", result.Error.c_str() );
     }
+    return result;
+}
+
+// --- M5 last: the composed exterior bank build (export_bank) ----------------
+
+namespace {
+
+// The composed bank's own materials: the .mtl materials as TD_Gouraud clones
+// (the OBJ draw route's material law, eden obj_mesh.cpp BuildObjDraws).
+void ComposeMaterial( const std::string &name, const ObjMaterialDesc &source, uint64_t shaderGUID,
+                      MaterialDesc &out ) {
+    out.Name = name;
+    out.Hashcode = GetIdentifier64bit( name.c_str() );
+    out.ShaderSetGUID = shaderGUID;
+    out.DepthTest = 1;
+    out.DepthWrite = 1;
+    out.CullMode = 3;
+    out.SrcBlend = 2;
+    out.DstBlend = 1;
+    out.DiffuseColor = source.Diffuse;
+    out.AmbientColor = source.Diffuse;
+    if ( source.Alpha < 0.999f ) {
+        // Glass: SRCALPHA / INVSRCALPHA, depth tested but not written, two
+        // sided (the OBJ route's bytes, eden obj_mesh.cpp).
+        out.DepthWrite = 0;
+        out.SrcBlend = 5;
+        out.DstBlend = 6;
+        out.DiffuseColor.w = source.Alpha;
+        out.AmbientColor.w = source.Alpha;
+    }
+    // Spec permutation: S_NBTEXTURES + S_COORDTEXTURE when textured (the
+    // all-zero spec is the no-texture flat white variant).
+    if ( !source.Texture.empty() ) {
+        out.Spec[ 0 ] = 1;
+        out.Spec[ 1 ] = 1;
+        MaterialTextureSlot slot;
+        slot.SlotType = GetIdentifier64bit( "COLOR" );
+        slot.TextureHashcode = GetIdentifier64bit( source.Texture.c_str() );
+        slot.AddressU = 1;
+        slot.AddressV = 1;
+        out.Textures.push_back( slot );
+        out.AllTextures.push_back( slot );
+    }
+}
+
+// The spot-record upsert of export_spots (the shared law: the record keyed on
+// "SN"+<id>, the template record of the same bank or the first, the 16-byte
+// footer kept at the end).
+bool UpsertSpotRecord( const SceneDocument &document, const std::string &bankField, const Vector3f &position,
+                       float heading, std::string &outError, int32_t &outAppended, int32_t &outUpdated,
+                       std::filesystem::path &outPath ) {
+    constexpr uint32_t kRecord = 0x110;
+    constexpr uint32_t kHeader = 0x20;
+    constexpr uint32_t kSizeAt = 0x14;
+
+    const std::string listPath =
+        std::string( "Euro/Bnk/islands/" ) + document.Island + "/level/spots.bin";
+    std::vector<uint8_t> list;
+    if ( !gpFile->loadFile( listPath.c_str(), list ) || list.size() < kHeader ||
+         memcmp( list.data(), ".SPT", 4 ) != 0 ) {
+        outError = "no spots.bin for '" + document.Island + "'";
+        return false;
+    }
+    const uint32_t recordCount = static_cast<uint32_t>( ( list.size() - kHeader ) / kRecord );
+    if ( recordCount == 0 ) {
+        outError = "the spots.bin of '" + document.Island + "' holds no records";
+        return false;
+    }
+    const uint32_t recordsEnd = kHeader + recordCount * kRecord;
+    std::vector<uint8_t> footer( list.begin() + recordsEnd, list.end() );
+    list.resize( recordsEnd );
+
+    const std::string spotName = "SN" + bankField;
+    const uint64_t id = GetIdentifier64bit( spotName.c_str() );
+
+    // The template: an existing record of the same bank, else the first.
+    size_t templateIndex = 0;
+    for ( uint32_t offset = kHeader; offset + kRecord <= kHeader + recordCount * kRecord; offset += kRecord ) {
+        char bank[ 9 ] = {};
+        memcpy( bank, list.data() + offset + 8, 8 );
+        if ( _stricmp( bank, bankField.c_str() ) == 0 ) {
+            templateIndex = ( offset - kHeader ) / kRecord;
+            break;
+        }
+    }
+
+    bool bUpdated = false;
+    for ( uint32_t offset = kHeader; offset + kRecord <= kHeader + recordCount * kRecord; offset += kRecord ) {
+        uint64_t recordId;
+        memcpy( &recordId, list.data() + offset, 8 );
+        if ( recordId == id ) {
+            memcpy( list.data() + offset + 8, bankField.data(), Min<size_t>( 8, bankField.size() ) );
+            memcpy( list.data() + offset + 0x10, &position, 12 );
+            memcpy( list.data() + offset + 0x20, &heading, 4 );
+            bUpdated = true;
+            break;
+        }
+    }
+    if ( !bUpdated ) {
+        const uint32_t recordOffset = kHeader + static_cast<uint32_t>( templateIndex ) * kRecord;
+        list.insert( list.end(), kRecord, 0 );
+        memcpy( list.data() + kHeader + recordCount * kRecord, list.data() + recordOffset, kRecord );
+        const uint32_t at = kHeader + recordCount * kRecord;
+        memcpy( list.data() + at, &id, 8 );
+        memcpy( list.data() + at + 8, bankField.data(), Min<size_t>( 8, bankField.size() ) );
+        memcpy( list.data() + at + 0x10, &position, 12 );
+        memcpy( list.data() + at + 0x20, &heading, 4 );
+        outAppended = 1;
+    } else {
+        outUpdated = 1;
+    }
+
+    list.insert( list.end(), footer.begin(), footer.end() );
+    const uint32_t size = static_cast<uint32_t>( list.size() - 0x10 );
+    memcpy( list.data() + kSizeAt, &size, 4 );
+
+    const std::filesystem::path modsRoot = gpFile->getModsRoot();
+    outPath = modsRoot / "Euro" / "Bnk" / "islands" / document.Island / "level" / "spots.bin";
+    std::error_code ec;
+    std::filesystem::create_directories( outPath.parent_path(), ec );
+    std::ofstream stream( outPath, std::ios::binary | std::ios::trunc );
+    if ( !stream ) {
+        outError = "cannot write '" + outPath.string() + "'";
+        return false;
+    }
+    stream.write( reinterpret_cast<const char *>( list.data() ), static_cast<std::streamsize>( list.size() ) );
+    return static_cast<bool>( stream );
+}
+
+struct BankProp {
+    std::string Ref; // the OBJ name (props folder)
+    Matrix4x4f Local; // anchor-local
+};
+
+} // namespace
+
+SceneExportResult SceneExportBank( const SceneDocument &document, const std::string &bankName,
+                                   EdenRenderer *pRenderer ) {
+    SceneExportResult result;
+    if ( gpFile == nullptr ) {
+        result.Error = "no filesystem";
+        return result;
+    }
+    if ( bankName.empty() ) {
+        result.Error = "no bank name";
+        return result;
+    }
+    if ( pRenderer == nullptr ) {
+        result.Error = "no renderer (the shader family GUID comes from it)";
+        return result;
+    }
+    const ShaderLibrary *pLibrary = pRenderer->getShaderSystem().findLibrary( "TD_Gouraud" );
+    if ( pLibrary == nullptr ) {
+        result.Error = "the TD_Gouraud shader library is not loaded";
+        return result;
+    }
+    const uint64_t shaderGUID = pLibrary->getGUID();
+
+    // The placements (props only; the other kinds export through export_spots
+    // / export_pmi).
+    std::vector<Matrix4x4f> worlds;
+    document.resolveWorlds( worlds );
+    std::vector<std::pair<size_t, Matrix4x4f>> propPlacements; // (object index, world)
+    for ( size_t i = 0; i < document.Objects.size(); i++ ) {
+        const SceneObject &object = document.Objects[ i ];
+        if ( ( object.Kind != "prop" && object.Kind != "obj" ) || object.Ref.empty() || !object.bVisible ) {
+            continue;
+        }
+        propPlacements.push_back( { i, worlds[ i ] } );
+    }
+    if ( propPlacements.empty() ) {
+        result.Error = "the scene has no prop placements";
+        return result;
+    }
+
+    // The anchor: a `spot` object named <bankName> (its composed placement),
+    // else the first prop.
+    Matrix4x4f anchor = propPlacements.front().second;
+    for ( size_t i = 0; i < document.Objects.size(); i++ ) {
+        const SceneObject &object = document.Objects[ i ];
+        if ( object.Kind == "spot" && _stricmp( object.Ref.c_str(), bankName.c_str() ) == 0 ) {
+            anchor = worlds[ i ];
+            break;
+        }
+    }
+    const Matrix4x4f anchorInverse = anchor.inverse();
+    const Vector3f anchorPosition( anchor.m[ 3 ][ 0 ], anchor.m[ 3 ][ 1 ], anchor.m[ 3 ][ 2 ] );
+    const float anchorHeading = std::atan2( -anchor.m[ 2 ][ 0 ], anchor.m[ 2 ][ 2 ] );
+
+    // Parse the distinct OBJs; the shared materials and textures collect.
+    std::vector<BankProp> props;
+    struct PropModel {
+        std::string Ref;
+        uint64_t GeometryHash;
+        std::vector<uint64_t> MaterialHashes; // the ref's MBNK order
+        std::vector<AuthoredPrimitive> Primitives;
+    };
+    std::vector<PropModel> models;
+    std::vector<MaterialDesc> allMaterials;
+    std::unordered_map<std::string, uint64_t> materialIndex; // "<ref>::<mtl>" -> MBNK hash
+    std::unordered_map<std::string, std::vector<uint64_t>> refMaterials;
+    std::vector<std::string> textures; // the map_Kd strings, unique, in order
+
+    for ( const auto &placement : propPlacements ) {
+        const SceneObject &object = document.Objects[ placement.first ];
+        PropModel *pModel = nullptr;
+        for ( PropModel &model : models ) {
+            if ( _stricmp( model.Ref.c_str(), object.Ref.c_str() ) == 0 ) {
+                pModel = &model;
+                break;
+            }
+        }
+        if ( pModel == nullptr ) {
+            std::vector<ObjGroupDesc> groups;
+            std::vector<ObjMaterialDesc> objMaterials;
+            if ( !LoadObjMeshes( "props/", object.Ref.c_str(), groups, objMaterials ) ) {
+                result.Error = "the prop '" + object.Ref + "' did not load from <mods>/props/";
+                return result;
+            }
+            PropModel model;
+            model.Ref = object.Ref;
+            model.GeometryHash = HashResourceName( ( "geometry:" + document.Island + ":" + object.Ref ).c_str() );
+            for ( const ObjGroupDesc &group : groups ) {
+                // The group's material: the .mtl entry (white default when the
+                // OBJ had no usemtl / the name is missing).
+                ObjMaterialDesc source;
+                auto itDesc = std::find_if( objMaterials.begin(), objMaterials.end(),
+                                            [ & ]( const ObjMaterialDesc &d ) { return d.Name == group.Material; } );
+                if ( itDesc != objMaterials.end() ) {
+                    source = *itDesc;
+                }
+                const std::string matKey = object.Ref + "::" + group.Material;
+                auto itMat = materialIndex.find( matKey );
+                if ( itMat == materialIndex.end() ) {
+                    const std::string matName =
+                        object.Ref + "_" + ( group.Material.empty() ? "default" : group.Material );
+                    MaterialDesc desc;
+                    ComposeMaterial( matName, source, shaderGUID, desc );
+                    allMaterials.push_back( desc );
+                    materialIndex[ matKey ] = GetIdentifier64bit( matName.c_str() );
+                    if ( !source.Texture.empty() &&
+                         std::find( textures.begin(), textures.end(), source.Texture ) == textures.end() ) {
+                        textures.push_back( source.Texture );
+                    }
+                }
+                model.MaterialHashes.push_back( materialIndex[ matKey ] );
+                AuthoredPrimitive prim;
+                prim.MaterialIndex = static_cast<uint16_t>( model.MaterialHashes.size() - 1 );
+                prim.Positions.reserve( group.Vertices.size() * 3 );
+                prim.Normals.reserve( group.Vertices.size() * 3 );
+                prim.UVs.reserve( group.Vertices.size() * 2 );
+                for ( const ObjVertex &vertex : group.Vertices ) {
+                    prim.Positions.push_back( vertex.Position[ 0 ] );
+                    prim.Positions.push_back( vertex.Position[ 1 ] );
+                    prim.Positions.push_back( vertex.Position[ 2 ] );
+                    prim.Normals.push_back( vertex.Normal[ 0 ] );
+                    prim.Normals.push_back( vertex.Normal[ 1 ] );
+                    prim.Normals.push_back( vertex.Normal[ 2 ] );
+                    prim.UVs.push_back( vertex.UV[ 0 ] );
+                    prim.UVs.push_back( vertex.UV[ 1 ] );
+                }
+                prim.Indices = group.Indices;
+                model.Primitives.push_back( std::move( prim ) );
+            }
+            models.push_back( std::move( model ) );
+            pModel = &models.back();
+        }
+        BankProp prop;
+        prop.Ref = object.Ref;
+        prop.Local = anchorInverse * placement.second;
+        props.push_back( std::move( prop ) );
+    }
+    for ( const PropModel &model : models ) {
+        refMaterials[ model.Ref ] = model.MaterialHashes;
+    }
+
+    // The authored files.
+    const std::string bankField = ToLower( bankName ).substr( 0, 8 );
+    const uint64_t modelRsc = HashResourceName( ( "model:" + document.Island + ":" + bankField ).c_str() );
+    char rsc16[ 17 ];
+    snprintf( rsc16, sizeof( rsc16 ), "%016llX", static_cast<unsigned long long>( modelRsc ) );
+    const std::string stem = bankField + "_" + rsc16;
+    const uint64_t sceneRsc = HashResourceName( ( "scene:" + document.Island + ":" + bankField ).c_str() );
+    const uint64_t materialsRsc = HashResourceName( ( "materials:" + document.Island + ":" + bankField ).c_str() );
+    const uint64_t rootHash = GetIdentifier64bit( ( "SN" + bankField + "_root" ).c_str() );
+
+    // .3dg (one AuthoredGeometry per distinct prop OBJ).
+    std::vector<AuthoredGeometry> geometries;
+    for ( const PropModel &model : models ) {
+        AuthoredGeometry geometry;
+        geometry.Hashcode = model.GeometryHash;
+        geometry.Primitives = model.Primitives;
+        geometries.push_back( std::move( geometry ) );
+    }
+    std::vector<uint8_t> geometryBytes;
+    std::string error;
+    if ( !Build3dg( geometries, geometryBytes, error ) ) {
+        result.Error = ".3dg: " + error;
+        return result;
+    }
+
+    // .3dd (an instance per placement; the geometry hash lookup per ref).
+    std::vector<AuthoredInstance> instances;
+    for ( const BankProp &prop : props ) {
+        uint64_t geometryHash = 0;
+        for ( const PropModel &model : models ) {
+            if ( _stricmp( model.Ref.c_str(), prop.Ref.c_str() ) == 0 ) {
+                geometryHash = model.GeometryHash;
+                break;
+            }
+        }
+        AuthoredInstance instance;
+        instance.Name = prop.Ref.substr( 0, 8 );
+        instance.GeometryHashcode = geometryHash;
+        instance.Local = prop.Local;
+        auto itMats = refMaterials.find( prop.Ref );
+        if ( itMats != refMaterials.end() ) {
+            instance.Materials = itMats->second;
+        }
+        instances.push_back( std::move( instance ) );
+    }
+    std::vector<uint8_t> sceneBytes;
+    if ( !Build3dd( rootHash, instances, sceneBytes, error ) ) {
+        result.Error = ".3dd: " + error;
+        return result;
+    }
+
+    // .2dm (the merged material library).
+    std::vector<uint8_t> materialBytes;
+    if ( !Build2dm( allMaterials, materialBytes ) ) {
+        result.Error = ".2dm failed";
+        return result;
+    }
+
+    // The .2db textures (the props folder's PNGs / JPGs / DDSes).
+    std::vector<std::pair<std::string, std::vector<uint8_t>>> textureBytes;
+    for ( const std::string &texture : textures ) {
+        auto resolved = gpFile->resolvePath( ( std::string( "props/" ) + texture ).c_str() );
+        std::vector<uint8_t> pixels;
+        uint32_t width = 0, height = 0;
+        if ( !resolved || !LoadImageFileRGBA( *resolved, pixels, width, height ) ) {
+            result.Error = "the texture '" + texture + "' of '" + bankName + "' is not readable";
+            return result;
+        }
+        std::vector<uint8_t> bytes;
+        if ( !Build2dbFromRGBA( texture.c_str(), pixels.data(), width, height, true, bytes ) ) {
+            result.Error = ".2db failed for '" + texture + "'";
+            return result;
+        }
+        textureBytes.push_back( { texture, std::move( bytes ) } );
+    }
+
+    // entities.xmb + hashcodes.xmb (the XMB writer's fresh form; the two
+    // documents the spot loader walks).
+    XmbOutNode entitiesRoot = XmbOutNode::MakeComposite( "RootXmb" );
+    {
+        XmbOutNode bankType = XmbOutNode::MakeUInt32( 8 );
+        bankType.Name = "___BankType";
+        XmbOutNode bankSubType = XmbOutNode::MakeUInt32( 11 );
+        bankSubType.Name = "___BankSubType";
+        XmbOutNode nbSplit = XmbOutNode::MakeUInt32( 1 );
+        nbSplit.Name = "___NbSplittedBank";
+        XmbOutNode exportScenery = XmbOutNode::MakeComposite( "ExportType_Scenery" );
+        exportScenery.Name = "ExportType_Scenery";
+        XmbOutNode arrayOfScenery = XmbOutNode::MakeArray( "Scenery" );
+        arrayOfScenery.Name = "ArrayOf_Scenery";
+        XmbOutNode scenery = XmbOutNode::MakeComposite( "Scenery" );
+        XmbOutNode hc = XmbOutNode::MakeUInt64( modelRsc );
+        hc.Name = "__Hc";
+        XmbOutNode name = XmbOutNode::MakeString( stem.c_str() );
+        name.Name = "__Name";
+        XmbOutNode modelArray = XmbOutNode::MakeArray( "__StructScDataRsc" );
+        modelArray.Name = "Model";
+        auto addRsc = [ & ]( uint64_t rsc, uint32_t subType ) {
+            XmbOutNode entry = XmbOutNode::MakeComposite( "__StructScDataRsc" );
+            XmbOutNode rscValue = XmbOutNode::MakeUInt64( rsc );
+            rscValue.Name = "rsc";
+            XmbOutNode typeValue = XmbOutNode::MakeUInt32( 0 );
+            typeValue.Name = "rscType";
+            XmbOutNode subValue = XmbOutNode::MakeUInt32( subType );
+            subValue.Name = "rscSubType";
+            entry.Children.push_back( std::move( rscValue ) );
+            entry.Children.push_back( std::move( typeValue ) );
+            entry.Children.push_back( std::move( subValue ) );
+            modelArray.Children.push_back( std::move( entry ) );
+        };
+        addRsc( modelRsc, 0 );     // the .3dd (the loader reads this one)
+        addRsc( sceneRsc, 1 );     // the .3dg
+        addRsc( materialsRsc, 2 ); // the .2dm
+        for ( const std::pair<std::string, std::vector<uint8_t>> &texture : textureBytes ) {
+            addRsc( HashResourceName( ( "texture:" + document.Island + ":" + texture.first ).c_str() ), 3 );
+        }
+        scenery.Children.push_back( std::move( hc ) );
+        scenery.Children.push_back( std::move( name ) );
+        scenery.Children.push_back( std::move( modelArray ) );
+        arrayOfScenery.Children.push_back( std::move( scenery ) );
+        exportScenery.Children.push_back( std::move( arrayOfScenery ) );
+        entitiesRoot.Children.push_back( std::move( bankType ) );
+        entitiesRoot.Children.push_back( std::move( bankSubType ) );
+        entitiesRoot.Children.push_back( std::move( nbSplit ) );
+        entitiesRoot.Children.push_back( std::move( exportScenery ) );
+    }
+    std::vector<uint8_t> entitiesBytes;
+    if ( !BuildXmb( entitiesRoot, entitiesBytes, error ) ) {
+        result.Error = "entities.xmb: " + error;
+        return result;
+    }
+
+    // hashcodes.xmb: the entry indices follow the pack order below
+    // [0] hashcodes.xmb, [1] entities.xmb, [2] the .2dm, [3..] the .2dbs,
+    // [3+T] the .3dd, [4+T] the .3dg.
+    const uint32_t sceneIndex = 3 + static_cast<uint32_t>( textureBytes.size() );
+    const uint32_t geometryIndex = sceneIndex + 1;
+    const uint32_t materialsIndex = 2;
+    XmbOutNode hashcodesRoot = XmbOutNode::MakeComposite( "RootXmb" );
+    {
+        XmbOutNode bankType = XmbOutNode::MakeUInt32( 8 );
+        bankType.Name = "___BankType";
+        XmbOutNode bankSubType = XmbOutNode::MakeUInt32( 10 );
+        bankSubType.Name = "___BankSubType";
+        XmbOutNode nbSplit = XmbOutNode::MakeUInt32( 1 );
+        nbSplit.Name = "___NbSplittedBank";
+        XmbOutNode array = XmbOutNode::MakeArray( "___CmdSaveFileInfoStruct" );
+        array.Name = "___CmdSaveFileInfoArray";
+        auto addFileInfo = [ & ]( uint32_t subType, const std::vector<uint32_t> &indices,
+                                  const std::vector<uint64_t> &refs ) {
+            XmbOutNode entry = XmbOutNode::MakeComposite( "___CmdSaveFileInfoStruct" );
+            XmbOutNode typeValue = XmbOutNode::MakeUInt32( 0 );
+            typeValue.Name = "Type";
+            XmbOutNode subValue = XmbOutNode::MakeUInt32( subType );
+            subValue.Name = "SubType";
+            XmbOutNode fileIndices = XmbOutNode::MakeArray( "UINT32" );
+            fileIndices.Name = "FileIndices";
+            for ( uint32_t index : indices ) {
+                fileIndices.Children.push_back( XmbOutNode::MakeUInt32( index ) );
+            }
+            XmbOutNode fileRefCount = XmbOutNode::MakeArray( "UINT32" );
+            fileRefCount.Name = "FileRefCount";
+            XmbOutNode fileReferences = XmbOutNode::MakeArray( "UINT64" );
+            fileReferences.Name = "FileReferences";
+            for ( uint64_t rsc : refs ) {
+                fileReferences.Children.push_back( XmbOutNode::MakeUInt64( rsc ) );
+            }
+            XmbOutNode bankIndice = XmbOutNode::MakeArray( "UINT32" );
+            bankIndice.Name = "BankIndice";
+            for ( size_t i = 0; i < indices.size(); i++ ) {
+                bankIndice.Children.push_back( XmbOutNode::MakeUInt32( 0 ) );
+            }
+            entry.Children.push_back( std::move( typeValue ) );
+            entry.Children.push_back( std::move( subValue ) );
+            entry.Children.push_back( std::move( fileIndices ) );
+            entry.Children.push_back( std::move( fileRefCount ) );
+            entry.Children.push_back( std::move( fileReferences ) );
+            entry.Children.push_back( std::move( bankIndice ) );
+            array.Children.push_back( std::move( entry ) );
+        };
+        addFileInfo( 0, { sceneIndex }, { modelRsc } );
+        addFileInfo( 1, { geometryIndex }, { sceneRsc } );
+        addFileInfo( 2, { materialsIndex }, { materialsRsc } );
+        if ( !textureBytes.empty() ) {
+            std::vector<uint32_t> texIndices;
+            std::vector<uint64_t> texRefs;
+            for ( uint32_t i = 0; i < textureBytes.size(); i++ ) {
+                texIndices.push_back( 3 + i );
+                texRefs.push_back(
+                    HashResourceName( ( "texture:" + document.Island + ":" + textureBytes[ i ].first ).c_str() ) );
+            }
+            addFileInfo( 3, texIndices, texRefs );
+        }
+        hashcodesRoot.Children.push_back( std::move( bankType ) );
+        hashcodesRoot.Children.push_back( std::move( bankSubType ) );
+        hashcodesRoot.Children.push_back( std::move( nbSplit ) );
+        hashcodesRoot.Children.push_back( std::move( array ) );
+    }
+    std::vector<uint8_t> hashcodesBytes;
+    if ( !BuildXmb( hashcodesRoot, hashcodesBytes, error ) ) {
+        result.Error = "hashcodes.xmb: " + error;
+        return result;
+    }
+
+    // The bank pack (the entry order the FileIndices above count on).
+    std::vector<BnkWriteEntry> entries;
+    {
+        BnkWriteEntry entry;
+        entry.Path = "hashcodes.xmb";
+        entry.Data = hashcodesBytes;
+        entry.SubType = 10;
+        entry.Group = 8;
+        entries.push_back( entry );
+        entry.Path = "entities.xmb";
+        entry.Data = entitiesBytes;
+        entry.SubType = 11;
+        entry.Group = 8;
+        entries.push_back( entry );
+        entry.Path = stem + ".2dm";
+        entry.Data = materialBytes;
+        entry.SubType = 2;
+        entry.Group = 0;
+        entries.push_back( entry );
+        for ( const std::pair<std::string, std::vector<uint8_t>> &texture : textureBytes ) {
+            entry.Path = texture.first + ".2db";
+            entry.Data = texture.second;
+            entry.SubType = 3;
+            entry.Group = 0;
+            entries.push_back( entry );
+        }
+        entry.Path = stem + ".3dd";
+        entry.Data = sceneBytes;
+        entry.SubType = 0;
+        entry.Group = 0;
+        entries.push_back( entry );
+        entry.Path = stem + ".3dg";
+        entry.Data = geometryBytes;
+        entry.SubType = 1;
+        entry.Group = 0;
+        entries.push_back( entry );
+    }
+
+    const std::vector<uint8_t> bankBytes = BuildBank( entries );
+    if ( bankBytes.empty() ) {
+        result.Error = "the bank pack failed";
+        return result;
+    }
+    { // debug dump (gitignored _*)
+        std::ofstream stream( "_composed_bank.bnk", std::ios::binary | std::ios::trunc );
+        stream.write( reinterpret_cast<const char *>( bankBytes.data() ), static_cast<std::streamsize>( bankBytes.size() ) );
+    }
+
+    // The parse-back check: the bank must load and the rsc must resolve to
+    // the .3dd (the spot loader's first lookup).
+    {
+        Bank check;
+        std::vector<uint8_t> buffer( bankBytes.begin(), bankBytes.end() );
+        const std::string checkName = bankField + ".bnk";
+        if ( !check.loadFromMemory( std::move( buffer ), checkName.c_str() ) ) {
+            result.Error = "the authored bank does not parse back";
+            return result;
+        }
+        BankHashcodes hashcodes;
+        hashcodes.load( check );
+        const BankEntry *pScene = hashcodes.find( modelRsc, 0, 0 );
+        if ( pScene == nullptr || pScene->Extension != "3dd" ) {
+            result.Error = "the authored hashcodes do not resolve the model rsc";
+            return result;
+        }
+        if ( check.findEntry( pScene->Name.c_str(), "3dg" ) == nullptr ||
+             check.findEntry( pScene->Name.c_str(), "2dm" ) == nullptr ) {
+            result.Error = "the authored geometry / materials are missing from the bank";
+            return result;
+        }
+        XmbDocument entities;
+        const BankEntry *pEntities = check.findEntry( "entities.xmb" );
+        if ( pEntities == nullptr || !entities.load( pEntities->pData, pEntities->Size ) ) {
+            result.Error = "the authored entities.xmb does not parse";
+            return result;
+        }
+        const XmbValue scenery = entities.getRoot()[ "ExportType_Scenery" ];
+        if ( scenery.getArraySize( "ArrayOf_Scenery" ) != 1 ) {
+            result.Error = "the authored entities.xmb has no scenery entry";
+            return result;
+        }
+    }
+
+    // Write the bank + the anchor's spot record.
+    const std::filesystem::path modsRoot = gpFile->getModsRoot();
+    const std::filesystem::path bankPath =
+        modsRoot / "Euro" / "Bnk" / "islands" / document.Island / "exterior" / ( bankField + ".bnk" );
+    {
+        std::error_code ec;
+        std::filesystem::create_directories( bankPath.parent_path(), ec );
+        std::ofstream stream( bankPath, std::ios::binary | std::ios::trunc );
+        if ( !stream ) {
+            result.Error = "cannot write '" + bankPath.string() + "'";
+            return result;
+        }
+        stream.write( reinterpret_cast<const char *>( bankBytes.data() ),
+                      static_cast<std::streamsize>( bankBytes.size() ) );
+    }
+    int32_t appendedRecords = 0;
+    int32_t updatedRecords = 0;
+    std::filesystem::path listPath;
+    if ( !UpsertSpotRecord( document, bankField, anchorPosition, anchorHeading, error, appendedRecords,
+                            updatedRecords, listPath ) ) {
+        result.Error = error;
+        result.Path = bankPath.string();
+        return result;
+    }
+
+    result.Appended = appendedRecords;
+    result.BanksCopied = updatedRecords;
+    result.Total = static_cast<int32_t>( instances.size() );
+    result.Path = bankPath.string();
+    OTDU_LOG_INFO(
+        "SceneExport: bank '%s': %zu prop(s) -> %zu model(s), %zu material(s), %zu texture(s); %zu entries, "
+        "%zu bytes; spot record %s\n",
+        bankName.c_str(), props.size(), models.size(), allMaterials.size(), textureBytes.size(), entries.size(),
+        bankBytes.size(), appendedRecords ? "appended" : "updated" );
     return result;
 }

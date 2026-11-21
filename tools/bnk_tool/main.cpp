@@ -9,6 +9,7 @@
 
 #include "core/crypto/cpr.h"
 #include "core/xmb.h"
+#include "core/xmb_write.h"
 #include "filesystem/bank.h"
 #include "filesystem/bank_write.h"
 #include "filesystem/gs_file.h"
@@ -463,6 +464,170 @@ static int RoundtripRenderFile( const char *pPath ) {
     return 1;
 }
 
+// --- the XMB roundtrip (the writer, source/core/xmb_write.cpp) --------------
+
+// Value-level tree comparison (the reader-level bar): composites walk their
+// fields, arrays their elements, scalars compare through the reader API.
+static bool CompareXmbValues( const XmbDocument &a, uint32_t typeA, uint32_t offA, const XmbDocument &b,
+                              uint32_t typeB, uint32_t offB, int depth, std::string &outDiff,
+                              std::string &outPath ) {
+    if ( depth > 24 ) {
+        return true;
+    }
+    if ( typeA >= a.getTypes().size() || typeB >= b.getTypes().size() ) {
+        outDiff = "type index out of range";
+        return false;
+    }
+    const XmbType &ta = a.getType( typeA );
+    const XmbType &tb = b.getType( typeB );
+    if ( ta.Name != tb.Name ) {
+        outDiff = "type name '" + ta.Name + "' vs '" + tb.Name + "'";
+        return false;
+    }
+    if ( ta.bComposite != tb.bComposite ) {
+        outDiff = "composite kind differs at '" + ta.Name + "'";
+        return false;
+    }
+    if ( ta.bComposite ) {
+        if ( ta.Fields.size() != tb.Fields.size() ) {
+            outDiff = "field count differs at '" + ta.Name + "'";
+            return false;
+        }
+        for ( size_t i = 0; i < ta.Fields.size(); i++ ) {
+            const XmbType::Field &fa = ta.Fields[ i ];
+            const XmbType::Field &fb = tb.Fields[ i ];
+            if ( fa.Name != fb.Name || fa.bArray != fb.bArray ) {
+                outDiff = "field '" + fa.Name + "' differs at '" + ta.Name + "'";
+                return false;
+            }
+            if ( fa.bArray ) {
+                const uint32_t countA = a.readU32( offA + fa.Offset );
+                const uint32_t countB = b.readU32( offB + fb.Offset );
+                if ( countA != countB ) {
+                    outDiff = "array count " + std::to_string( countA ) + " vs " + std::to_string( countB ) +
+                              " at '" + ta.Name + "." + fa.Name + "'";
+                    return false;
+                }
+                const uint32_t arrayA = a.readU32( offA + fa.Offset + 4 );
+                const uint32_t arrayB = b.readU32( offB + fb.Offset + 4 );
+                const uint32_t sizeA = a.getType( fa.TypeIndex ).Size;
+                const uint32_t sizeB = b.getType( fb.TypeIndex ).Size;
+                for ( uint32_t e = 0; e < countA; e++ ) {
+                    std::string elementPath = outPath + fa.Name + "[" + std::to_string( e ) + "].";
+                    if ( !CompareXmbValues( a, fa.TypeIndex, arrayA + e * sizeA, b, fb.TypeIndex,
+                                            arrayB + e * sizeB, depth + 1, outDiff, elementPath ) ) {
+                        outPath = elementPath;
+                        return false;
+                    }
+                }
+            } else {
+                std::string fieldPath = outPath + fa.Name + ".";
+                if ( !CompareXmbValues( a, fa.TypeIndex, offA + fa.Offset, b, fb.TypeIndex, offB + fb.Offset,
+                                        depth + 1, outDiff, fieldPath ) ) {
+                    outPath = fieldPath;
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    // Scalar (both sides share the primitive law).
+    if ( ta.Primitive != tb.Primitive ) {
+        outDiff = "primitive differs at '" + ta.Name + "'";
+        return false;
+    }
+    switch ( ta.Primitive ) {
+    case eXmbPrimitive::XP_String:
+        if ( strcmp( a.readString( offA ), b.readString( offB ) ) != 0 ) {
+            outDiff = "string '" + std::string( a.readString( offA ) ) + "' vs '" + b.readString( offB ) + "'";
+            return false;
+        }
+        return true;
+    case eXmbPrimitive::XP_UInt64:
+    case eXmbPrimitive::XP_Int64:
+        if ( a.readU64( offA ) != b.readU64( offB ) ) {
+            outDiff = "u64 differs at '" + ta.Name + "'";
+            return false;
+        }
+        return true;
+    case eXmbPrimitive::XP_Float:
+    case eXmbPrimitive::XP_Double:
+        if ( a.readU32( offA ) != b.readU32( offB ) && ta.Primitive == eXmbPrimitive::XP_Float ) {
+            outDiff = "float differs at '" + ta.Name + "'";
+            return false;
+        }
+        if ( ta.Primitive == eXmbPrimitive::XP_Double && a.readU64( offA ) != b.readU64( offB ) ) {
+            outDiff = "double differs at '" + ta.Name + "'";
+            return false;
+        }
+        return true;
+    default:
+        if ( a.readU32( offA ) != b.readU32( offB ) ) {
+            outDiff = "scalar differs at '" + ta.Name + "'";
+            return false;
+        }
+        return true;
+    }
+}
+
+static int RoundtripXmb( const char *pPath, const char *pDumpPath ) {
+    // Parse the file, rebuild it from the parsed tree (the type table replayed
+    // in the file's own record order, the strings re-sorted, the data section
+    // re-serialized with the FIFO law) and byte-compare.
+    std::vector<uint8_t> original;
+    if ( !ReadWholeFile( pPath, original ) ) {
+        printf( "read failed: %s\n", pPath );
+        return 1;
+    }
+    XmbDocument document;
+    if ( !document.load( original.data(), original.size() ) ) {
+        printf( "parse failed: %s\n", pPath );
+        return 1;
+    }
+    std::vector<uint8_t> rebuilt;
+    std::string error;
+    if ( !RebuildXmb( document, original.data(), static_cast<uint32_t>( original.size() ), rebuilt, error ) ) {
+        printf( "rebuild failed: %s (%s)\n", pPath, error.c_str() );
+        return 1;
+    }
+    if ( rebuilt == original ) {
+        printf( "%s: %zu bytes rebuilt BYTE-IDENTICAL (%zu type records)\n", pPath, original.size(),
+                document.getTypes().size() );
+        return 0;
+    }
+    size_t firstDiff = 0;
+    while ( firstDiff < Min( original.size(), rebuilt.size() ) && original[ firstDiff ] == rebuilt[ firstDiff ] ) {
+        firstDiff++;
+    }
+    printf( "%s: rebuilt %zu bytes vs %zu, first byte diff at %zu (0x%zx)\n", pPath, rebuilt.size(),
+            original.size(), firstDiff, firstDiff );
+    if ( pDumpPath != nullptr ) {
+        std::ofstream stream( pDumpPath, std::ios::binary | std::ios::trunc );
+        stream.write( reinterpret_cast<const char *>( rebuilt.data() ), static_cast<std::streamsize>( rebuilt.size() ) );
+        printf( "rebuilt written to %s\n", pDumpPath );
+    }
+    // The reader-level guarantee: the rebuilt file must parse to the same
+    // VALUES (the retail files carry unreferenced writer garbage - 'AAA\0'
+    // placeholder blobs, a '##...KEYMAP##' trailer - the parse never sees).
+    XmbDocument again;
+    if ( !again.load( rebuilt.data(), rebuilt.size() ) ) {
+        printf( "FAIL: the rebuilt file does not parse\n" );
+        return 1;
+    }
+    bool bSame = again.getTypes().size() == document.getTypes().size() &&
+                 again.getRoot().getTypeIndex() == document.getRoot().getTypeIndex();
+    std::string valueDiff;
+    if ( bSame ) {
+        std::string valuePath;
+        bSame = CompareXmbValues( document, document.getRoot().getTypeIndex(), 0, again,
+                                  again.getRoot().getTypeIndex(), 0, 0, valueDiff, valuePath );
+        valueDiff = valuePath + " " + valueDiff;
+    }
+    printf( "%s: rebuilt, %s%s\n", pPath, bSame ? "parses to the same VALUES (bytes differ)" : "VALUES DIFFER",
+            valueDiff.empty() ? "" : ( " - " + valueDiff ).c_str() );
+    return bSame ? 0 : 1;
+}
+
 // --- the .pmi roundtrip (the instance-list writer) ---------------------------
 
 static int RoundtripPmi( const char *pPath ) {
@@ -527,7 +692,7 @@ int main( int argc, const char **argv ) {
     GSFile file;
 
     if ( argc < 3 ) {
-        printf( "usage: %s list|extract|pack|roundtrip|roundtripfile|decrypt|xmb <file> [output]\n", argv[ 0 ] );
+        printf( "usage: %s list|extract|pack|roundtrip|roundtripfile|roundtripxmb|decrypt|xmb <file> [output]\n", argv[ 0 ] );
         return 1;
     }
     std::string command = argv[ 1 ];
@@ -541,6 +706,8 @@ int main( int argc, const char **argv ) {
         return RoundtripBank( argv[ 2 ] );
     } else if ( command == "roundtripfile" ) {
         return RoundtripRenderFile( argv[ 2 ] );
+    } else if ( command == "roundtripxmb" ) {
+        return RoundtripXmb( argv[ 2 ], argc > 3 ? argv[ 3 ] : nullptr );
     } else if ( command == "roundtrip-pmi" ) {
         return RoundtripPmi( argv[ 2 ] );
     } else if ( command == "decrypt" && argc > 3 ) {

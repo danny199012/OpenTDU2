@@ -368,6 +368,8 @@ void VehicleWorldCollision::addCollision( const HavokCollision &collision, const
             }
             triangle.Friction = body.Friction;
             triangle.Material = t < collision.TriMaterial.size() ? collision.TriMaterial[t] : 0;
+            triangle.Surface =
+                t < collision.TriSurface.size() ? collision.TriSurface[t] : 0xff; // 0xff = classify from the mesh
             triangle.bRoad = bRoad;
             const uint32_t index = static_cast<uint32_t>( triangles.size() );
             triangles.push_back( triangle );
@@ -515,7 +517,17 @@ bool VehicleWorldCollision::raycast( const Vector3f &origin, const Vector3f &dir
                         outHit.Normal = triangle.Normal;
                         outHit.Friction = triangle.Friction;
                         outHit.Material = triangle.Material;
-                        outHit.Surface = triangle.bRoad ? Hit::eSurface::Road : Hit::eSurface::Static;
+                        if ( triangle.Surface != 0xff ) {
+                            // The authored override (the test area's surfaces).
+                            outHit.Surface = triangle.Surface == 1 ? Hit::eSurface::Dirt
+                            : triangle.Surface == 2 ? Hit::eSurface::Terrain
+                            : Hit::eSurface::Road; // the TYRE indices (0/1/2), not eSurface values
+                            static constexpr float kSurfaceFriction[ 3 ] = { 1.0f, 0.6f, 0.4f };
+                            outHit.Friction = triangle.Surface < 3 ? kSurfaceFriction[ triangle.Surface ]
+                                                                   : triangle.Friction;
+                        } else {
+                            outHit.Surface = triangle.bRoad ? Hit::eSurface::Road : Hit::eSurface::Static;
+                        }
                     }
                 }
             }

@@ -4,6 +4,7 @@
 
 #include <string>
 class EdenWorld;
+class EdenRenderer;
 
 // The scene's native export (M5, docs/re/scene_editor.md 6): the
 // `add_spot.py` route in C++ (tools/mod/add_spot.py - the mod overlay's
@@ -31,6 +32,19 @@ struct SceneExportResult {
 };
 
 SceneExportResult SceneExportSpots( const SceneDocument &document );
+
+// M5 last: the scene compiled into ONE new exterior bank
+// (`export_bank <name>`, docs/re/scene_editor.md 8): the scene's OBJ `prop`
+// placements are authored into the retail files a spot exterior carries -
+// one .3dd scene (an instance per placement), .3dg geometry per distinct
+// prop OBJ, one merged .2dm (the .mtl materials as TD_Gouraud clones), one
+// .2db per map_Kd texture - packed with the bank writer into
+// `<mods>/Euro/Bnk/islands/<island>/exterior/<name>.bnk` next to the
+// entities.xmb / hashcodes.xmb pair the spot loader walks, and the anchor
+// placement joins the island's spots.bin (an upsert keyed on the bank name;
+// a `spot` object named <name> is the anchor, else the first prop). FREERIDE
+// streams the bank through the retail path with no engine change.
+SceneExportResult SceneExportBank( const SceneDocument &document, const std::string &bankName, EdenRenderer *pRenderer );
 
 // M5 next slice: the scene's `library` (and `actor`) placements into the
 // sector banks' .pmi instance lists (docs/re/scene_editor.md 6). For every

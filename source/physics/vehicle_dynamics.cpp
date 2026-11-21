@@ -114,6 +114,11 @@ float Sign( float x ) { return x < 0.0f ? -1.0f : 1.0f; }
 // OpenTDU2's collision has no material ids yet: road / static meshes =
 // tarmac, heightfield terrain = grass [INF].
 uint32_t SurfaceIndex( VehicleWorldCollision::Hit::eSurface surface ) {
+    // The authored Dirt override (the test area's strips) joins the retail
+    // classification: road/static meshes = tarmac, heightfield = grass.
+    if ( surface == VehicleWorldCollision::Hit::eSurface::Dirt ) {
+        return TyreSetup::Dirt;
+    }
     return surface == VehicleWorldCollision::Hit::eSurface::Terrain ? TyreSetup::Grass : TyreSetup::Tarmac;
 }
 

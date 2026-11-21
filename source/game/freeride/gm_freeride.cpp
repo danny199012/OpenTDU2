@@ -7936,6 +7936,21 @@ void GMFreeRide::tick( float deltaTime ) {
                        vehicle.getOdometer(), rimT.x, rimT.y, rimT.z, rimY.x, rimY.y, rimY.z );
     }
 
+    // -logsurface: the per-wheel tyre surface / friction trace for handling
+    // tuning on the test area (the surface index feeds the tyre's Pacejka
+    // Config[surface]: 0 tarmac, 1 dirt, 2 grass).
+    static const bool bLogSurface = CmdLine::HasArg( "-logsurface" );
+    if ( bLogSurface && ( pGameInstance->getFrameIndex() % 30 ) == 0 ) {
+        const Vector3f p = carWorld.getTranslation();
+        std::string surfaces;
+        for ( const VehicleDynamics::WheelState &w : vehicle.getWheels() ) {
+            surfaces += " " + std::to_string( w.Surface ) + "/" +
+                        std::to_string( w.bContact ? 1 : 0 ) + "/" +
+                        std::to_string( int( w.SurfaceFriction * 100 ) );
+        }
+        OTDU_LOG_INFO( "SURFACE pos (%.1f %.1f %.1f) %2.0f km/h wheels%s\n", p.x, p.y, p.z, vehicle.getSpeedKmh(),
+                       surfaces.c_str() );
+    }
     FreeRideHud::State hudState;
     hudState.SpeedKmh = state == eState::Outro || state == eState::Wakeup ? 0.0f : vehicle.getSpeedKmh();
     hudState.Rpm = state == eState::Outro || state == eState::Wakeup ? setup.Db.RPMMin : vehicle.getRpm();
@@ -9271,6 +9286,61 @@ void GMFreeRide::addSpotExteriorCollisions() {
                     OTDU_LOG_INFO( "FREERIDE: car wash floor (frame %zu): %zu triangles\n", f, floor.getNumTriangles() );
                 }
             }
+            // The authored test areas (composed banks, no .shk): the kept
+            // model triangles ARE the drive surface, each with its material's
+            // tyre surface override (tarmac / dirt / grass).
+            if ( pExterior->isTestAreaBank() ) {
+                HavokCollision drive;
+                pExterior->collectDriveTriangles( -1.0f, 30.0f, drive );
+                if ( drive.getNumTriangles() > 0 ) {
+                    collision.addCollision( drive, frames[f] * pExterior->getSetLocal(), false );
+                    numTriangles += drive.getNumTriangles();
+                    uint32_t tarmac = 0, dirt = 0, grass = 0;
+                    for ( uint8_t s : drive.TriSurface ) {
+                        ( s == 1 ? dirt : ( s == 2 ? grass : tarmac ) )++;
+                    }
+                    OTDU_LOG_INFO( "FREERIDE: test area surface (frame %zu): %zu triangles (tarmac %u, dirt %u, grass %u)\n",
+                                   f, drive.getNumTriangles(), tarmac, dirt, grass );
+                }
+            }
+                // The mode's spawn beat the stream (the fit probe ran on the
+                // heightfield): a car that ended up INSIDE the authored slab
+                // pops on top of it once (the first frame that carries the
+                // bank is the one the dedupe admits).
+                {
+                    // The pad joins the grass-suppression set (the tall
+                    // grass grows through the authored slab otherwise).
+                    static std::set<std::string> clearedBanks;
+                    if ( clearedBanks.insert( pExterior->getPath() ).second ) {
+                        const Vector3f rbmin = pExterior->getRenderBoundsMin();
+                        const Vector3f rbmax = pExterior->getRenderBoundsMax();
+                        Vector3f lo( 1e30f, 0.0f, 1e30f ), hi( -1e30f, 0.0f, -1e30f );
+                        for ( int32_t c = 0; c < 4; c++ ) {
+                            const Vector3f corner( ( c & 1 ) ? rbmax.x : rbmin.x, 0.0f, ( c & 2 ) ? rbmax.z : rbmin.z );
+                            const Vector3f world3 = frames[f].transformPoint( corner );
+                            lo = Vector3f( Min( lo.x, world3.x ), 0.0f, Min( lo.z, world3.z ) );
+                            hi = Vector3f( Max( hi.x, world3.x ), 0.0f, Max( hi.z, world3.z ) );
+                        }
+                        EdenWorld::GrassClearing clearing;
+                        clearing.MinX = lo.x;
+                        clearing.MinZ = lo.z;
+                        clearing.MaxX = hi.x;
+                        clearing.MaxZ = hi.z;
+                        view.getWorld().addGrassClearing( clearing );
+                    }
+                }
+                if ( f == 0 ) {
+                    const Vector3f p = carWorld.getTranslation();
+                    const Vector3f local = frames[f].inverse().transformPoint( p );
+                    const Vector3f rbmin = pExterior->getRenderBoundsMin();
+                    const Vector3f rbmax = pExterior->getRenderBoundsMax();
+                    if ( local.x >= rbmin.x && local.x <= rbmax.x && local.z >= rbmin.z && local.z <= rbmax.z &&
+                         local.y > rbmin.y && local.y < rbmax.y - 0.5f ) {
+                        const Vector3f fwd = carWorld.transformVector( Vector3f( 0.0f, 0.0f, -1.0f ) );
+                        placeCar( Vector3f( p.x, p.y + 1.0f, p.z ), std::atan2( fwd.x, fwd.z ) );
+                        OTDU_LOG_INFO( "FREERIDE: test area refit (the spawn probe ran before the surface loaded)\n");
+                    }
+                }
             if ( CmdLine::HasArg( "-logbankoffsets" ) ) {
                 // The Scenery set's render bounds vs the bank's own collision bounds (bank frame): a set that
                 // sits elsewhere than its collision is drawn off its building (the car wash was 16 m off).

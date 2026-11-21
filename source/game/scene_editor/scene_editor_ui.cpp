@@ -338,6 +338,13 @@ void DrawExportSection( GMSceneEditor &editor ) {
     if ( ImGui::Button( "export instances -> sectors" ) ) {
         editor.exportPmiToGame();
     }
+    ImGui::SameLine();
+    static char bankName[ 64 ] = "composed";
+    ImGui::InputText( "##bankname", bankName, sizeof( bankName ) );
+    ImGui::SameLine();
+    if ( ImGui::Button( "compile bank -> exterior/" ) ) {
+        editor.exportBankToGame( bankName );
+    }
     ImGui::TextDisabled( "props.txt is the route the current game build draws;" );
     ImGui::TextDisabled( "export spots writes a native spots.bin, export instances patches the" );
     ImGui::TextDisabled( "sector .pmi lists (FREERIDE streams both with no engine change)" );

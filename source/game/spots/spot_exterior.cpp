@@ -34,7 +34,9 @@ bool SpotExterior::load( EdenSceneView &view, const std::string &bankPath ) {
         const BankEntry *pGeometry = bank.findEntry( pScene->Name.c_str(), "3dg" );
         const BankEntry *pMaterials = bank.findEntry( pScene->Name.c_str(), "2dm" );
         auto pModel = std::make_unique<EdenModel>();
-        pModel->setKeepCollision( path.find( "/ecw_" ) != std::string::npos ); // the car wash floor (collectFloorTriangles)
+        // The car wash floor (collectFloorTriangles); the authored test-area
+        // banks keep theirs as the DRIVE surface (they carry no .shk).
+        pModel->setKeepCollision( path.find( "/ecw_" ) != std::string::npos || path.find( "/testarea" ) != std::string::npos );
         if ( path.find( "/ecw_" ) != std::string::npos && CmdLine::HasArg( "-dropwashstrip" ) ) {
             // The forecourt plate is the wash's real floor (y 0 = the road height, a 0.2 m rim): draw it,
             // minus the strip over the road along the front (bank-local z >= 26.3, 6 m) [DATA: the plate
@@ -220,6 +222,69 @@ void SpotExterior::collectFloorTriangles( float minY, float maxY, HavokCollision
     if ( !out.Bodies.empty() ) {
         out.Bodies[0].FirstTriangle = 0;
         out.Bodies[0].NumTriangles = static_cast<uint32_t>( out.Indices.size() / 3 );
+    }
+}
+
+void SpotExterior::collectDriveTriangles( float minY, float maxY, HavokCollision &out ) const {
+    // Per item (one primitive = one material): the kept collision's triangles
+    // carry the item's material name into an explicit tyre surface. The
+    // body's friction stands in for the per-triangle one (the surfaces'
+    // reference friction is applied at the raycast override).
+    if ( out.Bodies.empty() ) {
+        HavokCollision::Body body;
+        body.Transform = Matrix4x4f::Identity();
+        body.MotionType = 7;
+        body.Friction = 0.8f;
+        out.Bodies.push_back( body );
+    }
+    HavokCollision::Body &body = out.Bodies[ 0 ];
+    for ( const auto &pSet : sets ) {
+        const std::vector<Vector3f> &vertices = pSet->getCollisionVertices();
+        const std::vector<uint32_t> &indices = pSet->getCollisionIndices();
+        if ( indices.empty() ) {
+            continue;
+        }
+        // The items' collision ranges (item i owns indices
+        // [CollisionFirst, CollisionFirst + Count)).
+        for ( const EdenModel::Item &item : pSet->getItems() ) {
+            if ( item.CollisionCount < 3 ) {
+                continue;
+            }
+            const std::string &materialName = item.MaterialIndex < pSet->getMaterials().size()
+                                                  ? pSet->getMaterials()[ item.MaterialIndex ].Name
+                                                  : std::string();
+            uint8_t surface = 0; // tarmac
+            {
+                const std::string lower = ToLower( materialName );
+                if ( lower.find( "dirt" ) != std::string::npos ) {
+                    surface = 1;
+                } else if ( lower.find( "grass" ) != std::string::npos ) {
+                    surface = 2;
+                }
+            }
+            for ( uint32_t k = item.CollisionFirst; k + 2 < item.CollisionFirst + item.CollisionCount; k += 3 ) {
+                const Vector3f &a = vertices[ indices[ k ] ];
+                const Vector3f &b = vertices[ indices[ k + 1 ] ];
+                const Vector3f &c = vertices[ indices[ k + 2 ] ];
+                if ( a.y < minY || a.y > maxY || b.y < minY || b.y > maxY || c.y < minY || c.y > maxY ) {
+                    continue;
+                }
+                const Vector3f normal = ( b - a ).cross( c - a );
+                if ( normal.length() < 1e-4f || fabsf( normal.y ) < 0.7f * normal.length() ) {
+                    continue; // walls and steep faces are not drive surface
+                }
+                const uint32_t base = static_cast<uint32_t>( out.Vertices.size() );
+                out.Vertices.push_back( a );
+                out.Vertices.push_back( b );
+                out.Vertices.push_back( c );
+                out.Indices.push_back( base );
+                out.Indices.push_back( base + 1 );
+                out.Indices.push_back( base + 2 );
+                out.TriMaterial.push_back( 0 );
+                out.TriSurface.push_back( surface );
+                body.NumTriangles++;
+            }
+        }
     }
 }
 

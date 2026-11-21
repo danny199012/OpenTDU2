@@ -24,6 +24,10 @@ struct HavokCollision {
     // One per triangle: the mesh material value (hkpStorageExtendedMeshShape
     // MeshSubpartStorage m_materials[m_materialIndices[t]], 0 when the subpart has none).
     std::vector<uint32_t> TriMaterial;
+    // One per triangle: an explicit tyre surface override (0 tarmac, 1 dirt,
+    // 2 grass - the TyreSetup indices; 0xff = none, classify from the mesh).
+    // Authored by the test-area collector (authored banks have no .shk).
+    std::vector<uint8_t> TriSurface;
 
     struct Box {
         Matrix4x4f Transform; // box centre/orientation, world frame (rigid, no scale)

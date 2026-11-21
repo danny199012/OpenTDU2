@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "island": "ibiza",
+  "name": "testarea",
+  "objects": [
+    {
+      "id": "testarea",
+      "kind": "prop",
+      "ref": "testarea",
+      "pos": [
+        12700,
+        14.0845,
+        16900
+      ]
+    }
+  ],
+  "overrides": [],
+  "roads": []
+}

@@ -269,6 +269,82 @@ section; the live swatches edit in place). Verified: `Concrete_stripe` of
 the EAS_B bank recolored red — the A/B crops show the red band on the
 facade; the override round-trips through the scene JSON.
 
+## 8b. The composed bank build (M5 last: `export_bank`)
+
+The scene compiles into ONE new exterior bank — the retail spot-bank shape,
+every file authored by the port:
+
+- **`source/core/xmb_write.{h,cpp}`** — the XMB writer (the write side of
+  core/xmb.cpp). The serialization law, decoded against retail files: the
+  sorted unique string table padded with 'A' bytes to the type table's
+  8-boundary (retail tables hold ORPHAN strings no record references — a
+  rebuild unions the file's own strings with the record names); type records
+  (composite { hi=size/2, lo=fields<<4 } + one SWAPPED { name, typeword }
+  record per field, every record holding a type-table slot, references
+  forward-patchable); the data section as a packed image where ARRAY ELEMENTS
+  and STRING BYTES are appended by a FIFO queue after the containing
+  composite; the data of an 8-byte-element array (u64/double) starts
+  8-aligned ('A'-padded — hashcodes.xmb's empty arrays prove it); VIRTUAL is
+  an 8-byte slot in the retail tables (the port reader's 4 misaligns
+  composites holding them); some retail tables have no "AAAAAAAA" terminator
+  (a rebuild preserves its presence). `otdu2_bnk_tool roundtripxmb <file>`
+  rebuilds and byte-compares: hashcodes.xmb and DeviceX360Pad.xmb rebuild
+  BYTE-IDENTICAL; entities.xmb / Default_KB.xmb parse to the same values (the
+  retail writers left unreferenced garbage — 'AAA ' placeholder blobs and a
+  '##...KEYMAP##' trailer — the parse never sees).
+- **`source/render/render_resources_write.{h,cpp}`** — the four render
+  resource writers over the RenderFile container: `.2db` (RGBA8 -> VF_A8R8G8B8
+  with a box-filter mip chain), `.2dm` (MATA { HASH, MAT. per material } — the
+  retail 0x340 payload law), `.3dg` (GEOA { HASH, GEOM { PRIM } }, VBA.
+  { DXVB }, IBA. { DXIB }: one interleaved stream pos f32x3 / normal f32x3 /
+  uv f32x2, DXVB flags 0x1800, 16-bit DXIB), `.3dd` (MBNA { MBNK }, OBJA,
+  INSA, HIEA — an identity root INS, an instance per placement, INS +0x50
+  pointing at the OBJA HASH ENTRY (payload, not section)). `HashResourceName`
+  (FNV-1a 64) is the rsc/geometry hash the two XMB files cross-reference.
+- **`export_bank <name>`** (the command + the Export panel's name field +
+  compile button): the scene's `prop` placements -> one `.3dd` (anchor = a
+  `spot` object named <name>, else the first prop; locals are anchor-relative
+  so a moved anchor re-exports in place), one merged `.2dm` (the .mtl
+  materials as TD_Gouraud clones — the OBJ route's material law including the
+  alpha<1 glass state), one `.2db` per map_Kd texture, the two XMB files, all
+  packed with the bank writer into
+  `<mods>/Euro/Bnk/islands/<island>/exterior/<name 8 lower>.bnk`. The anchor
+  placement UPSERTS into the island's `spots.bin` (the "SN<name>" record).
+  The parse-back check: the bank reloads, the rsc resolves to the `.3dd`, the
+  geometry / materials / entities.xmb parse.
+- Verified end to end (build 402): a two-prop scene exported; FREERIDE with
+  no editor loaded the overlay bank through the retail spot path ("m5test at
+  (12700, 16900): 1 models, 1 placements"), the spot items resolved with the
+  authored bounds (24 verts), the spot frames carried the exact record
+  position, and an A/B (the record moved +500 m) proved the drawn geometry is
+  the composed bank. Screenshot docs/images/composed-bank-m5test.webp.
+- **The physics test area** rides this: tools/mod/testarea/ (README) is a
+  composed bank whose material names carry the tyre surface — see
+  docs/re/scene_editor.md 10.
+
+## 10. The physics test area (`testarea`, tools/mod/testarea/)
+
+A composed bank for straight handling work: a 140 m pad (skidpad ring +
+cross lines), 2/5/10/20/30 % hill ramps with a plateau and a -20 % descent,
+and a 12 x 90 m dirt strip. The authored bank carries no `.shk`: its kept
+model triangles ARE the drive collision (`SpotExterior::collectDriveTriangles`,
+per item = per material), each triangle carrying an explicit tyre-surface
+override (`HavokCollision::TriSurface` -> `VehicleWorldCollision::Triangle::
+Surface` -> the raycast `Hit::Surface`): a material name containing "dirt"
+maps to the dirt tyre (index 1), "grass" to grass (2), else tarmac (0). The
+override also sets the hit's reference friction (tarmac 1.0, dirt 0.6, grass
+0.4 — the value the assists / HUD read); the tyre grip itself is the car DB's
+Pacejka `Config[surface]`. `Hit::eSurface` grew `Dirt` (SurfaceIndex maps it
+to TyreSetup::Dirt). The bank's footprint joins the grass-suppression set on
+load (the pad otherwise grows the tall grass through itself), and a car that
+spawned inside the slab (the mode's fit probe runs before the bank streams)
+is popped on top once ("test area refit" in the log). `-logsurface` prints
+the per-wheel surface / contact / friction trace every 30 frames — the A/B
+for handling changes. Install + rebuild + the tuning workflow:
+tools/mod/testarea/README.md. Verified: the pad reads 0/1.00 on all wheels,
+the dirt strip 1/0.60, the surrounding terrain 2/0.70 (the SURFACE trace
+crossing all three).
+
 ## 9. What we must not do (unchanged, docs/re/modding.md 4)
 
 The editor writes only `<mods>/` (scenes, props.txt) and the screenshot /

@@ -447,6 +447,15 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
         // landing sectors' banks (copied into the overlay).
         editor.exportPmiToGame();
         result = ResultOk( editor.statusText );
+    } else if ( cmd == "export_bank" ) {
+        // M5 last: the scene's props compiled into one new exterior bank
+        // (<mods>/.../exterior/<name>.bnk) + the anchor's spot record.
+        std::string name = command.getString( "name", "" );
+        if ( name.empty() ) {
+            name = editor.doc.Name.empty() ? "composed" : editor.doc.Name;
+        }
+        editor.exportBankToGame( name );
+        result = ResultOk( editor.statusText );
     } else if ( cmd == "add_road" ) {
         std::string id = command.getString( "id", "" );
         if ( id.empty() ) {

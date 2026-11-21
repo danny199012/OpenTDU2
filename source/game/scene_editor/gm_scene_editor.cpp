@@ -1149,6 +1149,18 @@ void GMSceneEditor::exportSpotsToGame() {
     OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
 }
 
+void GMSceneEditor::exportBankToGame( const std::string &bankName ) {
+    const SceneExportResult result = SceneExportBank( doc, bankName, gpRender ? gpRender->getEdenRenderer() : nullptr );
+    if ( !result.Error.empty() ) {
+        statusText = "export bank FAILED: " + result.Error;
+        OTDU_LOG_WARN( "SceneEditor: %s\n", statusText.c_str() );
+        return;
+    }
+    statusText = "bank '" + bankName + "' compiled: " + std::to_string( result.Total ) +
+                 " instance(s) -> " + result.Path + " (FREERIDE streams it through the retail spot path)";
+    OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
+}
+
 void GMSceneEditor::exportPmiToGame() {
     if ( !bWorldReady ) {
         statusText = "export pmi FAILED: the world is not ready";

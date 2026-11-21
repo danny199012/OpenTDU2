@@ -1,0 +1,12 @@
+newmtl pad
+Kd 1 1 1
+d 1.0
+map_Kd testarea_pad.png
+newmtl tarmac
+Kd 1 1 1
+d 1.0
+map_Kd testarea_tarmac.png
+newmtl dirt
+Kd 1 1 1
+d 1.0
+map_Kd testarea_dirt.png

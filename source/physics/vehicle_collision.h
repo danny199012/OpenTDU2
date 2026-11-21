@@ -37,7 +37,7 @@ public:
         Vector3f Normal;
         float Friction = 1.0f; // hkpRigidBody material friction (0.7 roads) / terrain [INF 0.7]
         uint32_t Material = 0; // the mesh material value of the triangle hit (0: none / terrain)
-        enum class eSurface : uint8_t { Road, Static, Terrain } Surface = eSurface::Road;
+        enum class eSurface : uint8_t { Road = 0, Static = 1, Terrain = 2, Dirt = 3 } Surface = eSurface::Road;
     };
 
     struct Contact {
@@ -120,6 +120,7 @@ private:
         Vector3f Normal;
         float Friction;
         uint32_t Material = 0;
+        uint8_t Surface = 0xff; // the authored tyre-surface override (0 tarmac, 1 dirt, 2 grass, 0xff none)
         bool bRoad;
     };
     static Vector3f TriangleCentre( const Triangle &t ) { return ( t.A + t.B + t.C ) * ( 1.0f / 3.0f ); }

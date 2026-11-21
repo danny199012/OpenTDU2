@@ -16,13 +16,6 @@ namespace {
 // the 3DG loader does to the game's own left handed geometry (render/3dg.cpp
 // parse(..., bMirrorX)). A mesh authored in Blender therefore lands the same
 // way round as a retail mesh.
-struct ObjMaterial {
-    std::string Name;
-    std::string Texture; // map_Kd, relative to the .obj
-    Vector4f Diffuse = Vector4f( 1, 1, 1, 1 );
-    float Alpha = 1.0f; // `d` (or 1 - `Tr`): below 1 the material is alpha blended (glass)
-};
-
 struct ObjVertexKey {
     int32_t Position = -1;
     int32_t UV = -1;
@@ -40,22 +33,15 @@ struct ObjVertexKeyHash {
     }
 };
 
-// One interleaved GPU stream: position, normal, texcoord (32 bytes).
-struct PropVertex {
-    float Position[3];
-    float Normal[3];
-    float UV[2];
-};
-
 struct ObjGroup {
     std::string Material;
-    std::vector<PropVertex> Vertices;
+    std::vector<ObjVertex> Vertices;
     std::vector<uint32_t> Indices;
     std::unordered_map<ObjVertexKey, uint32_t, ObjVertexKeyHash> Lookup;
 };
 
-void ParseMtl( const std::string &text, std::unordered_map<std::string, ObjMaterial> &out ) {
-    ObjMaterial current;
+void ParseMtl( const std::string &text, std::unordered_map<std::string, ObjMaterialDesc> &out ) {
+    ObjMaterialDesc current;
     bool bHave = false;
     size_t pos = 0;
     while ( pos < text.size() ) {
@@ -72,7 +58,7 @@ void ParseMtl( const std::string &text, std::unordered_map<std::string, ObjMater
             if ( bHave ) {
                 out[current.Name] = current;
             }
-            current = ObjMaterial();
+            current = ObjMaterialDesc();
             current.Name = line.substr( 7 );
             bHave = true;
         } else if ( line.compare( 0, 7, "map_Kd " ) == 0 ) {
@@ -140,7 +126,8 @@ ObjVertexKey ParseFaceVertex( const std::string &token, size_t numPositions, siz
 }
 
 // One group per `usemtl` (a group is one draw). Returns false when the file has
-// no face at all.
+// no face at all. (The parse's vertex law is the ObjVertex law of obj_mesh.h:
+// X-mirrored, winding reversed.)
 bool ParseObj( const std::string &text, std::vector<ObjGroup> &outGroups, std::string &outMtlFile ) {
     std::vector<float> positions; // xyz
     std::vector<float> uvs;       // uv
@@ -218,7 +205,7 @@ bool ParseObj( const std::string &text, std::vector<ObjGroup> &outGroups, std::s
                 if ( it != g.Lookup.end() ) {
                     return it->second;
                 }
-                PropVertex vertex = {};
+                ObjVertex vertex = {};
                 if ( key.Position >= 0 && static_cast<size_t>( key.Position ) * 3 + 2 < positions.size() ) {
                     vertex.Position[0] = positions[key.Position * 3 + 0];
                     vertex.Position[1] = positions[key.Position * 3 + 1];
@@ -309,7 +296,7 @@ bool BuildObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pOb
         OTDU_LOG_WARN( "%s: '%s' has no triangle\n", pLogTag, objPath.c_str() );
         return false;
     }
-    std::unordered_map<std::string, ObjMaterial> mtl;
+    std::unordered_map<std::string, ObjMaterialDesc> mtl;
     if ( !mtlText.empty() ) {
         ParseMtl( mtlText, mtl );
     }
@@ -325,7 +312,7 @@ bool BuildObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pOb
         if ( g.Indices.empty() ) {
             continue;
         }
-        for ( const PropVertex &vertex : g.Vertices ) {
+        for ( const ObjVertex &vertex : g.Vertices ) {
             const Vector3f p( vertex.Position[0], vertex.Position[1], vertex.Position[2] );
             if ( !bHasBounds ) {
                 if ( pBoundsMin != nullptr ) {
@@ -340,29 +327,29 @@ bool BuildObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pOb
             }
         }
 
-        GPUBuffer *pVertexBuffer = device.createBuffer( g.Vertices.size() * sizeof( PropVertex ),
+        GPUBuffer *pVertexBuffer = device.createBuffer( g.Vertices.size() * sizeof( ObjVertex ),
                                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, g.Vertices.data() );
         GPUBuffer *pIndexBuffer = device.createBuffer( g.Indices.size() * sizeof( uint32_t ),
                                                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT, g.Indices.data() );
         EdenMesh mesh;
         mesh.NumStreams = 1;
         mesh.pStreamBuffers[0] = pVertexBuffer;
-        mesh.Strides[0] = sizeof( PropVertex );
+        mesh.Strides[0] = sizeof( ObjVertex );
         RawVertexAttribute position;
         position.Usage = 0; // D3DDECLUSAGE_POSITION
         position.Stream = 0;
         position.Format = VAF_POSITION_R32G32B32_SFLOAT;
-        position.Offset = offsetof( PropVertex, Position );
+        position.Offset = offsetof( ObjVertex, Position );
         RawVertexAttribute normal;
         normal.Usage = 3; // D3DDECLUSAGE_NORMAL
         normal.Stream = 0;
         normal.Format = VAF_NORMAL_R32G32B32_SFLOAT;
-        normal.Offset = offsetof( PropVertex, Normal );
+        normal.Offset = offsetof( ObjVertex, Normal );
         RawVertexAttribute texcoord;
         texcoord.Usage = 5; // D3DDECLUSAGE_TEXCOORD
         texcoord.Stream = 0;
         texcoord.Format = VAF_TEXCOORD_R32G32_SFLOAT;
-        texcoord.Offset = offsetof( PropVertex, UV );
+        texcoord.Offset = offsetof( ObjVertex, UV );
         mesh.Attributes = { position, normal, texcoord };
         mesh.pIndexBuffer = pIndexBuffer;
         mesh.IndexCount = static_cast<uint32_t>( g.Indices.size() );
@@ -370,7 +357,7 @@ bool BuildObjDraws( EdenRenderer &renderer, const char *pFolder, const char *pOb
         mesh.computeLayoutKey();
 
         const auto itMaterial = mtl.find( g.Material );
-        const ObjMaterial &source = itMaterial != mtl.end() ? itMaterial->second : ObjMaterial();
+        const ObjMaterialDesc &source = itMaterial != mtl.end() ? itMaterial->second : ObjMaterialDesc();
         MaterialDesc desc;
         desc.Name = std::string( pObjName ) + "_" + g.Material;
         desc.ShaderSetGUID = pLibrary != nullptr ? pLibrary->getGUID() : 0;
@@ -476,4 +463,61 @@ void UnloadObjDraws( std::vector<ObjMeshDraw> &draws ) {
         }
     }
     draws.clear();
+}
+
+
+// --- the parse half (exposed for the composed bank's .3dg authoring) --------
+
+bool ParseObjMeshes( const std::string &objText, const std::string &mtlText, std::vector<ObjGroupDesc> &outGroups,
+                     std::vector<ObjMaterialDesc> &outMaterials ) {
+    outGroups.clear();
+    outMaterials.clear();
+    std::unordered_map<std::string, ObjMaterialDesc> mtl;
+    if ( !mtlText.empty() ) {
+        ParseMtl( mtlText, mtl );
+    }
+    std::vector<ObjGroup> groups;
+    std::string mtlFile;
+    if ( !ParseObj( objText, groups, mtlFile ) ) {
+        return false;
+    }
+    for ( const ObjGroup &g : groups ) {
+        if ( g.Indices.empty() ) {
+            continue;
+        }
+        ObjGroupDesc out;
+        out.Material = g.Material;
+        out.Vertices = g.Vertices;
+        out.Indices = g.Indices;
+        outGroups.push_back( std::move( out ) );
+    }
+    for ( const auto &pair : mtl ) {
+        outMaterials.push_back( pair.second );
+    }
+    // File order would be nicer, but the map's order is stable enough for the
+    // authoring (the material lookup is by name).
+    return !outGroups.empty();
+}
+
+bool LoadObjMeshes( const char *pFolder, const char *pObjName, std::vector<ObjGroupDesc> &outGroups,
+                    std::vector<ObjMaterialDesc> &outMaterials ) {
+    outGroups.clear();
+    outMaterials.clear();
+    const std::string objPath = std::string( pFolder ) + pObjName + ".obj";
+    std::vector<uint8_t> obj;
+    if ( !gpFile->loadFile( objPath.c_str(), obj ) ) {
+        return false;
+    }
+    std::string mtlText;
+    {
+        std::vector<ObjGroup> probe;
+        std::string mtlFile;
+        if ( ParseObj( std::string( obj.begin(), obj.end() ), probe, mtlFile ) && !mtlFile.empty() ) {
+            std::vector<uint8_t> mtlData;
+            if ( gpFile->loadFile( ( std::string( pFolder ) + mtlFile ).c_str(), mtlData ) ) {
+                mtlText.assign( mtlData.begin(), mtlData.end() );
+            }
+        }
+    }
+    return ParseObjMeshes( std::string( obj.begin(), obj.end() ), mtlText, outGroups, outMaterials );
 }
