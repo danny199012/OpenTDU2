@@ -365,6 +365,11 @@ void GMSceneEditor::updateCamera( float deltaTime ) {
     if ( gpInput->wasKeyPressed( SDL_SCANCODE_F3 ) ) {
         bGizmoShown = !bGizmoShown;
     }
+    if ( gpInput->wasKeyPressed( SDL_SCANCODE_F4 ) ) {
+        bGizmoRotate = !bGizmoRotate;
+        gizmoDrag = eGizmoAxis::None;
+        statusText = bGizmoRotate ? "gizmo: rotate (yaw = green ring, pitch = red, roll = blue; Shift = 15 deg steps)" : "gizmo: move";
+    }
     // Walk entry (M4): the selected / nearest interior placement, else the
     // scene grounds.
     if ( gpInput->wasKeyPressed( SDL_SCANCODE_F6 ) ) {
@@ -951,6 +956,14 @@ void GMSceneEditor::exit() {
 
 // --- edits ------------------------------------------------------------------
 
+void GMSceneEditor::pushUndoSnapshot( const SceneDocument &before ) {
+    undoStack.push_back( before );
+    if ( undoStack.size() > 64 ) {
+        undoStack.erase( undoStack.begin() );
+    }
+    redoStack.clear();
+}
+
 void GMSceneEditor::pushUndo() {
     undoStack.push_back( doc );
     if ( undoStack.size() > 64 ) {
@@ -1024,7 +1037,7 @@ void GMSceneEditor::deleteSelected() {
     statusText = "deleted";
 }
 
-void GMSceneEditor::duplicateSelected() {
+void GMSceneEditor::duplicateSelected( bool bSnap, float offsetX, float offsetZ ) {
     const SceneObject *pObject = doc.findObject( selectedId );
     if ( pObject == nullptr ) {
         return;
@@ -1032,11 +1045,34 @@ void GMSceneEditor::duplicateSelected() {
     pushUndo();
     SceneObject copy = *pObject;
     copy.Id = doc.uniqueId( pObject->Id );
-    copy.Position = copy.Position + Vector3f( 2.0f, 0.0f, 0.0f );
+    copy.Position = copy.Position + Vector3f( offsetX, 0.0f, offsetZ );
+    // The copy lands on the surface under its new place (a hill moves the height), when the terrain is streamed there.
+    bool bSnapped = false;
+    if ( bSnap && bWorldReady ) {
+        float ground = 0.0f;
+        if ( view.getWorld().getSurfaceHeight( copy.Position.x, copy.Position.z, copy.Position.y + 50.0f, ground ) ) {
+            copy.Position.y = ground;
+            bSnapped = true;
+        }
+    }
     doc.Objects.push_back( copy );
     selectedId = copy.Id;
     markSceneChanged();
-    statusText = "duplicated -> " + copy.Id;
+    statusText = "duplicated -> " + copy.Id + ( bSnapped ? " (on the ground)" : "" );
+}
+
+bool GMSceneEditor::rotateSelectedAxis( eGizmoAxis axis, float degrees ) {
+    SceneObject *pObject = doc.findObject( selectedId );
+    if ( pObject == nullptr || axis == eGizmoAxis::None ) {
+        return false;
+    }
+    pushUndo();
+    float &angle = axis == eGizmoAxis::Y ? pObject->Yaw : ( axis == eGizmoAxis::X ? pObject->Pitch : pObject->Roll );
+    angle = std::fmod( angle + degrees, 360.0f );
+    markSceneChanged();
+    statusText = "rotated " + std::string( axis == eGizmoAxis::Y ? "yaw" : ( axis == eGizmoAxis::X ? "pitch" : "roll" ) ) + " -> " +
+                 std::to_string( angle );
+    return true;
 }
 
 void GMSceneEditor::snapSelectedToGround() {
@@ -1123,8 +1159,21 @@ void GMSceneEditor::applyOverrides() {
 
 void GMSceneEditor::commitPropsToGame() {
     uint32_t committed = 0;
+    // Idempotent: a placement already in props.txt (same name, within half a metre) is not appended again.
+    const std::vector<ModProps::PlacementLine> existing = ModProps::listPlacements();
     for ( const SceneObject &object : doc.Objects ) {
         if ( ( object.Kind != "prop" && object.Kind != "obj" ) || !object.bVisible || object.Ref.empty() ) {
+            continue;
+        }
+        bool bHave = false;
+        for ( const ModProps::PlacementLine &line : existing ) {
+            if ( line.Name == object.Ref && std::fabs( line.Position.x - object.Position.x ) < 0.5f &&
+                 std::fabs( line.Position.z - object.Position.z ) < 0.5f ) {
+                bHave = true;
+                break;
+            }
+        }
+        if ( bHave ) {
             continue;
         }
         if ( ModProps::appendPlacement( island, object.Ref, object.Position, object.Yaw * kPi / 180.0f,
@@ -1205,6 +1254,22 @@ void GMSceneEditor::exportRoadsFile() {
         if ( !road.Texture.empty() ) {
             entry.add( "texture", JsonValue::MakeString( road.Texture ) );
         }
+        if ( !road.Surface.empty() ) {
+            entry.add( "surface", JsonValue::MakeString( road.Surface ) );
+        }
+        {
+            bool bAnyBank = false;
+            for ( const float bank : road.Banks ) {
+                bAnyBank = bAnyBank || bank != 0.0f;
+            }
+            if ( bAnyBank ) {
+                JsonValue banks = JsonValue::MakeArray();
+                for ( size_t i = 0; i < road.Points.size(); i++ ) {
+                    banks.push( JsonValue::MakeNumber( i < road.Banks.size() ? road.Banks[ i ] : 0.0f ) );
+                }
+                entry.add( "bank", std::move( banks ) );
+            }
+        }
         list.push( std::move( entry ) );
     }
     root.add( "roads", std::move( list ) );
@@ -1232,10 +1297,11 @@ void GMSceneEditor::bakeRoadToProps( const std::string &roadId ) {
         return;
     }
     std::vector<Vector3f> center;
-    ModRoads::BuildCenterline( pRoad->Points, pRoad->bClosed, 2.0f, center );
+    std::vector<float> bankSamples;
+    ModRoads::BuildCenterline( pRoad->Points, pRoad->bClosed, 2.0f, center, &pRoad->Banks, &bankSamples );
     std::string objText, mtlText;
-    const std::string texture = pRoad->Texture.empty() ? ModRoadsDefaultTexture() : pRoad->Texture;
-    ModRoads::BuildRoadObjText( center, pRoad->Width, texture, objText, mtlText );
+    const std::string texture = pRoad->Texture.empty() ? ModRoadsDefaultTexture( pRoad->Surface ) : pRoad->Texture;
+    ModRoads::BuildRoadObjText( center, pRoad->Width, texture, objText, mtlText, &bankSamples );
     const std::filesystem::path folder = gpFile->getModsRoot() / "props";
     std::error_code ec;
     std::filesystem::create_directories( folder, ec );
@@ -1472,6 +1538,20 @@ float AxisRayParam( const SceneRay &ray, const Vector3f &A, const Vector3f &L ) 
     return ( f - b * c ) / denom;
 }
 
+// +1 when increasing the object's angle for `axis` turns the object counter-clockwise (right-handed) about the WORLD
+// axis, seen from its tip: measured on the real matrix (the engine's D3D row-vector law), not assumed.
+float RotationSign( const SceneDocument &doc, const SceneObject &object, GMSceneEditor::eGizmoAxis axis ) {
+    SceneObject turned = object;
+    float &angle = axis == GMSceneEditor::eGizmoAxis::Y ? turned.Yaw : ( axis == GMSceneEditor::eGizmoAxis::X ? turned.Pitch : turned.Roll );
+    angle += 5.0f;
+    const Vector3f probe = axis == GMSceneEditor::eGizmoAxis::X ? Vector3f( 0.0f, 0.0f, 1.0f ) : Vector3f( 1.0f, 0.0f, 0.0f );
+    const Vector3f p0 = doc.objectMatrix( object ).transformPoint( probe ) - object.Position;
+    const Vector3f p1 = doc.objectMatrix( turned ).transformPoint( probe ) - object.Position;
+    const Vector3f a = axis == GMSceneEditor::eGizmoAxis::X ? Vector3f( 1.0f, 0.0f, 0.0f )
+                                                            : ( axis == GMSceneEditor::eGizmoAxis::Y ? Vector3f( 0.0f, 1.0f, 0.0f ) : Vector3f( 0.0f, 0.0f, 1.0f ) );
+    return a.dot( p0.cross( p1 ) ) >= 0.0f ? 1.0f : -1.0f;
+}
+
 Vector3f GizmoAxisDir( GMSceneEditor::eGizmoAxis axis ) {
     switch ( axis ) {
     case GMSceneEditor::eGizmoAxis::X:
@@ -1528,6 +1608,76 @@ void GMSceneEditor::tickGizmo( float deltaTime ) {
     const bool bMouseFree = gpImGui == nullptr || !gpImGui->wantsMouse();
     if ( !bMouseFree ) {
         gizmoDrag = eGizmoAxis::None;
+        return;
+    }
+
+    if ( bGizmoRotate ) {
+        // Rotation rings: one circle per world axis (64 px worth of metres around the selection).
+        const float radius = metresPerPixel * kAxisPixels;
+        for ( int32_t axis = 0; axis < 3; axis++ ) {
+            const Vector3f u = axis == 0 ? Vector3f( 0.0f, 1.0f, 0.0f ) : Vector3f( 1.0f, 0.0f, 0.0f );
+            const Vector3f v = axis == 2 ? Vector3f( 0.0f, 1.0f, 0.0f ) : Vector3f( 0.0f, 0.0f, 1.0f );
+            for ( int32_t k = 0; k <= 32; k++ ) {
+                const float a = static_cast<float>( k ) * ( 2.0f * kPI / 32.0f );
+                Vector2f px;
+                if ( !WorldToPixels( params, pObject->Position + ( u * std::cos( a ) + v * std::sin( a ) ) * radius, px ) ) {
+                    px = originPx;
+                }
+                gizmoRing[ axis ][ k ] = px;
+            }
+        }
+        const float mouseAngle = std::atan2( io.MousePos.y - originPx.y, io.MousePos.x - originPx.x );
+        if ( gizmoDrag != eGizmoAxis::None ) {
+            bGizmoCaptured = true;
+            SceneObject *pDragged = doc.findObject( selectedId );
+            if ( pDragged != nullptr ) {
+                float delta = mouseAngle - gizmoRotStartAngle;
+                while ( delta > kPI ) delta -= 2.0f * kPI;
+                while ( delta < -kPI ) delta += 2.0f * kPI;
+                const Vector3f axisDir = GizmoAxisDir( gizmoDrag );
+                const bool bFromTip = axisDir.dot( getForward() ) < 0.0f;
+                float value = gizmoRotStartValue + gizmoRotSign * ( bFromTip ? -1.0f : 1.0f ) * delta * 180.0f / kPI;
+                if ( io.KeyShift ) {
+                    value = std::floor( value / 15.0f + 0.5f ) * 15.0f;
+                }
+                float &angle = gizmoDrag == eGizmoAxis::Y ? pDragged->Yaw : ( gizmoDrag == eGizmoAxis::X ? pDragged->Pitch : pDragged->Roll );
+                angle = value;
+                bRebuildPending = true;
+            }
+            if ( !gpInput->isMouseButtonDown( SDL_BUTTON_LEFT ) ) {
+                gizmoDrag = eGizmoAxis::None;
+                bGizmoCaptured = false;
+                statusText = "rotation done";
+            }
+            return;
+        }
+        float best = 10.0f;
+        for ( int32_t axis = 0; axis < 3; axis++ ) {
+            for ( int32_t k = 0; k < 32; k++ ) {
+                const Vector2f a = gizmoRing[ axis ][ k ], b = gizmoRing[ axis ][ k + 1 ];
+                const Vector2f seg = b - a;
+                const float len2 = seg.x * seg.x + seg.y * seg.y;
+                float t = len2 > 1e-6f ? ( ( io.MousePos.x - a.x ) * seg.x + ( io.MousePos.y - a.y ) * seg.y ) / len2 : 0.0f;
+                t = Clamp( t, 0.0f, 1.0f );
+                const float dx = io.MousePos.x - ( a.x + seg.x * t ), dy = io.MousePos.y - ( a.y + seg.y * t );
+                const float d = std::sqrt( dx * dx + dy * dy );
+                if ( d < best ) {
+                    best = d;
+                    gizmoHover = static_cast<eGizmoAxis>( axis + 1 );
+                }
+            }
+        }
+        if ( gizmoHover != eGizmoAxis::None ) {
+            bGizmoCaptured = true;
+            if ( bLeftPressed ) {
+                pushUndo();
+                gizmoDrag = gizmoHover;
+                const SceneObject *pStart = doc.findObject( selectedId );
+                gizmoRotStartAngle = mouseAngle;
+                gizmoRotStartValue = gizmoDrag == eGizmoAxis::Y ? pStart->Yaw : ( gizmoDrag == eGizmoAxis::X ? pStart->Pitch : pStart->Roll );
+                gizmoRotSign = RotationSign( doc, *pStart, gizmoDrag );
+            }
+        }
         return;
     }
 
@@ -1629,6 +1779,21 @@ void GMSceneEditor::drawGizmo() {
     static const ImU32 kColors[ 3 ] = { IM_COL32( 255, 90, 90, 255 ), IM_COL32( 110, 255, 110, 255 ),
                                         IM_COL32( 110, 170, 255, 255 ) };
     static const char *kLabels[ 3 ] = { "X", "Y", "Z" };
+    if ( bGizmoRotate ) {
+        static const char *kRingLabels[ 3 ] = { "pitch", "yaw", "roll" };
+        for ( int32_t axis = 0; axis < 3; axis++ ) {
+            const bool bActive = gizmoDrag == static_cast<eGizmoAxis>( axis + 1 ) || gizmoHover == static_cast<eGizmoAxis>( axis + 1 );
+            for ( int32_t k = 0; k < 32; k++ ) {
+                pDraw->AddLine( ImVec2( gizmoRing[ axis ][ k ].x, gizmoRing[ axis ][ k ].y ),
+                                ImVec2( gizmoRing[ axis ][ k + 1 ].x, gizmoRing[ axis ][ k + 1 ].y ),
+                                bActive ? IM_COL32( 255, 255, 255, 255 ) : kColors[ axis ], bActive ? 3.0f : 2.0f );
+            }
+            pDraw->AddText( ImVec2( gizmoRing[ axis ][ 0 ].x + 4.0f, gizmoRing[ axis ][ 0 ].y - 8.0f ), kColors[ axis ], kRingLabels[ axis ] );
+        }
+        pDraw->AddRectFilled( ImVec2( originPx.x - 3.0f, originPx.y - 3.0f ), ImVec2( originPx.x + 3.0f, originPx.y + 3.0f ),
+                              IM_COL32( 255, 220, 120, 220 ) );
+        return;
+    }
     for ( int32_t axis = 0; axis < 3; axis++ ) {
         const eGizmoAxis axisId = static_cast<eGizmoAxis>( axis + 1 );
         const bool bActive = gizmoDrag == axisId || gizmoHover == axisId;

@@ -327,6 +327,9 @@ void DrawExportSection( GMSceneEditor &editor ) {
     if ( !ImGui::CollapsingHeader( "Export" ) ) {
         return;
     }
+    if ( ImGui::Button( "drive test here (starts FREERIDE)" ) ) {
+        editor.statusText = editor.driveTest( "", true, "" );
+    }
     if ( ImGui::Button( "commit prop placements -> props.txt" ) ) {
         editor.commitPropsToGame();
     }
@@ -391,8 +394,25 @@ void DrawRoadsSection( GMSceneEditor &editor ) {
         }
         if ( bActive ) {
             bool bChanged = false;
+            // The widgets edit the document in place: snapshot it first so ONE undo entry (taken at the first
+            // change of a drag) restores the state before the edit.
+            static bool bEditUndoHeld = false;
+            const SceneDocument before = editor.doc;
             if ( ImGui::SliderFloat( "width", &road.Width, 3.0f, 30.0f, "%.1f m" ) ) {
                 bChanged = true;
+            }
+            {
+                static const char *kSurfaces[] = { "default", "tarmac", "dirt", "grass" };
+                int32_t current = road.Surface == "tarmac" ? 1 : road.Surface == "dirt" ? 2 : road.Surface == "grass" ? 3 : 0;
+                if ( ImGui::Combo( "surface", &current, kSurfaces, 4 ) ) {
+                    road.Surface = current == 0 ? std::string() : std::string( kSurfaces[ current ] );
+                    bChanged = true;
+                }
+                float bank = road.Banks.empty() ? 0.0f : road.Banks[ 0 ];
+                if ( ImGui::SliderFloat( "bank (all points)", &bank, -30.0f, 30.0f, "%.1f deg" ) ) {
+                    road.Banks.assign( road.Points.size(), bank );
+                    bChanged = true;
+                }
             }
             if ( ImGui::SliderInt( "lanes", &road.Lanes, 1, 6 ) ) {
                 bChanged = true;
@@ -421,7 +441,14 @@ void DrawRoadsSection( GMSceneEditor &editor ) {
                 editor.markSceneChanged();
             }
             if ( bChanged ) {
+                if ( !bEditUndoHeld ) {
+                    editor.pushUndoSnapshot( before );
+                    bEditUndoHeld = true;
+                }
                 editor.markSceneChanged();
+            }
+            if ( !ImGui::IsMouseDown( 0 ) ) {
+                bEditUndoHeld = false;
             }
         }
         ImGui::PopID();
@@ -549,7 +576,7 @@ void GMSceneEditor::drawSceneUI() {
         ImGui::TextDisabled( "WASD move, mouse look, Esc / F6 back to the editor" );
     } else {
         ImGui::TextDisabled( "RMB look, WSAD move, wheel speed; LMB pick / drag selection" );
-        ImGui::TextDisabled( "Ctrl+Z / Ctrl+Y undo / redo, Ctrl+D duplicate, Del delete, F2 panel, F6 walk" );
+        ImGui::TextDisabled( "Ctrl+Z / Ctrl+Y undo / redo, Ctrl+D duplicate (on the ground), Del delete, F2 panel, F3 gizmo, F4 move / rotate, F6 walk" );
     }
     ImGui::End();
 }

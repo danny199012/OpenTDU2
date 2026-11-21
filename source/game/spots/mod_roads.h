@@ -33,7 +33,9 @@ public:
         int32_t Lanes = 2;
         bool bClosed = false;
         bool bCollide = true;
-        std::string Texture; // props-folder PNG; empty = the default asphalt
+        std::string Texture; // props-folder PNG; empty = the default texture of the surface
+        std::string Surface; // "" | tarmac | dirt | grass (SceneRoad::Surface)
+        std::vector<float> Banks; // per control point, degrees (SceneRoad::Banks)
         // Runtime (rebuilt by load / rebuild):
         Vector3f BoundsMin, BoundsMax;
         std::vector<ObjMeshDraw> Draws;    // GPU (owned here)
@@ -65,17 +67,22 @@ public:
     // --- the mesh builder (shared with the editor and the bake export) ---
     // Catmull-Rom through the control points, ~spacing metres, closed-loop
     // aware; also the tangents (per resampled point).
+    // pValues / pOutValues (optional): a per-control-point scalar (the bank) interpolated onto the samples.
     static void BuildCenterline( const std::vector<Vector3f> &points, bool bClosed, float spacing,
-                                 std::vector<Vector3f> &outCenter );
+                                 std::vector<Vector3f> &outCenter, const std::vector<float> *pValues = nullptr,
+                                 std::vector<float> *pOutValues = nullptr );
     // The ribbon as OBJ + MTL text in the AUTHORING space (the loader
     // mirrors X + reverses winding, the mod_props law): the in-memory route
     // (BuildObjDraws) for the live draw and the bake export both use it.
+    // pBank (optional, one angle in degrees per centre sample): rolls the cross-section about the road's axis.
     static void BuildRoadObjText( const std::vector<Vector3f> &center, float width, const std::string &textureName,
-                                  std::string &outObj, std::string &outMtl );
+                                  std::string &outObj, std::string &outMtl, const std::vector<float> *pBank = nullptr );
     // The world-space collision / surface soup of a road (two triangles per
     // segment quad, oriented up).
     static void BuildRoadSolid( const std::vector<Vector3f> &center, float width, std::vector<Vector3f> &outVertices,
-                                std::vector<uint32_t> &outIndices );
+                                std::vector<uint32_t> &outIndices, const std::vector<float> *pBank = nullptr );
+    // The tyre-surface index of a surface name (0 tarmac, 1 dirt, 2 grass, 0xff = none / unknown).
+    static uint8_t SurfaceIndex( const std::string &surface );
 
 private:
     std::vector<Road> roads;
@@ -85,4 +92,4 @@ private:
 // The default asphalt texture of the roads (256², generated once into
 // `<mods>/props/<name>` when the file is not there — a tool texture, our own
 // art): returns the texture name to put in the MTL.
-std::string ModRoadsDefaultTexture();
+std::string ModRoadsDefaultTexture( const std::string &surface = "" );

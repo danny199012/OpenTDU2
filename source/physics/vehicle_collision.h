@@ -66,8 +66,9 @@ public:
     // Extra collision (spot banks: <spot>_sc_*.shk in the spot frame).
     void addCollision( const HavokCollision &collision, const Matrix4x4f &toWorld, bool bRoad );
     // Static triangles in world space (mod props marked `solid`): two sided, not road.
+    // surface: the authored tyre surface of every triangle (0 tarmac, 1 dirt, 2 grass, 0xff = none, the old law).
     void addStaticTriangles( const std::vector<Vector3f> &vertices, const std::vector<uint32_t> &indices,
-                             float friction = 0.7f );
+                             float friction = 0.7f, uint8_t surface = 0xff );
     // Test mode (-vehtest): an infinite horizontal road plane y = height with
     // the given friction replaces the world (no obstacles).
     void setFlatGround( bool bEnable, float height = 0.0f, float friction = 0.7f ) {

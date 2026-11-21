@@ -121,6 +121,11 @@ public:
     Vector3f gizmoOrigin;            // the gizmo's world origin (the selection)
     Vector2f gizmoAxisEnd[ 3 ];      // the axis ends in pixels (the pick handles)
     bool bGizmoShown = true;         // F3 toggles
+    bool bGizmoRotate = false;       // F4 toggles: the axes become rotation rings (yaw / pitch / roll)
+    Vector2f gizmoRing[ 3 ][ 33 ];   // the rings in pixels (the hover / draw), rotate mode
+    float gizmoRotStartAngle = 0.0f; // the cursor's screen angle at the drag start (radians)
+    float gizmoRotStartValue = 0.0f; // the dragged object's angle (degrees) at the drag start
+    float gizmoRotSign = 1.0f;       // +1: the angle field grows counter-clockwise seen from the axis tip
     bool bGizmoCaptured = false;     // this frame's hover / drag owns the mouse
 
     // Undo / redo (document snapshots; a mutation pushes before changing)
@@ -182,7 +187,10 @@ public:
     std::string placeAsset( const std::string &kind, const std::string &ref, const Vector3f &atPosition,
                             bool bAtCamera );
     void deleteSelected();
-    void duplicateSelected();
+    // Duplicate: bSnap drops the copy onto the surface under its new place (default), offset = the XZ shift (m).
+    void duplicateSelected( bool bSnap = true, float offsetX = 2.0f, float offsetZ = 0.0f );
+    // Adds degrees to the selection's yaw (Y) / pitch (X) / roll (Z); one undo entry.
+    bool rotateSelectedAxis( eGizmoAxis axis, float degrees );
     void snapSelectedToGround();
     // The gizmo (M6): the screen-space draw (the ImGui frame's overlay —
     // drawUI runs it; draw() is the 3D pass OUTSIDE the frame), the hover /
@@ -199,6 +207,14 @@ public:
     void applyOverrides();
     // Prop placements -> <mods>/props.txt (the route the game draws today).
     void commitPropsToGame();
+    // One undo entry from a snapshot taken BEFORE an in-place edit (the road panel's sliders edit the document
+    // directly, so pushUndo() at that point would store the edited state).
+    void pushUndoSnapshot( const SceneDocument &before );
+    // The live drive test (scene_drivetest.cpp): exports the scene's roads / stations / props, then starts the game
+    // (FREERIDE) as a second process on the island with the car dropped at the target: `id` = an object or a station,
+    // else the selection, else the active road's first point, else the camera focus. bLaunch false = only report the
+    // command line. extraArgs are appended (e.g. "-exitframe 900").
+    std::string driveTest( const std::string &id, bool bLaunch, const std::string &extraArgs );
     // Scene -> native export (M5): the placements append as real records to
     // the overlay's spots.bin (the add_spot.py route in C++); the referenced
     // interior banks copy to the overlay's exterior/ folder. FREERIDE

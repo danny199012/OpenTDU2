@@ -422,7 +422,7 @@ void VehicleWorldCollision::addCollision( const HavokCollision &collision, const
 }
 
 void VehicleWorldCollision::addStaticTriangles( const std::vector<Vector3f> &vertices,
-                                                const std::vector<uint32_t> &indices, float friction ) {
+                                                const std::vector<uint32_t> &indices, float friction, uint8_t surface ) {
     for ( size_t i = 0; i + 2 < indices.size(); i += 3 ) {
         Triangle triangle;
         triangle.A = vertices[indices[i]];
@@ -437,6 +437,7 @@ void VehicleWorldCollision::addStaticTriangles( const std::vector<Vector3f> &ver
         }
         triangle.Friction = friction;
         triangle.Material = 0;
+        triangle.Surface = surface;
         triangle.bRoad = false;
         const uint32_t index = static_cast<uint32_t>( triangles.size() );
         triangles.push_back( triangle );

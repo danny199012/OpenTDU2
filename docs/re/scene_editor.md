@@ -378,6 +378,40 @@ the canopy load, the prompt "Fill / Car repair: OTDU_Test_Station", validate ope
 (`docs/images/station-tool-pump-screen.webp`), the car drives slab -> drive on surface `0/1/70`
 (`docs/images/station-tool-drive.webp`).
 
+## 12. Editor polish round 2: rotation, snapped duplicate, road surface / grade / bank, undo, drive test
+
+- **Rotation gizmo** (`gm_scene_editor.cpp` tickGizmo / drawGizmo): F4 (or `gizmo_mode {mode: "rotate"|"move"}`) turns the three
+  axes into rings - green = yaw (Y), red = pitch (X), blue = roll (Z); drag a ring, Shift = 15 deg steps, one undo entry
+  per drag. The drag sign is MEASURED on the real object matrix (`RotationSign`), not assumed. Pitch / roll rings are the
+  world axes (the engine's order is RotY * RotZ * RotX, so with a yaw they only approximate the object's own axes).
+  `rotate_axis {axis, degrees}` is the AI form. Verified: the rings draw (`docs/images/editor-rotate-gizmo.webp`) and
+  `rotate_axis` changes yaw / pitch; **the mouse drag itself was not tried by hand** (no window input in a headless run).
+- **Ground-snapped duplicate**: `duplicate` (Ctrl+D, the button) drops the copy onto the surface under its new place
+  (`snap` false = keep y; `offset: [dx, 0, dz]`, default +2 m in X). Verified: a 30 / 25 m offset landed at y 11.06 on a hill.
+- **Undo for roads**: every road command already pushed an undo entry (the undo stack copies the whole document, roads and
+  stations included). Fixed gap: the road panel's SLIDERS (width, lanes, closed, collide, and the new surface / bank) edited
+  the document with no undo entry; they now snapshot before the edit and push one entry per drag (`pushUndoSnapshot`).
+  New `undo` / `redo` / `list_roads` commands make it testable; verified: grade + bank + surface edits undo and redo to the exact points.
+- **Road surface** (`SceneRoad::Surface`: tarmac / dirt / grass, `set_road {surface}`, `add_road {surface}`, the panel combo,
+  `add_station {surface}`): the tyre surface of the ribbon's collision triangles (`VehicleWorldCollision::addStaticTriangles(..,
+  surface)` -> the same `Triangle::Surface` override the test area uses, so the car DB's Pacejka `Config[surface]` and the
+  reference friction 1.0 / 0.6 / 0.4 apply) + a generated default texture (`dirt_road.png`, `grass_road.png`). A grass road does
+  NOT suppress the grass. "" = the old behaviour (untouched). Verified: a dirt road reads `1/1/60` on all four wheels, the
+  terrain beside it `2/1/70`.
+- **Grade and bank**: the height profile is the control points' y (`road_grade {percent, from_y}` sets a constant slope;
+  `set_road_point {index, pos|y|bank}`); `SceneRoad::Banks` is a bank angle per point (`road_bank {degrees}`, the panel
+  slider). Positive = the driver's right edge up = banked for a left turn. The section rolls about its LOWER edge (a roll
+  about the centre sank half the ribbon under the terrain and raised a 1 m wall on the other side: the first test stopped the
+  car dead); give the ends bank 0 or the start is a lip. Verified: a 6 % dirt road climbs 12.3 -> 15.1 m over 46 m under the car
+  (`docs/images/editor-dirt-road-grade-bank.webp`). The exported roads file carries `surface` and `bank`.
+- **Drive test** (`scene_drivetest.cpp`; `drive_test {id?, launch?, args?}`, the Export panel button): exports the roads /
+  stations / prop placements (idempotent) and starts the game as a SECOND process, FREERIDE on the island, the car dropped at
+  the target (object, station, selection, the active road's start, else the camera focus) with `-fuelmod` when the scene has
+  stations. `launch: false` only reports the command line. FREERIDE's `-heading h` faces (-sin h, -cos h) (measured on the
+  flat pad), a scene yaw y faces (sin y, cos y): heading = yaw + 180. `commitPropsToGame` is now idempotent too.
+  Verified: the child process starts and the command line reproduces the placement by hand. NOT included: spots / banks
+  (`export_spots`, `export_bank` stay explicit steps).
+
 ## 9. What we must not do (unchanged, docs/re/modding.md 4)
 
 The editor writes only `<mods>/` (scenes, props.txt) and the screenshot /

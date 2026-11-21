@@ -73,7 +73,15 @@ struct SceneRoad {
     int32_t Lanes = 2;
     bool bClosed = false;
     bool bCollide = true;
-    std::string Texture; // props-folder PNG; empty = the default asphalt
+    std::string Texture; // props-folder PNG; empty = the default texture of the surface
+    // The tyre surface of the ribbon: "" (the old behaviour), "tarmac", "dirt" or "grass" - what the tyres feel
+    // (the car DB's Pacejka Config per surface + the reference friction 1.0 / 0.6 / 0.4) and the default texture.
+    std::string Surface;
+    // Per control point (parallel to Points; missing entries = 0): the bank angle in degrees. Positive lifts the
+    // driver's right edge (a ribbon heading +Z has its +X edge up) = banked for a LEFT turn; the section rolls about its lower
+    // edge (the road never dips under the terrain). Give the ends bank 0 (a ramp-in) or the start is a lip. The height profile
+    // (a grade) is just the points' y.
+    std::vector<float> Banks;
 };
 
 // A petrol station (the station tool, docs/re/scene_editor.md 11): a forecourt "road ground" slab, a drive
@@ -88,6 +96,7 @@ struct SceneStation {
     float Yaw = 0.0f;        // degrees: the slab's long axis is (sin yaw, cos yaw)
     float Length = 34.0f;    // m along the axis
     float Width = 24.0f;     // m across
+    std::string Surface;     // the forecourt + drive surface ("" / tarmac / dirt / grass)
     bool bConnect = true;    // build the drive to the nearest map road
     float MaxLink = 400.0f;  // m: the search radius for that road
 };

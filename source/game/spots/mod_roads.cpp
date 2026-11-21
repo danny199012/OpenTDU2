@@ -32,10 +32,12 @@ std::string ModsPropsPath( const std::string &name ) {
 
 } // namespace
 
-std::string ModRoadsDefaultTexture() {
+std::string ModRoadsDefaultTexture( const std::string &surface ) {
     // Generated asphalt: mid grey with darker speckle, our own art (the
-    // trademark law of modding.md 4 - nothing of the game's textures).
-    const std::string name = "asphalt_road.png";
+    // trademark law of modding.md 4 - nothing of the game's textures). Dirt and grass: the same speckle in
+    // brown / green.
+    const bool bDirt = surface == "dirt", bGrass = surface == "grass";
+    const std::string name = bDirt ? "dirt_road.png" : ( bGrass ? "grass_road.png" : "asphalt_road.png" );
     if ( gpFile == nullptr || gpFile->fileExists( ( std::string( "props/" ) + name ).c_str() ) ) {
         return name;
     }
@@ -52,9 +54,19 @@ std::string ModRoadsDefaultTexture() {
             const uint8_t speckle = static_cast<uint8_t>( nextRand() % 28 );
             const uint8_t v = static_cast<uint8_t>( base - speckle / 2 + ( nextRand() % 10 ) );
             uint8_t *p = &rgba[ ( y * kSize + x ) * 4 ];
-            p[ 0 ] = v;
-            p[ 1 ] = v;
-            p[ 2 ] = static_cast<uint8_t>( v + 4 );
+            if ( bDirt ) {
+                p[ 0 ] = static_cast<uint8_t>( v + 62 );
+                p[ 1 ] = static_cast<uint8_t>( v + 38 );
+                p[ 2 ] = static_cast<uint8_t>( v - 8 );
+            } else if ( bGrass ) {
+                p[ 0 ] = static_cast<uint8_t>( v - 24 );
+                p[ 1 ] = static_cast<uint8_t>( v + 52 );
+                p[ 2 ] = static_cast<uint8_t>( v - 30 );
+            } else {
+                p[ 0 ] = v;
+                p[ 1 ] = v;
+                p[ 2 ] = static_cast<uint8_t>( v + 4 );
+            }
             p[ 3 ] = 255;
         }
     }
@@ -66,9 +78,26 @@ std::string ModRoadsDefaultTexture() {
     return name;
 }
 
+uint8_t ModRoads::SurfaceIndex( const std::string &surface ) {
+    if ( surface == "tarmac" ) {
+        return 0;
+    }
+    if ( surface == "dirt" ) {
+        return 1;
+    }
+    if ( surface == "grass" ) {
+        return 2;
+    }
+    return 0xff;
+}
+
 void ModRoads::BuildCenterline( const std::vector<Vector3f> &points, bool bClosed, float spacing,
-                                std::vector<Vector3f> &outCenter ) {
+                                std::vector<Vector3f> &outCenter, const std::vector<float> *pValues,
+                                std::vector<float> *pOutValues ) {
     outCenter.clear();
+    if ( pOutValues != nullptr ) {
+        pOutValues->clear();
+    }
     if ( points.size() < 2 ) {
         return;
     }
@@ -82,6 +111,13 @@ void ModRoads::BuildCenterline( const std::vector<Vector3f> &points, bool bClose
         }
         return points[ i ];
     };
+    auto valueAt = [ & ]( int32_t i ) -> float {
+        if ( pValues == nullptr ) {
+            return 0.0f;
+        }
+        i = bClosed ? ( ( i % n ) + n ) % n : Clamp( i, 0, n - 1 );
+        return static_cast<size_t>( i ) < pValues->size() ? ( *pValues )[ i ] : 0.0f;
+    };
     const int32_t segmentCount = bClosed ? n : n - 1;
     for ( int32_t i = 0; i < segmentCount; i++ ) {
         const Vector3f &p0 = pointAt( i - 1 );
@@ -93,18 +129,27 @@ void ModRoads::BuildCenterline( const std::vector<Vector3f> &points, bool bClose
         for ( int32_t s = 0; s < steps; s++ ) {
             const float t = static_cast<float>( s ) / static_cast<float>( steps );
             outCenter.push_back( CatmullRom( p0, p1, p2, p3, t ) );
+            if ( pOutValues != nullptr ) {
+                pOutValues->push_back( valueAt( i ) * ( 1.0f - t ) + valueAt( i + 1 ) * t );
+            }
         }
     }
     if ( !bClosed ) {
         outCenter.push_back( points.back() );
+        if ( pOutValues != nullptr ) {
+            pOutValues->push_back( valueAt( n - 1 ) );
+        }
     } else {
         // The wrap segment ends at the first point.
         outCenter.push_back( points.front() );
+        if ( pOutValues != nullptr ) {
+            pOutValues->push_back( valueAt( 0 ) );
+        }
     }
 }
 
 void ModRoads::BuildRoadObjText( const std::vector<Vector3f> &center, float width, const std::string &textureName,
-                                 std::string &outObj, std::string &outMtl ) {
+                                 std::string &outObj, std::string &outMtl, const std::vector<float> *pBank ) {
     outObj.clear();
     outMtl.clear();
     const size_t count = center.size();
@@ -129,8 +174,14 @@ void ModRoads::BuildRoadObjText( const std::vector<Vector3f> &center, float widt
         tangent = tangent.normalized();
         Vector3f side = up.cross( tangent );
         side = side.length() > 1e-6f ? side.normalized() : Vector3f( 1.0f, 0.0f, 0.0f );
-        left[ i ] = center[ i ] - side * half;
-        right[ i ] = center[ i ] + side * half;
+        const float bank = pBank != nullptr && i < pBank->size() ? ( *pBank )[ i ] * 3.14159265f / 180.0f : 0.0f;
+        // The cross-section rolls about its LOWER edge (the low edge stays at the centreline height, the high edge
+        // rises 2 x half x sin): a roll about the centre would sink the low half under the terrain and raise a wall
+        // on the other, since the ground cannot be shaped.
+        const Vector3f rail = side * ( half * std::cos( bank ) ) + up * ( half * std::sin( bank ) );
+        const Vector3f lift = up * ( half * std::fabs( std::sin( bank ) ) );
+        left[ i ] = center[ i ] - rail + lift;
+        right[ i ] = center[ i ] + rail + lift;
         if ( i > 0 ) {
             distance += ( center[ i ] - center[ i - 1 ] ).length();
         }
@@ -187,7 +238,7 @@ void ModRoads::BuildRoadObjText( const std::vector<Vector3f> &center, float widt
 }
 
 void ModRoads::BuildRoadSolid( const std::vector<Vector3f> &center, float width, std::vector<Vector3f> &outVertices,
-                               std::vector<uint32_t> &outIndices ) {
+                               std::vector<uint32_t> &outIndices, const std::vector<float> *pBank ) {
     const size_t count = center.size();
     if ( count < 2 || width <= 0.0f ) {
         return;
@@ -205,8 +256,14 @@ void ModRoads::BuildRoadSolid( const std::vector<Vector3f> &center, float width,
         tangent = tangent.normalized();
         Vector3f side = up.cross( tangent );
         side = side.length() > 1e-6f ? side.normalized() : Vector3f( 1.0f, 0.0f, 0.0f );
-        outVertices.push_back( center[ i ] - side * half );
-        outVertices.push_back( center[ i ] + side * half );
+        const float bank = pBank != nullptr && i < pBank->size() ? ( *pBank )[ i ] * 3.14159265f / 180.0f : 0.0f;
+        // The cross-section rolls about its LOWER edge (the low edge stays at the centreline height, the high edge
+        // rises 2 x half x sin): a roll about the centre would sink the low half under the terrain and raise a wall
+        // on the other, since the ground cannot be shaped.
+        const Vector3f rail = side * ( half * std::cos( bank ) ) + up * ( half * std::sin( bank ) );
+        const Vector3f lift = up * ( half * std::fabs( std::sin( bank ) ) );
+        outVertices.push_back( center[ i ] - rail + lift );
+        outVertices.push_back( center[ i ] + rail + lift );
     }
     for ( size_t i = 0; i + 1 < count; i++ ) {
         const uint32_t a = static_cast<uint32_t>( base + i * 2 );
@@ -274,6 +331,12 @@ bool ModRoads::load( EdenRenderer &renderer, const std::string &island, EdenWorl
         road.bClosed = entry.getBool( "closed", false );
         road.bCollide = entry.getBool( "collide", true );
         road.Texture = entry.getString( "texture", "" );
+        road.Surface = entry.getString( "surface", "" );
+        if ( const JsonValue *pBanks = entry.find( "bank" ) ) {
+            for ( const JsonValue &bank : pBanks->array ) {
+                road.Banks.push_back( static_cast<float>( bank.asNumber() ) );
+            }
+        }
         if ( road.Id.empty() || road.Points.size() < 2 ) {
             continue;
         }
@@ -293,9 +356,12 @@ void ModRoads::loadDocument( EdenRenderer &renderer, const SceneDocument &docume
         road.Lanes = sceneRoad.Lanes;
         road.bClosed = sceneRoad.bClosed;
         road.bCollide = sceneRoad.bCollide;
-        road.Texture = sceneRoad.Texture.empty() ? ModRoadsDefaultTexture() : sceneRoad.Texture;
+        road.Surface = sceneRoad.Surface;
+        road.Banks = sceneRoad.Banks;
+        road.Texture = sceneRoad.Texture.empty() ? ModRoadsDefaultTexture( road.Surface ) : sceneRoad.Texture;
 
-        BuildCenterline( road.Points, road.bClosed, kSampleSpacing, road.Centerline );
+        std::vector<float> bankSamples;
+        BuildCenterline( road.Points, road.bClosed, kSampleSpacing, road.Centerline, &road.Banks, &bankSamples );
         if ( road.Centerline.size() < 2 ) {
             continue;
         }
@@ -311,7 +377,7 @@ void ModRoads::loadDocument( EdenRenderer &renderer, const SceneDocument &docume
             }
         }
         std::string objText, mtlText;
-        BuildRoadObjText( road.Centerline, road.Width, road.Texture, objText, mtlText );
+        BuildRoadObjText( road.Centerline, road.Width, road.Texture, objText, mtlText, &bankSamples );
         Vector3f boundsMin, boundsMax;
         uint32_t numTriangles = 0;
         if ( BuildObjDraws( renderer, "props/", ( "road_" + road.Id ).c_str(), "TD_Gouraud", objText, mtlText,
@@ -319,7 +385,7 @@ void ModRoads::loadDocument( EdenRenderer &renderer, const SceneDocument &docume
             road.BoundsMin = boundsMin;
             road.BoundsMax = boundsMax;
         }
-        BuildRoadSolid( road.Centerline, road.Width, road.SolidVertices, road.SolidIndices );
+        BuildRoadSolid( road.Centerline, road.Width, road.SolidVertices, road.SolidIndices, &bankSamples );
         roads.push_back( std::move( road ) );
     }
     bLoaded = !roads.empty();
@@ -361,7 +427,7 @@ uint32_t ModRoads::registerCollision( VehicleWorldCollision &collision ) const {
         if ( !road.bCollide || road.SolidVertices.empty() ) {
             continue;
         }
-        collision.addStaticTriangles( road.SolidVertices, road.SolidIndices );
+        collision.addStaticTriangles( road.SolidVertices, road.SolidIndices, 0.7f, SurfaceIndex( road.Surface ) );
         added += static_cast<uint32_t>( road.SolidIndices.size() / 3 );
     }
     return added;
@@ -373,7 +439,7 @@ void ModRoads::registerSurfaces( EdenWorld &world ) const {
         if ( !road.SolidVertices.empty() ) {
             world.addRoadSurfaceTriangles( road.SolidVertices, road.SolidIndices );
         }
-        if ( road.Centerline.size() >= 2 ) {
+        if ( road.Centerline.size() >= 2 && road.Surface != "grass" ) { // a grass road keeps the grass growing
             shapes.push_back( road.Centerline );
         }
     }

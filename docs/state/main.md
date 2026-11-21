@@ -4,6 +4,24 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, scene editor polish: rotation, snapped duplicate, road surface / grade / bank, undo, drive test)
+
+Owner: "Rotation gizmo and a ground-snapped duplicate; undo for road edits; a surface picker per slab or road; banked or sloped road sections; a live drive-test button - could these be implemented".
+
+### What changed (docs/re/scene_editor.md 12)
+- F4 rotation rings + `rotate_axis` / `gizmo_mode`; `duplicate` snaps to the ground (+ `offset`, `snap`).
+- Undo: roads were already covered by the whole-document snapshots; the road panel sliders were not - fixed (`pushUndoSnapshot`); `undo` / `redo` / `list_roads` commands.
+- `SceneRoad::Surface` (tarmac / dirt / grass -> the tyre-surface override of the road triangles, a default texture, grass roads keep the grass) and `Banks` (per point; the section rolls about its lower edge); `road_grade`, `road_bank`, `set_road_point`; the roads file carries `surface` + `bank` (the exporter had dropped them - found by the first dirt test drawing asphalt).
+- `drive_test` (exports roads / stations / props idempotently, starts FREERIDE as a second process at the target); `commitPropsToGame` is idempotent.
+
+### Verified
+- Dirt road: all four wheels `1/1/60`, terrain `2/1/70`; a 6 % grade climbs 12.3 -> 15.1 m under the car; the ribbon with a banked section drawn (`docs/images/editor-dirt-road-grade-bank.webp`); undo / redo restores grade + bank + surface exactly; the rings draw (`docs/images/editor-rotate-gizmo.webp`); the drive-test child process starts.
+
+### Not done / next
+- **The mouse drag of the rotation rings and the road-panel slider undo were not tried with a real mouse** (headless). Pitch / roll rings are world axes (approximate under a yaw).
+- A banked section has no skirts: the high edge hangs over air; a ramp-in (bank 0 at the ends) is on the user. Bank is per point, linear between them.
+- FREERIDE's `-heading` convention is (-sin h, -cos h), found while testing: heading 0 faces -Z (earlier notes assumed +Z; the station-tool shots used the right car direction only by luck of the slab axis - re-check them if it matters).
+
 ## Session 2026-11-21 (`main`, scene editor: the petrol station tool)
 
 Owner: "attach the petrol stations to the roads using a road and road ground for the petrol stations" - build the station object first.

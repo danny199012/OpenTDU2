@@ -230,9 +230,28 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
             editor.deleteSelected();
             result = ResultOk( id );
         }
+    } else if ( cmd == "rotate_axis" ) {
+        // The rotation gizmo, AI-drivable: add `degrees` to the yaw (axis y) / pitch (x) / roll (z).
+        const std::string axis = ToLower( command.getString( "axis", "y" ) );
+        const GMSceneEditor::eGizmoAxis axisId = axis == "x" ? GMSceneEditor::eGizmoAxis::X
+                                                 : axis == "z" ? GMSceneEditor::eGizmoAxis::Z
+                                                               : GMSceneEditor::eGizmoAxis::Y;
+        editor.selectedId = command.getString( "id", editor.selectedId );
+        if ( editor.rotateSelectedAxis( axisId, static_cast<float>( command.getNumber( "degrees", 0.0 ) ) ) ) {
+            result = ResultOk( editor.statusText );
+        } else {
+            result = ResultError( "nothing selected" );
+        }
+    } else if ( cmd == "gizmo_mode" ) {
+        editor.bGizmoRotate = ToLower( command.getString( "mode", "move" ) ) == "rotate";
+        result = ResultOk( editor.bGizmoRotate ? "rotate" : "move" );
     } else if ( cmd == "duplicate" ) {
         editor.selectedId = command.getString( "id", editor.selectedId );
-        editor.duplicateSelected();
+        {
+            const JsonValue *pOffset = command.find( "offset" );
+            const Vector3f offset = ReadVec3( pOffset, Vector3f( 2.0f, 0.0f, 0.0f ) );
+            editor.duplicateSelected( command.getBool( "snap", true ), offset.x, pOffset != nullptr ? offset.z : 0.0f );
+        }
         result = ResultOk( editor.selectedId );
         result.add( "id", JsonValue::MakeString( editor.selectedId ) );
     } else if ( cmd == "select" ) {
@@ -471,6 +490,10 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
             road.Lanes = static_cast<int32_t>( command.getNumber( "lanes", 2.0 ) );
             road.bClosed = command.getBool( "closed", false );
             road.bCollide = command.getBool( "collide", true );
+            {
+                const std::string surface = ToLower( command.getString( "surface", "" ) );
+                road.Surface = ( surface == "tarmac" || surface == "dirt" || surface == "grass" ) ? surface : "";
+            }
             editor.doc.Roads.push_back( road );
             editor.activeRoadId = id;
             editor.markSceneChanged();
@@ -494,6 +517,10 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
                 }
             }
             pRoad->Points.push_back( point );
+            if ( command.find( "bank" ) != nullptr || !pRoad->Banks.empty() ) {
+                pRoad->Banks.resize( pRoad->Points.size(), 0.0f );
+                pRoad->Banks.back() = static_cast<float>( command.getNumber( "bank", 0.0 ) );
+            }
             editor.markSceneChanged();
             result = ResultOk( id );
             result.add( "num_points", JsonValue::MakeNumber( static_cast<double>( pRoad->Points.size() ) ) );
@@ -520,9 +547,99 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
             if ( command.find( "texture" ) != nullptr ) {
                 pRoad->Texture = command.getString( "texture", "" );
             }
+            if ( command.find( "surface" ) != nullptr ) {
+                const std::string surface = ToLower( command.getString( "surface", "" ) );
+                pRoad->Surface = ( surface == "tarmac" || surface == "dirt" || surface == "grass" ) ? surface : "";
+            }
             editor.markSceneChanged();
             result = ResultOk( id );
         }
+    } else if ( cmd == "set_road_point" ) {
+        // Edit one control point: pos? (x, y, z), y? (just the height), bank? (degrees).
+        const std::string id = command.getString( "road", editor.activeRoadId );
+        SceneRoad *pRoad = editor.doc.findRoad( id );
+        const int32_t index = static_cast<int32_t>( command.getNumber( "index", -1.0 ) );
+        if ( pRoad == nullptr || index < 0 || index >= static_cast<int32_t>( pRoad->Points.size() ) ) {
+            result = ResultError( "no such road / point index: " + id );
+        } else {
+            editor.pushUndo();
+            if ( command.find( "pos" ) != nullptr ) {
+                pRoad->Points[ index ] = ReadVec3( command.find( "pos" ), pRoad->Points[ index ] );
+            }
+            if ( command.find( "y" ) != nullptr ) {
+                pRoad->Points[ index ].y = static_cast<float>( command.getNumber( "y", pRoad->Points[ index ].y ) );
+            }
+            if ( command.find( "bank" ) != nullptr ) {
+                pRoad->Banks.resize( pRoad->Points.size(), 0.0f );
+                pRoad->Banks[ index ] = static_cast<float>( command.getNumber( "bank", 0.0 ) );
+            }
+            editor.markSceneChanged();
+            result = ResultOk( id );
+        }
+    } else if ( cmd == "road_grade" ) {
+        // A constant slope: every point's y = the first point's y + percent/100 x the distance along the control
+        // polygon (a 10 -> "percent": 10 climbs 1 m per 10 m). from_y? overrides the start height.
+        const std::string id = command.getString( "road", editor.activeRoadId );
+        SceneRoad *pRoad = editor.doc.findRoad( id );
+        if ( pRoad == nullptr || pRoad->Points.size() < 2 ) {
+            result = ResultError( "no such road or < 2 points: " + id );
+        } else {
+            editor.pushUndo();
+            const float grade = static_cast<float>( command.getNumber( "percent", 0.0 ) ) * 0.01f;
+            float y = static_cast<float>( command.getNumber( "from_y", pRoad->Points[ 0 ].y ) );
+            pRoad->Points[ 0 ].y = y;
+            for ( size_t i = 1; i < pRoad->Points.size(); i++ ) {
+                const Vector3f d = pRoad->Points[ i ] - pRoad->Points[ i - 1 ];
+                y += grade * std::sqrt( d.x * d.x + d.z * d.z );
+                pRoad->Points[ i ].y = y;
+            }
+            editor.markSceneChanged();
+            result = ResultOk( id );
+            result.add( "end_y", JsonValue::MakeNumber( y ) );
+        }
+    } else if ( cmd == "list_roads" ) {
+        JsonValue list = JsonValue::MakeArray();
+        for ( const SceneRoad &road : editor.doc.Roads ) {
+            JsonValue entry = JsonValue::MakeObject();
+            entry.add( "id", JsonValue::MakeString( road.Id ) );
+            entry.add( "points", JsonValue::MakeNumber( static_cast<double>( road.Points.size() ) ) );
+            entry.add( "surface", JsonValue::MakeString( road.Surface ) );
+            entry.add( "width", JsonValue::MakeNumber( road.Width ) );
+            entry.add( "bank0", JsonValue::MakeNumber( road.Banks.empty() ? 0.0 : road.Banks[ 0 ] ) );
+            entry.add( "y_first", JsonValue::MakeNumber( road.Points.empty() ? 0.0 : road.Points.front().y ) );
+            entry.add( "y_last", JsonValue::MakeNumber( road.Points.empty() ? 0.0 : road.Points.back().y ) );
+            list.push( std::move( entry ) );
+        }
+        result = ResultOk( "roads" );
+        result.add( "roads", std::move( list ) );
+    } else if ( cmd == "road_bank" ) {
+        // The same bank angle (degrees; + = banked for a left turn) on every point; 0 clears it.
+        const std::string id = command.getString( "road", editor.activeRoadId );
+        SceneRoad *pRoad = editor.doc.findRoad( id );
+        if ( pRoad == nullptr ) {
+            result = ResultError( "no such road: " + id );
+        } else {
+            editor.pushUndo();
+            pRoad->Banks.assign( pRoad->Points.size(), static_cast<float>( command.getNumber( "degrees", 0.0 ) ) );
+            editor.markSceneChanged();
+            result = ResultOk( id );
+        }
+    } else if ( cmd == "undo" || cmd == "redo" ) {
+        const size_t before = cmd == "undo" ? editor.undoStack.size() : editor.redoStack.size();
+        if ( cmd == "undo" ) {
+            editor.undo();
+        } else {
+            editor.redo();
+        }
+        const size_t after = cmd == "undo" ? editor.undoStack.size() : editor.redoStack.size();
+        result = before == after ? ResultError( "nothing to " + cmd ) : ResultOk( cmd );
+        result.add( "roads", JsonValue::MakeNumber( static_cast<double>( editor.doc.Roads.size() ) ) );
+        result.add( "objects", JsonValue::MakeNumber( static_cast<double>( editor.doc.Objects.size() ) ) );
+        result.add( "stations", JsonValue::MakeNumber( static_cast<double>( editor.doc.Stations.size() ) ) );
+    } else if ( cmd == "drive_test" ) {
+        // id? (object / station), launch? (default true; false = report the command line), args? (extra options).
+        result = ResultOk( editor.driveTest( command.getString( "id", "" ), command.getBool( "launch", true ),
+                                             command.getString( "args", "" ) ) );
     } else if ( cmd == "remove_road_point" ) {
         const std::string id = command.getString( "road", editor.activeRoadId );
         SceneRoad *pRoad = editor.doc.findRoad( id );
@@ -531,6 +648,9 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
         } else {
             editor.pushUndo();
             pRoad->Points.pop_back();
+            if ( pRoad->Banks.size() > pRoad->Points.size() ) {
+                pRoad->Banks.resize( pRoad->Points.size() );
+            }
             editor.markSceneChanged();
             result = ResultOk( id );
         }
@@ -566,6 +686,7 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
             station.Yaw = command.find( "yaw" ) != nullptr ? static_cast<float>( command.getNumber( "yaw", 0.0 ) ) : FLT_MAX;
             station.Length = static_cast<float>( command.getNumber( "length", 34.0 ) );
             station.Width = static_cast<float>( command.getNumber( "width", 24.0 ) );
+            station.Surface = ToLower( command.getString( "surface", "" ) );
             station.bConnect = command.getBool( "connect", true );
             station.MaxLink = static_cast<float>( command.getNumber( "max_link", 400.0 ) );
             editor.doc.Stations.push_back( station );
@@ -600,6 +721,9 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
             }
             if ( command.find( "connect" ) != nullptr ) {
                 pStation->bConnect = command.getBool( "connect", pStation->bConnect );
+            }
+            if ( command.find( "surface" ) != nullptr ) {
+                pStation->Surface = ToLower( command.getString( "surface", "" ) );
             }
             if ( command.getBool( "auto_yaw", false ) ) {
                 pStation->Yaw = FLT_MAX;

@@ -189,6 +189,7 @@ std::string GMSceneEditor::rebuildStation( const std::string &stationId ) {
     ground.Width = station.Width;
     ground.Lanes = 2;
     ground.bCollide = true;
+    ground.Surface = station.Surface;
     doc.Roads.push_back( ground );
 
     if ( bRoad ) {
@@ -210,6 +211,7 @@ std::string GMSceneEditor::rebuildStation( const std::string &stationId ) {
             link.Width = 7.0f;
             link.Lanes = 2;
             link.bCollide = true;
+            link.Surface = station.Surface;
             doc.Roads.push_back( link );
             char text[160];
             snprintf( text, sizeof( text ), "drive %.0f m to the retail road at (%.0f, %.0f)", full, road.x, road.z );

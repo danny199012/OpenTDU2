@@ -142,6 +142,20 @@ JsonValue SceneDocument::toJson() const {
         if ( !road.Texture.empty() ) {
             entry.add( "texture", JsonValue::MakeString( road.Texture ) );
         }
+        if ( !road.Surface.empty() ) {
+            entry.add( "surface", JsonValue::MakeString( road.Surface ) );
+        }
+        bool bAnyBank = false;
+        for ( const float bank : road.Banks ) {
+            bAnyBank = bAnyBank || bank != 0.0f;
+        }
+        if ( bAnyBank ) {
+            JsonValue banks = JsonValue::MakeArray();
+            for ( size_t i = 0; i < road.Points.size(); i++ ) {
+                banks.push( JsonValue::MakeNumber( i < road.Banks.size() ? road.Banks[ i ] : 0.0f ) );
+            }
+            entry.add( "bank", std::move( banks ) );
+        }
         roads.push( std::move( entry ) );
     }
     root.add( "roads", std::move( roads ) );
@@ -158,6 +172,9 @@ JsonValue SceneDocument::toJson() const {
         entry.add( "yaw", JsonValue::MakeNumber( station.Yaw ) );
         entry.add( "length", JsonValue::MakeNumber( station.Length ) );
         entry.add( "width", JsonValue::MakeNumber( station.Width ) );
+        if ( !station.Surface.empty() ) {
+            entry.add( "surface", JsonValue::MakeString( station.Surface ) );
+        }
         entry.add( "connect", JsonValue::MakeBool( station.bConnect ) );
         entry.add( "max_link", JsonValue::MakeNumber( station.MaxLink ) );
         stations.push( std::move( entry ) );
@@ -232,6 +249,12 @@ bool SceneDocument::fromJson( const JsonValue &root, std::string &outError ) {
             road.bClosed = entry.getBool( "closed", false );
             road.bCollide = entry.getBool( "collide", true );
             road.Texture = entry.getString( "texture", "" );
+            road.Surface = entry.getString( "surface", "" );
+            if ( const JsonValue *pBanks = entry.find( "bank" ) ) {
+                for ( const JsonValue &bank : pBanks->array ) {
+                    road.Banks.push_back( static_cast<float>( bank.asNumber() ) );
+                }
+            }
             if ( road.Id.empty() || road.Points.size() < 2 ) {
                 continue;
             }
@@ -247,6 +270,7 @@ bool SceneDocument::fromJson( const JsonValue &root, std::string &outError ) {
             station.Yaw = static_cast<float>( entry.getNumber( "yaw", 0.0 ) );
             station.Length = static_cast<float>( entry.getNumber( "length", 34.0 ) );
             station.Width = static_cast<float>( entry.getNumber( "width", 24.0 ) );
+            station.Surface = entry.getString( "surface", "" );
             station.bConnect = entry.getBool( "connect", true );
             station.MaxLink = static_cast<float>( entry.getNumber( "max_link", 400.0 ) );
             if ( !station.Id.empty() ) {
