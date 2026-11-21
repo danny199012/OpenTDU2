@@ -24,3 +24,12 @@ birds, grass, and **the car decal atlases**: a 512x512 `DXT4_5` sheet (8 mips) h
 (`docs/images/x360_school_livery_decal_atlas.webp`) - and other cars' decal sheets (the Delta's "HF integrale" / Lancia badge, headlight / tail-light atlases). **This is the first real source of the school liveries** that
 12.4 could not find in the PC data (the PC has no RS cars 500-502). Not applied: the decals need the school cars' UV layout (the 360 car meshes, not in the PC files); the sheets are saved to look at and to place on the
 Delta / Esprit / Mustang models once their UVs are mapped. The decal sheet is the "stickers" layer of the car skin, one atlas for all the livery pieces.
+
+## Third dump (`test2`, all six school tests played through, 3907 textures, 1.3 GB)
+- Most of the 2683 textures new to this run are render-time data, not art: 1024x3 / 1152x3 `32_32_32_32_FLOAT` (skinning / instance matrices, 1160), 768x768 `32_FLOAT` (shadow depth), 256x256 `8888` (render targets). 342 are new DXT art:
+  island **terrain tiles** (satellite colour + pink-looking normal / mask maps, 1024x1024), shop signs, facade atlases, UI cells (`docs/images/x360_test_textures_sample.webp`).
+- **The three school cars' detail atlases are all there** (`x360_car_detail_and_livery_atlases.webp`): Delta (HF integrale + Lancia badge, grille, tail lights), Esprit (the "esprit" script + Lotus badge) and Mustang (the pony badges, "Mustang" script, grille).
+  But **only one racing-school livery sheet was captured: the "07 / Classic Racing School" cream-and-maroon decal atlas (512x512, DXT4_5)**. The roundels "70" (Esprit) and "3" (Mustang) and the Esprit / Mustang stripes seen in the clips
+  are not in any 512x512 `DXT4_5` of the three dumps - they may be other sizes / formats, or composed from this sheet and the car colours; not found yet.
+- **Video Replay** (owner, 2026-11-21): the replay plays the whole run back, with a control bar (previous, rewind, pause, fast-forward, eject; `LB` / `RB` + "Auto. Selection" camera cycling; elapsed / total time; gear and speed) and a very large set of cameras
+  (passenger side, wheel, back seat, cockpit ...). The test `.rly` files (12.11) use the same replay format; their second section (35 920 bytes after the recording data, it starts `3, 561, 3, 2` then a position) is the lead for the replay cameras.
