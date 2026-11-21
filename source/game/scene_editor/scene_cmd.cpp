@@ -398,6 +398,11 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
         // mods overlay (the game streams the scene with no engine change).
         editor.exportSpotsToGame();
         result = ResultOk( editor.statusText );
+    } else if ( cmd == "export_pmi" ) {
+        // M5: the library / actor placements append as .pmi records to the
+        // landing sectors' banks (copied into the overlay).
+        editor.exportPmiToGame();
+        result = ResultOk( editor.statusText );
     } else if ( cmd == "add_road" ) {
         std::string id = command.getString( "id", "" );
         if ( id.empty() ) {

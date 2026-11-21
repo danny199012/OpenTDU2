@@ -296,8 +296,13 @@ void DrawExportSection( GMSceneEditor &editor ) {
     if ( ImGui::Button( "export spots -> mods overlay" ) ) {
         editor.exportSpotsToGame();
     }
+    ImGui::SameLine();
+    if ( ImGui::Button( "export instances -> sectors" ) ) {
+        editor.exportPmiToGame();
+    }
     ImGui::TextDisabled( "props.txt is the route the current game build draws;" );
-    ImGui::TextDisabled( "export spots writes a native spots.bin (FREERIDE streams the scene)" );
+    ImGui::TextDisabled( "export spots writes a native spots.bin, export instances patches the" );
+    ImGui::TextDisabled( "sector .pmi lists (FREERIDE streams both with no engine change)" );
 }
 
 void DrawRoadsSection( GMSceneEditor &editor ) {

@@ -3,6 +3,29 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-21 (`main`, scene editor M5 second slice — the .pmi patch)
+
+The scene editor roadmap's "scene→bank/spots/**pmi** export" completed: the scene's library / actor placements go into the sector banks' `.pmi` instance lists natively (the composed `.3dd` bank build stays open).
+
+### What changed
+- **`source/world/pmi_write.{h,cpp}`** (new): the .pmi writer (the write side of `pmi.cpp`). The flat container: RenderFile header + a 0x1c0-byte MOBA header (numMOB / heightMin / Max patched, the quadtree cell table copied verbatim) + MOB. sections. The laws each found by a byte-compare failure and then proven:
+  - the MOBA header is **0x1c0 bytes** — pmi.cpp's comment says "0x1d0" but the retail data (and the 464-byte empty S/A lists) say 0x1c0; my first rebuild added 16 bytes to every list;
+  - every MOB. section carries its OWN reserved header bytes ([4,8) and [0x0c,0x20) vary per section) — captured per section, re-emitted verbatim;
+  - the records' payload REGIONS are the extraSize bytes AND the 16-byte-stride padding, and the padding carries data (the type 3/4 actor lists) — captured whole;
+  - the u16[16] encode is the exact inverse of the decode laws: `x = w*0.0156252384 − 128` means the offsets ADD on encode (my first encode subtracted and the test ferns landed ~250 m off), the angles normalize into [0, 2π) (a 200 deg scene yaw arrives as −2.79 rad through the matrix and clamped to 0), the height range widens (1 m headroom) and every record's w[1] re-encodes when a new y falls outside.
+- **`export_pmi`** (the editor command + the Export panel button, in `scene_export.cpp`): the scene's `library` placements append as type 1 records to the landing sector's `-o` list, `actor` placements as type 2 to `-a`; the sector = `EdenWorld::getSectorAt` of the composed placement (the staggered grid — odd rows shift half a sector); the bank = the overlay copy or the retail one (re-exports stack; same-model placements within 0.5 m are skipped); new records ride the group's payload region (a skinned static's bone palette) when merging into an existing group. The sector bank repacks through the BNK writer — the captured directory tree AND its leaf order (the first run shipped without the leaf order and every entry name resolved to a wrong payload: "failed to parse 'sector-...-o.3dd'" for every model).
+- `otdu2_bnk_tool roundtrip-pmi <sector bank>`: the standing test (all four lists rebuilt unchanged + byte-compared).
+- `README` / `PROGRESS` / `docs/re/scene_editor.md` 7 / `docs/studio_ai_api.md` updated.
+
+### Verified (headless, build 400)
+- **20 sector banks of Ibiza and Hawai (12 + 8) rebuild all four .pmi lists BYTE-IDENTICAL** through `roundtrip-pmi` (the O lists' 2 983-record vegetation groups included; the type 3/4 payload regions with their data-carrying padding).
+- The native route end to end: the editor exported two `V_FOUG_A` ferns (yaw 30 deg / 200 deg) → FREERIDE with NO editor loaded the overlay sector bank ("Mod overlay: ...sector-1-2-7-5.bnk"), 0 parse failures in the whole sector, and the instances resolved at the exact world positions with the model's bounds as the AABB: `NEARINST type 1 V_FOUG_A pos (12630.0 10.8 16720.0) box (12626.0 10.4 16716.4)-(12633.8 13.2 16724.2)` + the second at (12652.0, 16732.0). Screenshot `_m5_pmi_ferns.png` (the car spawns among them).
+
+### Not done / next
+- **M5 last**: the composed `.3dd` bank build (a scene compiled into one new `exterior/<name>.bnk`; OBJ props authored to `.3dg/.2dm/.2db`).
+- M6 polish (3-axis gizmo, material editing); the human UI pass + the roads feel-check in play.
+- Test artifacts left in the mods overlay for the owner to keep or delete: `spots.bin` (+2 records), `exterior/icd_ferr.bnk`, the patched `sector-1-2-7-5.bnk` (+2 ferns), the scenes `m4_*` / `m5_*`.
+
 ## Session 2026-11-21 (`main`, walker collision: house furniture + dealership display cars)
 
 Owner screenshots: the first-person walker standing inside a dining table / chairs (house EPH_L2E, Ibiza 29839,2203) and inside a dealership's Veyron (spec card up, camera in the cabin).

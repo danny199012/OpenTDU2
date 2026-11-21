@@ -3,6 +3,7 @@
 #include "game/scene_editor/scene_doc.h"
 
 #include <string>
+class EdenWorld;
 
 // The scene's native export (M5, docs/re/scene_editor.md 6): the
 // `add_spot.py` route in C++ (tools/mod/add_spot.py - the mod overlay's
@@ -30,3 +31,13 @@ struct SceneExportResult {
 };
 
 SceneExportResult SceneExportSpots( const SceneDocument &document );
+
+// M5 next slice: the scene's `library` (and `actor`) placements into the
+// sector banks' .pmi instance lists (docs/re/scene_editor.md 6). For every
+// placement the landing sector's bank is copied into the mods overlay with
+// its `-o` (library, type 1) / `-a` (actor, type 2) list re-encoded with
+// the instance appended (the height range widens; existing placements of
+// the same model within 0.5 m are skipped, so re-exports stack cleanly).
+// FREERIDE loads the overlay sector banks, so the instances draw with no
+// engine change.
+SceneExportResult SceneExportPmi( const SceneDocument &document, const EdenWorld &world );

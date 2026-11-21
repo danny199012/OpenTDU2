@@ -176,6 +176,9 @@ public:
     // interior banks copy to the overlay's exterior/ folder. FREERIDE
     // streams the scene with no engine change; re-running updates in place.
     void exportSpotsToGame();
+    // M5 next slice: the library / actor placements append as .pmi records
+    // to the landing sectors' banks (copied into the overlay).
+    void exportPmiToGame();
     // Roads: the doc's splines -> <mods>/roads/<island>.json (what the game
     // modes load), one road baked as a props OBJ + placement line, and the
     // island's roads file imported into a fresh document (editable).

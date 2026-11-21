@@ -164,9 +164,38 @@ exterior bank") and streamed the scene buildings through the retail records
 (`ECD_AUDI ...: 3 placements` = the island's 2 + the scene's 1;
 `icd_ferr at (12620, 16700): 4 models, 1 placements` from the copied bank).
 
-Remaining M5: the `.pmi` patch (library-node placements into the sector
-banks) and the composed `.3dd` bank build (a scene compiled into one new
-exterior bank, OBJ props authored to `.3dg`).
+## 7. Native export (M5 second slice: the .pmi patch)
+
+**`source/world/pmi_write.{h,cpp}`** — the .pmi writer (the write side of
+`pmi.cpp`): the flat container law (the RenderFile header, the 0x1c0-byte
+MOBA header with its quadtree cell table copied verbatim — the pmi.cpp
+comment's "0x1d0" is wrong, the retail data says 0x1c0), the MOB. sections
+with each section's own reserved header bytes preserved (they vary per
+section), the records' whole payload REGIONS (the 16-byte-stride padding
+carries data in the type 3/4 lists), and the u16[16] record encode as the
+exact inverse of the decode laws (`x = w*0.0156252384 − 128` — the offsets
+ADD on encode; the angles normalize into [0, 2π); the height range widens
+when a new instance's y falls outside, re-encoding every record's w[1]).
+`otdu2_bnk_tool roundtrip-pmi <sector bank>` re-encodes a bank's four lists
+unchanged and byte-compares: 20 sector banks of Ibiza and Hawai rebuild all
+lists BYTE-IDENTICAL.
+
+**`export_pmi`** (the editor command + Export panel button): the scene's
+`library` placements append as type 1 records to the landing sector's `-o`
+list, the `actor` placements as type 2 records to `-a` (the sector =
+`EdenWorld::getSectorAt` of the composed placement; the bank = the overlay
+copy or the retail one, so re-exports stack and same-model placements
+within 0.5 m are skipped). The sector bank repacks through the BNK writer
+(the captured directory tree + leaf order, the source alignments, the
+stream tail) into `<mods>/Euro/Bnk/islands/<island>/level/...`. Verified end
+to end headless (build 400): two `V_FOUG_A` ferns exported at (12630,
+16720) yaw 30 deg and (12652, 16732) yaw 200 deg -> FREERIDE with no editor
+loads the overlay sector bank and the instances resolve at the exact world
+positions with the model's bounds as the AABB (`NEARINST type 1 V_FOUG_A
+pos (12630.0 10.8 16720.0) box ...`), 0 parse failures in the whole sector.
+
+Remaining M5: the composed `.3dd` bank build (a scene compiled into one new
+exterior bank; OBJ props authored to `.3dg/.2dm/.2db`).
 
 An `interior` object is one of the game's walkable rooms
 (`euro/bnk/interior/<stem>.bnk`: the shops' `icd_*` / `ias_*` ..., the houses'
@@ -204,7 +233,7 @@ the walk eye. This is a compose / feel tool — the retail walk (avatar,
 cinematics, shop menus) stays the game modes' route. Commands: `enter_walk`
 (`id` / bank-local `pos` + `yaw` overrides), `exit_walk`.
 
-## 7. What we must not do (unchanged, docs/re/modding.md 4)
+## 8. What we must not do (unchanged, docs/re/modding.md 4)
 
 The editor writes only `<mods>/` (scenes, props.txt) and the screenshot /
 export paths it is given. The game folder is never written; no game data

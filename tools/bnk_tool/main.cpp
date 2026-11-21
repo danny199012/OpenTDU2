@@ -14,6 +14,7 @@
 #include "filesystem/gs_file.h"
 #include "render/render_file_write.h"
 #include "system/cmd_line.h"
+#include "world/pmi_write.h"
 
 #include <algorithm>
 #include <fstream>
@@ -462,6 +463,64 @@ static int RoundtripRenderFile( const char *pPath ) {
     return 1;
 }
 
+// --- the .pmi roundtrip (the instance-list writer) ---------------------------
+
+static int RoundtripPmi( const char *pPath ) {
+    // Every -v/-o/-s/-a.pmi of a sector bank: parse into raw groups, rebuild
+    // unchanged, byte-compare. Validates the u16[16] encode law against the
+    // retail data (the height range, the record fields, the payload strides).
+    Bank bank;
+    if ( !bank.load( pPath ) ) {
+        return 1;
+    }
+    std::vector<uint8_t> original;
+    if ( !ReadWholeFile( pPath, original ) ) {
+        printf( "read failed: %s\n", pPath );
+        return 1;
+    }
+    int32_t lists = 0, problems = 0;
+    for ( const char *pSuffix : { "-v", "-o", "-s", "-a" } ) {
+        for ( const BankEntry &entry : bank.getEntries() ) {
+            if ( entry.Extension != "pmi" || entry.Name.size() <= strlen( pSuffix ) ||
+                 _stricmp( entry.Name.c_str() + entry.Name.size() - strlen( pSuffix ), pSuffix ) != 0 ) {
+                continue;
+            }
+            lists++;
+            std::vector<PmiGroup> groups;
+            if ( !ParsePmiGroups( entry.pData, entry.Size, groups ) ) {
+                printf( "FAIL: '%s' does not parse into groups\n", entry.Filename.c_str() );
+                problems++;
+                continue;
+            }
+            std::vector<uint8_t> rebuilt;
+            if ( !BuildPmi( groups, entry.pData, entry.Size, rebuilt ) ) {
+                printf( "FAIL: '%s' did not rebuild\n", entry.Filename.c_str() );
+                problems++;
+                continue;
+            }
+            if ( rebuilt.size() != entry.Size || memcmp( rebuilt.data(), entry.pData, entry.Size ) != 0 ) {
+                size_t firstDiff = 0;
+                const size_t common = Min( rebuilt.size(), static_cast<size_t>( entry.Size ) );
+                while ( firstDiff < common && rebuilt[ firstDiff ] == entry.pData[ firstDiff ] ) {
+                    firstDiff++;
+                }
+                printf( "FAIL: '%s' rebuilt %zu bytes vs %u, first diff at %zu\n", entry.Filename.c_str(),
+                        rebuilt.size(), entry.Size, firstDiff );
+                problems++;
+            } else {
+                size_t numRecords = 0;
+                for ( const PmiGroup &group : groups ) {
+                    numRecords += group.Records.size();
+                }
+                printf( "'%s': %zu group(s), %zu record(s) rebuilt BYTE-IDENTICAL\n", entry.Filename.c_str(),
+                        groups.size(), numRecords );
+            }
+        }
+    }
+    printf( "%s: %d pmi list(s), %d problem(s)\n", pPath, lists, problems );
+    return problems == 0 ? 0 : 1;
+}
+
 int main( int argc, const char **argv ) {
     CmdLine::Initialize( argc, argv );
     Logger::Initialize( nullptr, false, false );
@@ -482,6 +541,8 @@ int main( int argc, const char **argv ) {
         return RoundtripBank( argv[ 2 ] );
     } else if ( command == "roundtripfile" ) {
         return RoundtripRenderFile( argv[ 2 ] );
+    } else if ( command == "roundtrip-pmi" ) {
+        return RoundtripPmi( argv[ 2 ] );
     } else if ( command == "decrypt" && argc > 3 ) {
         return Decrypt( argv[ 2 ], argv[ 3 ] );
     } else if ( command == "xmb" ) {

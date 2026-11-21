@@ -1107,6 +1107,22 @@ void GMSceneEditor::exportSpotsToGame() {
     OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
 }
 
+void GMSceneEditor::exportPmiToGame() {
+    if ( !bWorldReady ) {
+        statusText = "export pmi FAILED: the world is not ready";
+        return;
+    }
+    const SceneExportResult result = SceneExportPmi( doc, view.getWorld() );
+    if ( !result.Error.empty() ) {
+        statusText = "export pmi: " + result.Error;
+        OTDU_LOG_WARN( "SceneEditor: %s\n", statusText.c_str() );
+        return;
+    }
+    statusText = "exported pmi: " + std::to_string( result.Appended ) + " instance(s) into " +
+                 std::to_string( result.Total ) + " sector list(s) (relaunch FREERIDE to see them drawn)";
+    OTDU_LOG_INFO( "SceneEditor: %s\n", statusText.c_str() );
+}
+
 void GMSceneEditor::exportRoadsFile() {
     if ( gpFile == nullptr ) {
         return;
