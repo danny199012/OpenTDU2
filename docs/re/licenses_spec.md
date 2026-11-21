@@ -567,3 +567,11 @@ not from the PC game data, so they are not in the repository: copy `delta_07.png
 and keys `Trty 1`, `Stch 1 / 2 / 3` (the order), **`Spmx 22223 / 25001 / 27778` (mm/s: 80 / 90 / 100 km/h)**, `VSpe 2`, `VSpg 69`, **`VSph 500` = the car id: the Lancia Delta (the school car, with its livery)**, `Firf 2001`. So the overtaking
 tests' traffic are three Delta 500s with the 07 livery driving ahead of the player at 80 / 90 / 100 km/h (owner: "the 5th test uses the Lancias with the Lancia's livery for the overtake cars"). The port reads the count only (`Ig2Challenge::numVehicles`) and
 spawns nothing. Next: a small scripted-traffic class (load three car-500 models, drive them along the gates at `Spmx`, fail the test on contact) - `RaceOpponents` is a grid-race AI and does not fit.
+
+### 12.14 Test 5's traffic built (2026-11-21, `main`)
+`Ig2Challenge::getVehicles()` reads the VEHI records (position from the 3x4 matrix at +32, heading from its z axis, `VSph` car id, `Spmx` mm/s). `RaceOpponents::startTraffic / tickTraffic / findTrafficContact / assignSticker` (a second instance,
+`GMFreeRide::schoolTraffic`) puts the three car-500 Lancia Deltas on the course (routed over the island road graph through the gates like the race AI): they stand during the countdown, then drive at 80 / 90 / 100 km/h from where the
+files place them (144 / 442 / 666 m along the course in the port's routing) with the Delta livery as their sticker layer. A contact (a 4.4 x 1.9 m box test against the player's car) fails the test ("Hit a car", `eResult::HitCar`). `-notraffic` turns it off,
+`-trafficgap <m>` (test) puts them right ahead of the start. Not verified live: the contact failure (the scripted drive left the road first), the retail lane behaviour (the cars keep the lane the file places them in, no lane changes), and their paint (the school Delta's first
+DBCarsAndColors colour).
+Owner note: later in the game the Mustang appears with a front lip and rear lips (e.g. Miami Harris's pink Mustang with white stripes), i.e. more liveries and body variants exist in the 360 data; capture them with the texture dump during the championship races.

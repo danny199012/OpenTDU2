@@ -433,6 +433,11 @@ private:
     // docs/re/opponents_spec.md). They stay on the course a few seconds after
     // the result (opponentsHold) before they are removed.
     RaceOpponents opponents;
+    // The racing school overtaking traffic (VEHI of the .ig2: Lancia Deltas with the school livery driving the course).
+    RaceOpponents schoolTraffic;
+    bool bSchoolTrafficBound = false;
+    std::map<int32_t, GPUTexture *> schoolLiveryTextures;
+    GPUTexture *getSchoolLivery( int32_t carId );
     float opponentsHold = -1.0f;
     void startRaceOpponents( const std::string &test );
     void tickRaceOpponents( float deltaTime, bool bRunning, float raceTime );

@@ -62,6 +62,15 @@ struct Ig2Decor {
     int32_t Type = 0;
 };
 
+// A VEHI record: a traffic car of the overtaking tests [DATA rsc4t05.ig2: 304 bytes; a 3x4 matrix at +32 (position m3 m7 m11, forward
+// m2 m10, like a gate), then keys: VSph the car id (500 = the Lancia Delta), Spmx the speed (mm/s), Stch the order].
+struct Ig2Vehicle {
+    Vector3f Position;
+    float Heading = 0.0f; // radians, forward = (sin, 0, cos)
+    int32_t CarId = 0;
+    float Speed = 0.0f; // m/s
+};
+
 class Ig2Challenge {
 public:
     bool load( const std::string &name );
@@ -73,6 +82,7 @@ public:
     // VEHI entities: the traffic cars of the overtaking tests [DATA: present in
     // those files only].
     inline int32_t getVehicleCount() const { return numVehicles; }
+    inline const std::vector<Ig2Vehicle> &getVehicles() const { return vehicles; }
     int64_t getValue( const char *pKey, int64_t fallback = 0 ) const;
     inline int32_t getTargetMs() const { return static_cast<int32_t>( getValue( "timG" ) ); }
     inline int32_t getLimitMs() const { return static_cast<int32_t>( getValue( "CtDw" ) ); }
@@ -98,4 +108,5 @@ private:
     std::vector<Ig2Gate> gates;
     std::vector<Ig2Decor> decors;
     int32_t numVehicles = 0;
+    std::vector<Ig2Vehicle> vehicles;
 };

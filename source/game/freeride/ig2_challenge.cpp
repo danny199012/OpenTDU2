@@ -30,6 +30,7 @@ bool Ig2Challenge::load( const std::string &challengeName ) {
     gates.clear();
     decors.clear();
     numVehicles = 0;
+    vehicles.clear();
     std::string file = challengeName;
     for ( char &c : file ) {
         c = static_cast<char>( tolower( static_cast<unsigned char>( c ) ) );
@@ -101,6 +102,21 @@ bool Ig2Challenge::load( const std::string &challengeName ) {
                     gates.push_back( gate );
                 } else if ( memcmp( pEntity, "VEHI", 4 ) == 0 ) {
                     numVehicles++;
+                    if ( entitySize >= 0x60 ) {
+                        const uint8_t *m = pEntity + 32;
+                        Ig2Vehicle vehicle;
+                        vehicle.Position = Vector3f( ReadF32( m + 12 ), ReadF32( m + 28 ), ReadF32( m + 44 ) );
+                        vehicle.Heading = std::atan2( ReadF32( m + 8 ), ReadF32( m + 40 ) );
+                        // The keys: 4 characters, 4 bytes of type / size, the value.
+                        for ( size_t k = 0x60; k + 12 <= entitySize; k += 4 ) {
+                            if ( memcmp( pEntity + k, "VSph", 4 ) == 0 ) {
+                                vehicle.CarId = static_cast<int32_t>( ReadU32( pEntity + k + 8 ) );
+                            } else if ( memcmp( pEntity + k, "Spmx", 4 ) == 0 ) {
+                                vehicle.Speed = static_cast<float>( ReadU32( pEntity + k + 8 ) ) * 0.001f;
+                            }
+                        }
+                        vehicles.push_back( vehicle );
+                    }
                 } else if ( memcmp( pEntity, "DEC2", 4 ) == 0 && ( entitySize == 0x54 || entitySize == 0x68 ) ) {
                     // Same matrix placement as CHK2: after the version word or
                     // the road link prefix; the type is the second-last word.

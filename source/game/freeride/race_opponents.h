@@ -60,6 +60,21 @@ public:
     void stop();
     inline bool isActive() const { return !racers.empty(); }
 
+    // The racing school's overtaking traffic (docs/re/licenses_spec.md 12.13): cars placed on the course at fixed
+    // positions that drive it at a constant speed once the test runs (the .ig2's VEHI: position, VSph car id, Spmx speed).
+    struct TrafficCar {
+        int32_t CarId = 0;
+        Vector3f Position;
+        float Speed = 20.0f; // m/s
+    };
+    bool startTraffic( const std::vector<Vector3f> &waypoints, float startHeading, const std::vector<TrafficCar> &cars,
+                       const CinematicCar::SurfaceFunction &surface );
+    void tickTraffic( float deltaTime, bool bRunning );
+    // The index of a traffic car touching the player's box (a car 4.4 x 1.9 m at position / yaw), -1 when none.
+    int32_t findTrafficContact( const Vector3f &playerPosition, float playerYaw ) const;
+    // Binds a livery on every car's sticker layer (once).
+    void assignSticker( EdenRenderer &renderer, GPUTexture *pTexture );
+
     // bRunning: the race has started (after the countdown); raceTime: its clock.
     void tick( float deltaTime, bool bRunning, float raceTime, const Vector3f &playerPosition,
                const CinematicCar::SurfaceFunction &surface );

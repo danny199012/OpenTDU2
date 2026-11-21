@@ -993,6 +993,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             traffic.draw( renderer, view.getWeather() );
             police.draw( renderer, view.getWeather() );
             opponents.draw( renderer, view.getWeather() );
+            schoolTraffic.draw( renderer, view.getWeather() );
             return;
         }
         outro.draw( renderer );
@@ -1070,6 +1071,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             aircraft.draw( renderer, view.getWorld(), view.getSceneParams().CameraPosition );
             police.draw( renderer, view.getWeather() );
             opponents.draw( renderer, view.getWeather() );
+            schoolTraffic.draw( renderer, view.getWeather() );
         }
         // Tess at the car window (C_FADE_FREERIDE; end pose kept after it).
         if ( bScenePass && wakeup.isStarted() ) {
@@ -1214,6 +1216,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
     police.loadCopCar( islandName );
     police.setRoads( &mapScreen.getRoadNodes(), &mapScreen.getRoadEdges(), &mapScreen.getRoadShapes() );
     opponents.setRoads( &mapScreen.getRoadNodes(), &mapScreen.getRoadEdges(), &mapScreen.getRoadShapes() );
+    schoolTraffic.setRoads( &mapScreen.getRoadNodes(), &mapScreen.getRoadEdges(), &mapScreen.getRoadShapes() );
     GetCruisingZones().load( islandName );
     discovery.load( islandName );
     photoSpots.load();
@@ -3889,6 +3892,28 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
     hud.closeEnterSpot();
     const std::string title = licenseTest.getChallenge().getTitle();
     startRaceOpponents( test );
+    // The overtaking test traffic (VEHI): the Lancia Deltas of the school, driving the course at their own speeds.
+    schoolTraffic.stop();
+    bSchoolTrafficBound = false;
+    if ( !CmdLine::HasArg( "-notraffic" ) && !licenseTest.getChallenge().getVehicles().empty() ) {
+        std::vector<RaceOpponents::TrafficCar> cars;
+        for ( const Ig2Vehicle &vehicle : licenseTest.getChallenge().getVehicles() ) {
+            RaceOpponents::TrafficCar car;
+            car.CarId = vehicle.CarId;
+            car.Position = vehicle.Position;
+            car.Speed = vehicle.Speed > 1.0f ? vehicle.Speed : 20.0f;
+            cars.push_back( car );
+        }
+        std::vector<Vector3f> waypoints{ licenseTest.getStartPosition() };
+        for ( int32_t step = 0; step < licenseTest.getGateCount(); step++ ) {
+            const int32_t gate = licenseTest.getSequenceGate( static_cast<size_t>( step ) );
+            if ( gate >= 0 ) {
+                waypoints.push_back( licenseTest.getChallenge().getGates()[static_cast<size_t>( gate )].Position );
+            }
+        }
+        schoolTraffic.startTraffic( waypoints, licenseTest.getStartHeading(), cars,
+                                    [this]( float x, float z, float y, float &outHeight ) { return surfaceHeight( x, z, y, outHeight ); } );
+    }
     // A school test opens with its presentation (the retail banner + the demonstration of the course, looping until A / B);
     // the scripted test hooks skip it unless -testintro.
     {
@@ -4143,6 +4168,17 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         }
     }
     licenseTest.tick( deltaTime, vehicle.getWorldMatrix().getTranslation() );
+    if ( schoolTraffic.isActive() ) {
+        const bool bRunning = licenseTest.getStage() == LicenseTest::eStage::Running;
+        schoolTraffic.tickTraffic( deltaTime, bRunning );
+        const Vector3f playerForward = vehicle.getWorldMatrix().transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+        if ( bRunning && schoolTraffic.findTrafficContact( vehicle.getWorldMatrix().getTranslation(),
+                                                           std::atan2( playerForward.x, playerForward.z ) ) >= 0 ) {
+            OTDU_LOG_INFO( "FREERIDE: %s: a car was hit at %.1f s - failed\n", licenseTest.getChallenge().getName().c_str(),
+                           licenseTest.getTime() );
+            licenseTest.end( LicenseTest::eResult::HitCar );
+        }
+    }
     // The school's off-road penalty (docs/re/licenses_spec.md 12.8): the EVENTS PENALTY coefficients per second - 1.5 with some
     // wheels off the tarmac, 2.0 with all of them [DATA events_config.cpr; INF: the rate is per second].
     if ( licenseTest.hasPenalty() && licenseTest.getStage() == LicenseTest::eStage::Running ) {
@@ -4246,6 +4282,7 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         hud.setRaceHud( FreeRideHud::RaceHud() );
         hud.setPenaltyGauge( false, 0.0f, 0.0f );
         restoreSchoolCamera();
+        schoolTraffic.stop();
         const std::string test = licenseTest.getChallenge().getName();
         const std::string title = licenseTest.getChallenge().getTitle();
         // A race with opponents is won in first place; behind the winner it is
@@ -4530,6 +4567,28 @@ void GMFreeRide::openLicenseResult( const std::string &test, bool bPassed, Licen
         startEndOfTestScene( test[2], bPassed );
     }
     OTDU_LOG_INFO( "FREERIDE: licence result screen for %s (%s)\n", test.c_str(), bPassed ? "passed" : "failed" );
+}
+
+GPUTexture *GMFreeRide::getSchoolLivery( int32_t carId ) {
+    auto it = schoolLiveryTextures.find( carId );
+    if ( it != schoolLiveryTextures.end() ) {
+        return it->second;
+    }
+    GPUTexture *pTexture = nullptr;
+    if ( gpFile != nullptr && gpRender != nullptr ) {
+        const std::filesystem::path path = gpFile->getUserDataFolder() / "school_liveries" / ( std::to_string( carId ) + ".png" );
+        std::error_code ec;
+        std::vector<uint8_t> pixels;
+        uint32_t w = 0, h = 0;
+        if ( std::filesystem::exists( path, ec ) && LoadImageFileRGBA( path, pixels, w, h ) ) {
+            const void *pData = pixels.data();
+            const uint32_t size = static_cast<uint32_t>( pixels.size() );
+            pTexture = gpRender->getDevice().createTexture2D( w, h, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, "school livery" );
+        }
+    }
+    OTDU_LOG_INFO( "FREERIDE: school livery for car %d: %s\n", carId, pTexture != nullptr ? "loaded" : "not found in <userdata>/school_liveries" );
+    schoolLiveryTextures[carId] = pTexture;
+    return pTexture;
 }
 
 void GMFreeRide::applySchoolCamera() {
@@ -9913,6 +9972,17 @@ void GMFreeRide::drawOffscreen() {
     }
     // The race opponents and the free ride rivals come and go: each binds the
     // view's cube once (AiCar keeps the flag).
+    if ( schoolTraffic.isActive() ) {
+        if ( GPUTexture *pCube = view.getEnvironmentCube() ) {
+            schoolTraffic.assignEnvironment( *pRenderer, pCube );
+        }
+        if ( !bSchoolTrafficBound ) {
+            bSchoolTrafficBound = true;
+            if ( GPUTexture *pLivery = getSchoolLivery( 500 ) ) {
+                schoolTraffic.assignSticker( *pRenderer, pLivery );
+            }
+        }
+    }
     if ( opponents.isActive() || traffic.hasRivals() ) {
         if ( GPUTexture *pCube = view.getEnvironmentCube() ) {
             opponents.assignEnvironment( *pRenderer, pCube );
@@ -9923,25 +9993,22 @@ void GMFreeRide::drawOffscreen() {
     // bound as the paint's sticker layer. The sheets come from the owner's 360 capture, not from the PC game data: put them
     // in <userdata>/school_liveries/<car id>.png (500 / 501 / 502), or test one with -liverytex <png>.
     if ( !bLiveryBound && car.isLoaded() && pRenderer != nullptr ) {
-        std::filesystem::path livery;
-        if ( const char *pTex = CmdLine::GetArgValue( "-liverytex" ) ) {
-            livery = pTex;
-        } else if ( car.getIdCar() >= 500 && car.getIdCar() <= 502 && gpFile != nullptr ) {
-            livery = gpFile->getUserDataFolder() / "school_liveries" / ( std::to_string( car.getIdCar() ) + ".png" );
-        }
         bLiveryBound = true; // once per car load
-        std::error_code liveryEc;
-        if ( !livery.empty() && std::filesystem::exists( livery, liveryEc ) ) {
+        GPUTexture *pLiveryTex = nullptr;
+        if ( const char *pTex = CmdLine::GetArgValue( "-liverytex" ) ) {
             std::vector<uint8_t> pixels;
             uint32_t w = 0, h = 0;
-            if ( LoadImageFileRGBA( livery, pixels, w, h ) ) {
+            if ( LoadImageFileRGBA( pTex, pixels, w, h ) ) {
                 const void *pData = pixels.data();
                 const uint32_t size = static_cast<uint32_t>( pixels.size() );
-                if ( GPUTexture *pTex = gpRender->getDevice().createTexture2D( w, h, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, "school livery" ) ) {
-                    const uint32_t bound = car.bindStickerTexture( *pRenderer, pTex );
-                    OTDU_LOG_INFO( "FREERIDE: school livery '%s' (%ux%u) bound on %u paint material(s)\n", livery.string().c_str(), w, h, bound );
-                }
+                pLiveryTex = gpRender->getDevice().createTexture2D( w, h, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, "school livery" );
             }
+        } else if ( const int32_t liveryCar = testCarOverride >= 0 ? testCarOverride : car.getIdCar(); liveryCar >= 500 && liveryCar <= 502 ) {
+            pLiveryTex = getSchoolLivery( liveryCar );
+        }
+        if ( pLiveryTex != nullptr ) {
+            const uint32_t bound = car.bindStickerTexture( *pRenderer, pLiveryTex );
+            OTDU_LOG_INFO( "FREERIDE: school livery bound on %u paint material(s) of car %d\n", bound, car.getIdCar() );
         }
     }
     // -stickertest: the pack art onto the paint materials' USER_TEX slot once

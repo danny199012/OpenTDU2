@@ -438,6 +438,104 @@ bool RaceOpponents::start( const std::vector<Vector3f> &waypoints, float startHe
     return !racers.empty();
 }
 
+bool RaceOpponents::startTraffic( const std::vector<Vector3f> &waypoints, float startHeading, const std::vector<TrafficCar> &cars,
+                                  const CinematicCar::SurfaceFunction &surface ) {
+    stop();
+    if ( waypoints.size() < 2 || cars.empty() ) {
+        return false;
+    }
+    surfaceFn = surface;
+    buildCourse( waypoints, startHeading );
+    if ( course.size() < 8 ) {
+        return false;
+    }
+    for ( const TrafficCar &car : cars ) {
+        Racer racer;
+        racer.Info.Name = "traffic";
+        racer.Info.CarId = car.CarId;
+        racer.Car = std::make_unique<AiCar>();
+        // The school Delta's own paint (the first DBCarsAndColors row: the colour the player's school car wears).
+        if ( !racer.Car->load( car.CarId, CinematicCar::DatabasePaintColorId( car.CarId, 0 ) ) ) {
+            OTDU_LOG_WARN( "RaceOpponents: traffic car %d not available\n", car.CarId );
+            continue;
+        }
+        // Where the VEHI sits on the course, and its lane.
+        playerDistance = startDistance;
+        float lateral = 0.0f;
+        const float along = projectWindow( car.Position, 0.0f, 1e6f, lateral );
+        racer.Distance = along >= 0.0f ? along : startDistance + 30.0f;
+        if ( const char *pGap = CmdLine::GetArgValue( "-trafficgap" ) ) { // test hook: the cars this many metres apart right ahead of the start
+            racer.Distance = startDistance + static_cast<float>( atof( pGap ) ) * static_cast<float>( racers.size() + 1 );
+        }
+        racer.Lateral = racer.TargetLateral = racer.HomeLateral = lateral;
+        racer.Speed = 0.0f;
+        racer.TopSpeed = car.Speed;
+        OTDU_LOG_INFO( "RaceOpponents: traffic car %d at %.0f m (lane %.1f m), %.0f km/h\n", car.CarId, racer.Distance, lateral,
+                       car.Speed * 3.6f );
+        racers.push_back( std::move( racer ) );
+    }
+    return !racers.empty();
+}
+
+void RaceOpponents::tickTraffic( float deltaTime, bool bRunning ) {
+    for ( Racer &racer : racers ) {
+        if ( bRunning ) {
+            racer.Speed = racer.TopSpeed;
+            racer.Distance = Min( racer.Distance + racer.Speed * deltaTime, finishDistance + 200.0f );
+        } else {
+            racer.Speed = 0.0f;
+        }
+        Vector3f point, tangent;
+        sample( racer.Distance, point, tangent );
+        const Vector3f right( -tangent.z, 0.0f, tangent.x );
+        racer.Yaw = std::atan2( tangent.x, tangent.z );
+        racer.Position = point + right * racer.Lateral;
+        float ground = 0.0f;
+        bool bGround = false;
+        for ( const float offset : { 4.0f, 30.0f, -15.0f } ) {
+            if ( surfaceFn && surfaceFn( racer.Position.x, racer.Position.z, point.y + offset, ground ) ) {
+                bGround = true;
+                break;
+            }
+        }
+        if ( bGround ) {
+            racer.GroundY = ground;
+            racer.bGround = true;
+        } else if ( !racer.bGround ) {
+            racer.GroundY = point.y;
+        }
+        racer.Position.y = racer.GroundY;
+        racer.Steer = Clamp( std::atan( 2.7f * curvatureAt( racer.Distance ) ), -0.6f, 0.6f );
+        racer.Car->animate( deltaTime, racer.Speed * deltaTime, racer.Steer, false, bNight );
+    }
+}
+
+int32_t RaceOpponents::findTrafficContact( const Vector3f &playerPosition, float playerYaw ) const {
+    // Two oriented boxes approximated by circles along the car's length (a car is 4.4 m long, 1.9 m wide).
+    const Vector3f pf( std::sin( playerYaw ), 0.0f, std::cos( playerYaw ) );
+    for ( size_t i = 0; i < racers.size(); i++ ) {
+        const Racer &racer = racers[i];
+        const Vector3f tf( std::sin( racer.Yaw ), 0.0f, std::cos( racer.Yaw ) );
+        for ( const float a : { -1.4f, 0.0f, 1.4f } ) {
+            for ( const float b : { -1.4f, 0.0f, 1.4f } ) {
+                const Vector3f d = ( playerPosition + pf * a ) - ( racer.Position + tf * b );
+                if ( d.x * d.x + d.z * d.z < 1.7f * 1.7f ) {
+                    return static_cast<int32_t>( i );
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+void RaceOpponents::assignSticker( EdenRenderer &renderer, GPUTexture *pTexture ) {
+    for ( Racer &racer : racers ) {
+        if ( CinematicCar *pCar = racer.Car->getCar() ) {
+            pCar->bindStickerTexture( renderer, pTexture );
+        }
+    }
+}
+
 void RaceOpponents::stop() {
     if ( !racers.empty() ) {
         OTDU_LOG_INFO( "RaceOpponents: race over, %zu opponent(s) removed\n", racers.size() );
