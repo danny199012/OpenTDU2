@@ -3909,6 +3909,10 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
             info.Weather = static_cast<int32_t>( licenseTest.getChallenge().getValue( "rswh", 0 ) );
             info.Place = static_cast<int32_t>( licenseTest.getChallenge().getValue( "rsl1", 0 ) );
             if ( testIntro.start( path, info ) ) {
+                std::string typeName, placeName, meteoName;
+                SchoolTestIconNames( licenseTest.getChallenge(), typeName, placeName, meteoName );
+                testIntro.setNativeBanner( CmdLine::HasArg( "-nativebanner" ) ||
+                                           !licenseResult.openPreview( info.Title, info.Description, typeName, placeName, meteoName ) );
                 licenseTest.setHold( true );
                 OTDU_LOG_INFO( "FREERIDE: %s: the pre-test presentation (%zu waypoint(s))\n", test.c_str(), path.size() );
                 return;
@@ -4515,6 +4519,7 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
     const bool bCancel = gpInput->wasPressed( eInputAction::IA_MenuBack );
     if ( bStart || bCancel ) {
         testIntro.stop();
+        licenseResult.closePreview();
         placeCar( licenseTest.getStartPosition(), licenseTest.getStartHeading() );
         licenseTest.setHold( false );
         const std::string title = licenseTest.getChallenge().getTitle();
@@ -4526,6 +4531,7 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
         OTDU_LOG_INFO( "FREERIDE: the pre-test presentation ended (%s)\n", bCancel ? "cancelled" : "started" );
         return;
     }
+    licenseResult.tick( deltaTime ); // the banner movie
     testIntro.tick( deltaTime );
     placeCar( testIntro.getCarPosition(), testIntro.getCarHeading() );
     testIntro.getCamera( camera );

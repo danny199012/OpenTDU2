@@ -54,6 +54,13 @@ public:
 
     void open( const Info &info );
     void close();
+    // The pre-test banner (RESULTS.vmf 'preview_in': the /desc clip - type / place / weather icons, title, objective - and
+    // the Help / OK / Cancel bar; the game opens it from GMCompDrivingSchool's EventIntro [CODE-dev 0xb5d730]). Icons are
+    // the frame labels of the clips (the school list's: type "braking", place "r_school" / "road", meteo "sun" / "rain" / "night").
+    bool openPreview( const std::string &title, const std::string &description, const std::string &type,
+                      const std::string &place, const std::string &meteo );
+    void closePreview();
+    inline bool isPreview() const { return bPreview; }
     void tick( float deltaTime );
     void draw( Renderer2D &renderer );
     // One shot: the menu choice.
@@ -62,6 +69,7 @@ public:
 private:
     FlashPlayer player;
     bool bOpen = false;
+    bool bPreview = false;
     eChoice choice = eChoice::None;
     bool bPassed = false;
     bool bReplayBack = false;

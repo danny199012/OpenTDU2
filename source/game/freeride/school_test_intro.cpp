@@ -146,6 +146,14 @@ void SchoolTestIntro::draw( Renderer2D &renderer, const Font *pFont ) const {
         return;
     }
     renderer.begin( 1280.0f, 720.0f );
+    if ( !bNativeBanner ) {
+        const float fadeOnly = getFade();
+        if ( fadeOnly > 0.0f ) {
+            renderer.drawRect( Rect2D( 0.0f, 0.0f, 1280.0f, 720.0f ), Rgba( 0, 0, 0, static_cast<uint32_t>( fadeOnly * 255.0f ) ) );
+        }
+        renderer.end();
+        return;
+    }
     // The banner: a dark band top left with the title, then the objective wrapped under it and the place / weather chips.
     const float x0 = 28.0f, y0 = 26.0f, w = 700.0f;
     std::vector<std::string> lines;

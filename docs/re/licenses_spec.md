@@ -523,3 +523,13 @@ A (`IA_MenuValidate`) starts, B (`IA_MenuBack`) abandons. Evidence: `docs/images
 Flags: `-nointro` skips it; the scripted hooks (`-licenseforce`, `-licensewarp`, `-licensepark`) skip it unless `-testintro`; `-introstart` starts after one loop.
 Differences from retail: the banner is plain rectangles and text (the retail toast has the test's icon and weather / place icons - the school list's icons could be reused); the demo car is the player's own car
 placed along the gate path (the retail run follows the racing line and shows the school car with its liveries); the retail cockpit shot is replaced by a side shot; the cuts and the times are the port's own.
+
+### 12.10 The real pre-test banner is RESULTS.vmf `preview_in` (2026-11-21, `main`)
+[CODE-dev] `GMCompDrivingSchool`'s event handler (`0xb5d730`) goes to the results movie's frame `preview_in` (string `0x14f55a4`) when the school state machine reaches its intro
+(`EventIntro` / `DrivingSchoolResults` / `DrivingSchoolReplay` are in the state-name table `0xb42a50`); the key events `0xc0c0 / 0xc0c1 / 0xc0c2` are OK / Cancel / Help. [DATA] The
+movie's `/desc` clip is the banner of the 360 clip: `/:TestName`, `/:TestDesc`, and three icon clips `type` (103 frames), `place` (26), `meteo` (22) whose frame labels are the school list's
+(`braking`, `r_school` / `road`, `sun` / `rain` / `night`), plus the Help / OK / Cancel bar; `hsysID = preview` is the Help page. `LicenseResultScreen::openPreview` drives it
+(`-nativebanner` keeps the old native rectangles); the icon names are shared with the list (`SchoolTestIconNames`). Evidence: `docs/images/school_test_banner_retail.png` (brake disc, cone, sun) -
+matches the 360 frame. The demonstration itself is a **replay**: strings `GMCompDrivingSchool replay trajectory` (`0xb5c210`) and `DrivingSchoolReplay`, the handler compares the replay time to the
+replay length (`[edi+0x44]`) to restart it, and `ig2/replays/rsc4t0n.rly` exist for every test - so the demo run (and the retail racing line) come from those files, not from the gate path the port drives now.
+Inspector flags added: `-dumpflashlabels` / `-dumpflashactions` (every loaded movie's root labels / action strings), `-resultlabel <label> -dumpresults <depth>` (open any RESULTS.vmf label on a result).

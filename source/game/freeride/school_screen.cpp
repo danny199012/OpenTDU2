@@ -242,22 +242,17 @@ void SchoolScreen::fillTests() {
         // school grounds, 1 the road), rswh the weather (0 sun, 1 rain, 2 night). The type ids beyond the five seen
         // (0 turn, 3 slalom, 4 overtaking, 7 braking, 9 circuit) follow the icon strings' order [INF]; a file without the
         // keys keeps the old guess from the title and the course.
-        static const char *const kTypeIcons[] = { "turn",   "turn90",   "turn180", "slalom", "overtaking", "acceleration",
-                                                  nullptr,  "braking",  "mixed",   "circuit", "obstacles" };
-        const int32_t typeId = bLoaded ? static_cast<int32_t>( challenge.getValue( "rsl2", -1 ) ) : -1;
-        const char *pTypeIcon = typeId >= 0 && typeId < static_cast<int32_t>( sizeof( kTypeIcons ) / sizeof( kTypeIcons[0] ) )
-                                    ? kTypeIcons[typeId]
-                                    : nullptr;
-        player.setVariable( line + "type", pTypeIcon != nullptr ? std::string( pTypeIcon )
-                                                                : ( bLoaded ? TestType( challenge ) : "turn" ) );
-        const int32_t weatherId = bLoaded ? static_cast<int32_t>( challenge.getValue( "rswh", 0 ) ) : 0;
-        player.setVariable( line + "meteo", weatherId == 1 ? "rain" : weatherId == 2 ? "night" : "sun" );
-        bool bRoad = false;
-        for ( const Ig2Gate &gate : challenge.getGates() ) {
-            bRoad = bRoad || gate.bRoad;
+        std::string typeName, placeName, meteoName;
+        if ( bLoaded ) {
+            SchoolTestIconNames( challenge, typeName, placeName, meteoName );
+        } else {
+            typeName = "turn";
+            placeName = "r_school";
+            meteoName = "sun";
         }
-        const int32_t placeId = bLoaded ? static_cast<int32_t>( challenge.getValue( "rsl1", -1 ) ) : -1;
-        player.setVariable( line + "place", ( placeId >= 0 ? placeId == 1 : bRoad ) ? "road" : "r_school" );
+        player.setVariable( line + "type", typeName );
+        player.setVariable( line + "meteo", meteoName );
+        player.setVariable( line + "place", placeName );
         player.setVariableBool( line + "done", IsTestPassed( name ) );
         if ( first < 0 && !IsTestPassed( name ) ) {
             first = static_cast<int32_t>( i );
@@ -361,4 +356,26 @@ void SchoolScreen::draw( Renderer2D &renderer ) {
     if ( bOpen && player.isLoaded() ) {
         player.draw( renderer );
     }
+}
+
+// The icon frame names of a test (R_SCHOOL.vmf list lines and RESULTS.vmf's pre-test banner): the .ig2's own keys [DATA, the 360
+// capture agrees on all six C4 tests]: rsl2 the type icon, rsl1 the place (0 the school grounds, 1 the road), rswh the weather
+// (0 sun, 1 rain, 2 night). The type ids beyond the five seen (0 turn, 3 slalom, 4 overtaking, 7 braking, 9 circuit) follow the
+// icon strings' order [INF]; a file without the keys keeps the guess from the title and the course.
+void SchoolTestIconNames( const Ig2Challenge &challenge, std::string &outType, std::string &outPlace, std::string &outMeteo ) {
+    static const char *const kTypeIcons[] = { "turn",  "turn90",  "turn180", "slalom", "overtaking", "acceleration",
+                                              nullptr, "braking", "mixed",   "circuit", "obstacles" };
+    const int32_t typeId = static_cast<int32_t>( challenge.getValue( "rsl2", -1 ) );
+    const char *pTypeIcon = typeId >= 0 && typeId < static_cast<int32_t>( sizeof( kTypeIcons ) / sizeof( kTypeIcons[0] ) )
+                                ? kTypeIcons[typeId]
+                                : nullptr;
+    outType = pTypeIcon != nullptr ? std::string( pTypeIcon ) : TestType( challenge );
+    const int32_t weatherId = static_cast<int32_t>( challenge.getValue( "rswh", 0 ) );
+    outMeteo = weatherId == 1 ? "rain" : weatherId == 2 ? "night" : "sun";
+    bool bRoad = false;
+    for ( const Ig2Gate &gate : challenge.getGates() ) {
+        bRoad = bRoad || gate.bRoad;
+    }
+    const int32_t placeId = static_cast<int32_t>( challenge.getValue( "rsl1", -1 ) );
+    outPlace = ( placeId >= 0 ? placeId == 1 : bRoad ) ? "road" : "r_school";
 }

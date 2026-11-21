@@ -116,6 +116,12 @@ void LicenseResultScreen::open( const Info &info ) {
     player.setVariableBool( "/:Input", false );
     bPassed = info.bPassed;
     bReplayBack = false;
+    if ( const char *pPreview = CmdLine::GetArgValue( "-resultlabel" ) ) { // inspector: any root label of RESULTS.vmf
+        player.gotoLabel( "/", pPreview, true, true );
+        if ( CmdLine::HasArg( "-dumpresults" ) ) {
+            player.dumpClips( "/", CmdLine::GetArgInt( "-dumpresults", 4 ) );
+        }
+    } else
     player.gotoLabel( "/", info.bPassed ? "success_test" : "failed_test", true, true );
     bOpen = true;
     stickRepeat = 0.0f;
@@ -124,6 +130,30 @@ void LicenseResultScreen::open( const Info &info ) {
                        info.bPassed ? "success_test" : "failed_test", info.TestName.c_str(), info.Message.c_str(),
                        info.Time, info.Target, info.LicenceName.c_str(), info.TestsDone, info.TestsTotal, info.Licensed );
     }
+}
+
+bool LicenseResultScreen::openPreview( const std::string &title, const std::string &description, const std::string &type,
+                                       const std::string &place, const std::string &meteo ) {
+    if ( !load() ) {
+        return false;
+    }
+    player.setVariable( "/:TestName", title );
+    player.setVariable( "/:TestDesc", description );
+    player.setVariableBool( "/:Input", false );
+    player.gotoLabel( "/", "preview_in", true, true );
+    // The icons: frame labels of /desc/type, /desc/place and /desc/meteo.
+    player.gotoLabel( "/desc/type", type.c_str(), false );
+    player.gotoLabel( "/desc/place", place.c_str(), false );
+    player.gotoLabel( "/desc/meteo", meteo.c_str(), false );
+    bPreview = true;
+    return true;
+}
+
+void LicenseResultScreen::closePreview() {
+    if ( bPreview && player.isLoaded() ) {
+        player.gotoLabel( "/", "init", false );
+    }
+    bPreview = false;
 }
 
 void LicenseResultScreen::close() {
@@ -141,6 +171,10 @@ LicenseResultScreen::eChoice LicenseResultScreen::takeChoice() {
 }
 
 void LicenseResultScreen::tick( float deltaTime ) {
+    if ( bPreview ) {
+        player.tick( deltaTime );
+        return;
+    }
     if ( !bOpen ) {
         return;
     }
@@ -182,7 +216,7 @@ void LicenseResultScreen::tick( float deltaTime ) {
 }
 
 void LicenseResultScreen::draw( Renderer2D &renderer ) {
-    if ( bOpen && player.isLoaded() ) {
+    if ( ( bOpen || bPreview ) && player.isLoaded() ) {
         player.draw( renderer );
     }
 }

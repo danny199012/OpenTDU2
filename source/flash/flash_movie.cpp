@@ -6,6 +6,7 @@
 #include "render/image_file.h"
 #include "render/gs_render.h"
 #include "system/cmd_line.h"
+void DumpMovieButtons( const FlashMovie *pMovie );
 
 #include "stb_image_write.h"
 
@@ -54,6 +55,14 @@ bool FlashMovie::load( const char *pName, const char *pResolution ) {
                        pName, vmf.getStageWidth(), vmf.getStageHeight(), vmf.getFrameCount(),
                        vmf.getFrameRate(), vmf.getTags().size(), vmf.getBitmaps().size(),
                        vmf.getFonts().size() );
+        if ( CmdLine::HasArg( "-dumpflashlabels" ) ) {
+            if ( CmdLine::HasArg( "-dumpflashactions" ) ) {
+                DumpMovieButtons( this );
+            }
+            for ( const std::string &label : vmf.getFrameLabels() ) {
+                OTDU_LOG_INFO( "FLABEL %s : %s\n", pName, label.c_str() );
+            }
+        }
         createFonts();
         // -dumpflashart <all|bank,bank...>: every bitmap character of each
         // loaded movie as _flashart/<movie>/<id>.png (standalones and atlas

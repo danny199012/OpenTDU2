@@ -26,6 +26,8 @@ public:
     bool start( const std::vector<Vector3f> &path, const Info &info );
     void stop();
     inline bool isActive() const { return bActive; }
+    // false: RESULTS.vmf's own banner is drawn (preview_in), only the fade is drawn here.
+    inline void setNativeBanner( bool bNative ) { bNativeBanner = bNative; }
     void tick( float deltaTime );
     // The demo car's pose now.
     inline const Vector3f &getCarPosition() const { return carPosition; }
@@ -41,6 +43,7 @@ private:
     Vector3f pointAt( float distance, Vector3f &outForward ) const;
 
     bool bActive = false;
+    bool bNativeBanner = true;
     Info info;
     std::vector<Vector3f> path;
     std::vector<float> cumulative;

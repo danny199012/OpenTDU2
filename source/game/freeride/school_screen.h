@@ -23,6 +23,10 @@ class Renderer2D;
 //   rsch:dtup  a line is highlighted: _root.TestDesc
 //   rsch:tspr  a test was chosen (_root.num_test)
 //   wmon / rsch:exit  back to the walk (B on the carousel)
+class Ig2Challenge;
+// The icon frame names of a test: type ("braking"...), place ("r_school" / "road"), meteo ("sun" / "rain" / "night").
+void SchoolTestIconNames( const Ig2Challenge &challenge, std::string &outType, std::string &outPlace, std::string &outMeteo );
+
 class SchoolScreen {
 public:
     bool load();
