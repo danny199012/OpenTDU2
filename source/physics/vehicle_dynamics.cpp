@@ -43,6 +43,7 @@ constexpr float kWheelBrakeTargetMinSpeed = 1.0f; // AbsLongitudinalVelocity < 1
 // creep of the reverse gear holds the car at ~1.5 m/s, so the decoded -0.5 /
 // -0.3 m/s tests alone never hand the car back to forward drive.
 constexpr float kReverseForwardSpeed = 2.5f;
+constexpr float kHillHoldSpeed = 0.8f; // m/s: below this a parked automatic (neutral, no pedals) is held by the brakes [INF]
 // Chassis depenetration: the distance a contact may push the body out per
 // iteration, and the number of relaxation passes. The old 0.05 m cap could not
 // keep up with a landing (0.2 m of penetration per 90 Hz tick), so the body
@@ -890,6 +891,17 @@ void VehicleDynamics::updateGearboxController( float dt, float forwardSpeed ) {
     gearbox.CtrlFlags = bDisengage ? ( gearbox.CtrlFlags | 0x10u ) : ( gearbox.CtrlFlags & ~0x10u );
     // aids flag bit0 (wheels held by the brakes): both pedals (automatic).
     aidFlags = ( gearbox.Type == 0 && ( gearbox.CtrlFlags & 8u ) ) ? ( aidFlags | 1u ) : ( aidFlags & ~1u );
+    // Hill hold [INF, gameplay assist; -nohillhold = off]: an automatic box that has dropped to neutral with
+    // both pedals released and the car (almost) stopped would freewheel down any grade (10 % -> 9 km/h,
+    // 30 % -> 60 km/h in -vehtest "lift"). Hold the wheels until a pedal / the hand brake is used.
+    {
+        static const bool bNoHillHold = CmdLine::HasArg( "-nohillhold" );
+        const bool bParked = std::abs( forwardSpeed ) < kHillHoldSpeed && velocity.dot( velocity ) < kHillHoldSpeed * kHillHoldSpeed * 4.0f;
+        const bool bRollingBack = forwardSpeed < -0.3f; // neutral / drive and no pedal: the car must not run away backwards
+        bHillHold = !bNoHillHold && gearbox.Type == 0 && ( gearbox.State == 3 || ( gearbox.State == 4 && bRollingBack ) ) &&
+                    engine.Pedal <= idlePosition && aidBrakePosition == 0.0f && ( aidFlags & 8u ) == 0 &&
+                    ( bParked || bRollingBack );
+    }
     if ( clutch.Type == 0 && bDisengage ) {
         clutchSetPosition( 1.0f );
     }
@@ -1001,7 +1013,7 @@ void VehicleDynamics::updateBrakeControllers( float dt, const std::vector<float>
             brake.Position = 1.0f;
             continue;
         }
-        if ( ( aidFlags & 1u ) != 0 ) {
+        if ( ( aidFlags & 1u ) != 0 || bHillHold ) {
             // Wheels held (both pedals, automatic box): full brake to 0 [CODE].
             brake.Velocity = 0.0f;
             brake.bHasTarget = true;

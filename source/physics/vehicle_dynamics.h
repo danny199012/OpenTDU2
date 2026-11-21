@@ -263,6 +263,7 @@ private:
     float aidBrakePreviousPosition = 0.0f;
     float aidBrakePositionApplied = 0.0f; // aids Position +0xd4 (after the gearbox controller)
     uint32_t aidFlags = 0;
+    bool bHillHold = false; // automatic box parked in neutral at ~0 speed: the wheels are held (no roll-away on a grade) [INF]
 
     VehicleSetup params;
     std::vector<WheelDesc> wheels;

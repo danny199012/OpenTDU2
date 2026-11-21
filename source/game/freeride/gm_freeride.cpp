@@ -1643,6 +1643,53 @@ void RunVehicleTest( const VehicleDynamics &templateVehicle ) {
                            bFlipped ? " FLIPPED" : "" );
         }
     }
+    // Grade test (the test-area hill strip): a car stopped on a 10 / 20 / 30 % ramp (heading +z, uphill) with
+    // no input, then a brake tap, then a launch; and a steady corner on the grade. Reports the roll-back
+    // distance / speed (negative = backwards), the peak roll and whether it flipped. -vehtest only [INF].
+    for ( const float grade : { 0.10f, 0.20f, 0.30f } ) {
+        VehicleWorldCollision ramp;
+        ramp.setHeightFunction( [grade]( float, float z, float, float &outHeight ) {
+            outHeight = grade * z;
+            return true;
+        } );
+        const float slopeAngle = std::atan( grade );
+        const Quaternionf pitch = Quaternionf::FromAxisAngle( Vector3f( 1.0f, 0.0f, 0.0f ), -slopeAngle );
+        const float spawnY = 0.12f + Max( v.getWheelDescs().empty() ? 0.0f : v.getWheelDescs()[0].Radius - 0.34f, 0.0f );
+        for ( const char *pCase : { "lift", "hold", "launch", "corner" } ) {
+            v = templateVehicle;
+            v.reset( Vector3f( 0.0f, spawnY, 0.0f ), pitch, Vector3f( 0.0f, 0.0f, 0.0f ) );
+            const std::string which = pCase;
+            const float z0 = v.getPosition().z;
+            float zMin = z0, rollMax = 0.0f, speedMin = 0.0f;
+            bool bFlipped = false;
+            for ( int32_t i = 0; i < 8 * 60; i++ ) {
+                const float t = i * dt;
+                input = VehicleDynamics::Input();
+                if ( which == "lift" ) {
+                    input.Throttle = t < 1.5f ? 0.6f : 0.0f; // engage first, then lift off
+                } else if ( which == "hold" ) {
+                    input.Throttle = t < 1.5f ? 0.6f : 0.0f;
+                    input.Brake = t > 2.0f ? 0.5f : 0.0f;
+                } else if ( which == "launch" ) {
+                    input.Throttle = 1.0f;
+                } else if ( which == "corner" ) {
+                    input.Throttle = 0.6f;
+                    input.Steering = t > 3.0f ? 0.5f : 0.0f;
+                }
+                v.step( dt, input, ramp );
+                zMin = Min( zMin, v.getPosition().z );
+                const Vector3f fwd = v.getOrientation().rotate( Vector3f( 0.0f, 0.0f, 1.0f ) );
+                speedMin = Min( speedMin, v.getVelocity().dot( fwd ) );
+                const Vector3f sideAxis = v.getOrientation().rotate( Vector3f( 1.0f, 0.0f, 0.0f ) );
+                rollMax = Max( rollMax, std::abs( std::asin( Clamp( sideAxis.y, -1.0f, 1.0f ) ) * 57.29578f ) );
+                bFlipped = bFlipped || v.getOrientation().rotate( Vector3f( 0.0f, 1.0f, 0.0f ) ).y < 0.3f;
+            }
+            OTDU_LOG_INFO( "VEHTEST grade '%s': %.0f %% %s -> rolled back %.2f m (min fwd speed %.1f km/h), peak roll %.1f deg, "
+                           "end z %.1f speed %.1f km/h%s\n",
+                           setup.Db.FileName.c_str(), grade * 100.0f, pCase, z0 - zMin, speedMin * 3.6f, rollMax,
+                           v.getPosition().z, v.getSpeedKmh(), bFlipped ? " FLIPPED" : "" );
+        }
+    }
     // Road-edge test: a 7 m road with a thin kerb box (0.15 / 0.30 m) on each side over a ditch 1 m lower. The
     // car steers full lock at an edge for 1 s, then straight, at 60 / 100 km/h; the question the flat tests
     // cannot answer: does leaving the road roll the car, and does the damping table change it.
