@@ -310,7 +310,7 @@ inline constexpr const char *kCaravanSpot = "EPH_L0C_1254I";
 inline constexpr const char *kIntroHouseSpot = "EPH_L3DI_5067I";
 // The houses the pause card's counter shows: OwnedHouses without the story's two (the caravan, the opening house).
 int32_t CountCardHouses( const PlayerProfile &profile );
-// The money a new story starts with, paid when Tess wakes the player [owner-reported retail value, not in the data].
+// The money a new story starts with, paid when Tess wakes the player [owner-reported retail value, not in the data; confirmed by the owner against a fresh 360 recomp game with nothing altered: $27,000 buys a $20,000 Lancia start car, or one of each of the three start cars].
 inline constexpr int32_t kStoryStartMoney = 27000;
 
 // FUN_00abe0e0: reason statistics; bPending false adds to the money (clamped

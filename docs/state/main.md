@@ -4,6 +4,10 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Note 2026-11-21 (`main`, owner confirmation of the start money)
+
+- Owner: the $27,000 start money is what a fresh, unmodified 360 recomp new game gave (1:1 real game); it covers the $20,000 Lancia start car, or one of each of the three start cars with change left. `kStoryStartMoney` stays $27,000, now confirmed [owner, 360 recomp]. The second reference set is in `reference/intro_story_360_female/` (14 clips + NOTES.md, silent audio); its notes show $7,850 later in the story and a $57,850 Delta at the used dealer, which is a different purchase from the start-car pick.
+
 ## Session 2026-11-21 (`main`, end-of-test cinematic: the cabin close-ups + the actors' clips)
 
 - The close-up cameras were mis-parsed, not head-parented: 4-float position keys (flag + x y z) and look-at heading keys (actor index + target offset). Fixed in `cinematic_scene.cpp` (`Track::LookAtActor`, look-at rotation in `Cinematic::getCamera`); the windscreen shot now shows the driver and the instructor behind the glass (`docs/images/school_end_scene_windscreen.png`). Spec `licenses_spec.md` 12.7.
