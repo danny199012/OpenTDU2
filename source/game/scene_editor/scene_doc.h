@@ -52,14 +52,16 @@ struct SceneObject {
     bool bVisible = true;
 };
 
-// A piece of the streamed game that the scene hides (a baked sub-object, a
+// A piece of the streamed game that the scene edits (a baked sub-object, a
 // .pmi library node, a material). "target" is a node / material name (what
 // -lognodesnear / -logstationmats print) or "hc:<16 hex>" when the parser
-// could not recover the name.
+// could not recover the name. Kind "color" replaces the material's
+// Diffuse.rgb with Color (M6 material editing).
 struct SceneOverride {
-    std::string Kind;   // "node" | "material"
-    std::string Target; // name or hc:<hex>
+    std::string Kind;      // "node" | "material" | "color"
+    std::string Target;    // name or hc:<hex>
     bool bHidden = true;
+    Vector4f Color = Vector4f( 1.0f, 1.0f, 1.0f, 1.0f ); // the "color" kind's RGB (A unused)
 };
 
 // A road drawn from a spline (M3; the document model ships with M1 so scenes

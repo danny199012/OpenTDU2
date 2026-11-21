@@ -264,11 +264,15 @@ void SpotExterior::draw( EdenRenderer &renderer ) const {
 
 void SpotExterior::applyVisibilityOverrides( const std::unordered_set<uint64_t> &hiddenNodes,
                                              const std::unordered_set<uint64_t> &hiddenMaterials,
-                                             const std::vector<std::string> &hiddenMaterialNames ) const {
+                                             const std::vector<std::string> &hiddenMaterialNames,
+                                             const std::unordered_map<uint64_t, Vector4f> &colorHashes,
+                                             const std::vector<std::pair<std::string, Vector4f>> &colorNames ) const {
     for ( const auto &pSet : sets ) {
         EdenModelApplyVisibility( *pSet, hiddenNodes, hiddenMaterials, hiddenMaterialNames );
+        EdenModelApplyMaterialColors( *pSet, colorHashes, colorNames );
     }
     for ( const Prop &prop : props ) {
         EdenModelApplyVisibility( *prop.Model, hiddenNodes, hiddenMaterials, hiddenMaterialNames );
+        EdenModelApplyMaterialColors( *prop.Model, colorHashes, colorNames );
     }
 }

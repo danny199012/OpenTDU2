@@ -251,7 +251,7 @@ void DrawPropertiesSection( GMSceneEditor &editor ) {
 }
 
 void DrawWorldPickSection( GMSceneEditor &editor ) {
-    if ( !ImGui::CollapsingHeader( "World pick / detach" ) ) {
+    if ( !ImGui::CollapsingHeader( "World pick / detach / recolor" ) ) {
         return;
     }
     const GMSceneEditor::PickInfo &hover = editor.hover;
@@ -263,15 +263,53 @@ void DrawWorldPickSection( GMSceneEditor &editor ) {
         if ( !hover.NodeName.empty() && ImGui::Button( "hide this node (detach)" ) ) {
             editor.addOverride( "node", hover.NodeName );
         }
+        // The node's materials (M6): a recolor row per material (the live
+        // swatch shows the override's color; the edit records a color
+        // override — the same kind the commands write).
+        if ( !hover.NodeMaterials.empty() ) {
+            ImGui::TextDisabled( "materials of this node:" );
+            for ( size_t i = 0; i < hover.NodeMaterials.size(); i++ ) {
+                const std::string &name = hover.NodeMaterials[ i ];
+                ImGui::PushID( static_cast<int>( i ) );
+                // The current override's color (or white when none).
+                const SceneOverride *pExisting = nullptr;
+                for ( const SceneOverride &o : editor.doc.Overrides ) {
+                    if ( o.Kind == "color" && StringCmpI( o.Target.c_str(), name.c_str() ) == 0 ) {
+                        pExisting = &o;
+                        break;
+                    }
+                }
+                float rgb[ 3 ] = { pExisting != nullptr ? pExisting->Color.x : 1.0f,
+                                   pExisting != nullptr ? pExisting->Color.y : 1.0f,
+                                   pExisting != nullptr ? pExisting->Color.z : 1.0f };
+                ImGui::SetNextItemWidth( 130.0f );
+                if ( ImGui::ColorEdit3( "##mat", rgb, ImGuiColorEditFlags_NoInputs ) ) {
+                    editor.addColorOverride( name, Vector4f( rgb[ 0 ], rgb[ 1 ], rgb[ 2 ], 1.0f ) );
+                }
+                ImGui::SameLine();
+                ImGui::TextUnformatted( name.c_str() );
+                ImGui::PopID();
+            }
+        }
     } else {
         ImGui::TextDisabled( "click the world to inspect a node" );
     }
     if ( !editor.doc.Overrides.empty() ) {
-        ImGui::Text( "%zu hidden:", editor.doc.Overrides.size() );
+        ImGui::Text( "%zu override(s):", editor.doc.Overrides.size() );
         for ( size_t i = 0; i < editor.doc.Overrides.size(); i++ ) {
             const SceneOverride &override = editor.doc.Overrides[ i ];
             ImGui::PushID( static_cast<int>( i ) );
-            ImGui::Text( "- %s '%s'", override.Kind.c_str(), override.Target.c_str() );
+            if ( override.Kind == "color" ) {
+                float rgb[ 3 ] = { override.Color.x, override.Color.y, override.Color.z };
+                ImGui::SetNextItemWidth( 130.0f );
+                if ( ImGui::ColorEdit3( "##ovr", rgb, ImGuiColorEditFlags_NoInputs ) ) {
+                    editor.addColorOverride( override.Target, Vector4f( rgb[ 0 ], rgb[ 1 ], rgb[ 2 ], 1.0f ) );
+                }
+                ImGui::SameLine();
+                ImGui::Text( "color '%s'", override.Target.c_str() );
+            } else {
+                ImGui::Text( "- %s '%s'", override.Kind.c_str(), override.Target.c_str() );
+            }
             ImGui::SameLine();
             if ( ImGui::SmallButton( "remove" ) ) {
                 editor.pushUndo();
@@ -399,6 +437,16 @@ void GMSceneEditor::drawUI() {
 }
 
 void GMSceneEditor::drawSceneUI() {
+    // The world overlays (the gizmo, the selection box) draw FIRST (the
+    // ImGui background list renders behind the panel windows, over the 3D
+    // scene). This runs inside the ImGui frame (drawUI), which draw() (the
+    // 3D pass) is NOT — a background-list command added in draw() is cleared
+    // by the next NewFrame and never renders (found by the gizmo's missing
+    // draw, M6).
+    if ( bWorldReady && view.isReady() ) {
+        drawGizmo();
+        drawSelectionBox();
+    }
     if ( !bShowPanel ) {
         return;
     }

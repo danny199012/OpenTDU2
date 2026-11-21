@@ -1344,3 +1344,42 @@ int32_t EdenModel::countMyHouseColors() const {
     }
     return count;
 }
+
+void EdenModelApplyMaterialColors( EdenModel &model, const std::unordered_map<uint64_t, Vector4f> &colorHashes,
+                                   const std::vector<std::pair<std::string, Vector4f>> &colorNames ) {
+    if ( !model.isLoaded() || ( colorHashes.empty() && colorNames.empty() ) ) {
+        // Still revert: a cleared override list must put every material back.
+        for ( EdenMaterial &material : model.getMaterials() ) {
+            if ( material.bDiffuseOverridden ) {
+                material.Diffuse = material.OriginalDiffuse;
+                material.bDiffuseOverridden = false;
+            }
+        }
+        return;
+    }
+    for ( EdenMaterial &material : model.getMaterials() ) {
+        const Vector4f *pColor = nullptr;
+        const auto it = colorHashes.find( material.Hashcode );
+        if ( it != colorHashes.end() ) {
+            pColor = &it->second;
+        }
+        if ( pColor == nullptr && !material.Name.empty() ) {
+            for ( const auto &named : colorNames ) {
+                if ( StringCmpI( material.Name.c_str(), named.first.c_str() ) == 0 ) {
+                    pColor = &named.second;
+                    break;
+                }
+            }
+        }
+        if ( pColor != nullptr ) {
+            if ( !material.bDiffuseOverridden ) {
+                material.OriginalDiffuse = material.Diffuse;
+                material.bDiffuseOverridden = true;
+            }
+            material.Diffuse = Vector4f( pColor->x, pColor->y, pColor->z, material.OriginalDiffuse.w );
+        } else if ( material.bDiffuseOverridden ) {
+            material.Diffuse = material.OriginalDiffuse;
+            material.bDiffuseOverridden = false;
+        }
+    }
+}

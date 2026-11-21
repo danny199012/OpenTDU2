@@ -233,7 +233,43 @@ the walk eye. This is a compose / feel tool — the retail walk (avatar,
 cinematics, shop menus) stays the game modes' route. Commands: `enter_walk`
 (`id` / bank-local `pos` + `yaw` overrides), `exit_walk`.
 
-## 8. What we must not do (unchanged, docs/re/modding.md 4)
+## 8. Polish (M6: the gizmo + the material colors)
+
+**The 3-axis translate gizmo** (F3 toggles): the world-axis lines from the
+selection's origin with grab handles and an origin square (the ground-plane
+drag it already had). LMB on an axis drags the object along that axis: the
+mouse ray's closest point on the fixed axis line (the ray / line closest
+point), one undo entry per drag, the grid snap applied. `move_axis` (the
+AI-drivable form) runs the same screen-delta math synthesized from the
+screen centre — verified: an X drag of 150 px moved the object exactly along
+X (y / z untouched), a Y drag lifted it and a second one brought it back.
+
+Two render laws the gizmo surfaced:
+- **draw() is OUTSIDE the ImGui frame** (tdu_instance.cpp draws the 3D pass
+  before `pImGui->beginFrame`): background-draw-list commands added in
+  draw() are cleared by the next NewFrame and never render — the M1
+  selection box had never actually drawn. Both overlays moved into
+  `drawSceneUI()` (inside `drawUI`, inside the frame).
+- The ImGui draw-list space is **io.DisplaySize** (the window points at the
+  DPI scale), not the framebuffer the scene params carry — the projection
+  converts through `ImGui::GetIO().DisplaySize`.
+- And the world→clip law: **`params.Projection * params.View`** (the
+  renderer's own composition, `Projection.mulPrecise(View)`), NOT View *
+  Projection — clip.w of the old order came out as the negative raw Z and
+  everything behind the camera failed.
+
+**The material color overrides** (M6): a scene override of kind `"color"`
+(`target` = a material name / `hc:<hex>`, `color` = [r, g, b]) replaces the
+matching materials' Diffuse.rgb everywhere (the same matching law as the
+hides; the original saved on the first application so a cleared override
+reverts; applied at every model load and to the streamed spot banks like
+the hides). `set_material_color` (the command) and a recolor row per
+material of the picked world node (the World pick / detach / recolor
+section; the live swatches edit in place). Verified: `Concrete_stripe` of
+the EAS_B bank recolored red — the A/B crops show the red band on the
+facade; the override round-trips through the scene JSON.
+
+## 9. What we must not do (unchanged, docs/re/modding.md 4)
 
 The editor writes only `<mods>/` (scenes, props.txt) and the screenshot /
 export paths it is given. The game folder is never written; no game data

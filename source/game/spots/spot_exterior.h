@@ -39,10 +39,13 @@ public:
     void registerLightmaps( EdenSceneView &view );
     void draw( EdenRenderer &renderer ) const;
     // Scene editor / tool visibility overrides (the EdenWorld::addHidden*
-    // sets): every model of the bank gets them. Idempotent.
+    // sets): every model of the bank gets them. Idempotent. The material
+    // color overrides (M6) ride the same call.
     void applyVisibilityOverrides( const std::unordered_set<uint64_t> &hiddenNodes,
                                    const std::unordered_set<uint64_t> &hiddenMaterials,
-                                   const std::vector<std::string> &hiddenMaterialNames ) const;
+                                   const std::vector<std::string> &hiddenMaterialNames,
+                                   const std::unordered_map<uint64_t, Vector4f> &colorHashes = {},
+                                   const std::vector<std::pair<std::string, Vector4f>> &colorNames = {} ) const;
 
     inline const std::string &getPath() const { return path; }
     inline std::vector<Matrix4x4f> &getFrames() { return frames; }

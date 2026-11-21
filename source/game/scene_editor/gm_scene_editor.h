@@ -96,6 +96,7 @@ public:
         std::string ObjectId;
         bool bWorld = false;        // hit the streamed world
         std::string NodeName;       // the world node under the cursor
+        std::vector<std::string> NodeMaterials; // the node's items' material names (M6)
         Vector3f Position;          // hit position (world)
         float Distance = 0.0f;
     };
@@ -104,6 +105,21 @@ public:
     bool bDragging = false;
     Vector3f dragGrabOffset;
     bool bPrevLeftMouse = false;
+
+    // The 3-axis translate gizmo (M6): three world-axis lines from the
+    // selection's origin with screen-space grab handles; LMB on an axis
+    // drags the object along that axis (ray / line closest point). The
+    // ground-plane drag and the numeric inputs stay (the axis drag only
+    // starts when the cursor is on a handle).
+    enum class eGizmoAxis { None, X, Y, Z };
+    eGizmoAxis gizmoHover = eGizmoAxis::None;
+    eGizmoAxis gizmoDrag = eGizmoAxis::None;
+    Vector3f gizmoDragStartPosition; // the object position at the drag start
+    float gizmoDragStartT = 0.0f;    // the axis parameter at the drag start
+    Vector3f gizmoOrigin;            // the gizmo's world origin (the selection)
+    Vector2f gizmoAxisEnd[ 3 ];      // the axis ends in pixels (the pick handles)
+    bool bGizmoShown = true;         // F3 toggles
+    bool bGizmoCaptured = false;     // this frame's hover / drag owns the mouse
 
     // Undo / redo (document snapshots; a mutation pushes before changing)
     std::vector<SceneDocument> undoStack;
@@ -166,8 +182,18 @@ public:
     void deleteSelected();
     void duplicateSelected();
     void snapSelectedToGround();
-    // The visibility overrides: the doc holds them, EdenWorld applies.
+    // The gizmo (M6): the screen-space draw (the ImGui frame's overlay —
+    // drawUI runs it; draw() is the 3D pass OUTSIDE the frame), the hover /
+    // drag state per tick, and the AI-drivable axis move (the same
+    // screen-delta math the mouse drag uses, from the screen centre).
+    void drawGizmo();
+    void drawSelectionBox();
+    void tickGizmo( float deltaTime );
+    bool gizmoAxisDrag( eGizmoAxis axis, float dxPixels, float dyPixels );
+    // The visibility overrides: the doc holds them, EdenWorld applies. The
+    // "color" kind (M6) replaces a material's Diffuse.rgb.
     void addOverride( const std::string &kind, const std::string &target );
+    void addColorOverride( const std::string &target, const Vector4f &color );
     void applyOverrides();
     // Prop placements -> <mods>/props.txt (the route the game draws today).
     void commitPropsToGame();

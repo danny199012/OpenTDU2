@@ -231,7 +231,8 @@ public:
     // node's name ("" when the parser could not recover it). False when
     // nothing is hit (outDistance untouched).
     bool raycastObjects( const Vector3f &origin, const Vector3f &direction, float &outDistance,
-                         std::string &outNodeName ) const;
+                         std::string &outNodeName, const EdenModel **ppOutModel = nullptr,
+                         int32_t *pOutNodeIndex = nullptr ) const;
     // Visibility overrides (the scene editor's "detach / hide" of baked
     // pieces): the named nodes / materials are hidden in every model loaded
     // after the call and in the already loaded ones (sectors, areas, the
@@ -240,6 +241,14 @@ public:
     // "hc:<16 hex>" addresses a hash directly. Idempotent.
     void addHiddenNode( const std::string &name );
     void addHiddenMaterial( const std::string &name );
+    // The material color overrides (M6): the matching materials' Diffuse.rgb
+    // is replaced (the original saved so a cleared override reverts). Same
+    // target law as the hides (a name / "hc:<hex>").
+    void addMaterialColor( const std::string &name, const Vector4f &color );
+    void clearMaterialColors() {
+        materialColorHashes.clear();
+        materialColorNames.clear();
+    }
     void clearHiddenOverrides();
     // GetIdentifier64bit, or the raw hash of an "hc:<16 hex>" target.
     static uint64_t OverrideHash( const std::string &name );
@@ -248,6 +257,8 @@ public:
     inline const std::unordered_set<uint64_t> &getHiddenNodeHashes() const { return hiddenNodeHashes; }
     inline const std::unordered_set<uint64_t> &getHiddenMaterialHashes() const { return hiddenMaterialHashes; }
     inline const std::vector<std::string> &getHiddenMaterialNames() const { return hiddenMaterialNames; }
+    inline const std::unordered_map<uint64_t, Vector4f> &getMaterialColorHashes() const { return materialColorHashes; }
+    inline const std::vector<std::pair<std::string, Vector4f>> &getMaterialColorNames() const { return materialColorNames; }
 
 private:
     struct Sector;
@@ -289,10 +300,13 @@ private:
     // loaded sector, after MarkCarvedCells.
     void updateCarveBuffers( Sector &sector );
     // The hidden node / material override sets applied to a freshly loaded
-    // model (see addHiddenNode / addHiddenMaterial).
+    // model (see addHiddenNode / addHiddenMaterial), and the material color
+    // overrides (M6) applied the same way.
     std::unordered_set<uint64_t> hiddenNodeHashes;
     std::unordered_set<uint64_t> hiddenMaterialHashes;
     std::vector<std::string> hiddenMaterialNames; // long names (no hash form)
+    std::unordered_map<uint64_t, Vector4f> materialColorHashes;
+    std::vector<std::pair<std::string, Vector4f>> materialColorNames; // long names (no hash form)
     void applyVisibility( EdenModel &model ) const;
     // The mod roads' surface soup (addRoadSurfaceTriangles): world-space
     // triangles in 8 m XZ buckets; getSurfaceHeight / getDriveHeight sample

@@ -86,6 +86,12 @@ struct EdenMaterial {
     Vector4f Ambient = Vector4f( 1, 1, 1, 1 );
     Vector4f Specular = Vector4f( 0, 0, 0, 1 );
     Vector4f Emissive = Vector4f( 0, 0, 0, 1 );
+    // The scene editor's color overrides (M6, docs/re/scene_editor.md): the
+    // Diffuse.rgb replaced by the override, the original saved on the first
+    // application so a cleared override reverts (the application is
+    // idempotent per frame, the same law as the hide states).
+    bool bDiffuseOverridden = false;
+    Vector4f OriginalDiffuse = Vector4f( 1, 1, 1, 1 );
     uint8_t SrcBlend = 2;
     uint8_t DstBlend = 1;
     uint8_t CullMode = 3; // D3DCULL

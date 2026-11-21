@@ -361,6 +361,9 @@ void GMSceneEditor::updateCamera( float deltaTime ) {
     if ( gpInput->wasKeyPressed( SDL_SCANCODE_F2 ) ) {
         bShowPanel = !bShowPanel;
     }
+    if ( gpInput->wasKeyPressed( SDL_SCANCODE_F3 ) ) {
+        bGizmoShown = !bGizmoShown;
+    }
     // Walk entry (M4): the selected / nearest interior placement, else the
     // scene grounds.
     if ( gpInput->wasKeyPressed( SDL_SCANCODE_F6 ) ) {
@@ -726,14 +729,18 @@ void GMSceneEditor::streamWorld( bool bForce, const Vector3f &center ) {
 void GMSceneEditor::streamExteriors( const Vector3f &center ) {
     exteriors.tick( view, center, bExteriors );
     refreshGrassClearings();
-    // The hide overrides of the scene cover the streamed banks too (idempotent,
-    // cheap: a bank is a handful of models).
+    // The hide + color overrides of the scene cover the streamed banks too
+    // (idempotent, cheap: a bank is a handful of models).
     if ( !doc.Overrides.empty() ) {
         const std::unordered_set<uint64_t> &hiddenNodes = view.getWorld().getHiddenNodeHashes();
         const std::unordered_set<uint64_t> &hiddenMaterials = view.getWorld().getHiddenMaterialHashes();
-        if ( !hiddenNodes.empty() || !hiddenMaterials.empty() ) {
+        const std::unordered_map<uint64_t, Vector4f> &colorHashes = view.getWorld().getMaterialColorHashes();
+        const std::vector<std::pair<std::string, Vector4f>> &colorNames = view.getWorld().getMaterialColorNames();
+        if ( !hiddenNodes.empty() || !hiddenMaterials.empty() || !colorHashes.empty() || !colorNames.empty() ) {
             for ( const auto &pExterior : exteriors.getExteriors() ) {
-                pExterior->applyVisibilityOverrides( hiddenNodes, hiddenMaterials, view.getWorld().getHiddenMaterialNames() );
+                pExterior->applyVisibilityOverrides( hiddenNodes, hiddenMaterials,
+                                                     view.getWorld().getHiddenMaterialNames(), colorHashes,
+                                                     colorNames );
             }
         }
     }
@@ -803,7 +810,10 @@ void GMSceneEditor::tick( float deltaTime ) {
     const bool bLeftPressed = bLeft && !bPrevLeftMouse;
     const bool bLeftReleased = !bLeft && bPrevLeftMouse;
     bPrevLeftMouse = bLeft;
-    if ( bMouseFree && view.isReady() ) {
+    // The gizmo next: its hover / drag owns the mouse when the cursor is on
+    // an axis handle (the ground-plane drag and the pick stay for the rest).
+    tickGizmo( deltaTime );
+    if ( bMouseFree && view.isReady() && !bGizmoCaptured ) {
         if ( bLeftPressed ) {
             pickAt( io.MousePos.x, io.MousePos.y );
             if ( hover.bSceneObject ) {
@@ -874,53 +884,55 @@ void GMSceneEditor::draw() {
     if ( bWorldReady ) {
         view.draw();
     }
-    // Selection highlight: an ImGui overlay box around the selected object
-    // (screen space projection of its AABB; the draw lists draw over the
-    // scene, under the panels).
-    if ( bWorldReady && !selectedId.empty() && view.isReady() ) {
-        const SceneObjects::Instance *pInstance = sceneObjects.findInstance( selectedId );
-        if ( pInstance != nullptr ) {
-            const EdenSceneParams &params = view.getSceneParams();
-            ImDrawList *pDraw = ImGui::GetBackgroundDrawList();
-            const Vector3f corners[ 8 ] = {
-                Vector3f( pInstance->BoundsMin.x, pInstance->BoundsMin.y, pInstance->BoundsMin.z ),
-                Vector3f( pInstance->BoundsMax.x, pInstance->BoundsMin.y, pInstance->BoundsMin.z ),
-                Vector3f( pInstance->BoundsMin.x, pInstance->BoundsMax.y, pInstance->BoundsMin.z ),
-                Vector3f( pInstance->BoundsMax.x, pInstance->BoundsMax.y, pInstance->BoundsMin.z ),
-                Vector3f( pInstance->BoundsMin.x, pInstance->BoundsMin.y, pInstance->BoundsMax.z ),
-                Vector3f( pInstance->BoundsMax.x, pInstance->BoundsMin.y, pInstance->BoundsMax.z ),
-                Vector3f( pInstance->BoundsMin.x, pInstance->BoundsMax.y, pInstance->BoundsMax.z ),
-                Vector3f( pInstance->BoundsMax.x, pInstance->BoundsMax.y, pInstance->BoundsMax.z ),
-            };
-            const Matrix4x4f vp = params.View * params.Projection; // world -> clip, the row-vector law
-            bool bAllBehind = true;
-            ImVec2 screen[ 8 ];
-            for ( int32_t i = 0; i < 8; i++ ) {
-                // clip = p * VP (the row-vector law; no transformVector4 in
-                // math.h, so the four rows sum here).
-                const Vector3f &p = corners[ i ];
-                Vector4f clip( p.x * vp.m[ 0 ][ 0 ] + p.y * vp.m[ 1 ][ 0 ] + p.z * vp.m[ 2 ][ 0 ] + vp.m[ 3 ][ 0 ],
-                               p.x * vp.m[ 0 ][ 1 ] + p.y * vp.m[ 1 ][ 1 ] + p.z * vp.m[ 2 ][ 1 ] + vp.m[ 3 ][ 1 ],
-                               p.x * vp.m[ 0 ][ 2 ] + p.y * vp.m[ 1 ][ 2 ] + p.z * vp.m[ 2 ][ 2 ] + vp.m[ 3 ][ 2 ],
-                               p.x * vp.m[ 0 ][ 3 ] + p.y * vp.m[ 1 ][ 3 ] + p.z * vp.m[ 2 ][ 3 ] + vp.m[ 3 ][ 3 ] );
-                if ( clip.w > 1e-4f ) {
-                    bAllBehind = false;
-                    const float ndcX = clip.x / clip.w;
-                    const float ndcY = clip.y / clip.w;
-                    screen[ i ] = ImVec2( ( ndcX * 0.5f + 0.5f ) * static_cast<float>( params.Width ),
-                                          ( 1.0f - ( ndcY * 0.5f + 0.5f ) ) * static_cast<float>( params.Height ) );
-                } else {
-                    screen[ i ] = ImVec2( -1000.0f, -1000.0f );
-                }
-            }
-            if ( !bAllBehind ) {
-                static const int32_t kEdges[ 12 ][ 2 ] = { { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },
-                                                           { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },
-                                                           { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
-                for ( const auto &edge : kEdges ) {
-                    pDraw->AddLine( screen[ edge[ 0 ] ], screen[ edge[ 1 ] ], IM_COL32( 255, 200, 60, 255 ), 2.0f );
-                }
-            }
+}
+
+// The selection highlight: an ImGui overlay box around the selected object
+// (the screen-space AABB; runs inside the ImGui frame - see drawSceneUI).
+void GMSceneEditor::drawSelectionBox() {
+    const SceneObjects::Instance *pInstance = sceneObjects.findInstance( selectedId );
+    if ( pInstance == nullptr ) {
+        return;
+    }
+    const EdenSceneParams &params = view.getSceneParams();
+    ImDrawList *pDraw = ImGui::GetBackgroundDrawList();
+    const Vector3f corners[ 8 ] = {
+        Vector3f( pInstance->BoundsMin.x, pInstance->BoundsMin.y, pInstance->BoundsMin.z ),
+        Vector3f( pInstance->BoundsMax.x, pInstance->BoundsMin.y, pInstance->BoundsMin.z ),
+        Vector3f( pInstance->BoundsMin.x, pInstance->BoundsMax.y, pInstance->BoundsMin.z ),
+        Vector3f( pInstance->BoundsMax.x, pInstance->BoundsMax.y, pInstance->BoundsMin.z ),
+        Vector3f( pInstance->BoundsMin.x, pInstance->BoundsMin.y, pInstance->BoundsMax.z ),
+        Vector3f( pInstance->BoundsMax.x, pInstance->BoundsMin.y, pInstance->BoundsMax.z ),
+        Vector3f( pInstance->BoundsMin.x, pInstance->BoundsMax.y, pInstance->BoundsMax.z ),
+        Vector3f( pInstance->BoundsMax.x, pInstance->BoundsMax.y, pInstance->BoundsMax.z ),
+    };
+    const Matrix4x4f vp = params.Projection * params.View; // the renderer's law (Projection.mulPrecise(View)) // world -> clip, the row-vector law
+    bool bAllBehind = true;
+    ImVec2 screen[ 8 ];
+    for ( int32_t i = 0; i < 8; i++ ) {
+        // clip = p * VP (the row-vector law; no transformVector4 in
+        // math.h, so the four rows sum here).
+        const Vector3f &p = corners[ i ];
+        Vector4f clip( p.x * vp.m[ 0 ][ 0 ] + p.y * vp.m[ 1 ][ 0 ] + p.z * vp.m[ 2 ][ 0 ] + vp.m[ 3 ][ 0 ],
+                       p.x * vp.m[ 0 ][ 1 ] + p.y * vp.m[ 1 ][ 1 ] + p.z * vp.m[ 2 ][ 1 ] + vp.m[ 3 ][ 1 ],
+                       p.x * vp.m[ 0 ][ 2 ] + p.y * vp.m[ 1 ][ 2 ] + p.z * vp.m[ 2 ][ 2 ] + vp.m[ 3 ][ 2 ],
+                       p.x * vp.m[ 0 ][ 3 ] + p.y * vp.m[ 1 ][ 3 ] + p.z * vp.m[ 2 ][ 3 ] + vp.m[ 3 ][ 3 ] );
+        if ( clip.w > 1e-4f ) {
+            bAllBehind = false;
+            const float ndcX = clip.x / clip.w;
+            const float ndcY = clip.y / clip.w;
+            const ImVec2 display = ImGui::GetIO().DisplaySize;
+            screen[ i ] = ImVec2( ( ndcX * 0.5f + 0.5f ) * display.x,
+                                  ( 1.0f - ( ndcY * 0.5f + 0.5f ) ) * display.y );
+        } else {
+            screen[ i ] = ImVec2( -1000.0f, -1000.0f );
+        }
+    }
+    if ( !bAllBehind ) {
+        static const int32_t kEdges[ 12 ][ 2 ] = { { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },
+                                                   { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },
+                                                   { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+        for ( const auto &edge : kEdges ) {
+            pDraw->AddLine( screen[ edge[ 0 ] ], screen[ edge[ 1 ] ], IM_COL32( 255, 200, 60, 255 ), 2.0f );
         }
     }
 }
@@ -1063,15 +1075,45 @@ void GMSceneEditor::addOverride( const std::string &kind, const std::string &tar
     statusText = "hidden: " + target;
 }
 
+void GMSceneEditor::addColorOverride( const std::string &target, const Vector4f &color ) {
+    if ( target.empty() ) {
+        return;
+    }
+    // No undo push here: the UI's color sliders fire per frame while dragged
+    // (the AI command path pushes its own).
+    // One color override per material: an existing entry updates in place.
+    SceneOverride *pExisting = nullptr;
+    for ( SceneOverride &existing : doc.Overrides ) {
+        if ( existing.Kind == "color" && StringCmpI( existing.Target.c_str(), target.c_str() ) == 0 ) {
+            pExisting = &existing;
+            break;
+        }
+    }
+    if ( pExisting != nullptr ) {
+        pExisting->Color = color;
+    } else {
+        SceneOverride override;
+        override.Kind = "color";
+        override.Target = target;
+        override.Color = color;
+        doc.Overrides.push_back( override );
+    }
+    applyOverrides();
+    statusText = "colored: " + target;
+}
+
 void GMSceneEditor::applyOverrides() {
     if ( !bWorldReady ) {
         return;
     }
     EdenWorld &world = view.getWorld();
     world.clearHiddenOverrides();
+    world.clearMaterialColors();
     for ( const SceneOverride &override : doc.Overrides ) {
         if ( override.Kind == "material" ) {
             world.addHiddenMaterial( override.Target );
+        } else if ( override.Kind == "color" ) {
+            world.addMaterialColor( override.Target, override.Color );
         } else {
             world.addHiddenNode( override.Target );
         }
@@ -1341,7 +1383,10 @@ void GMSceneEditor::pickAt( float x, float y ) {
     const bool bSceneHit = sceneObjects.raycast( ray, sceneDistance, objectId );
     float worldDistance = 0.0f;
     std::string nodeName;
-    const bool bWorldHit = view.getWorld().raycastObjects( ray.Origin, ray.Direction, worldDistance, nodeName );
+    const EdenModel *pModel = nullptr;
+    int32_t nodeIndex = -1;
+    const bool bWorldHit =
+        view.getWorld().raycastObjects( ray.Origin, ray.Direction, worldDistance, nodeName, &pModel, &nodeIndex );
     if ( bSceneHit && ( !bWorldHit || sceneDistance <= worldDistance ) ) {
         hover.bSceneObject = true;
         hover.ObjectId = objectId;
@@ -1352,5 +1397,238 @@ void GMSceneEditor::pickAt( float x, float y ) {
         hover.NodeName = nodeName;
         hover.Distance = worldDistance;
         hover.Position = ray.Origin + ray.Direction * worldDistance;
+        // The hit node's subtree materials (the M6 recolor list): the items
+        // drawn with the node or any descendant of it.
+        if ( pModel != nullptr && nodeIndex >= 0 ) {
+            const std::vector<SceneNode> &nodes = pModel->getScene().getNodes();
+            const std::vector<EdenModel::Item> &items = pModel->getItems();
+            const std::vector<EdenMaterial> &materials = pModel->getMaterials();
+            for ( const EdenModel::Item &item : items ) {
+                if ( item.NodeIndex < 0 || item.NodeIndex >= static_cast<int32_t>( nodes.size() ) ) {
+                    continue;
+                }
+                const bool bOwn = item.NodeIndex == nodeIndex ||
+                                  pModel->getScene().isDescendantOf( item.NodeIndex, nodeIndex );
+                if ( !bOwn || item.MaterialIndex >= materials.size() ) {
+                    continue;
+                }
+                const std::string &name = materials[ item.MaterialIndex ].Name;
+                if ( name.empty() || std::find( hover.NodeMaterials.begin(), hover.NodeMaterials.end(), name ) !=
+                                         hover.NodeMaterials.end() ) {
+                    continue;
+                }
+                hover.NodeMaterials.push_back( name );
+            }
+        }
     }
+}
+
+// --- the gizmo (M6) -----------------------------------------------------------
+
+namespace {
+// World -> ImGui draw-list pixels (the row-vector law; false when behind the
+// camera). The draw-list space is io.DisplaySize (the window points at the
+// DPI scale), NOT the framebuffer — the renderer scales the draw data by
+// FramebufferScale, so the framebuffer-space projection would land off-screen.
+bool WorldToPixels( const EdenSceneParams &params, const Vector3f &world, Vector2f &out ) {
+    const Matrix4x4f vp = params.Projection * params.View; // the renderer's law (Projection.mulPrecise(View))
+    const Vector4f clip( world.x * vp.m[ 0 ][ 0 ] + world.y * vp.m[ 1 ][ 0 ] + world.z * vp.m[ 2 ][ 0 ] + vp.m[ 3 ][ 0 ],
+                         world.x * vp.m[ 0 ][ 1 ] + world.y * vp.m[ 1 ][ 1 ] + world.z * vp.m[ 2 ][ 1 ] + vp.m[ 3 ][ 1 ],
+                         world.x * vp.m[ 0 ][ 2 ] + world.y * vp.m[ 1 ][ 2 ] + world.z * vp.m[ 2 ][ 2 ] + vp.m[ 3 ][ 2 ],
+                         world.x * vp.m[ 0 ][ 3 ] + world.y * vp.m[ 1 ][ 3 ] + world.z * vp.m[ 2 ][ 3 ] + vp.m[ 3 ][ 3 ] );
+    if ( clip.w <= 1e-4f ) {
+        return false;
+    }
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    out = Vector2f( ( clip.x / clip.w * 0.5f + 0.5f ) * display.x,
+                    ( 1.0f - ( clip.y / clip.w * 0.5f + 0.5f ) ) * display.y );
+    return true;
+}
+
+// The parameter of the point on the axis line (A + t * L, L normalized)
+// closest to the ray (O, D): the ray / line closest-point pair.
+float AxisRayParam( const SceneRay &ray, const Vector3f &A, const Vector3f &L ) {
+    const Vector3f r = ray.Origin - A;
+    const float b = ray.Direction.dot( L );
+    const float c = ray.Direction.dot( r );
+    const float f = L.dot( r );
+    const float denom = 1.0f - b * b;
+    if ( std::fabs( denom ) < 1e-6f ) {
+        return 0.0f; // the ray parallel to the axis
+    }
+    return ( f - b * c ) / denom;
+}
+
+Vector3f GizmoAxisDir( GMSceneEditor::eGizmoAxis axis ) {
+    switch ( axis ) {
+    case GMSceneEditor::eGizmoAxis::X:
+        return Vector3f( 1.0f, 0.0f, 0.0f );
+    case GMSceneEditor::eGizmoAxis::Y:
+        return Vector3f( 0.0f, 1.0f, 0.0f );
+    case GMSceneEditor::eGizmoAxis::Z:
+        return Vector3f( 0.0f, 0.0f, 1.0f );
+    default:
+        return Vector3f( 0.0f, 0.0f, 0.0f );
+    }
+}
+} // namespace
+
+void GMSceneEditor::tickGizmo( float deltaTime ) {
+    (void)deltaTime;
+    bGizmoCaptured = false;
+    const ImGuiIO &io = ImGui::GetIO();
+    const bool bLeftPressed = gpInput->isMouseButtonDown( SDL_BUTTON_LEFT ) &&
+                              ( gpImGui == nullptr || !gpImGui->wantsMouse() ) && !bPrevLeftMouse;
+    gizmoHover = eGizmoAxis::None;
+    const SceneObject *pObject = doc.findObject( selectedId );
+    if ( pObject == nullptr || !bGizmoShown || !bWorldReady || !view.isReady() ) {
+        gizmoDrag = eGizmoAxis::None;
+        return;
+    }
+    const EdenSceneParams &params = view.getSceneParams();
+    Vector2f originPx;
+    if ( !WorldToPixels( params, pObject->Position, originPx ) ) {
+        gizmoDrag = eGizmoAxis::None;
+        return;
+    }
+    gizmoOrigin = pObject->Position;
+    // A constant screen length: metres per pixel from a 1 m probe along the
+    // ground-facing axis (the projection's scale is depth dependent).
+    const float kAxisPixels = 64.0f;
+    Vector2f probe;
+    float metresPerPixel = 0.0f;
+    if ( WorldToPixels( params, pObject->Position + Vector3f( 1.0f, 0.0f, 0.0f ), probe ) ) {
+        const Vector2f dpx = probe - originPx;
+        metresPerPixel = 1.0f / Max( 0.01f, std::sqrt( dpx.x * dpx.x + dpx.y * dpx.y ) );
+    }
+    static const Vector3f kAxes[ 3 ] = { Vector3f( 1.0f, 0.0f, 0.0f ), Vector3f( 0.0f, 1.0f, 0.0f ),
+                                         Vector3f( 0.0f, 0.0f, 1.0f ) };
+    for ( int32_t axis = 0; axis < 3; axis++ ) {
+        Vector3f end = pObject->Position + kAxes[ axis ] * ( metresPerPixel * kAxisPixels );
+        Vector2f endPx;
+        if ( !WorldToPixels( params, end, endPx ) ) {
+            endPx = originPx;
+        }
+        gizmoAxisEnd[ axis ] = endPx;
+    }
+
+    const bool bMouseFree = gpImGui == nullptr || !gpImGui->wantsMouse();
+    if ( !bMouseFree ) {
+        gizmoDrag = eGizmoAxis::None;
+        return;
+    }
+
+    if ( gizmoDrag != eGizmoAxis::None ) {
+        bGizmoCaptured = true;
+        // The drag: the mouse ray's closest point on the (fixed) axis line.
+        const Vector3f L = GizmoAxisDir( gizmoDrag );
+        const SceneRay ray = screenRay( io.MousePos.x, io.MousePos.y );
+        const float t = AxisRayParam( ray, gizmoOrigin, L );
+        SceneObject *pDragged = doc.findObject( selectedId );
+        if ( pDragged != nullptr ) {
+            pDragged->Position = gizmoDragStartPosition + L * ( t - gizmoDragStartT );
+            if ( gridSnap > 0.01f ) {
+                pDragged->Position.x = std::floor( pDragged->Position.x / gridSnap + 0.5f ) * gridSnap;
+                pDragged->Position.y = std::floor( pDragged->Position.y / gridSnap + 0.5f ) * gridSnap;
+                pDragged->Position.z = std::floor( pDragged->Position.z / gridSnap + 0.5f ) * gridSnap;
+            }
+            bRebuildPending = true;
+        }
+        if ( !gpInput->isMouseButtonDown( SDL_BUTTON_LEFT ) ) {
+            gizmoDrag = eGizmoAxis::None;
+            bGizmoCaptured = false;
+            statusText = "gizmo drag done";
+        }
+        return;
+    }
+
+    // Hover: the pixel distance from the cursor to each axis segment.
+    const ImVec2 mouse = io.MousePos;
+    float best = 12.0f;
+    for ( int32_t axis = 0; axis < 3; axis++ ) {
+        const Vector2f end = gizmoAxisEnd[ axis ];
+        const Vector2f seg = end - originPx;
+        const float len2 = seg.x * seg.x + seg.y * seg.y;
+        float t = len2 > 1e-6f ? ( ( mouse.x - originPx.x ) * seg.x + ( mouse.y - originPx.y ) * seg.y ) / len2 : 0.0f;
+        t = Clamp( t, 0.0f, 1.0f );
+        const float dx = mouse.x - ( originPx.x + seg.x * t );
+        const float dy = mouse.y - ( originPx.y + seg.y * t );
+        const float d = std::sqrt( dx * dx + dy * dy );
+        if ( d < best ) {
+            best = d;
+            gizmoHover = static_cast<eGizmoAxis>( axis + 1 );
+        }
+    }
+    if ( gizmoHover != eGizmoAxis::None ) {
+        bGizmoCaptured = true;
+        if ( bLeftPressed ) {
+            // The drag starts: one undo entry for the whole drag.
+            pushUndo();
+            gizmoDrag = gizmoHover;
+            gizmoDragStartPosition = doc.findObject( selectedId )->Position;
+            const SceneRay ray = screenRay( io.MousePos.x, io.MousePos.y );
+            gizmoDragStartT = AxisRayParam( ray, gizmoOrigin, GizmoAxisDir( gizmoDrag ) );
+        }
+    }
+}
+
+bool GMSceneEditor::gizmoAxisDrag( eGizmoAxis axis, float dxPixels, float dyPixels ) {
+    // The AI-drivable form of the axis drag: the same screen-delta math the
+    // mouse uses, synthesized from the screen centre (deterministic).
+    if ( !bWorldReady || !view.isReady() ) {
+        return false;
+    }
+    SceneObject *pObject = doc.findObject( selectedId );
+    if ( pObject == nullptr ) {
+        return false;
+    }
+    const EdenSceneParams &params = view.getSceneParams();
+    const ImVec2 centre( params.Width * 0.5f, params.Height * 0.5f );
+    const Vector3f L = GizmoAxisDir( axis );
+    const SceneRay ray0 = screenRay( centre.x, centre.y );
+    const SceneRay ray1 = screenRay( centre.x + dxPixels, centre.y + dyPixels );
+    const Vector3f A = pObject->Position;
+    const float t0 = AxisRayParam( ray0, A, L );
+    const float t1 = AxisRayParam( ray1, A, L );
+    const Vector3f delta = L * ( t1 - t0 );
+    pushUndo();
+    pObject->Position = pObject->Position + delta;
+    markSceneChanged();
+    statusText = "gizmo: moved along the axis by " + std::to_string( delta.length() ) + " m";
+    OTDU_LOG_INFO( "SceneEditor: gizmoAxisDrag %d: delta (%.3f %.3f %.3f) -> (%.2f %.2f %.2f)\n",
+                   static_cast<int32_t>( axis ) - 1, delta.x, delta.y, delta.z, pObject->Position.x,
+                   pObject->Position.y, pObject->Position.z );
+    return true;
+}
+
+void GMSceneEditor::drawGizmo() {
+    const SceneObject *pObject = doc.findObject( selectedId );
+    if ( pObject == nullptr || !bGizmoShown || !bWorldReady || !view.isReady() ) {
+        return;
+    }
+    const EdenSceneParams &params = view.getSceneParams();
+    Vector2f originPx;
+    if ( !WorldToPixels( params, pObject->Position, originPx ) ) {
+        return;
+    }
+
+    ImDrawList *pDraw = ImGui::GetBackgroundDrawList();
+    static const ImU32 kColors[ 3 ] = { IM_COL32( 255, 90, 90, 255 ), IM_COL32( 110, 255, 110, 255 ),
+                                        IM_COL32( 110, 170, 255, 255 ) };
+    static const char *kLabels[ 3 ] = { "X", "Y", "Z" };
+    for ( int32_t axis = 0; axis < 3; axis++ ) {
+        const eGizmoAxis axisId = static_cast<eGizmoAxis>( axis + 1 );
+        const bool bActive = gizmoDrag == axisId || gizmoHover == axisId;
+        const ImVec2 a( originPx.x, originPx.y );
+        const ImVec2 b( gizmoAxisEnd[ axis ].x, gizmoAxisEnd[ axis ].y );
+        pDraw->AddLine( a, b, kColors[ axis ], bActive ? 3.0f : 2.0f );
+        // The handle: a filled square at the end (the arrowhead reads poorly
+        // at the screen sizes here).
+        pDraw->AddRectFilled( ImVec2( b.x - 4.0f, b.y - 4.0f ), ImVec2( b.x + 4.0f, b.y + 4.0f ),
+                              bActive ? IM_COL32( 255, 255, 255, 255 ) : kColors[ axis ] );
+        pDraw->AddText( ImVec2( b.x + 6.0f, b.y - 8.0f ), kColors[ axis ], kLabels[ axis ] );
+    }
+    // The origin square (free ground-plane drag handle = the existing law).
+    pDraw->AddRectFilled( ImVec2( originPx.x - 3.0f, originPx.y - 3.0f ), ImVec2( originPx.x + 3.0f, originPx.y + 3.0f ),
+                          IM_COL32( 255, 220, 120, 220 ) );
 }

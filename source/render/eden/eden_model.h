@@ -105,6 +105,7 @@ public:
     // props and actors draw their LOD0 items only).
     void setLoadLods( bool bEnable ) { bLoadLods = bEnable; }
     inline std::vector<EdenMaterial> &getMaterials() { return materials; }
+    inline const std::vector<EdenMaterial> &getMaterials() const { return materials; }
     // The MyHouse colour variants (houses_spec.md 12): the items drawn with a
     // "_MH<part>_<nn>" material switch to "_MH<part>_<variant + 1>" of the same
     // library (every part A / B / C at once). Returns the number of items
@@ -354,3 +355,11 @@ private:
 void EdenModelApplyVisibility( EdenModel &model, const std::unordered_set<uint64_t> &hiddenNodes,
                                const std::unordered_set<uint64_t> &hiddenMaterials,
                                const std::vector<std::string> &hiddenMaterialNames );
+
+// The scene editor's material color overrides (M6): every material matching
+// `colorHashes` / `colorNames` gets Diffuse.rgb = the override (the original
+// saved on the first application); a material that was overridden and no
+// longer matches reverts. Same matching law as the hides (hashcode or the
+// verbatim case-insensitive name). Idempotent per frame.
+void EdenModelApplyMaterialColors( EdenModel &model, const std::unordered_map<uint64_t, Vector4f> &colorHashes,
+                                   const std::vector<std::pair<std::string, Vector4f>> &colorNames );

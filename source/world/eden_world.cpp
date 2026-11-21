@@ -4448,7 +4448,7 @@ EdenModel *EdenWorld::getActorModelPtr( uint64_t hashcode ) {
 }
 
 bool EdenWorld::raycastObjects( const Vector3f &origin, const Vector3f &direction, float &outDistance,
-                                std::string &outNodeName ) const {
+                                std::string &outNodeName, const EdenModel **ppOutModel, int32_t *pOutNodeIndex ) const {
     bool bHit = false;
     for ( const auto &pSector : sectors ) {
         if ( pSector->bPreloaded || !pSector->Objects.isLoaded() ) {
@@ -4466,6 +4466,12 @@ bool EdenWorld::raycastObjects( const Vector3f &origin, const Vector3f &directio
                 outNodeName =
                     ( nodeIndex >= 0 && nodeIndex < static_cast<int32_t>( nodes.size() ) ) ? nodes[ nodeIndex ].Name
                                                                                            : std::string();
+                if ( ppOutModel != nullptr ) {
+                    *ppOutModel = &pSector->Objects;
+                }
+                if ( pOutNodeIndex != nullptr ) {
+                    *pOutNodeIndex = nodeIndex;
+                }
             }
         }
     }
@@ -4530,10 +4536,43 @@ void EdenWorld::clearHiddenOverrides() {
 }
 
 void EdenWorld::applyVisibility( EdenModel &model ) const {
-    if ( hiddenNodeHashes.empty() && hiddenMaterialHashes.empty() && hiddenMaterialNames.empty() ) {
+    if ( hiddenNodeHashes.empty() && hiddenMaterialHashes.empty() && hiddenMaterialNames.empty() &&
+         materialColorHashes.empty() && materialColorNames.empty() ) {
         return;
     }
     EdenModelApplyVisibility( model, hiddenNodeHashes, hiddenMaterialHashes, hiddenMaterialNames );
+    EdenModelApplyMaterialColors( model, materialColorHashes, materialColorNames );
+}
+
+void EdenWorld::addMaterialColor( const std::string &name, const Vector4f &color ) {
+    const uint64_t hash = OverrideHash( name );
+    materialColorHashes[ hash ] = color;
+    if ( name.size() > 8 && name.compare( 0, 3, "hc:" ) != 0 ) {
+        // Long names match verbatim too (the same law as the hides); an
+        // existing entry for the same name updates in place.
+        bool bUpdated = false;
+        for ( auto &named : materialColorNames ) {
+            if ( StringCmpI( named.first.c_str(), name.c_str() ) == 0 ) {
+                named.second = color;
+                bUpdated = true;
+                break;
+            }
+        }
+        if ( !bUpdated ) {
+            materialColorNames.push_back( { name, color } );
+        }
+    }
+    OTDU_LOG_INFO( "EdenWorld: material color '%s' (hc:%016llx) -> (%.2f %.2f %.2f)\n", name.c_str(),
+                   static_cast<unsigned long long>( hash ), color.x, color.y, color.z );
+    if ( libraryModel.isLoaded() ) {
+        applyVisibility( libraryModel );
+    }
+    for ( const auto &pSector : sectors ) {
+        applyVisibility( pSector->Objects );
+    }
+    for ( const auto &pArea : areas ) {
+        applyVisibility( pArea->Objects );
+    }
 }
 
 void EdenWorld::addRoadSurfaceTriangles( const std::vector<Vector3f> &vertices, const std::vector<uint32_t> &indices ) {

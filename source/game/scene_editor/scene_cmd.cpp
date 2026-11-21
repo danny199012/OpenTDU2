@@ -364,6 +364,50 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
             editor.addOverride( cmd == "hide_material" ? "material" : "node", target );
             result = ResultOk( target );
         }
+    } else if ( cmd == "set_material_color" ) {
+        // M6: the material color override (the Diffuse.rgb replaced; the
+        // same targets the hides use). color = [r, g, b] in 0..1.
+        const std::string target = command.getString( "target", "" );
+        const JsonValue *pColor = command.find( "color" );
+        if ( target.empty() || pColor == nullptr || !pColor->isArray() || pColor->array.size() < 3 ) {
+            result = ResultError( "no 'target' or 'color' ([r, g, b] in 0..1)" );
+        } else {
+            const Vector4f color( static_cast<float>( pColor->array[ 0 ].asNumber() ),
+                                  static_cast<float>( pColor->array[ 1 ].asNumber() ),
+                                  static_cast<float>( pColor->array[ 2 ].asNumber() ), 1.0f );
+            editor.addColorOverride( target, color );
+            result = ResultOk( target );
+        }
+    } else if ( cmd == "move_axis" ) {
+        // M6: the gizmo's axis drag, AI-drivable (the same screen-delta math
+        // the mouse drag uses, synthesized from the screen centre).
+        const std::string axis = ToLower( command.getString( "axis", "x" ) );
+        GMSceneEditor::eGizmoAxis axisId = GMSceneEditor::eGizmoAxis::None;
+        if ( axis == "x" ) {
+            axisId = GMSceneEditor::eGizmoAxis::X;
+        } else if ( axis == "y" ) {
+            axisId = GMSceneEditor::eGizmoAxis::Y;
+        } else if ( axis == "z" ) {
+            axisId = GMSceneEditor::eGizmoAxis::Z;
+        }
+        if ( axisId == GMSceneEditor::eGizmoAxis::None ) {
+            result = ResultError( "no 'axis' (x / y / z)" );
+        } else if ( editor.gizmoAxisDrag( axisId, static_cast<float>( command.getNumber( "dx", 0.0 ) ),
+                                          static_cast<float>( command.getNumber( "dy", 0.0 ) ) ) ) {
+            result = ResultOk( editor.statusText );
+            const SceneObject *pObject = editor.doc.findObject( editor.selectedId );
+            if ( pObject != nullptr ) {
+                result.add( "pos", [ & ]() {
+                    JsonValue p = JsonValue::MakeArray();
+                    p.push( JsonValue::MakeNumber( pObject->Position.x ) );
+                    p.push( JsonValue::MakeNumber( pObject->Position.y ) );
+                    p.push( JsonValue::MakeNumber( pObject->Position.z ) );
+                    return p;
+                }() );
+            }
+        } else {
+            result = ResultError( editor.statusText.empty() ? "no selection" : editor.statusText );
+        }
     } else if ( cmd == "clear_overrides" ) {
         editor.pushUndo();
         editor.doc.Overrides.clear();

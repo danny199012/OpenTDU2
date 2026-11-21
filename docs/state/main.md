@@ -3,6 +3,28 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-21 (`main`, scene editor M6 — the gizmo + the material colors)
+
+The scene editor roadmap's M6 polish ("a 3-axis gizmo — M1 deliberately shipped with pick+drag+numeric inputs instead of a risky ImGuizmo dependency —, material editing"), both without new dependencies.
+
+### What changed
+- **The gizmo** (`gm_scene_editor.{h,cpp}` + `scene_editor_ui.cpp`): three world-axis lines from the selection's origin with grab handles + the origin square (the ground-plane drag it already had), F3 toggles. LMB on an axis (within 12 px of the screen segment) drags the object along that axis — the mouse ray's closest point on the fixed axis line (the ray/line closest-point pair), one undo entry per drag, the grid snap applied; the AI-drivable `move_axis` runs the same screen-delta math synthesized from the screen centre (deterministic for the headless runs).
+- **The material color overrides** (a new `color` override kind in the scene document): the matching materials' Diffuse.rgb replaced with the override color everywhere — the same matching law as the hides (hashcode or the verbatim case-insensitive long name), the original Diffuse saved on the first application (new runtime fields on EdenMaterial) so a cleared override reverts, applied at every model load and to the streamed spot banks like the hides. `EdenWorld::addMaterialColor` / `clearMaterialColors`; `set_material_color` (the command); the World pick section lists the hovered node's subtree materials with live color swatches, and the overrides list edits its color rows in place.
+- **Two render laws found by the gizmo's missing draw** (the docs carry them, scene_editor.md 8):
+  - `draw()` runs OUTSIDE the ImGui frame (tdu_instance.cpp: the 3D pass precedes `pImGui->beginFrame`) — background-draw-list commands added there are cleared by the next NewFrame and never render. The M1 selection box had never actually drawn; both overlays moved into `drawSceneUI()` (inside `drawUI`, inside the frame).
+  - The ImGui draw-list space is **io.DisplaySize** (the DPI-scaled window points), not the framebuffer the scene params carry — the projection converts through `ImGui::GetIO().DisplaySize`.
+  - The world→clip law is **`params.Projection * params.View`** (the renderer's own composition, `Projection.mulPrecise(View)` at eden_renderer.cpp:794) — the old View*Projection order put the raw negative Z in clip.w and every position "failed behind the camera" (clip w was the object's raw z).
+
+### Verified (headless, build 402)
+- The gizmo visible at the selection in `_m6_gizmo2.png` (the X/Y/Z handles with the labels + the yellow origin square at the building's placement point; the probe: origin px (1943 1264) = the frame centre where the aim point sits).
+- `move_axis` X 150 px → the object moved exactly along X (12620 → 12602.3, y / z untouched — the sign follows the cursor, screen right = world −X at that camera); Y −120 px → up 12.15 m, +120 → back down 9.2 m.
+- The material colors: `Concrete_stripe` of the EAS_B bank recolored red — the A/B facade crops (`_m6_color_before_crop.png` vs `_m6_color_after_crop.png`) show the red band appear; the override round-trips through the scene JSON (save → load → list_overrides).
+
+### Not done / next
+- **M5 last**: the composed `.3dd` bank build (a scene compiled into one new `exterior/<name>.bnk`; OBJ props authored to `.3dg/.2dm/.2db`).
+- The gizmo's rotation / scale handles stay open (the translate axes are the roadmap's ask); the UI's live color sliders do not push undo entries (the remove / command paths do).
+- The human UI pass + the roads feel-check in play.
+
 ## Session 2026-11-21 (`main`, scene editor M5 second slice — the .pmi patch)
 
 The scene editor roadmap's "scene→bank/spots/**pmi** export" completed: the scene's library / actor placements go into the sector banks' `.pmi` instance lists natively (the composed `.3dd` bank build stays open).

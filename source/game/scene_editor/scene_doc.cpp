@@ -112,6 +112,13 @@ JsonValue SceneDocument::toJson() const {
         entry.add( "kind", JsonValue::MakeString( override.Kind ) );
         entry.add( "target", JsonValue::MakeString( override.Target ) );
         entry.add( "hidden", JsonValue::MakeBool( override.bHidden ) );
+        if ( override.Kind == "color" ) {
+            JsonValue color = JsonValue::MakeArray();
+            color.push( JsonValue::MakeNumber( override.Color.x ) );
+            color.push( JsonValue::MakeNumber( override.Color.y ) );
+            color.push( JsonValue::MakeNumber( override.Color.z ) );
+            entry.add( "color", std::move( color ) );
+        }
         overrides.push( std::move( entry ) );
     }
     root.add( "overrides", std::move( overrides ) );
@@ -179,6 +186,13 @@ bool SceneDocument::fromJson( const JsonValue &root, std::string &outError ) {
             override.Kind = ToLower( entry.getString( "kind", "node" ) );
             override.Target = entry.getString( "target", "" );
             override.bHidden = entry.getBool( "hidden", true );
+            if ( const JsonValue *pColor = entry.find( "color" ) ) {
+                if ( pColor->isArray() && pColor->array.size() >= 3 ) {
+                    override.Color = Vector4f( static_cast<float>( pColor->array[ 0 ].asNumber() ),
+                                               static_cast<float>( pColor->array[ 1 ].asNumber() ),
+                                               static_cast<float>( pColor->array[ 2 ].asNumber() ), 1.0f );
+                }
+            }
             if ( override.Target.empty() ) {
                 continue;
             }
