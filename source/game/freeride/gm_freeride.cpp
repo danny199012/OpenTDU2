@@ -4913,7 +4913,10 @@ void GMFreeRide::buildCourseMarkers() {
     constexpr float kConeSpacing = 3.0f;
     const std::vector<Ig2Decor> &decors = challenge.getDecors();
     int32_t numLines = 0, numCones = 0;
-    for ( size_t i = 0; i < decors.size(); i++ ) {
+    // An overtaking test (traffic VEHI records) has no obstacles: the start / finish box cone lines are not drawn there
+    // (owner, retail test 5: no barrels at the start; just pass the 3 cars and reach the finish first).
+    const bool bNoDecor = challenge.getVehicleCount() > 0 && !CmdLine::HasArg( "-overtakecones" );
+    for ( size_t i = 0; i < decors.size() && !bNoDecor; i++ ) {
         const Ig2Decor &decor = decors[i];
         const bool bLineStart = ( decor.Type == 1 || decor.Type == 4 ) && i + 1 < decors.size() &&
                                 decors[i + 1].Type == decor.Type + 1;

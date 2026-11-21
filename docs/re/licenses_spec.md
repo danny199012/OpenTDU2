@@ -575,3 +575,6 @@ files place them (144 / 442 / 666 m along the course in the port's routing) with
 `-trafficgap <m>` (test) puts them right ahead of the start. Not verified live: the contact failure (the scripted drive left the road first), the retail lane behaviour (the cars keep the lane the file places them in, no lane changes), and their paint (the school Delta's first
 DBCarsAndColors colour).
 Owner note: later in the game the Mustang appears with a front lip and rear lips (e.g. Miami Harris's pink Mustang with white stripes), i.e. more liveries and body variants exist in the 360 data; capture them with the texture dump during the championship races.
+
+### 12.15 Test 5 has no barrels (2026-11-21, `main`)
+Owner (retail test 5): no barrels at the start; just overtake the 3 cars and reach the finish. `rsc4t05.ig2` holds one DEC2 cone line (1 -> 2) at the start box; on a test with traffic (VEHI) the port no longer draws the DEC2 lines (`-overtakecones` restores them). Verified headless: `-licensetest RSC4T05 -licensepark` logs 0 markers. [INF] the 3D look and a driven run are not checked.
