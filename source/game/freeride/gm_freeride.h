@@ -377,6 +377,13 @@ private:
     void tickLicenseResult( float deltaTime );
     // Back at the desk of the test's school, on its licence's tests.
     void returnToSchool( const std::string &test );
+    // The licence win scene (irs_*'s C_WIN_LICENSE, licenses_spec 12): a licence just obtained walks into the school
+    // and plays it; its "phfl" cue takes the photo (LicencePhoto), its end opens the school desk.
+    bool startLicenceWinScene( const std::string &test );
+    void tickLicenceWinScene();
+    bool bLicenceWinScene = false;
+    std::string winSceneTest;
+    bool bWinScenePhoto = false;
     // The gates of the race being driven (the retail checkpoint pack's start /
     // checkpoint / finish holograms, game/freeride/race_gates.h).
     RaceGates raceGates;

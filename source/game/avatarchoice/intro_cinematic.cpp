@@ -775,6 +775,8 @@ void IntroCinematic::processMessages( const Playing &playing, float from, float 
             modifierName.clear();
         } else if ( message.rfind( "wmod:", 0 ) == 0 ) {
             modifierName = message.substr( 5 );
+        } else if ( message == "phfl" ) {
+            photoFlashes++;
         } else if ( message == "snd:timestop" ) {
             if ( const auto *pSounds = sounds.findEmitter( "S_TimeStop" ) ) {
                 sounds.play( *pSounds, Max( to - event.Time, 0.0f ) );

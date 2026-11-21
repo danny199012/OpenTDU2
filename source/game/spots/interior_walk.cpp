@@ -748,6 +748,31 @@ bool InteriorWalk::takeLeaveRequest() {
     return bRequested;
 }
 
+bool InteriorWalk::playWinScene() {
+    if ( !bActive || !scene.hasCinematic( "C_WIN_LICENSE" ) || !scene.playMain( "C_WIN_LICENSE" ) ) {
+        return false;
+    }
+    scene.takePhotoFlashes();
+    introName = "C_WIN_LICENSE";
+    state = eState::Intro;
+    bWinScene = true;
+    bWinSceneEnded = false;
+    scene.setCameraOverride( nullptr );
+    scene.useMainCamera();
+    OTDU_LOG_INFO( "InteriorWalk: '%s': licence win scene C_WIN_LICENSE\n", spotBank.c_str() );
+    return true;
+}
+
+bool InteriorWalk::takeWinSceneEnded() {
+    const bool bEnded = bWinSceneEnded;
+    bWinSceneEnded = false;
+    return bEnded;
+}
+
+bool InteriorWalk::takePhotoFlash() {
+    return scene.takePhotoFlashes() > 0;
+}
+
 bool InteriorWalk::tookRoomSwap() {
     const bool bSwapped = bRoomSwapped;
     bRoomSwapped = false;
@@ -776,6 +801,7 @@ void InteriorWalk::exit() {
     exteriorCollision = HavokCollision();
     scene.unload();
     bActive = false;
+    bWinScene = false;
     bHouse = false;
     bInGarage = false;
     bStickUi = false;
@@ -942,8 +968,8 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     }
     // The press that skips the intro is not reused by the walk.
     bool bConsumed = false;
-    if ( state == eState::Intro && ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ||
-                                     gpInput->wasPressed( eInputAction::IA_MenuBack ) ) ) {
+    if ( state == eState::Intro && !bWinScene && ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ||
+                                                   gpInput->wasPressed( eInputAction::IA_MenuBack ) ) ) {
         scene.skipMain();
         bConsumed = true;
     }
@@ -963,6 +989,10 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
     }
     for ( const std::string &name : scene.takeEndEvents() ) {
         if ( state == eState::Intro && name == introName ) {
+            if ( bWinScene ) {
+                bWinScene = false;
+                bWinSceneEnded = true;
+            }
             startWalk( walkCamera.c_str() );
         }
     }

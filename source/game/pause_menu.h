@@ -194,6 +194,7 @@ private:
     // The card's money / cars / houses: load() pushes them, tick() refreshes
     // them on change (refreshPlayerPanel) while open.
     void refreshPlayerPanel();
+    struct GPUTexture *pCardPhoto = nullptr; // the licence photo bound to the ID card
     int32_t panelMoney = -1;
     int32_t panelCars = -1;
     int32_t panelHouses = -1;

@@ -4,6 +4,26 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-21 (`main`, licence win scene + photo on the pause-menu ID card, found in the dev build)
+
+Owner: "the dev build ... find the true licence test data ... upon completing there should be a scene that plays out and your character gets his picture taken which then shows up on the profile card in pause menu."
+
+### What changed
+- `intro_cinematic.*`: the main cinematic's `phfl` message (photo flash) is counted (`takePhotoFlashes`).
+- `interior_walk.*`: `playWinScene()` plays the school bank's `C_WIN_LICENSE` (no skip), `takePhotoFlash()` / `takeWinSceneEnded()`.
+- `freeride/licence_photo.*` (new): `<userdata>/Licence00.png` capture (the device's screenshot writer) + texture.
+- `gm_freeride.*`: a newly obtained licence runs `startLicenceWinScene` instead of the result screen; the flash takes the photo; the end opens the school desk. `-winscene <A|B|C>`, `-nowinscene`.
+- `pause_menu.*`: `.../data_extd/idcard/avatar_photo/lure` takes the photo (`-dumpidcard <depth>` dumps the clip tree).
+
+### Verified
+- `-gm FREERIDE -fixedtimestep -winscene A`: scene plays (instructor + avatar), `LicencePhoto: frame -> ...Licence00.png`, `win scene ended (photo 1)`; pause menu shows the photo on the card. `docs/images/licence_win_scene.webp`, `licence_photo_taken.webp`, `licence_photo_idcard.png`.
+- Dev build [CODE]: the test data (.ig2) is identical to retail; what it adds is the rules (result screen's penalty is a time added to the base time; speed-gauge tests; `RS_Separ_A/B_act` props) - `docs/re/licenses_spec.md` 12.
+
+### Not done / next
+- Not run end to end through a real licence pass (only `-winscene`); the pass hook is one `if` in the test-end block.
+- Penalty rule (what adds seconds) untraced; swap the barrel for `RS_Separ_A_act` (spec 12.1); the card in R_SCHOOL does not show the photo yet.
+- Not pushed.
+
 ## Session 2026-11-21 (`main`, tunnel pop-in: the Z pre-pass wrote depth for the carved terrain; debug keys moved)
 
 Owner: tunnels look blocked off (lamps / pillars missing) until you drive in; also "F2 is used for a lot".

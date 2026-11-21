@@ -7,6 +7,7 @@
 #include "flash/gs_flash.h"
 #include "config/gs_config.h"
 #include "game/advanced_graphics.h"
+#include "game/freeride/licence_photo.h"
 #include "game/game_options.h"
 #include "game/player_profile.h"
 #include "game/car_shop.h"
@@ -731,6 +732,16 @@ bool PauseMenu::load() {
     player.setVariable( "/:m_PlayerTitle", "" );
     player.setVariable( "/:m_PlayerTitle1", "" );
     player.setVariable( "/:CasinoAvatar", "" );
+    // The profile card's picture: the licence photo taken in the racing school's win scene
+    // (docs/re/licenses_spec.md 12) [CODE: .../idcard/avatar_photo/lure, dev build].
+    if ( CmdLine::HasArg( "-dumpidcard" ) ) {
+        player.dumpClips( "/pause_menu/data_extd/idcard", CmdLine::GetArgInt( "-dumpidcard", 4 ) );
+    }
+    if ( GPUTexture *pPhoto = LicencePhoto::GetTexture(); pPhoto != nullptr ) {
+        const bool bBound = player.setBitmapOverride( "/pause_menu/data_extd/idcard/avatar_photo/lure", pPhoto, 0.17f,
+                                                      0.0f, 0.70f, 1.0f );
+        OTDU_LOG_INFO( "PauseMenu: licence photo bound to the ID card: %d\n", bBound ? 1 : 0 );
+    }
     if ( CmdLine::HasArg( "-logskills" ) ) {
         for ( int32_t s = 0; s < 4; s++ ) {
             GetSkillLevels( s );
@@ -2961,6 +2972,22 @@ void PauseMenu::refreshPlayerPanel() {
     // The card's money / cars / houses (load() pushes them once): refreshed
     // while open, so money earned while driving shows without re-entering
     // the mode. Only on change - a setVariable per frame is wasteful.
+    // The licence photo on the card's picture (the clip appears once the page has been shown, so it is retried
+    // until it binds; a new photo taken since is picked up too). The slot is a portrait: the middle of the 16:9 frame
+    // (the avatar stands left of centre in the scene's shot) [INF: the crop].
+    {
+        static int32_t dumpFrames = 0;
+        if ( CmdLine::HasArg( "-dumpidcard" ) && ++dumpFrames == 90 ) {
+            player.dumpClips( "/pause_menu", CmdLine::GetArgInt( "-dumpidcard", 4 ) );
+        }
+        GPUTexture *pPhoto = LicencePhoto::GetTexture();
+        if ( pPhoto != nullptr && pPhoto != pCardPhoto &&
+             player.setBitmapOverride( "/pause_menu/data_extd/idcard/avatar_photo/lure", pPhoto, 0.17f, 0.0f, 0.70f,
+                                       1.0f ) ) {
+            pCardPhoto = pPhoto;
+            OTDU_LOG_INFO( "PauseMenu: licence photo bound to the ID card\n" );
+        }
+    }
     const PlayerProfile &profile = GetPlayerProfile();
     if ( profile.Money != panelMoney ) {
         panelMoney = profile.Money;
@@ -3436,6 +3463,9 @@ void PauseMenu::layoutEntries() {
 
 void PauseMenu::refreshEntries() {
     bEntriesShown = true;
+    if ( CmdLine::HasArg( "-dumpidcard" ) ) {
+        player.dumpClips( "/pause_menu/data_extd", CmdLine::GetArgInt( "-dumpidcard", 4 ) );
+    }
     if ( CmdLine::HasArg( "-logpausepos" ) ) {
         float rowX = 0.0f, rowY = 0.0f, firstX = 0.0f, firstY = 0.0f;
         player.getClipStagePosition( "/pause_menu/menu_sq", rowX, rowY );

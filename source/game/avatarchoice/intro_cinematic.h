@@ -517,6 +517,9 @@ public:
         std::string Message;
     };
     std::vector<ActorMessage> takeActorMessages();
+    // The cinematic message "phfl" (photo flash [INF]) of the main cinematic crossed since the last call: the
+    // licence win scene's camera shot (irs_*_sc_M_WIN_LICENSE, 12.6 s and 15.1 s) [DATA].
+    inline int32_t takePhotoFlashes() { const int32_t n = photoFlashes; photoFlashes = 0; return n; }
 
     void tick( float deltaTime );
     void renderOffscreen();
@@ -770,6 +773,7 @@ private:
     Quaternionf needleActorRest;   // ND_RPM entity placement heading (dial 0)
     bool bNeedleActorRest = false;
     std::vector<ActorMessage> actorMessages;
+    int32_t photoFlashes = 0;
     void collectActorMessages( const Playing &playing, float from, float to );
     bool bCarEnvironment = false;
     // Static car cube of the scene bank (CUBECAR, garage.bnk): FUN_009aa2c0

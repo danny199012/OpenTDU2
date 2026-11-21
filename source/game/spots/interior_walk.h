@@ -74,6 +74,12 @@ public:
     // own validate blocks must not fire on the same press (the garage fuel
     // pump would open the moment the room loads).
     bool tookRoomSwap();
+    // The racing school's licence win scene (docs/re/licenses_spec.md 12): the interior's own C_WIN_LICENSE cinematic
+    // (the avatar, the instructor, the camera shot) replaces the intro; it cannot be skipped. False when the bank has
+    // none. takeWinSceneEnded: it finished (the walk is up again); takePhotoFlash: its "phfl" cue came (the shot).
+    bool playWinScene();
+    bool takeWinSceneEnded();
+    bool takePhotoFlash();
     inline const std::string &getSpotBank() const { return spotBank; }
     inline const std::string &getHouseSpot() const { return houseSpot; }
 
@@ -159,6 +165,8 @@ private:
     std::string introName;
     bool bActive = false;
     bool bRoomSwapped = false; // the A that loaded the Garage / Living room
+    bool bWinScene = false;      // the licence win scene is playing
+    bool bWinSceneEnded = false; // ... and has ended
     // The streamed living room's yard collision (houses_spec.md 5.1): the
     // exterior bank's own triangles (the caravan shell, the garage building,
     // island space) and the sector statics around the spot (fences, trunks,

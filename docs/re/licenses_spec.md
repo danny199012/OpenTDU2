@@ -378,10 +378,29 @@ loader) and the writer of the `Licence%02d` name, and at the `GMScreenShots` / `
   write of the JPEG itself was **not** found: the screenshot writers present are `ScreenShotTaker.cpp` / `ScreenShotLoader.cpp`
   (`%s\%d.jpg`, `0xa7679c`) and the map-screenshot manager, not an obvious `Licence` writer [INF: the `phfl` flash
   captures the frame to the profile photo].
-- **The port has none of this**: no `avatar_photo` / `IsPhotoLoaded` anywhere in `source/`, and the win cinematic is
-  never played. To build it: play `irs_x_sc_M_WIN_LICENSE` on the last test's pass (instead of the result screen), grab
-  the frame at the `phfl` message into `<userdata>/Licence00.jpg`, feed it to the ID card's `avatar_photo/lure`
-  (pause menu `data_extd/idcard`) and to the licence card.
-- **Penalty not yet traced**: the result function at dev `0xb5c83d` only formats it (`+` prefix, text via `0x1d25260`);
-  the accumulator lives in the test object (`[ebp+0x14]+0x70`). Next: find what increments it
-  (`--callers` on the getter used at `0xb5c8cd`) and the speed-gauge tests' `speed_min` at `0xb5fa05`.
+- **Built in the port (session 2026-11-21, `main`)**: a licence just obtained (the pass that completes its tests) walks
+  into the school (`ERS_<letter>`), plays `C_WIN_LICENSE` with the player's avatar and Marco Luzzini (it cannot be skipped),
+  captures the frame at the first `phfl` to `<userdata>/Licence00.png` (`licence_photo.*`; the retail file is a JPG [CODE]),
+  and opens the school desk when the scene ends. The pause menu's profile card binds the photo to
+  `/pause_menu/data_extd/idcard/avatar_photo/lure` (the clip exists only after the page has been shown, so it is bound on the
+  first panel refresh; cropped to the middle 53 % of the 16:9 frame for the portrait slot [INF]). Hooks: `-winscene <A|B|C>`
+  (plays it 120 frames in, no test needed), `-nowinscene`, `-dumpidcard <depth>` (the pause clip tree).
+  Evidence: `docs/images/licence_win_scene.webp`, `licence_photo_taken.webp`, `licence_photo_idcard.png` (headless:
+  `-gm FREERIDE -fixedtimestep -winscene A`, log `LicencePhoto: frame -> .../Licence00.png`, `FREERIDE: win scene ended (photo 1)`).
+  Not done: the retail result screen is skipped for a new licence (the scene replaces it [INF]); the licence card in
+  R_SCHOOL does not show the photo (its player fields are untraced); the second `phfl` (15.12 s, 0.37 s) is not used;
+  only a male scene exists, so a female avatar plays the male timeline's avatar actor [INF]; and the scene's start is
+  frozen at the world, not at the player's car pose.
+- **Penalty, what the dev build says** [CODE]: the result movie's `/:penalty` is a **time**: the formatter at `0xb5cabf`
+  builds it like the other times (a minutes/seconds string, then `strchr(.., ''')` and a `+` written over the first
+  character), so the final score is **base time + penalty seconds**; `/:IsTimeOut` comes from the test object's
+  `+0x2ba0` method. The HUD side has `PenaltyTimeLevel%02d` / `PenaltySpeedLevel%02d` / `PenaltyScoreLevel%02d` (+
+  `PtsCnt...`) config keys and `OFF_ROAD : State / Penalty:%.2f/%.2f`: penalties come in three kinds (time, speed, score)
+  by level, and the off-road one is a running value. **What adds to a licence test's penalty is still not decoded**.
+- **A lead on the props** [DATA]: `ChallengeIDCard.cpp` (the challenge editor) names the actors **`RS_Separ_A_act`**,
+  **`RS_Separ_B_act`** and `SF_Stud_act` beside the checkpoint types "Checkpoint Gate / Cone / Normal"; `RS_Separ_A/B_act`
+  exist in both islands' `worldactors.bnk` (model `RS_SEPAR`, material `RS_Separ`). These are the racing school's
+  separators, so they, not the pack_cp barrel, are the likely retail slalom pole / cone-line piece (section 10 said no
+  cone exists: it looked in the wrong bank). Next: load `RS_Separ_A_act` like the scene editor's "actor" objects do
+  (`scene_objects.cpp` resolves a name through worldactors' `entities.xmb`), look at its size, and swap it in for the
+  barrel in `GMFreeRide::buildCourseMarkers`.

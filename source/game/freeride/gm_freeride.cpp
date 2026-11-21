@@ -1,5 +1,6 @@
 #include "shared.h"
 #include "gm_freeride.h"
+#include "game/freeride/licence_photo.h"
 #include "debug/coords_overlay.h"
 
 #include "audio/gs_audio.h"
@@ -4266,6 +4267,11 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
         if ( bLicenceTest && result != LicenseTest::eResult::Abandoned ) {
             const bool bLicenceNew =
                 !bLicenceWasObtained && pTestLicence != nullptr && IsLicenseObtained( *pTestLicence );
+            // The licence just obtained: the school's win scene (the camera shot of the licence photo) first.
+            if ( bLicenceNew && result == LicenseTest::eResult::Passed && !CmdLine::HasArg( "-nowinscene" ) &&
+                 startLicenceWinScene( test ) ) {
+                return;
+            }
             openLicenseResult( test, result == LicenseTest::eResult::Passed, result, time, bLicenceNew );
         }
     }
@@ -4451,6 +4457,41 @@ void GMFreeRide::returnToSchool( const std::string &test ) {
         interiorKind = "rschool";
     }
     openSchool( letter, test );
+}
+
+bool GMFreeRide::startLicenceWinScene( const std::string &test ) {
+    const char letter = test.size() > 2 ? static_cast<char>( toupper( test[2] ) ) : 'A';
+    const std::string spot = std::string( "ERS_" ) + letter;
+    if ( !interior.enter( spot, islandName ) ) {
+        OTDU_LOG_WARN( "FREERIDE: win scene: school interior %s could not be entered\n", spot.c_str() );
+        return false;
+    }
+    interiorKind = "rschool";
+    if ( !interior.playWinScene() ) {
+        // This school has no scene: the desk, as before.
+        OTDU_LOG_WARN( "FREERIDE: win scene: %s has no C_WIN_LICENSE\n", spot.c_str() );
+        openSchool( letter, test );
+        return true;
+    }
+    bLicenceWinScene = true;
+    winSceneTest = test;
+    bWinScenePhoto = false;
+    return true;
+}
+
+void GMFreeRide::tickLicenceWinScene() {
+    if ( !bLicenceWinScene ) {
+        return;
+    }
+    if ( interior.takePhotoFlash() && !bWinScenePhoto ) {
+        bWinScenePhoto = LicencePhoto::Capture();
+    }
+    if ( interior.takeWinSceneEnded() ) {
+        bLicenceWinScene = false;
+        const char letter = winSceneTest.size() > 2 ? static_cast<char>( toupper( winSceneTest[2] ) ) : 'A';
+        OTDU_LOG_INFO( "FREERIDE: win scene ended (photo %d)\n", bWinScenePhoto ? 1 : 0 );
+        openSchool( letter, winSceneTest );
+    }
 }
 
 void GMFreeRide::buildCourseMarkers() {
@@ -6660,6 +6701,7 @@ void GMFreeRide::tick( float deltaTime ) {
             stickerShop.tick( deltaTime );
         }
         InteriorWalk::eResult interiorResult = interior.tick( deltaTime );
+        tickLicenceWinScene();
         // Vanilla repair: going home mends the car (no pump / paid repair without the fuel-system mod).
         if ( interior.isHouse() && !FuelModEnabled() && ( vehicle.getDamage() > 0.0f || vehicle.getTireWear( 0 ) > 0.0f ) ) {
             vehicle.resetDamage();
@@ -8472,6 +8514,13 @@ void GMFreeRide::tick( float deltaTime ) {
         if ( const char *pTest = CmdLine::GetArgValue( "-licensetest" ) ) {
             if ( ++licenseFrames == 120 ) {
                 startLicenseTest( pTest );
+            }
+        }
+        // -winscene <A|B|C> (test): enters that school and plays the licence win scene.
+        static int32_t winSceneFrames = 0;
+        if ( const char *pWin = CmdLine::GetArgValue( "-winscene" ) ) {
+            if ( ++winSceneFrames == 120 ) {
+                startLicenceWinScene( std::string( "RS" ) + pWin[0] + "4T01" );
             }
         }
         static int32_t schoolFrames = 0;
