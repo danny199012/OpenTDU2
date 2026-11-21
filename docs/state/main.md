@@ -3,6 +3,19 @@
 One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
+## Session 2026-11-21 (`main`, Veyron rims: checked, no defect reproduced)
+
+Owner list item "odd rim issue with Bugatti Super Sport, possibly other cars": **not reproduced, nothing changed in the rim code**. The owner's screenshot text was lost to a context cut, so the exact oddity is unknown.
+
+### What changed
+- `gm_freeride.cpp`: `-photoatrel` makes `-photoat x,y,z,yaw,pitch,fov` an offset from the car instead of a world position, and the pose is logged (`FREERIDE: photoat car ... eye ...`). Car front is -z, left side -x looks at yaw 90.
+
+### Verified
+- `-gm FREERIDE -skipcine -nopad -fixedtimestep -clocktime 12:00 -car Veyron_Super_Sport|Veyron_Grand_Sport -photoatrel -photoat "-4,0.34,-1.325,90,0,18"` (rear hub z +1.381): rims centred in the tyres on all four wheels, five spokes, hub cap present, rear rim larger than front (correct for the car). `-norim` / `-notire` A/B: the dark disc behind the spokes is the baked wheel-well/brake art, not a missing mesh.
+
+### Not done / next
+- The owner's frame is needed (which car, which wheel, which view). Suspects left: kaleidoscope-like env reflection on the spokes at close range, the brake disc being a flat bake (no caliper mesh), Grand Sport rims drawn with the Super Sport colours. Use the command above with the owner's car and compare.
+
 ## Session 2026-11-20 (`main`, scene editor M5 first slice — the bank writers + the native spots export)
 
 The scene editor roadmap's M5 opening ("bnk_tool pack + the `.3dd/.3dg/.2dm/.2db` writers, validated by byte-compare round-trips, then scene→bank/spots/pmi export"): the write side into the engine, the byte-compare validation, and the first export route (spots; the `.pmi` patch and the composed `.3dd` bank build stay open).

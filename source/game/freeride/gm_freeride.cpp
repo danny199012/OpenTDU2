@@ -6728,7 +6728,14 @@ void GMFreeRide::tick( float deltaTime ) {
         sscanf( pPhotoAt, "%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5] );
         hud.setVisible( false );
         hud.setHidden( true );
-        photoCamera.openAt( carWorld.getTranslation(), Vector3f( v[0], v[1], v[2] ), v[3], v[4], v[5] );
+        // -photoatrel: the eye is an offset from the car (world axes) instead of a world position.
+        Vector3f eye( v[0], v[1], v[2] );
+        if ( CmdLine::HasArg( "-photoatrel" ) ) {
+            eye = eye + carWorld.getTranslation();
+        }
+        OTDU_LOG_INFO( "FREERIDE: photoat car (%.1f %.1f %.1f) eye (%.1f %.1f %.1f)\n", carWorld.getTranslation().x,
+                       carWorld.getTranslation().y, carWorld.getTranslation().z, eye.x, eye.y, eye.z );
+        photoCamera.openAt( carWorld.getTranslation(), eye, v[3], v[4], v[5] );
         photoShotsSeen = photoCamera.getPhotoCount();
     }
     if ( photoCamera.isOpen() ) {
