@@ -332,3 +332,33 @@ page (`openHelpSystem`, `FirstTime`).
 Evidence: `docs/images/licence_school_card.webp` (the card after the result screen's Quit), `licence_school_tests.webp`
 (the A7 test list). Checked: `-schoolmenu A -loglicenses`: `rsch:stli`, `dili`, `dits`, `dtup`, Down, A ->
 `rsch:tspr` (num_test 1) -> RSA7T02 starts; B, B -> `camf`, `wmon` -> closed.
+
+## 12. What the dev build (Apr 2012, readable code) says about tests, card and photo (2026-11-21, `main`)
+
+Source: `TestDrive2DEV.exe` read with `tools/devbuild_disasm.py` (addresses are the dev build's, not retail's; the dev
+package data is byte-identical to retail, so the `.ig2` files are already the real test data). Tags: `[CODE]` read.
+
+**The test result carries a penalty, a speed-gauge test type and a time-out flag** [CODE: function at `0xb5c83d`
+fills the result movie; strings `0x10f3cc4..0x10f3eac`]. Variables set: `/:basetime`, `/:penalty` (text built with a
+leading `+`, only for a scored test), `/:IsTimeOut`, `/:IsTestScore`, `/:IsRacingSchool`, `/:ref_score`,
+`/:time_out_rs`; the HUD has `/HUD/reach_speed` / `HUD/speed_gauge` with `/:ReachSpeed`, `/:speed_min`,
+`/:m_SpeedUnit`. So the retail final score is **base time + penalty** (the port has none), and some tests are
+"reach this speed" tests with a gauge (the port's gate/timer model has no such type). The message text is picked from
+loc ids `0x659` / `0x65a` / `0x65b` (1625-1627) by the failed / time-out flags [CODE]. Next: read how the penalty is
+accumulated (calls near `0xb5cafc`, the object at `[ebp+0x14]+0x70`) and what raises it (barrels / cones hit?).
+
+**The licence card** (R_SCHOOL.vmf, function `0xb915c0`) [CODE]: `/:LicenceNumber` is the **constant text
+`411 14 38 42 6116`** for every player (not derived); `/:LicenceDate` is the licence's obtained timestamp (FILETIME at
+licence+0x30) formatted `%d%s%d` = day, month name (table `0x1674fa0`), year (+1900), a single space when the licence
+is not obtained; `/:LicenceTxt` is `"%28s %d"`; `/:LicenceName`, `/:LicenceLevel`, `/:LicencePlayerName` come from the
+licence / avatar records; the card shows one of `/licences/licence/state_a|b|c/lure` by the licence's group (1 -> a,
+4 -> b, 2 -> c [INF: school A/B/C]). `nb_tests_done` is the count of passed tests, `num_test` 0.
+
+**The photo** [CODE]: the retail-era picture system is `GSNetworkPictures.cpp` / `NetworkPicture.cpp`. A function
+(`0xa6c2f0`) reads **`Licence00.jpg`** from disk into a buffer (up to 0x7d000 bytes) and hands it on as the avatar
+picture; the ID card shows it at `pause_menu/data_extd/idcard/avatar_photo/lure` (also `gameprogress_menu/.../idcard/
+avatar_photo/lure`, `db_progress/.../player_IDCard/avatar_photo/lure`; `:IsPhotoLoaded`). Photographer shop screenshots
+use `Photo/%02d%02d%02d%02d%02d%02d%c.JPG` (a separate path). Cinematic `C_WIN_LICENSE` is loaded by the card
+function's owner (`0xb915c0` looks it up by name). **Not found yet**: what writes `Licence00.jpg` (the camera shot
+taken in the win scene) and when `C_WIN_LICENSE` is triggered; start at `--callers 0x40453b` (the caller of the
+loader) and the writer of the `Licence%02d` name, and at the `GMScreenShots` / `PhotoDisplay` code.
