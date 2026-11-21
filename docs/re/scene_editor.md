@@ -345,6 +345,39 @@ tools/mod/testarea/README.md. Verified: the pad reads 0/1.00 on all wheels,
 the dirt strip 1/0.60, the surrounding terrain 2/0.70 (the SURFACE trace
 crossing all three).
 
+## 11. The petrol station tool (`add_station`)
+
+A scene's `stations` array (`SceneStation`: `id`, `name`, `pos`, `yaw`, `length` 34, `width` 24, `connect`, `max_link` 400)
+is the source of truth for one station; its parts are GENERATED from it and rebuilt by `add_station` / `set_station`
+(`source/game/scene_editor/scene_station.cpp`):
+
+- `<id>_ground` - a short wide scene road (the "road ground" forecourt; the ordinary ModRoads ribbon + collision +
+  driveable surface + grass suppression), long axis `(sin yaw, cos yaw)`.
+- `<id>_link` - a 7 m drive from the slab end nearer the road to the nearest **retail** road point (the ROAD_MAP graph:
+  the editor owns a `MapScreen` used only for `getRoadPointNear`), ending on that road at its own height.
+  `yaw` omitted = auto: the slab axis points at the nearest road.
+- `<id>_canopy` - a `prop` object, the generated `station_canopy.obj` (roof on four posts + two pump islands, flat-colour
+  PNGs written to `<mods>/props` on first use: our own art, no game texture).
+
+Commands: `add_station {id?, name?, pos?, yaw?, length?, width?, connect?, max_link?}`, `set_station {id, ...,
+auto_yaw?}`, `remove_station {id}`, `export_stations`. The Roads panel has the buttons (new at the camera focus,
+rebuild, remove, export). `export_stations` = the roads file (`export_roads`) + this scene's block in
+`<mods>/stations.txt` (replaced, not appended: tagged `# otdu2-scene-stations: <scene>`) + the canopy line in
+`props.txt` (once per name + position). That is everything the game needs: the pump screen, the repair row, the map
+icon and the forecourt lights all come from the `stations.txt` entry (`service_stations.cpp`).
+
+**Traps.** The surface height only answers where the terrain is streamed: a scripted run places stations near the
+start spot (ETUN_A, 12605 / 16698); elsewhere the result carries a WARNING and the pos y is kept (fly the camera there
+and `set_station`). The pump screen needs the fuel mod: `-fuelmod` (or the `fuel-system` package).
+A station added on a spot that holds retail props (the container yard at 12650 / 16500) drives into them - the tool does
+not check for obstacles. Traffic / GPS do not know the new roads (ROAD_MAP writers stay open).
+
+Verified (headless, build 407): `add_station` at (12600, 16800) -> y 10.3, yaw 68.7, "drive 30 m to the retail road at
+(12644, 16817)"; `export_stations`; FREERIDE `-fuelmod -tp "12600,25,16800"`: stations.txt 14 entries, the ribbons and
+the canopy load, the prompt "Fill / Car repair: OTDU_Test_Station", validate opens the pump screen
+(`docs/images/station-tool-pump-screen.webp`), the car drives slab -> drive on surface `0/1/70`
+(`docs/images/station-tool-drive.webp`).
+
 ## 9. What we must not do (unchanged, docs/re/modding.md 4)
 
 The editor writes only `<mods>/` (scenes, props.txt) and the screenshot /

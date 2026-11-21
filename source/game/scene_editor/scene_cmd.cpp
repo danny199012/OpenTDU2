@@ -548,6 +548,81 @@ std::string SceneEditorExecuteCommand( GMSceneEditor &editor, const char *pJsonT
             editor.markSceneChanged();
             result = ResultOk( id );
         }
+    } else if ( cmd == "add_station" ) {
+        // The petrol station tool: pos? (default the focus point, snapped), yaw? (default: the slab axis points at
+        // the nearest retail road), name?, length?, width?, connect? (default true), max_link? (m, default 400).
+        std::string id = command.getString( "id", "" );
+        if ( id.empty() ) {
+            id = editor.doc.uniqueId( "station" );
+        }
+        if ( editor.doc.findStation( id ) != nullptr ) {
+            result = ResultError( "station exists: " + id );
+        } else {
+            editor.pushUndo();
+            SceneStation station;
+            station.Id = id;
+            station.Name = command.getString( "name", id );
+            station.Position = ReadVec3( command.find( "pos" ), EditorFocusPoint( editor ) );
+            station.Yaw = command.find( "yaw" ) != nullptr ? static_cast<float>( command.getNumber( "yaw", 0.0 ) ) : FLT_MAX;
+            station.Length = static_cast<float>( command.getNumber( "length", 34.0 ) );
+            station.Width = static_cast<float>( command.getNumber( "width", 24.0 ) );
+            station.bConnect = command.getBool( "connect", true );
+            station.MaxLink = static_cast<float>( command.getNumber( "max_link", 400.0 ) );
+            editor.doc.Stations.push_back( station );
+            const std::string status = editor.rebuildStation( id );
+            result = ResultOk( status );
+            result.add( "id", JsonValue::MakeString( id ) );
+            if ( const SceneStation *pBuilt = editor.doc.findStation( id ) ) {
+                result.add( "yaw", JsonValue::MakeNumber( pBuilt->Yaw ) );
+            }
+        }
+    } else if ( cmd == "set_station" ) {
+        const std::string id = command.getString( "id", "" );
+        SceneStation *pStation = editor.doc.findStation( id );
+        if ( pStation == nullptr ) {
+            result = ResultError( "no such station: " + id );
+        } else {
+            editor.pushUndo();
+            if ( command.find( "name" ) != nullptr ) {
+                pStation->Name = command.getString( "name", pStation->Name );
+            }
+            if ( command.find( "pos" ) != nullptr ) {
+                pStation->Position = ReadVec3( command.find( "pos" ), pStation->Position );
+            }
+            if ( command.find( "yaw" ) != nullptr ) {
+                pStation->Yaw = static_cast<float>( command.getNumber( "yaw", pStation->Yaw ) );
+            }
+            if ( command.find( "length" ) != nullptr ) {
+                pStation->Length = static_cast<float>( command.getNumber( "length", pStation->Length ) );
+            }
+            if ( command.find( "width" ) != nullptr ) {
+                pStation->Width = static_cast<float>( command.getNumber( "width", pStation->Width ) );
+            }
+            if ( command.find( "connect" ) != nullptr ) {
+                pStation->bConnect = command.getBool( "connect", pStation->bConnect );
+            }
+            if ( command.getBool( "auto_yaw", false ) ) {
+                pStation->Yaw = FLT_MAX;
+            }
+            result = ResultOk( editor.rebuildStation( id ) );
+        }
+    } else if ( cmd == "remove_station" ) {
+        const std::string id = command.getString( "id", "" );
+        if ( editor.doc.findStation( id ) == nullptr ) {
+            result = ResultError( "no such station: " + id );
+        } else {
+            editor.pushUndo();
+            editor.removeStationParts( id );
+            editor.doc.Stations.erase( std::remove_if( editor.doc.Stations.begin(), editor.doc.Stations.end(),
+                                                       [&id]( const SceneStation &s ) { return s.Id == id; } ),
+                                       editor.doc.Stations.end() );
+            editor.markSceneChanged();
+            result = ResultOk( id );
+        }
+    } else if ( cmd == "export_stations" ) {
+        // The stations' roads -> the roads file, stations.txt (this scene's block), the canopy -> props.txt.
+        editor.exportStationsToGame();
+        result = ResultOk( editor.statusText );
     } else if ( cmd == "enter_walk" ) {
         // M4: first person. Fields: id? (an `interior` object; default the
         // selection, else the nearest placement; none -> the scene grounds),

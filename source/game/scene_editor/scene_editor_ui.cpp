@@ -435,6 +435,49 @@ void DrawRoadsSection( GMSceneEditor &editor ) {
             editor.bakeRoadToProps( editor.activeRoadId );
         }
     }
+    // Petrol stations: a forecourt slab + a drive to the nearest retail road + a canopy, one click.
+    ImGui::Separator();
+    ImGui::TextUnformatted( "petrol stations" );
+    if ( ImGui::Button( "new station at the camera focus" ) ) {
+        const Vector3f focus = editor.position + editor.getForward() * 25.0f;
+        float ground = focus.y;
+        if ( editor.bWorldReady ) {
+            editor.view.getWorld().getSurfaceHeight( focus.x, focus.z, editor.position.y + 50.0f, ground );
+        }
+        editor.pushUndo();
+        SceneStation station;
+        station.Id = editor.doc.uniqueId( "station" );
+        station.Name = station.Id;
+        station.Position = Vector3f( focus.x, ground, focus.z );
+        station.Yaw = FLT_MAX; // auto: the slab points at the nearest road
+        editor.doc.Stations.push_back( station );
+        editor.statusText = station.Id + ": " + editor.rebuildStation( station.Id );
+    }
+    for ( size_t i = 0; i < editor.doc.Stations.size(); i++ ) {
+        const SceneStation &station = editor.doc.Stations[ i ];
+        ImGui::PushID( static_cast<int>( 5000 + i ) );
+        ImGui::Text( "%s  (%.0f, %.0f) yaw %.0f", station.Id.c_str(), station.Position.x, station.Position.z, station.Yaw );
+        ImGui::SameLine();
+        if ( ImGui::SmallButton( "rebuild" ) ) {
+            const std::string id = station.Id;
+            editor.pushUndo();
+            editor.statusText = editor.rebuildStation( id );
+        }
+        ImGui::SameLine();
+        if ( ImGui::SmallButton( "remove" ) ) {
+            const std::string id = station.Id;
+            editor.pushUndo();
+            editor.removeStationParts( id );
+            editor.doc.Stations.erase( editor.doc.Stations.begin() + i );
+            editor.markSceneChanged();
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    if ( !editor.doc.Stations.empty() && ImGui::Button( "export stations (roads + stations.txt + canopy)" ) ) {
+        editor.exportStationsToGame();
+    }
 }
 
 } // namespace

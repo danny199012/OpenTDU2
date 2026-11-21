@@ -145,6 +145,24 @@ JsonValue SceneDocument::toJson() const {
         roads.push( std::move( entry ) );
     }
     root.add( "roads", std::move( roads ) );
+    JsonValue stations = JsonValue::MakeArray();
+    for ( const SceneStation &station : Stations ) {
+        JsonValue entry = JsonValue::MakeObject();
+        entry.add( "id", JsonValue::MakeString( station.Id ) );
+        entry.add( "name", JsonValue::MakeString( station.Name ) );
+        JsonValue pos = JsonValue::MakeArray();
+        pos.push( JsonValue::MakeNumber( station.Position.x ) );
+        pos.push( JsonValue::MakeNumber( station.Position.y ) );
+        pos.push( JsonValue::MakeNumber( station.Position.z ) );
+        entry.add( "pos", std::move( pos ) );
+        entry.add( "yaw", JsonValue::MakeNumber( station.Yaw ) );
+        entry.add( "length", JsonValue::MakeNumber( station.Length ) );
+        entry.add( "width", JsonValue::MakeNumber( station.Width ) );
+        entry.add( "connect", JsonValue::MakeBool( station.bConnect ) );
+        entry.add( "max_link", JsonValue::MakeNumber( station.MaxLink ) );
+        stations.push( std::move( entry ) );
+    }
+    root.add( "stations", std::move( stations ) );
     return root;
 }
 
@@ -160,6 +178,7 @@ bool SceneDocument::fromJson( const JsonValue &root, std::string &outError ) {
     Objects.clear();
     Overrides.clear();
     Roads.clear();
+    Stations.clear();
     if ( const JsonValue *pObjects = root.find( "objects" ) ) {
         for ( const JsonValue &entry : pObjects->array ) {
             SceneObject object;
@@ -217,6 +236,22 @@ bool SceneDocument::fromJson( const JsonValue &root, std::string &outError ) {
                 continue;
             }
             Roads.push_back( std::move( road ) );
+        }
+    }
+    if ( const JsonValue *pStations = root.find( "stations" ) ) {
+        for ( const JsonValue &entry : pStations->array ) {
+            SceneStation station;
+            station.Id = entry.getString( "id", "" );
+            station.Name = entry.getString( "name", station.Id );
+            station.Position = ReadVec3( entry.find( "pos" ), Vector3f( 0.0f, 0.0f, 0.0f ) );
+            station.Yaw = static_cast<float>( entry.getNumber( "yaw", 0.0 ) );
+            station.Length = static_cast<float>( entry.getNumber( "length", 34.0 ) );
+            station.Width = static_cast<float>( entry.getNumber( "width", 24.0 ) );
+            station.bConnect = entry.getBool( "connect", true );
+            station.MaxLink = static_cast<float>( entry.getNumber( "max_link", 400.0 ) );
+            if ( !station.Id.empty() ) {
+                Stations.push_back( std::move( station ) );
+            }
         }
     }
     return true;
@@ -284,6 +319,15 @@ SceneRoad *SceneDocument::findRoad( const std::string &id ) {
     for ( SceneRoad &road : Roads ) {
         if ( road.Id == id ) {
             return &road;
+        }
+    }
+    return nullptr;
+}
+
+SceneStation *SceneDocument::findStation( const std::string &id ) {
+    for ( SceneStation &station : Stations ) {
+        if ( station.Id == id ) {
+            return &station;
         }
     }
     return nullptr;

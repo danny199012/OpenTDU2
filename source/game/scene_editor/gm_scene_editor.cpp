@@ -4,6 +4,7 @@
 #include "debug/gs_imgui.h"
 #include "filesystem/gs_file.h"
 #include "game/freeride/chase_camera.h"
+#include "game/map_screen.h"
 #include "game/scene_editor/scene_cmd.h"
 #include "game/scene_editor/scene_export.h"
 #include "game/scene_editor/scene_interior.h"

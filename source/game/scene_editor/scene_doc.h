@@ -76,6 +76,22 @@ struct SceneRoad {
     std::string Texture; // props-folder PNG; empty = the default asphalt
 };
 
+// A petrol station (the station tool, docs/re/scene_editor.md 11): a forecourt "road ground" slab, a drive
+// connecting it to the nearest map road, a canopy + pumps prop, and the stations.txt entry that makes the
+// place work (the pump screen, the repair row, the map icon, the forecourt lights). The roads and the canopy
+// object are GENERATED from this record (ids <Id>_ground, <Id>_link, <Id>_canopy) and rebuilt by add_station /
+// set_station, so the record stays the source of truth.
+struct SceneStation {
+    std::string Id;
+    std::string Name;        // the stations.txt name (one word)
+    Vector3f Position;       // the forecourt centre (world; y = the ground)
+    float Yaw = 0.0f;        // degrees: the slab's long axis is (sin yaw, cos yaw)
+    float Length = 34.0f;    // m along the axis
+    float Width = 24.0f;     // m across
+    bool bConnect = true;    // build the drive to the nearest map road
+    float MaxLink = 400.0f;  // m: the search radius for that road
+};
+
 struct SceneDocument {
     int32_t Version = 1;
     std::string Island = "ibiza";
@@ -83,6 +99,7 @@ struct SceneDocument {
     std::vector<SceneObject> Objects;
     std::vector<SceneOverride> Overrides;
     std::vector<SceneRoad> Roads;
+    std::vector<SceneStation> Stations;
 
     // VFS read (`scenes/<file>` resolves through the mods overlay).
     bool loadFromVfs( const std::string &fileName, std::string &outError );
@@ -95,6 +112,7 @@ struct SceneDocument {
     SceneObject *findObject( const std::string &id );
     const SceneObject *findObject( const std::string &id ) const;
     SceneRoad *findRoad( const std::string &id );
+    SceneStation *findStation( const std::string &id );
     // id unique in the scene: base, base_2, base_3...
     std::string uniqueId( const std::string &base ) const;
     void removeObject( const std::string &id ); // and the children's Parent -> ""

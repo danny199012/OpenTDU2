@@ -61,6 +61,8 @@ public:
     SceneObjects sceneObjects;
     ModRoads modRoads;              // the doc's roads, tessellated (M3)
     std::string activeRoadId;       // the road the editor adds points to
+    std::unique_ptr<class MapScreen> roadGraph; // the island's ROAD_MAP graph (the station tool's nearest-road query)
+    std::string roadGraphIsland;
     bool bExteriors = true;
     bool bGroundClamp = false; // the editor walks the ground: clamping fights placement
     std::string island;
@@ -212,6 +214,14 @@ public:
     void exportRoadsFile();
     void bakeRoadToProps( const std::string &roadId );
     int32_t importRoadsFile();
+    // Petrol stations (scene_station.cpp, docs/re/scene_editor.md 11).
+    // Regenerates the station's ground road, drive and canopy from its record; returns a status line
+    // (the drive's length, or why there is none).
+    std::string rebuildStation( const std::string &stationId );
+    void removeStationParts( const std::string &stationId ); // the generated roads + canopy object
+    void exportStationsToGame();                             // stations.txt + roads file + the canopy placements
+    // The nearest retail (ROAD_MAP) road point to a position (the graph loads once per island).
+    bool findRetailRoad( const Vector3f &from, float maxDistance, Vector3f &outPoint );
     void refreshAssets();
 
     // --- walk (M4): first person inside an interior placement ---
