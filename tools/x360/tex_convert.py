@@ -1,7 +1,7 @@
 """Reads a texture dump of the 360 recomp (SDK patch 0013: --texture_dump_dir) - see the recomp's TEXTURE_DUMP.md.
 
   python -I tools/x360/tex_convert.py report <dump dir>              summary of textures.csv (sizes, formats, cube / array / 3D)
-  python -I tools/x360/tex_convert.py convert <dump dir> <out dir> [--min 256] [--limit N]
+  python -I tools/x360/tex_convert.py convert <dump dir> <out dir> [--min 256] [--limit N] [--only list.txt (file names)]
                                                                       PNG of the base level of each 2D texture (DXT1/3/5, DXN, 8888, 8, 565...)
 
 The .bin is the guest's raw bytes: big-endian, 32x32-block tiled (Xenos), base level first then the mip chain. Format names are the
@@ -156,12 +156,14 @@ def decode(row, data):
     return None
 
 
-def convert(folder, out, minimum=256, limit=1 << 30):
+def convert(folder, out, minimum=256, limit=1 << 30, only=None):
     from PIL import Image
 
     os.makedirs(out, exist_ok=True)
     done = skipped = 0
     for row in read_rows(folder):
+        if only is not None and row["file"] not in only:
+            continue
         if not row["dimension"].startswith("2D") or max(int(row["width"]), int(row["height"])) < minimum or done >= limit:
             continue
         with open(os.path.join(folder, row["file"]), "rb") as f:
@@ -181,6 +183,7 @@ if __name__ == "__main__":
     elif len(sys.argv) >= 4 and sys.argv[1] == "convert":
         mn = int(sys.argv[sys.argv.index("--min") + 1]) if "--min" in sys.argv else 256
         lim = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else 1 << 30
-        convert(sys.argv[2], sys.argv[3], mn, lim)
+        only = set(open(sys.argv[sys.argv.index("--only") + 1]).read().split()) if "--only" in sys.argv else None
+        convert(sys.argv[2], sys.argv[3], mn, lim, only)
     else:
         print(__doc__)
