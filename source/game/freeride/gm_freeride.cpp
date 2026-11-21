@@ -1,4 +1,5 @@
 #include "shared.h"
+#include "render/image_file.h"
 #include "gm_freeride.h"
 #include "game/freeride/licence_photo.h"
 #include "game/freeride/school_voice.h"
@@ -3479,6 +3480,7 @@ void GMFreeRide::applyOwnedStickers() {
     if ( stickerCanvasCarId != car.getIdCar() ) {
         stickerCanvasCarId = car.getIdCar();
         bStickerCanvasBound = false;
+    bLiveryBound = false;
     }
     const PlayerProfile &profile = GetPlayerProfile();
     const auto it = profile.OwnedCarStickers.find( car.getIdCar() );
@@ -9915,6 +9917,31 @@ void GMFreeRide::drawOffscreen() {
         if ( GPUTexture *pCube = view.getEnvironmentCube() ) {
             opponents.assignEnvironment( *pRenderer, pCube );
             traffic.assignRivalEnvironment( *pRenderer, pCube );
+        }
+    }
+    // The racing school cars' liveries (docs/re/x360_texture_dump.md): a 1024x1024 sheet per car (Delta 07, Esprit 70, Mustang 71)
+    // bound as the paint's sticker layer. The sheets come from the owner's 360 capture, not from the PC game data: put them
+    // in <userdata>/school_liveries/<car id>.png (500 / 501 / 502), or test one with -liverytex <png>.
+    if ( !bLiveryBound && car.isLoaded() && pRenderer != nullptr ) {
+        std::filesystem::path livery;
+        if ( const char *pTex = CmdLine::GetArgValue( "-liverytex" ) ) {
+            livery = pTex;
+        } else if ( car.getIdCar() >= 500 && car.getIdCar() <= 502 && gpFile != nullptr ) {
+            livery = gpFile->getUserDataFolder() / "school_liveries" / ( std::to_string( car.getIdCar() ) + ".png" );
+        }
+        bLiveryBound = true; // once per car load
+        std::error_code liveryEc;
+        if ( !livery.empty() && std::filesystem::exists( livery, liveryEc ) ) {
+            std::vector<uint8_t> pixels;
+            uint32_t w = 0, h = 0;
+            if ( LoadImageFileRGBA( livery, pixels, w, h ) ) {
+                const void *pData = pixels.data();
+                const uint32_t size = static_cast<uint32_t>( pixels.size() );
+                if ( GPUTexture *pTex = gpRender->getDevice().createTexture2D( w, h, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, "school livery" ) ) {
+                    const uint32_t bound = car.bindStickerTexture( *pRenderer, pTex );
+                    OTDU_LOG_INFO( "FREERIDE: school livery '%s' (%ux%u) bound on %u paint material(s)\n", livery.string().c_str(), w, h, bound );
+                }
+            }
         }
     }
     // -stickertest: the pack art onto the paint materials' USER_TEX slot once

@@ -219,6 +219,7 @@ private:
     StickerCanvas stickerCanvas;
     int32_t stickerCanvasCarId = -1;
     bool bStickerCanvasBound = false;
+    bool bLiveryBound = false;
     // The sticker shop's own copy of the car, parked on the room's car place
     // (the retail design studio shows it in the room); the canvas is bound to it.
     // The player's car in a shop room (sticker shop, tuning shop, tuner garage): wears everything the driven car wears.
