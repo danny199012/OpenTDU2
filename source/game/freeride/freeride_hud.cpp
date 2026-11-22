@@ -104,6 +104,10 @@ struct HudTimes {
 } // namespace
 
 namespace {
+// The "TIME REMAINING" banner shows in the last seconds of a limit-driven
+// school test (the 360 T04 clip: no banner at 6"60, the digit 5 at 4"60) [INF].
+constexpr float kTimeOutBannerSeconds = 6.0f;
+
 uint32_t Rgba( uint32_t r, uint32_t g, uint32_t b, uint32_t a = 255 ) { return r | ( g << 8 ) | ( b << 16 ) | ( a << 24 ); }
 
 void PushTriangle( std::vector<Vertex2D> &out, float x0, float y0, float x1, float y1, float x2, float y2, uint32_t color ) {
@@ -1684,6 +1688,7 @@ void FreeRideHud::setRaceHud( const RaceHud &race ) {
         if ( bTimeCdShown_ ) {
             bTimeCdShown_ = false;
             hud.setClipVisible( "/HUD/time_cd", false );
+            hud.setClipVisible( "/HUD/time_out", false ); // the TIME REMAINING banner goes with it
         }
         if ( bRefScoreShown_ ) {
             bRefScoreShown_ = false;
@@ -1743,6 +1748,33 @@ void FreeRideHud::setRaceHud( const RaceHud &race ) {
             }
         }
         setCountdown( Max( 0.0f, race.Limit - race.Seconds ) );
+        // The retail "TIME REMAINING" banner of the last seconds (the 360 T04
+        // clip: the plate + the big second count from 6 s left - the hourglass
+        // read 6"60 with no banner, 4"60 with the digit 5 = ceil - and gone at
+        // the timeout) [DATA: HUD.vmf clip /HUD/time_out; CODE-dev: /:time_out_rs].
+        if ( hud.findClip( "/HUD/time_out" ) != nullptr ) {
+            const float remaining = race.Limit - race.Seconds;
+            const bool bNear = remaining > 0.0f && remaining <= kTimeOutBannerSeconds;
+            if ( bNear && !bTimeOutShown_ ) {
+                bTimeOutShown_ = true;
+                OTDU_LOG_INFO( "FreeRideHud: TIME REMAINING banner on (%.2f s left)\n", remaining );
+                if ( !hud.gotoLabel( "/HUD/time_out", "open", true ) ) {
+                    // No 'open' label: the clip is a static plate, just play it.
+                    hud.gotoFrame( "/HUD/time_out", 1, true );
+                }
+                if ( CmdLine::HasArg( "-dumphud" ) ) {
+                    if ( const FlashPlayer::Clip *pClip = hud.findClip( "/HUD/time_out" ) ) {
+                        dumpClips( *pClip, "/HUD/time_out", 4 );
+                    }
+                }
+            } else if ( !bNear ) {
+                bTimeOutShown_ = false;
+            }
+            hud.setClipVisible( "/HUD/time_out", bNear );
+            if ( bNear ) {
+                hud.setVariable( "/:time_out_rs", std::to_string( Max( 1, static_cast<int32_t>( std::ceil( remaining ) ) ) ) );
+            }
+        }
     } else if ( race.Target > 0.0f && hud.findClip( "/HUD/ref_score" ) != nullptr ) {
         if ( !bRefScoreShown_ ) {
             bRefScoreShown_ = true;

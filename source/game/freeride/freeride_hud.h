@@ -376,6 +376,7 @@ private:
     bool bViolationGaugeShown_ = false;
     bool bPenaltyGaugeShown_ = false;
     bool bTimeCdShown_ = false;
+    bool bTimeOutShown_ = false; // the TIME REMAINING banner of the last seconds (one-shot log)
     bool bRefScoreShown_ = false;
     bool bMinimapHiddenByRace_ = false;
     uint32_t penaltyGaugeFrame_ = ~0u;
