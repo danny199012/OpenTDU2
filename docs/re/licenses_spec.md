@@ -586,7 +586,48 @@ Capture (`02_RSC4T01_First_step.mp4`): the cone lines are low red / white blocks
 The owner's unlimited photo-camera shots of retail T01 (the recomp's `tdu2_freecam`, F9 / L3+R3): the start zone is ringed with small orange traffic cones and a flat blue START banner; the course is a green chevron line through two orange "C" checkpoint pins (a translucent orange bar each) walled by red / white separator rows forming a corridor; the braking zone is a red circle with an X and a red pin at the far end (stop inside). The port now builds the gates / separators / racing line during the pre-test presentation too (`updateRaceGates()` in `tickTestIntro`; they were only built once the test ran). Still missing: the orange cones, the checkpoint "C" pins, the red stop-circle decal.
 
 ### 12.18 Traffic cones (2026-11-22, `main`)
-DEC2 type 1 -> 2 lines are the start / finish box's **traffic cones** (the editor's "Cone line"); type 4 -> 5 lines are the red / white separator walls; type 0 is a single cone. `RaceGates::eModel::Cone` is a procedural cone (12-sided orange body, white band, black square foot, 0.62 m [INF: no cone model in the game data]) drawn every 3 m along the 1 -> 2 lines; `-barrelcones` restores the old barrels. Verified on RSC4T01 (preview + cockpit, matches the 360 shots). Still missing: the "C" checkpoint pins and the red stop circle.
+DEC2 type 1 -> 2 lines are the start / finish box's **traffic cones** (the editor's "Cone line"); type 4 -> 5 lines are the red / white separator walls; type 0 is a single cone. `RaceGates::eModel::Cone` was a procedural cone (12-sided orange body, white band, black square foot, 0.62 m [INF: "no cone model in the game data" - overturned, see 12.21: the retail marker is the worldactors actor `SF_Stud_act`]); it is now only the fallback (`-linemodel cone`). `-barrelcones` restores the old barrels. Verified on RSC4T01 (preview + cockpit, matches the 360 shots). Still missing: the "C" checkpoint pins and the red stop circle.
 
 ### 12.19 Checkpoint pins and the stop target (2026-11-22, `main`)
 Pad (non-road) tests draw the pack's `CP_OffRoad` gate (the amber "C" pin, bounds 22 x 10.7 m) for their checkpoints instead of the road arch (`eModel::CheckpointOff`), and the Kind 3 gate (T01's last gate, the stop-inside zone) is the `BrakingZone_01` target (`sf_target`, 16 m) instead of a FINISH arch; it is in the world from the presentation on. Verified: the "C" pins in the T01 preview (screenshots), the stop gate pushed as model BrakingZone 338 m ahead (`-logracegates`). Not seen yet: the target itself against the 360 shot (too far from the preview camera) - check with a drive to gate 2.
+
+### 12.20 The school interior's walk screen is R_SCHOOL.vmf's `school_wm` (2026-11-22, `main`)
+The reticle over the instructor reads **"Licenses"** in retail (the 360 `01_Drive_to_school...` clip, 19.5 s: the
+green A glyph over the word in the low bar). The movie has the law [DATA: R_SCHOOL.vmf root f0]: `ItemType('over')`
+with `SelItemType == 'tutor'` sets `t_wm_destination = LowBarText(0)`, and `LowBarText` returns `_root.m_licences_`
+for `'tutor'`, `_root.m_ExitSchool` for `'exit'` - the same protocol as INTRO's `hall_wm` (which only knows
+'garage' / 'car', so the generic walk screen never names the tutor). Both vars are DBLoc `_common` rows the loc
+pass fills: `m_licences_` = 1975 "Licenses", `m_ExitSchool` = 1996 "Exit School?" (the door's prompt; the school_wm
+frame itself stops and sets `_root.Input`). Built: the racing-school interiors (`ERS_*`, `-noschoolwalkui` reverts)
+run the **r_school** movie and goto `school_wm` instead of INTRO's `wm_home` (`interior_walk.cpp`, `bSchoolUi`);
+the tutor / door volumes of `irs_a/b/c` (Type 20 / 0) select exactly as before and A still opens the school through
+the walk's own `eResult::Shop`. Verified: `-schoolwalk -walkaim NPC_area` (new hook: the school interior without the
+school screen) shows the A + "Licenses" low bar over the instructor (screenshot in the state entry).
+
+### 12.21 The cone is `SF_Stud_act` - found (2026-11-22, `main`)
+The negative of 12.18 is overturned [DATA, positive]. The dev build's school decor code maps the DEC2 decor type to
+a world-actor tag with a jump table (`TestDrive2DEV.exe` `0x9795a0`, strings `0x14d8340..68`):
+**type 0 / 1 / 2 -> `TAC_SF_Stud_act`, type 3 / 4 -> `RS_Separ_A_act`, type 5 -> `RS_Separ_B_act`** (and `0x97a180`
+re-checks an entity's model tag against the same three names). So the "cone line" (types 1 -> 2) and the single
+cone (type 0) are the worldactors actor **`SF_Stud_act`** - bounds (-0.24, 0, -0.23)..(0.25, 0.76, 0.23) = a
+0.49 x 0.76 x 0.46 m orange traffic cone with white bands (Ibiza's `worldactors.bnk`, materials `RS_STUD`; the
+red/white `rs_stud_c` atlas region is one of its LOD/material variants, the model renders orange). The port draws
+it for every DEC2 type 0 and 1 -> 2 marker (`RaceGates::eModel::LineActor`, `pLineActor`, loaded from the world's
+actor list like the separators); the procedural cone of 12.18 is the fallback and `-linemodel stud|pwor|cone`
+switches (`pwor` = the second candidate `ss_pwor_a`, untested). Verified against the 360 T01 clip: the cone rows
+flanking the start box match (screenshot). The cone-hit fail keeps using the marker positions.
+The `ss_pwor_*` family ("PWork", textures `rs_pworka/b`: roadwork boards, a yellow lamp, an orange disc) stays
+unidentified as a user - possible barrier/lantern props, listed here so the next dig starts there.
+
+### 12.22 The TIME REMAINING banner and the red hourglass (2026-11-22, `main`, from the 360 T04 clip)
+T04's timeout run (`05_RSC4T04...` 164 s): at 6"60 left the hourglass is white; at 4"60 the centre-top red
+**TIME REMAINING** plate is up with the big count **5** = ceil(4.6); the count runs 6..1 and the plate is gone at
+the timeout (the fail cart's Final time = the limit). Built (`freeride_hud.cpp`): the limit-driven school HUD shows
+`/HUD/time_out` (`gotoLabel 'open'` - without it the clip sits on the empty 'off' frame; labels 'off' f1 / 'open'
+f10 / 'on' f28 / 'move' f87, 104 frames) from 6 s left (`kTimeOutBannerSeconds`), the count = ceil(remaining) into
+both digit vars (`/:time_out_rs` = the dev build's [CODE], `/:time_out` = the movie's own second field); hidden
+again with the race HUD. The hourglass itself (`/HUD/time_cd`, labels 'default' / 'open' / 'up' f10 / 'down' f40)
+switches to **'down' - the red digits - at 10 s left** [INF: the threshold; retail shows red by 6"60].
+Differences left: the big digit renders red (the movie's own `/:time_out_rs` text style); retail shows white -
+probably a frame-driven bitmap digit inside the clip, not traced. The countdown digits' red tint is the 'down'
+frame's own style.

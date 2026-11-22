@@ -4,6 +4,48 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-22 (`main`, the licence-school accuracy pass: the cones found, the "Licenses" reticle, the TIME REMAINING banner)
+
+Owner: "I had some cutscenes dissected for the licence school tests ... get them as accurate as possible ...
+Claude apparently couldn't find the cones assets ... when the reticle is pointing at todd it should say licences
+as hint it should be in the videos ... if menu's are needed I don't want anything custom we are trying to get
+everything as close as 1:1 ... document what is out of reach."
+
+### What changed
+- **The retail traffic cones found** [CODE dev + DATA + verified]: the dev build's school decor jump table
+  (`TestDrive2DEV.exe 0x9795a0`, strings `0x14d8340..68`) maps DEC2 type 0/1/2 -> `TAC_SF_Stud_act`, 3/4 ->
+  `RS_Separ_A_act`, 5 -> `RS_Separ_B_act`. `SF_Stud_act` (Ibiza worldactors.bnk) is a 0.49 x 0.76 m orange/white
+  traffic cone. `race_gates.*`: new `eModel::LineActor` (`pLineActor`) drawn for every DEC2 type 0 and 1->2
+  marker; the procedural cone of 12.18 is the fallback (`-linemodel stud|pwor|cone`, `-barrelcones` unchanged).
+  Verified against `02_RSC4T01` (the cone rows flank the start box exactly like the clip).
+- **The reticle over Todd reads "Licenses"** [DATA: R_SCHOOL.vmf f0 `LowBarText`]: tutor -> `_root.m_licences_`
+  (DBLoc common 1975), the door -> `m_ExitSchool` (1996 "Exit School?"). `interior_walk.*`: the racing-school
+  interiors run the **r_school** movie at `school_wm` (the retail walk screen) instead of INTRO's generic
+  `wm_home` (`-noschoolwalkui` reverts). `gm_freeride.cpp`: `-schoolwalk` hook (the school interior without the
+  school screen). Verified: `-schoolwalk -walkaim NPC_area` -> the green A + "Licenses" low bar over the
+  instructor, the same as the 360 `01_Drive_to_school...` frame 19.5 s.
+- **The TIME REMAINING banner** [DATA: HUD.vmf `/HUD/time_out` labels off/open/on/move + CODE-dev `/:time_out_rs`]:
+  from 6 s left of a limit-driven test the red plate + the big count (ceil) show top-centre, gone at the timeout;
+  the hourglass (`/HUD/time_cd` 'up'/'down' labels) turns red ('down') at 10 s. `freeride_hud.*`. Verified on a
+  scripted T04 timeout (banner "5" + red hourglass, fail cart at the limit).
+
+### Verified
+- All three above with headless runs + screenshots; the T01 preview course (cones, separators, C pins, START arch)
+  next to the 360 clip. Build 445. Commits 27899fa4 (school_wm), 5f2... (LineActor cones), banner + red hourglass.
+
+### Not done / next (out of reach this session, in the order I would take them)
+- The banner's big digit renders red (the movie's `/:time_out_rs` text style); retail shows a WHITE digit - likely
+  a frame-driven bitmap digit inside `/HUD/time_out`; decode the clip's frames (S-ids near placement 1687) if it matters.
+- The per-gate split + gap row layout for school road tests (spec 12.12 open list): the HUD rows exist, the clip's
+  layout is not compared (T03/T05/T06 clips).
+- The pre-test presentation's retail camera cuts (spec 12.11 open): the port plays the .rly demo from one camera.
+- T06's floating white direction arrows above the junctions + the white arrow decals on the tarmac (not in any
+  .ig2 entity; probably part of the test's .sce/holograms - undug).
+- Video Replay playback (the recorded run): retail locks the row too (greyed) - the port matches (LockReplay 1);
+  actual playback needs the GMCompDrivingSchool replay recorder (dev build names the object).
+- The fail flow's "Retry" reload path was verified in earlier sessions; not re-run here.
+- `-linemodel pwor` (the `ss_pwor_a` candidate) untested; the family's user is unidentified (12.21).
+
 ## Session 2026-11-22 (`main`, school test 2: spot holograms hidden during a school test)
 
 Owner (test 2): "needs the red markers removing ... just straight weaving of the barrels and the finish"; retail counts the weave right-to-left only, left-to-right counted nothing (360 recomp), no checkpoint markers on the course.
