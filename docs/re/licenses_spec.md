@@ -581,3 +581,6 @@ Owner (retail test 5): no barrels at the start; just overtake the 3 cars and rea
 
 ### 12.16 Test 1: separators, Todd, grounding (2026-11-21, `main`)
 Capture (`02_RSC4T01_First_step.mp4`): the cone lines are low red / white blocks (the `RS_Separ_A_act` / `_B_act` actors, 2.36 x 0.78 x 0.91 m) end to end, alternating; the player's hands are on the wheel; orange cones stand at the start. The port draws the separators on the DEC2 lines, seats the instructor (Todd for the classic school) beside the player in every test, and grounds the car like the delivery does (`placeCar`). See `docs/state/main.md`.
+
+### 12.17 Test 1 from the 360 photo camera (2026-11-22, `main`)
+The owner's unlimited photo-camera shots of retail T01 (the recomp's `tdu2_freecam`, F9 / L3+R3): the start zone is ringed with small orange traffic cones and a flat blue START banner; the course is a green chevron line through two orange "C" checkpoint pins (a translucent orange bar each) walled by red / white separator rows forming a corridor; the braking zone is a red circle with an X and a red pin at the far end (stop inside). The port now builds the gates / separators / racing line during the pre-test presentation too (`updateRaceGates()` in `tickTestIntro`; they were only built once the test ran). Still missing: the orange cones, the checkpoint "C" pins, the red stop-circle decal.

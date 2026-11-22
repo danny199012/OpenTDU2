@@ -4665,6 +4665,7 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
         return;
     }
     licenseResult.tick( deltaTime ); // the banner movie
+    updateRaceGates(); // the course's gates, barriers and racing line are in the world during the presentation too
     testIntro.tick( deltaTime );
     placeCar( testIntro.getCarPosition(), testIntro.getCarHeading() );
     // The occupants follow the re-placed car (they stayed where the car was before: the avatar sat outside it).
