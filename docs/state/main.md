@@ -30,8 +30,13 @@ everything as close as 1:1 ... document what is out of reach."
   scripted T04 timeout (banner "5" + red hourglass, fail cart at the limit).
 
 ### Verified
-- All three above with headless runs + screenshots; the T01 preview course (cones, separators, C pins, START arch)
-  next to the 360 clip. Build 445. Commits 27899fa4 (school_wm), 5f2... (LineActor cones), banner + red hourglass.
+- All three above with headless runs + screenshots; the T01 preview course (cones, separators, C pins, START
+  arch) next to the 360 clip. Regression: `-licensetest RSC4T01 -licensewarp` still passes (gates 1-3, 1.35 s).
+  Commits 27899fa4 (school_wm), 63b37bee (SF_Stud_act cones), ea836fc3 + d12c40c9 (banner + red hourglass),
+  1d6d64a0 (docs).
+- **T01's "2 laps" claim was a misread and is corrected**: the retail run frames show the HUD counting **n/4**
+  (single pass) - `reference/licence_school_360/NOTES.md` fixed. The ig2 carries `nblp=2` on every C4 test and
+  retail ignores it for lcpi=1 (only T06, lcpi=0, is a 2-lap circuit); the port's lap law already matches.
 
 ### Not done / next (out of reach this session, in the order I would take them)
 - The banner's big digit renders red (the movie's `/:time_out_rs` text style); retail shows a WHITE digit - likely
