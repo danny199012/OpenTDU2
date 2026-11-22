@@ -127,6 +127,11 @@ public:
     inline bool isTuneUi() const { return bActive && bTuneUi; }
     class FlashPlayer *getAvatarUi(); // the SHOPSAVATAR movie (null outside an avatar shop)
     inline bool isAvatarUi() const { return bActive && bAvatarUi; } // SHOPSAVATAR.vmf's pages (surgeon ...)
+    // The racing schools' retail walk screen (R_SCHOOL.vmf's school_wm): its
+    // low bar names the selection - the tutor "Licenses", the door
+    // "Exit School?" (DBLoc common 1975 / 1996). -noschoolwalkui keeps the
+    // generic INTRO screen.
+    inline bool isSchoolUi() const { return bActive && bSchoolUi; }
     using CommandSink = std::function<void( const std::string &, const std::string & )>;
     void setCommandSink( CommandSink sink ) { commandSink = std::move( sink ); }
     // The walk input is off while the movie's own pages are up (wmof / wmon).
@@ -200,6 +205,7 @@ private:
     bool bStickUi = false;
     bool bTuneUi = false; // the tuning shops' retail UI (SHOPSCAR.vmf, the car_tuner page)
     bool bAvatarUi = false;
+    bool bSchoolUi = false; // the racing schools' retail UI (R_SCHOOL.vmf, the school_wm page)
     std::string avatarLabel; // SHOPSAVATAR root label of this room (surgeon / hairdresser / clothes_shop)
     bool bWalkInput = true;
     bool bLeaveRequested = false;

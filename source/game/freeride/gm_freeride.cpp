@@ -9058,6 +9058,20 @@ void GMFreeRide::tick( float deltaTime ) {
                 openSchool( pSchool[0], std::string() );
             }
         }
+        // Test: -schoolwalk walks into the school interior (ERS_C) WITHOUT the
+        // school screen - the school_wm walk screen (the reticle's low bar
+        // over the tutor / the door; pair with -walkaim NPC_area).
+        static int32_t schoolWalkFrames = 0;
+        if ( CmdLine::HasArg( "-schoolwalk" ) && ++schoolWalkFrames == 120 ) {
+            if ( interior.enter( "ERS_C", islandName ) ) {
+                interiorKind = "rschool";
+                hud.closeEnterSpot();
+                hud.closeHint();
+                OTDU_LOG_INFO( "FREERIDE: -schoolwalk: in the school interior (no school screen)\n" );
+            } else {
+                OTDU_LOG_WARN( "FREERIDE: -schoolwalk: the school interior could not be entered\n" );
+            }
+        }
         // Test: -championship <part of its name> opens its race list.
         static int32_t championshipFrames = 0;
         if ( const char *pChamp = CmdLine::GetArgValue( "-championship" ) ) {

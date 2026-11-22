@@ -436,12 +436,21 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
         }
     }
     bAvatarUi = !avatarLabel.empty();
+    // The racing schools (ERS_A / ERS_B / ERS_C) run R_SCHOOL.vmf's own
+    // school_wm walk screen: the same cursor + low bar as INTRO's wm_home,
+    // but LowBarText names the tutor ("Licenses", DBLoc common 1975) and the
+    // door ("Exit School?", 1996) - the retail prompts over the instructor
+    // and the exit [DATA: the movie's LowBarText, R_SCHOOL.vmf f0].
+    bSchoolUi = !bHouse && !bStickUi && !bTuneUi && !bAvatarUi &&
+                _strnicmp( houseSpotName.c_str(), "ERS_", 4 ) == 0 && !CmdLine::HasArg( "-noschoolwalkui" );
     bWalkInput = true;
     bLeaveRequested = false;
     if ( bStickUi || bTuneUi ) {
         setup.UiMovie = "shopscar";
     } else if ( bAvatarUi ) {
         setup.UiMovie = "shopsavatar";
+    } else if ( bSchoolUi ) {
+        setup.UiMovie = "r_school";
     }
     setup.HouseIsland = island;
     // The tuner garage's rooms walk in at NIGHT (the mod's dark / neon /
@@ -872,6 +881,12 @@ void InteriorWalk::startWalk( const char *pPreferredCamera ) {
         homePage.clear();
         scene.getUi().setVariableBool( "/:InGarage", bInGarage );
         scene.getUi().gotoLabel( "/", bInGarage ? "garage_in" : "living_in", true );
+    } else if ( bSchoolUi ) {
+        // R_SCHOOL's school_wm: the frame stops, sets _root.Input and owns the
+        // walk cursor + the low bar ("Licenses" over the tutor, "Exit School?"
+        // over the door; the game's A still comes through the walk) [DATA].
+        bWalkInput = true;
+        scene.getUi().gotoLabel( "/", "school_wm", true );
     } else {
         scene.getUi().gotoLabel( "/", "wm_home", true );
     }
