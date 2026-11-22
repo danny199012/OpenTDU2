@@ -4972,6 +4972,9 @@ void GMFreeRide::buildCourseMarkers() {
                 RaceGates::Marker marker;
                 marker.Position = decor.Position;
                 snapToGround( marker.Position );
+                if ( raceGates.hasModel( RaceGates::eModel::Cone ) && !CmdLine::HasArg( "-barrelcones" ) ) {
+                    marker.Model = RaceGates::eModel::Cone;
+                }
                 markers.push_back( marker );
                 coursePoles.push_back( marker.Position );
                 numCones++;
@@ -4981,7 +4984,7 @@ void GMFreeRide::buildCourseMarkers() {
         const Vector3f a = decor.Position, b = decors[i + 1].Position;
         const Vector3f along( b.x - a.x, 0.0f, b.z - a.z );
         const float length = along.length();
-        if ( raceGates.hasModel( RaceGates::eModel::Separator ) && !CmdLine::HasArg( "-barrelcones" ) ) {
+        if ( decor.Type == 4 && raceGates.hasModel( RaceGates::eModel::Separator ) && !CmdLine::HasArg( "-barrelcones" ) ) {
             // The retail cone line: the school's separators (low red / white barrier blocks) end to end [DATA: the actors
             // RS_Separ_A / B_act; capture: red and white blocks alternate]. The block's long axis is its x or z extent.
             const Vector3f mn = raceGates.getSeparatorMin(), mx = raceGates.getSeparatorMax();
@@ -5016,6 +5019,9 @@ void GMFreeRide::buildCourseMarkers() {
             marker.Position = a + ( b - a ) * ( static_cast<float>( n ) / static_cast<float>( count - 1 ) );
             snapToGround( marker.Position );
             marker.Heading = headingOf( along );
+            if ( raceGates.hasModel( RaceGates::eModel::Cone ) && !CmdLine::HasArg( "-barrelcones" ) ) {
+                marker.Model = RaceGates::eModel::Cone; // the 1 -> 2 lines are the start / finish box's traffic cones
+            }
             markers.push_back( marker );
             numCones++;
         }

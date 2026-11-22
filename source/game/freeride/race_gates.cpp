@@ -169,6 +169,78 @@ bool RaceGates::load( EdenSceneView &view, const std::string &island ) {
             }
         }
     }
+    // The traffic cone of the cone lines [INF: the game data has no cone model; the retail cones are small orange cones with a
+    // white band on a square foot, ~0.6 m tall in the 360 captures]: generated like the pool ring (one index for v / vn / vt).
+    UnloadObjDraws( coneDraws );
+    {
+        std::string obj;
+        char line[256];
+        constexpr int32_t kSides = 12;
+        constexpr float kPi2 = 6.2831853f, kHeight = 0.62f, kBaseR = 0.17f;
+        int32_t vertex = 1;
+        auto emit = [&]( float x, float y, float z, float nx, float ny, float nz ) {
+            snprintf( line, sizeof( line ), "v %.4f %.4f %.4f\nvn %.4f %.4f %.4f\nvt 0 0\n", x, y, z, nx, ny, nz );
+            obj += line;
+            return vertex++;
+        };
+        auto tri = [&]( int32_t a, int32_t b, int32_t c ) {
+            snprintf( line, sizeof( line ), "f %d/%d/%d %d/%d/%d %d/%d/%d\n", a, a, a, b, b, b, c, c, c );
+            obj += line;
+        };
+        // the foot: a flat square slab (top + four sides)
+        obj += "usemtl black\n";
+        {
+            const float f = 0.20f, y1 = 0.05f;
+            const float cx[4] = { -f, f, f, -f }, cz[4] = { -f, -f, f, f };
+            int32_t top[4], low[4];
+            for ( int32_t i = 0; i < 4; i++ ) {
+                top[i] = emit( cx[i], y1, cz[i], 0.0f, 1.0f, 0.0f );
+                low[i] = emit( cx[i], 0.0f, cz[i], 0.0f, 1.0f, 0.0f );
+            }
+            tri( top[0], top[2], top[1] );
+            tri( top[0], top[3], top[2] );
+            for ( int32_t i = 0; i < 4; i++ ) {
+                const int32_t j = ( i + 1 ) % 4;
+                tri( low[i], top[j], top[i] );
+                tri( low[i], low[j], top[j] );
+            }
+        }
+        struct Band { float y0, y1; const char *pMaterial; };
+        const Band bands[] = { { 0.05f, 0.24f, "orange" }, { 0.24f, 0.38f, "white" }, { 0.38f, kHeight, "orange" } };
+        for ( const Band &band : bands ) {
+            snprintf( line, sizeof( line ), "usemtl %s\n", band.pMaterial );
+            obj += line;
+            int32_t lo[kSides], hi[kSides];
+            for ( int32_t k = 0; k < kSides; k++ ) {
+                const float a = kPi2 * static_cast<float>( k ) / static_cast<float>( kSides );
+                const float rl = kBaseR * ( 1.0f - band.y0 / kHeight ), rh = kBaseR * ( 1.0f - band.y1 / kHeight );
+                lo[k] = emit( rl * std::cos( a ), band.y0, -rl * std::sin( a ), std::cos( a ), 0.35f, -std::sin( a ) );
+                hi[k] = emit( rh * std::cos( a ), band.y1, -rh * std::sin( a ), std::cos( a ), 0.35f, -std::sin( a ) );
+            }
+            for ( int32_t k = 0; k < kSides; k++ ) {
+                const int32_t k1 = ( k + 1 ) % kSides;
+                tri( lo[k], hi[k1], hi[k] );
+                tri( lo[k], lo[k1], hi[k1] );
+            }
+        }
+        const std::string mtl = "newmtl black\nKd 1 1 1\nmap_Kd cone_black.png\nnewmtl orange\nKd 1 1 1\nmap_Kd cone_orange.png\n"
+                                "newmtl white\nKd 1 1 1\nmap_Kd cone_white.png\n";
+        if ( BuildObjDraws( *pRenderer, "", "trafficcone", "TD_Gouraud", obj, mtl, coneDraws, nullptr, nullptr, nullptr, "RaceGates" ) ) {
+            static const uint8_t colors[3][4] = { { 28, 28, 30, 255 }, { 255, 110, 20, 255 }, { 240, 240, 236, 255 } };
+            static const char *names[3] = { "cone_black.png", "cone_orange.png", "cone_white.png" };
+            for ( size_t d = 0; d < coneDraws.size() && d < 3; d++ ) {
+                uint8_t pixels[16];
+                for ( int32_t k = 0; k < 4; k++ ) {
+                    memcpy( pixels + k * 4, colors[d], 4 );
+                }
+                if ( GPUTexture *pTexture = gpRender->getTextureCache().createFromRGBA( 2, 2, pixels, names[d] ) ) {
+                    pRenderer->assignTexture( coneDraws[d].Material, "COLOR", pTexture );
+                    pRenderer->updateProgram( coneDraws[d].Material );
+                    coneDraws[d].pTexture = pTexture;
+                }
+            }
+        }
+    }
     int32_t numLoaded = 0;
     for ( const Part &part : parts ) {
         numLoaded += part.Model ? 1 : 0;
@@ -183,6 +255,7 @@ void RaceGates::unload() {
         part = Part();
     }
     pSeparator[0] = pSeparator[1] = nullptr;
+    UnloadObjDraws( coneDraws );
     gates.clear();
     markers.clear();
     if ( bLoaded && gpRender != nullptr ) {
@@ -239,6 +312,13 @@ void RaceGates::draw( EdenRenderer &renderer ) const {
         part.Model->draw( renderer, frame * Matrix4x4f::Scale( Vector3f( scale, 1.0f, 1.0f ) ) * part.Local );
     }
     for ( const Marker &marker : markers ) {
+        if ( marker.Model == eModel::Cone ) {
+            const Matrix4x4f at = Matrix4x4f::Translation( marker.Position );
+            for ( const ObjMeshDraw &draw : coneDraws ) {
+                renderer.draw( draw.Mesh, draw.Material, at );
+            }
+            continue;
+        }
         if ( marker.Model == eModel::Separator ) {
             if ( pSeparator[marker.Variant & 1] != nullptr ) {
                 pSeparator[marker.Variant & 1]->draw( renderer, Matrix4x4f::Translation( marker.Position ) *

@@ -2,6 +2,7 @@
 
 #include "core/math.h"
 #include "filesystem/bank.h"
+#include "game/spots/obj_mesh.h"
 #include "render/eden/eden_model.h"
 
 #include <memory>
@@ -34,7 +35,7 @@ public:
     // Trajectory: the 'Trajectory' actor (a flat strip with the arrow texture
     // and its Arrow_Orange / Arrow_Red .UVA scroll); BrakingZone: the type 7
     // checkpoint 'BrakingZone_01' (the sf_target mesh, "stop" texture) [DATA].
-    enum class eModel : int32_t { Start, Finish, Checkpoint, Barrels, Radar, Trajectory, BrakingZone, Separator, Count };
+    enum class eModel : int32_t { Start, Finish, Checkpoint, Barrels, Radar, Trajectory, BrakingZone, Separator, Cone, Count };
 
     struct Gate {
         Vector3f Position;
@@ -61,7 +62,7 @@ public:
     inline void clearMarkers() { markers.clear(); }
     inline const std::vector<Marker> &getMarkers() const { return markers; }
     inline bool hasModel( eModel model ) const {
-        return model == eModel::Separator ? pSeparator[0] != nullptr : static_cast<bool>( parts[static_cast<int32_t>( model )].Model );
+        return model == eModel::Separator ? pSeparator[0] != nullptr : model == eModel::Cone ? !coneDraws.empty() : static_cast<bool>( parts[static_cast<int32_t>( model )].Model );
     }
     // The racing school's separator (the low red / white barrier of the cone lines): the worldactors actor RS_Separ_A_act, owned by
     // the world. Its extent in the marker's frame (x across, z along) at scale 1.
@@ -102,6 +103,7 @@ private:
     Bank bank;
     EdenModel *pSeparator[2] = { nullptr, nullptr }; // RS_Separ_A_act (red), RS_Separ_B_act (white)
     Vector3f separatorMin, separatorMax;
+    std::vector<ObjMeshDraw> coneDraws; // the traffic cone (procedural: the game data has none)
     Part parts[static_cast<int32_t>( eModel::Count )];
     std::vector<Gate> gates;
     std::vector<Marker> markers;
