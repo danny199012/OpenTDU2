@@ -587,3 +587,6 @@ The owner's unlimited photo-camera shots of retail T01 (the recomp's `tdu2_freec
 
 ### 12.18 Traffic cones (2026-11-22, `main`)
 DEC2 type 1 -> 2 lines are the start / finish box's **traffic cones** (the editor's "Cone line"); type 4 -> 5 lines are the red / white separator walls; type 0 is a single cone. `RaceGates::eModel::Cone` is a procedural cone (12-sided orange body, white band, black square foot, 0.62 m [INF: no cone model in the game data]) drawn every 3 m along the 1 -> 2 lines; `-barrelcones` restores the old barrels. Verified on RSC4T01 (preview + cockpit, matches the 360 shots). Still missing: the "C" checkpoint pins and the red stop circle.
+
+### 12.19 Checkpoint pins and the stop target (2026-11-22, `main`)
+Pad (non-road) tests draw the pack's `CP_OffRoad` gate (the amber "C" pin, bounds 22 x 10.7 m) for their checkpoints instead of the road arch (`eModel::CheckpointOff`), and the Kind 3 gate (T01's last gate, the stop-inside zone) is the `BrakingZone_01` target (`sf_target`, 16 m) instead of a FINISH arch; it is in the world from the presentation on. Verified: the "C" pins in the T01 preview (screenshots), the stop gate pushed as model BrakingZone 338 m ahead (`-logracegates`). Not seen yet: the target itself against the 360 shot (too far from the preview camera) - check with a drive to gate 2.

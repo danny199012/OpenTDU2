@@ -94,8 +94,11 @@ bool RaceGates::load( EdenSceneView &view, const std::string &island ) {
         const int32_t offRoad = checkpoint["OffRoadCheckpoint"].asInt();
         const std::string name = checkpoint["__Name"].asString();
         eModel model = eModel::Count;
+        if ( name == "CP_OffRoad" ) {
+            model = eModel::CheckpointOff; // the pad tests' amber "C" pin gate [DATA: the record name; 360 captures]
+        }
         // The road variants (OffRoadCheckpoint 0) [DATA: the record names].
-        if ( offRoad == 0 ) {
+        if ( offRoad == 0 && model == eModel::Count ) {
             switch ( type ) {
             case 1: model = eModel::Start; break;
             case 2: model = eModel::Finish; break;

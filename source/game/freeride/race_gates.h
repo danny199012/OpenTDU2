@@ -35,7 +35,7 @@ public:
     // Trajectory: the 'Trajectory' actor (a flat strip with the arrow texture
     // and its Arrow_Orange / Arrow_Red .UVA scroll); BrakingZone: the type 7
     // checkpoint 'BrakingZone_01' (the sf_target mesh, "stop" texture) [DATA].
-    enum class eModel : int32_t { Start, Finish, Checkpoint, Barrels, Radar, Trajectory, BrakingZone, Separator, Cone, Count };
+    enum class eModel : int32_t { Start, Finish, Checkpoint, Barrels, Radar, Trajectory, BrakingZone, Separator, Cone, CheckpointOff, Count };
 
     struct Gate {
         Vector3f Position;

@@ -5206,6 +5206,8 @@ void GMFreeRide::updateRaceGates() {
             if ( gateIndex == 0 ) {
                 // The start line; a circuit's last lap closes on it: the finish.
                 gate.Model = bCircuit && !bStartLine && step == lastStep ? RaceGates::eModel::Finish : RaceGates::eModel::Start;
+            } else if ( !course.bRoad && course.Kind == 3 && raceGates.hasModel( RaceGates::eModel::BrakingZone ) ) {
+                gate.Model = RaceGates::eModel::BrakingZone; // the stop-inside target: the red circle with the X (360 captures)
             } else if ( ( !bCircuit && gateIndex == static_cast<int32_t>( courseGates.size() ) - 1 ) ||
                         ( !course.bRoad && course.Kind == 3 ) ) {
                 gate.Model = RaceGates::eModel::Finish;
@@ -5214,7 +5216,8 @@ void GMFreeRide::updateRaceGates() {
             } else if ( !course.bRoad && ( course.Kind == 1 || course.Kind == 2 ) ) {
                 gate.Model = RaceGates::eModel::Barrels; // the manoeuvre gates
             } else {
-                gate.Model = RaceGates::eModel::Checkpoint;
+                gate.Model = !course.bRoad && raceGates.hasModel( RaceGates::eModel::CheckpointOff ) ? RaceGates::eModel::CheckpointOff
+                                                                                                    : RaceGates::eModel::Checkpoint;
             }
             if ( course.bRoad && gate.Model != RaceGates::eModel::Barrels ) {
                 gate.Width = Max( gate.Width, kRoadArchWidth );
@@ -5237,6 +5240,15 @@ void GMFreeRide::updateRaceGates() {
         pushGate( licenseTest.getSequenceGate( step ), step, true, false );
         if ( licenseTest.getSequenceGate( step + 1 ) != licenseTest.getSequenceGate( step ) ) {
             pushGate( licenseTest.getSequenceGate( step + 1 ), step + 1, false, false );
+        }
+        // The stop-inside target (a Kind 3 pad gate) is in the world from the presentation on, like the retail's.
+        if ( testIntro.isActive() || licenseTest.getStage() == LicenseTest::eStage::Countdown ) {
+            for ( size_t i = 0; i < courseGates.size(); i++ ) {
+                if ( !courseGates[i].bRoad && courseGates[i].Kind == 3 && static_cast<int32_t>( i ) != licenseTest.getSequenceGate( step ) &&
+                     static_cast<int32_t>( i ) != licenseTest.getSequenceGate( step + 1 ) ) {
+                    pushGate( static_cast<int32_t>( i ), step, false, false );
+                }
+            }
         }
     } else if ( raceEvents.getStage() == RaceEvents::eStage::Countdown ||
                 raceEvents.getStage() == RaceEvents::eStage::Running ) {
