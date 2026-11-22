@@ -2966,6 +2966,11 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
     // next checkpoint of a running race.
     FreeRideHud::WorldMarker markers[FreeRideHud::kMaxWorldMarkers];
     int32_t numMarkers = 0;
+    // A school test (RS*) shows only its own gates: the free-ride spots' holograms (the red hands, the blue arrows over the
+    // course) are hidden for its duration (owner, test 2: "no check point markers or anything").
+    const std::string &testName = licenseTest.getChallenge().getName();
+    const bool bInSchoolTest = licenseTest.isActive() && testName.size() > 2 && tolower( static_cast<unsigned char>( testName[0] ) ) == 'r' &&
+                               tolower( static_cast<unsigned char>( testName[1] ) ) == 's' && !CmdLine::HasArg( "-schoolspots" );
     // bShop: the shop / house tiles (the owner's retail capture: a house down
     // the road reads ~120 canvas px wide, floating well above the building)
     // [INF: size and height read off that one capture; the race markers keep
@@ -3212,6 +3217,9 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                 placements.push_back( placement );
             }
         }
+        if ( bInSchoolTest ) {
+            placements.clear(); // retail shows no spot hologram over a school test's course
+        }
         spotHolograms.setPlacements( placements );
     }
     // -markertest <kind>[,<kind>...]: markers pinned across the upper screen
@@ -3244,7 +3252,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
             numMarkers++;
         }
     }
-    hud.setWorldMarkers( markers, numMarkers );
+    hud.setWorldMarkers( markers, bInSchoolTest ? 0 : numMarkers );
     // -spotholotest [<first>]: up to 12 hologram models in a row 30 m ahead of
     // the car, 7 m apart (the art check of pack_spots.bnk; -logspotholo lists
     // the index of each).

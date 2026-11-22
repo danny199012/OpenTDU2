@@ -4,6 +4,13 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-22 (`main`, school test 2: spot holograms hidden during a school test)
+
+Owner (test 2): "needs the red markers removing ... just straight weaving of the barrels and the finish"; retail counts the weave right-to-left only, left-to-right counted nothing (360 recomp), no checkpoint markers on the course.
+- The free-ride spot holograms / blue world icons (red hand + blue arrow markers over the course) are hidden while an RS* test runs (`bInSchoolTest` in the marker block of `gm_freeride.cpp`; `-schoolspots` shows them again). The finish arch stays.
+- Weave direction: unchanged. The file's gates alternate Side 1 / 2 on 7 poles on a straight line; Side 1 (pole 1) opens to +Right (the driver's right facing +z in this LH world), i.e. pass pole 1 on its right, pole 2 on its left ... a wrong-way weave is "Missed a gate" already. If the owner finds the retail direction is the other one, flip the sign in `Ig2Gate::getPassCentre` / `LicenseTest::tick` (`gate.Side == 1`).
+- Unchecked: whether the DEC2 4->5 corridor walls (red / white separators, +-16 m, in the 360 clip too) should stay.
+
 ## Session 2026-11-21 (`main`, school test 1 polish: grounded car, Todd, red/white barriers)
 
 Owner: test 1 preview showed the avatar outside the car, the car floating, never grounded and bouncing; camera pans in the countdown; "should be the little barrier things not barrels"; "Todd should be in the car with you during all tests".
