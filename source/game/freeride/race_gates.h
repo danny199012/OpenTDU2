@@ -35,7 +35,7 @@ public:
     // Trajectory: the 'Trajectory' actor (a flat strip with the arrow texture
     // and its Arrow_Orange / Arrow_Red .UVA scroll); BrakingZone: the type 7
     // checkpoint 'BrakingZone_01' (the sf_target mesh, "stop" texture) [DATA].
-    enum class eModel : int32_t { Start, Finish, Checkpoint, Barrels, Radar, Trajectory, BrakingZone, Separator, Cone, CheckpointOff, Count };
+    enum class eModel : int32_t { Start, Finish, Checkpoint, Barrels, Radar, Trajectory, BrakingZone, Separator, Cone, CheckpointOff, LineActor, Count };
 
     struct Gate {
         Vector3f Position;
@@ -62,8 +62,18 @@ public:
     inline void clearMarkers() { markers.clear(); }
     inline const std::vector<Marker> &getMarkers() const { return markers; }
     inline bool hasModel( eModel model ) const {
-        return model == eModel::Separator ? pSeparator[0] != nullptr : model == eModel::Cone ? !coneDraws.empty() : static_cast<bool>( parts[static_cast<int32_t>( model )].Model );
+        return model == eModel::Separator ? pSeparator[0] != nullptr
+               : model == eModel::Cone    ? !coneDraws.empty()
+               : model == eModel::LineActor ? pLineActor != nullptr
+                                            : static_cast<bool>( parts[static_cast<int32_t>( model )].Model );
     }
+    // The DEC2 line markers (types 0 / 1 / 2) as the dev build's school code
+    // maps them [CODE: dev 0x9795a0 jump table -> TAC_SF_Stud_act]. The
+    // port draws this worldactors actor; the procedural cone (eModel::Cone)
+    // stays the fallback (-linemodel <stud|pwor|cone> for the A/B).
+    inline const EdenModel *getLineActor() const { return pLineActor; }
+    inline Vector3f getLineActorMin() const { return lineActorMin; }
+    inline Vector3f getLineActorMax() const { return lineActorMax; }
     // The racing school's separator (the low red / white barrier of the cone lines): the worldactors actor RS_Separ_A_act, owned by
     // the world. Its extent in the marker's frame (x across, z along) at scale 1.
     inline Vector3f getSeparatorMin() const { return separatorMin; }
@@ -103,7 +113,9 @@ private:
     Bank bank;
     EdenModel *pSeparator[2] = { nullptr, nullptr }; // RS_Separ_A_act (red), RS_Separ_B_act (white)
     Vector3f separatorMin, separatorMax;
-    std::vector<ObjMeshDraw> coneDraws; // the traffic cone (procedural: the game data has none)
+    EdenModel *pLineActor = nullptr; // the DEC2 line marker actor (SF_Stud_act, dev-build [CODE])
+    Vector3f lineActorMin, lineActorMax;
+    std::vector<ObjMeshDraw> coneDraws; // the traffic cone (procedural fallback)
     Part parts[static_cast<int32_t>( eModel::Count )];
     std::vector<Gate> gates;
     std::vector<Marker> markers;

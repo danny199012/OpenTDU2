@@ -8,6 +8,7 @@
 #include "render/eden/eden_scene_view.h"
 #include "render/gs_render.h"
 #include "render/texture_cache.h"
+#include "system/cmd_line.h"
 #include "world/eden_world.h"
 
 namespace {
@@ -172,9 +173,48 @@ bool RaceGates::load( EdenSceneView &view, const std::string &island ) {
             }
         }
     }
+    // The DEC2 line markers (types 0 / 1 / 2): the dev build's school code maps
+    // the decor type to the world actor SF_Stud_act [CODE: dev 0x9795a0 jump
+    // table: 0/1/2 -> TAC_SF_Stud_act, 3/4 -> RS_Separ_A_act, 5 -> RS_Separ_B_act].
+    // The ss_pwor_a roadwork actor is the second candidate [INF]; the lookup
+    // order: -linemodel pwor flips to it, else SF_Stud_act when the world has it.
+    pLineActor = nullptr;
+    {
+        EdenWorld &world = view.getWorld();
+        const char *pWanted = "SF_Stud_act";
+        if ( const char *pFlag = CmdLine::GetArgValue( "-linemodel" ) ) {
+            if ( _stricmp( pFlag, "pwor" ) == 0 ) {
+                pWanted = "ss_pwor_a";
+            } else if ( _stricmp( pFlag, "cone" ) == 0 ) {
+                pWanted = nullptr; // the procedural cone
+            }
+        }
+        if ( pWanted != nullptr ) {
+            for ( const auto &entry : world.getActorNames() ) {
+                if ( StringCmpI( entry.second.c_str(), pWanted ) != 0 ) {
+                    continue;
+                }
+                EdenModel *pModel = world.getActorModelPtr( entry.first );
+                if ( pModel != nullptr && pModel->isLoaded() ) {
+                    pLineActor = pModel;
+                    lineActorMin = pModel->getBoundsMin();
+                    lineActorMax = pModel->getBoundsMax();
+                    OTDU_LOG_INFO( "RaceGates: %s: bounds (%.2f, %.2f, %.2f) - (%.2f, %.2f, %.2f)\n", pWanted,
+                                   lineActorMin.x, lineActorMin.y, lineActorMin.z, lineActorMax.x, lineActorMax.y,
+                                   lineActorMax.z );
+                } else {
+                    OTDU_LOG_WARN( "RaceGates: %s: actor found (%016llx), model not loaded\n", pWanted,
+                                   (unsigned long long)entry.first );
+                }
+                break;
+            }
+        }
+    }
     // The traffic cone of the cone lines [INF: the game data has no cone model; the retail cones are small orange cones with a
     // white band on a square foot, ~0.6 m tall in the 360 captures]: generated like the pool ring (one index for v / vn / vt).
+    // The fallback when the world has no line actor (-linemodel cone forces it).
     UnloadObjDraws( coneDraws );
+    if ( pLineActor == nullptr ) {
     {
         std::string obj;
         char line[256];
@@ -244,6 +284,7 @@ bool RaceGates::load( EdenSceneView &view, const std::string &island ) {
             }
         }
     }
+    } // the procedural cone fallback (only when no retail line actor)
     int32_t numLoaded = 0;
     for ( const Part &part : parts ) {
         numLoaded += part.Model ? 1 : 0;
@@ -258,6 +299,7 @@ void RaceGates::unload() {
         part = Part();
     }
     pSeparator[0] = pSeparator[1] = nullptr;
+    pLineActor = nullptr;
     UnloadObjDraws( coneDraws );
     gates.clear();
     markers.clear();
@@ -319,6 +361,13 @@ void RaceGates::draw( EdenRenderer &renderer ) const {
             const Matrix4x4f at = Matrix4x4f::Translation( marker.Position );
             for ( const ObjMeshDraw &draw : coneDraws ) {
                 renderer.draw( draw.Mesh, draw.Material, at );
+            }
+            continue;
+        }
+        if ( marker.Model == eModel::LineActor ) {
+            if ( pLineActor != nullptr ) {
+                pLineActor->draw( renderer, Matrix4x4f::Translation( marker.Position ) *
+                                                Matrix4x4f::FromQuaternion( Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), marker.Heading ) ) );
             }
             continue;
         }

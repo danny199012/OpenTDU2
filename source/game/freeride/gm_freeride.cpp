@@ -4972,7 +4972,11 @@ void GMFreeRide::buildCourseMarkers() {
                 RaceGates::Marker marker;
                 marker.Position = decor.Position;
                 snapToGround( marker.Position );
-                if ( raceGates.hasModel( RaceGates::eModel::Cone ) && !CmdLine::HasArg( "-barrelcones" ) ) {
+                // The retail line marker actor first (SF_Stud_act, the dev
+                // build's mapping), the procedural cone as the fallback.
+                if ( raceGates.hasModel( RaceGates::eModel::LineActor ) && !CmdLine::HasArg( "-barrelcones" ) ) {
+                    marker.Model = RaceGates::eModel::LineActor;
+                } else if ( raceGates.hasModel( RaceGates::eModel::Cone ) && !CmdLine::HasArg( "-barrelcones" ) ) {
                     marker.Model = RaceGates::eModel::Cone;
                 }
                 markers.push_back( marker );
@@ -5019,8 +5023,13 @@ void GMFreeRide::buildCourseMarkers() {
             marker.Position = a + ( b - a ) * ( static_cast<float>( n ) / static_cast<float>( count - 1 ) );
             snapToGround( marker.Position );
             marker.Heading = headingOf( along );
-            if ( raceGates.hasModel( RaceGates::eModel::Cone ) && !CmdLine::HasArg( "-barrelcones" ) ) {
-                marker.Model = RaceGates::eModel::Cone; // the 1 -> 2 lines are the start / finish box's traffic cones
+            // The retail line marker actor first (SF_Stud_act, the dev
+            // build's mapping), the procedural cone as the fallback: the
+            // 1 -> 2 lines are the start / finish box's markers.
+            if ( raceGates.hasModel( RaceGates::eModel::LineActor ) && !CmdLine::HasArg( "-barrelcones" ) ) {
+                marker.Model = RaceGates::eModel::LineActor;
+            } else if ( raceGates.hasModel( RaceGates::eModel::Cone ) && !CmdLine::HasArg( "-barrelcones" ) ) {
+                marker.Model = RaceGates::eModel::Cone;
             }
             markers.push_back( marker );
             numCones++;
