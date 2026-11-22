@@ -1748,6 +1748,16 @@ void FreeRideHud::setRaceHud( const RaceHud &race ) {
             }
         }
         setCountdown( Max( 0.0f, race.Limit - race.Seconds ) );
+        // The hourglass's colour states: the clip holds 'up' (f10) and 'down'
+        // (f40) after 'open'; the 360 T04 clip reads the digits RED by 6"60
+        // [INF: the threshold - the switch to 'down' at 10 s left].
+        {
+            const bool bLow = race.Limit - race.Seconds <= kTimeOutBannerSeconds + 4.0f;
+            if ( bLow != bTimeCdLow_ ) {
+                bTimeCdLow_ = bLow;
+                hud.gotoLabel( "/HUD/time_cd", bLow ? "down" : "up", false );
+            }
+        }
         // The retail "TIME REMAINING" banner of the last seconds (the 360 T04
         // clip: the plate + the big second count from 6 s left - the hourglass
         // read 6"60 with no banner, 4"60 with the digit 5 = ceil - and gone at
@@ -1766,13 +1776,21 @@ void FreeRideHud::setRaceHud( const RaceHud &race ) {
                     if ( const FlashPlayer::Clip *pClip = hud.findClip( "/HUD/time_out" ) ) {
                         dumpClips( *pClip, "/HUD/time_out", 4 );
                     }
+                    if ( const FlashPlayer::Clip *pClip = hud.findClip( "/HUD/time_cd" ) ) {
+                        dumpClips( *pClip, "/HUD/time_cd", 2 );
+                    }
                 }
             } else if ( !bNear ) {
                 bTimeOutShown_ = false;
             }
             hud.setClipVisible( "/HUD/time_out", bNear );
             if ( bNear ) {
-                hud.setVariable( "/:time_out_rs", std::to_string( Max( 1, static_cast<int32_t>( std::ceil( remaining ) ) ) ) );
+                // Two digit fields in the clip: /:time_out (the white big
+                // count of the 360 clip) and /:time_out_rs (red, the dev
+                // build's var) - both set, the movie styles what it shows.
+                const std::string text = std::to_string( Max( 1, static_cast<int32_t>( std::ceil( remaining ) ) ) );
+                hud.setVariable( "/:time_out_rs", text );
+                hud.setVariable( "/:time_out", text );
             }
         }
     } else if ( race.Target > 0.0f && hud.findClip( "/HUD/ref_score" ) != nullptr ) {

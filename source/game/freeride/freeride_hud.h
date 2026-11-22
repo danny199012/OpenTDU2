@@ -376,6 +376,7 @@ private:
     bool bViolationGaugeShown_ = false;
     bool bPenaltyGaugeShown_ = false;
     bool bTimeCdShown_ = false;
+    bool bTimeCdLow_ = false;     // the hourglass's red 'down' state (the last seconds)
     bool bTimeOutShown_ = false; // the TIME REMAINING banner of the last seconds (one-shot log)
     bool bRefScoreShown_ = false;
     bool bMinimapHiddenByRace_ = false;
