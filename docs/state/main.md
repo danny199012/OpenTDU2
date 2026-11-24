@@ -4,6 +4,45 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-22 + 24 (`main`, licence test 1: the barriers' retail layout - the dev build's DEC2 placer)
+
+Owner (22 Nov, with a port photo of T01's walls as continuous red / white rails): "Test 1 in Classic Licence school these barriers
+aren't accurate I know you found the cones and think you may be best at digging the dev build see if we can gather everything about
+the Licence tests stuff like spawn position, gates, props possitions etc". Stopped on usage ("just wrap this up ... I will get Cline
+to pick it up ... Cline currently digging for the other licences data"); finished 24 Nov on "the screenshot you took you hadn't ran
+the test in game hence no cones etc".
+
+### What changed
+- **The walls are spaced blocks now, not rails** [CODE dev + DATA + verified in game]. The dev build's placer (`TestDrive2DEV.exe
+  0x97f140`, spec 12.23) draws a DEC2 line as `(int)(length * 0.25)` pieces: a wall (4 -> 5) one piece every 4.0 m from the start
+  record, a cone line (1 -> 2) spread over the whole line (`length / count`), the start record's actor on even pieces and the end
+  record's on odd ones - that is the red / white alternation. The port filled the walls end to end (`round(length / 2.36)` pieces):
+  `GMFreeRide::buildCourseMarkers`, both loops; T01 goes from 116 markers to 67 (26 cones + 41 wall pieces). Not T01-specific - every
+  school's tests take it from the same loop, so Cline's other schools get it for free. `-barrelcones` unchanged.
+- `-photoat` waits for a `-licensetest` course. It opened at frame 91 and returned early every tick after, so the test (frame 120)
+  never started: my first "aerial" was an empty pad, which is what the owner saw. With a profile in another car the test reloads the
+  world with the school's car first - shoot from frame ~400. Yaw 0 looks toward +z; T01 framings in spec 12.23.
+
+### Verified (build 449 (da5ffc56+dirty), headless, the test running)
+- `-licensetest RSC4T01 -nointro -skipcine -nopad -fixedtimestep -photoat "11868,100,15815,0,-52,60" -autoplay "400:shot=..." -exitframe 440`:
+  `RSC4T01 course: 0 slalom pole(s), 10 cone line(s) / 67 marker(s)`, then `FREERIDE: photoat` - the first bend's walls are single
+  red / white blocks with a gap between each; the start box has its two cone rows under the START arch.
+  `docs/images/licence_t01_course_spacing.webp`.
+- Regression: `-licensetest RSC4T01 -licensewarp ... -exitframe 1500`: gates 1 / 2 / 3 at 0.28 / 0.82 / 1.35 s, "licence result screen for RSC4T01 (passed)".
+- Ruled out: the record parse (`Ig2Challenge::load` reads kind / side / width and the DEC2 type right - checked field by field on six
+  files), the piece orientation (one heading per line in retail too).
+
+### Found, not built (the numbers are in spec 12.23)
+- **Spawn**: the port puts the car ON gate 0; retail's demo replay (`ig2/replays/<test>.rly`, first keyframe - `TestReplay` already
+  reads it) starts elsewhere, and not by a constant offset: T01 8.32 m behind gate 0, T05 7.95 m ahead of it, T06 4.17 m behind and
+  7.44 m off centre. Next step: `GMFreeRide::startLicenseTest` - take the pose from the replay's first keyframe when the file exists,
+  then `-licensewarp` again (the warp path starts from gate 0).
+- **Gate kinds / widths**: 0 start / checkpoint / finish (20.0 on a pad, 7.0 on a road), 1 slalom (16.5), 2 gate (14.0), 3 stop zone (20.0).
+- Cone lines have a +-0.15 m scatter in retail (`0x41e6b4` not decoded); ours are straight.
+- Not eyeballed against the 360 clips: the walls of T02 / T04 / T06 (same rule), T01's own walls in a driven run (only the demo frames
+  were compared).
+- The full entity / spawn dumps were scratch (`C:/temp/ig2dig/`); `tools/x360/licence_dump.py` still prints the census only.
+
 ## Session 2026-11-22 (`main`, the licence-school accuracy pass: the cones found, the "Licenses" reticle, the TIME REMAINING banner)
 
 Owner: "I had some cutscenes dissected for the licence school tests ... get them as accurate as possible ...

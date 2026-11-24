@@ -4954,10 +4954,10 @@ void GMFreeRide::buildCourseMarkers() {
         }
     }
     // The DEC2 cone lines: a start record (type 1 / 4) and its end (type 2 /
-    // 5) next in the file, one marker every kConeSpacing metres between them
-    // [DATA: the pairs; INF: the spacing - the retail cone model and its
-    // spacing are not in the pack; the racing school's barrel stands in].
-    constexpr float kConeSpacing = 3.0f;
+    // 5) next in the file [DATA: the pairs]. The retail layout comes from the
+    // dev build's placer (0x97f140): floor(length / 4) pieces per line,
+    // separator walls on a fixed 4 m stride, cone lines spread over the whole
+    // line, both alternating the two records' world-actor tags.
     const std::vector<Ig2Decor> &decors = challenge.getDecors();
     int32_t numLines = 0, numCones = 0;
     // An overtaking test (traffic VEHI records) has no obstacles: the start / finish box cone lines are not drawn there
@@ -4989,19 +4989,20 @@ void GMFreeRide::buildCourseMarkers() {
         const Vector3f along( b.x - a.x, 0.0f, b.z - a.z );
         const float length = along.length();
         if ( decor.Type == 4 && raceGates.hasModel( RaceGates::eModel::Separator ) && !CmdLine::HasArg( "-barrelcones" ) ) {
-            // The retail cone line: the school's separators (low red / white barrier blocks) end to end [DATA: the actors
-            // RS_Separ_A / B_act; capture: red and white blocks alternate]. The block's long axis is its x or z extent.
+            // The retail cone line: the school's separators (low red / white barrier blocks) along the line
+            // [DATA: the actors RS_Separ_A / B_act; capture: red and white blocks alternate]. The dev build
+            // places floor(length / 4) pieces at a fixed 4 m stride from the start record, the tags
+            // alternating per piece; the end record only carries the direction [CODE: dev 0x97f140 -
+            // count = int(length * 0.25), the step the constant 4.0, tag B on odd pieces].
             const Vector3f mn = raceGates.getSeparatorMin(), mx = raceGates.getSeparatorMax();
             const bool bLongX = ( mx.x - mn.x ) > ( mx.z - mn.z );
-            const float blockLength = Max( 0.5f, bLongX ? mx.x - mn.x : mx.z - mn.z );
             const float lineHeading = headingOf( along ) - ( bLongX ? 1.5707963f : 0.0f );
             const float cx = ( mn.x + mx.x ) * 0.5f, cz = ( mn.z + mx.z ) * 0.5f;
             const Vector3f unit = length > 1e-3f ? along * ( 1.0f / length ) : Vector3f( 0.0f, 0.0f, 1.0f );
-            const int32_t blocks = Max( 1, static_cast<int32_t>( std::round( length / blockLength ) ) );
+            const int32_t blocks = static_cast<int32_t>( length * 0.25f );
             for ( int32_t n = 0; n < blocks; n++ ) {
                 RaceGates::Marker marker;
-                const float distance = ( static_cast<float>( n ) + 0.5f ) * ( length / static_cast<float>( blocks ) );
-                marker.Position = a + unit * distance;
+                marker.Position = a + unit * ( static_cast<float>( n ) * 4.0f );
                 snapToGround( marker.Position );
                 // the model's centre on the line point
                 const float sh = std::sin( lineHeading ), ch = std::cos( lineHeading );
@@ -5017,10 +5018,14 @@ void GMFreeRide::buildCourseMarkers() {
             i++;
             continue;
         }
-        const int32_t count = Max( 2, static_cast<int32_t>( std::round( length / kConeSpacing ) ) + 1 );
+        // The cone lines: floor(length / 4) markers evenly spread from the start record, the step
+        // length / count; a line shorter than 4 m draws nothing (the end record is data, not a
+        // placed piece) [CODE: dev 0x97f140].
+        const int32_t count = static_cast<int32_t>( length * 0.25f );
+        const Vector3f unit = length > 1e-3f ? along * ( 1.0f / length ) : Vector3f( 0.0f, 0.0f, 1.0f );
         for ( int32_t n = 0; n < count; n++ ) {
             RaceGates::Marker marker;
-            marker.Position = a + ( b - a ) * ( static_cast<float>( n ) / static_cast<float>( count - 1 ) );
+            marker.Position = a + unit * ( static_cast<float>( n ) * ( length / static_cast<float>( count ) ) );
             snapToGround( marker.Position );
             marker.Heading = headingOf( along );
             // The retail line marker actor first (SF_Stud_act, the dev
@@ -5034,7 +5039,9 @@ void GMFreeRide::buildCourseMarkers() {
             markers.push_back( marker );
             numCones++;
         }
-        numLines++;
+        if ( count > 0 ) {
+            numLines++;
+        }
         i++; // the end record is used
     }
     // The racing line [INF: the retail line's source is not decoded - the
@@ -7409,10 +7416,12 @@ void GMFreeRide::tick( float deltaTime ) {
         photoShotsSeen = photoCamera.getPhotoCount();
     }
     // -photoat x,y,z,yawDeg,pitchDeg[,fovDeg]: open the photo camera at a pose
-    // once the world has settled (the scripted checks of the photo UI).
+    // once the world has settled (the scripted checks of the photo UI). With -licensetest the
+    // course is only built when the test starts (frame 120), so the camera waits for it.
     static const char *pPhotoAt = CmdLine::GetArgValue( "-photoat" );
     static bool bPhotoAtDone = false;
-    if ( pPhotoAt != nullptr && !bPhotoAtDone && !photoCamera.isOpen() && !pauseMenu.isOpen() && ++photoAtFrames > 90 ) {
+    const bool bCoursePending = CmdLine::GetArgValue( "-licensetest" ) != nullptr && courseMarkersFor.empty();
+    if ( pPhotoAt != nullptr && !bPhotoAtDone && !bCoursePending && !photoCamera.isOpen() && !pauseMenu.isOpen() && ++photoAtFrames > 90 ) {
         bPhotoAtDone = true;
         float v[6] = { 0, 0, 0, 0, 0, 60.0f };
         sscanf( pPhotoAt, "%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5] );

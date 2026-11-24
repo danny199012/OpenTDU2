@@ -631,3 +631,53 @@ switches to **'down' - the red digits - at 10 s left** [INF: the threshold; reta
 Differences left: the big digit renders red (the movie's own `/:time_out_rs` text style); retail shows white -
 probably a frame-driven bitmap digit inside the clip, not traced. The countdown digits' red tint is the 'down'
 frame's own style.
+
+### 12.23 The DEC2 lines' retail layout - the dev build's placer (2026-11-22 / 24, `main`; owner: "Test 1 in Classic Licence school these barriers aren't accurate")
+The owner's photo of the port (`build 449 (da5ffc56+dirty)`, 22 Nov 22:02) shows T01's walls as continuous red / white rails - the pieces butted end to end, the port's
+own rule (`round(length / 2.36)` pieces). Retail's demonstration of the same walls (`02_RSC4T01_First_step.mp4`, 13 s and 15 s) shows single blocks with a gap between each.
+
+**The placer** [CODE: dev `0x97f140`; its one caller is the ILT thunk `0x43d302`; the type predicates `0x979630` (1 / 4 = a line's start) and `0x979610` (2 / 5 = its end);
+the tag map `0x9795a0` of 12.21]. It takes a start record (`[ebp+8]`) and the end record (`[ebp+0xc]`), and resolves a world-actor tag for each:
+- **count = (int)(length * 0.25)** - the f64 0.25 at `0x14816b0` times the length (`d8 c9`, st0 * st1), truncated by the float-to-int helper at `0x10da900` (it pops the
+  product and leaves the length on the FPU stack); floor, for a positive length.
+- **the step** is the f32 **4.0** (`0x149479c`) for every type but a cone line; for type 1 the placer divides the length it left on the stack by the count (`da 74 24 14`):
+  **length / count**, so the cones are spread over the whole line.
+- **piece i** (`i = 0 .. count-1`) stands at **start + unit * (i * step)**, unit = (end - start) / length: the first piece sits ON the start record, a wall has nothing
+  in its last partial 4 m, and the end record is never a piece itself - it is the direction and the length, not decor.
+- **the actor alternates per piece**: the start record's tag on even i, the end record's on odd i (`test bl, 1`, `0x97f5a1`). With the pairs (4 -> `RS_Separ_A_act`,
+  5 -> `RS_Separ_B_act`) that is the red / white alternation; a cone line gets `SF_Stud_act` from both.
+- **one orientation per line**, set before the loop: a pi/2 rotation (`0xf37ef0`, the f32 pi/2 at `0x148985c`) and a further pi for every type but 4 (`0x1489864`; the
+  `cmp [edi + 0x70], 4` at `0x97f5f9`): the pieces of a wall all lie along the line.
+- a cone line carries a **0.15 m scatter** (the f32 0.15 at `0x1494734`, sign-flipped, through two calls to `0x41e6b4` - not decoded). Not built.
+
+[DATA] T01 under the rule: 26 cones (lines of 5, 5, 8, 8) + 41 wall pieces (4, 6, 9, 10, 5, 7 in record order) = **67 markers**; end to end it was 116. The retail frames
+agree: the wall across the view at 15 s carries 6 pieces, the row at 13 s about 10 [INF: which lines they are] - end to end the six walls would be 8, 11, 16, 17, 9, 13.
+
+**Built** (`GMFreeRide::buildCourseMarkers`, `gm_freeride.cpp`): both loops follow the rule - separators at `i * 4.0` from the start record, cone lines at
+`i * (length / count)`, `count = (int)(length * 0.25)`, a line under 4 m draws nothing, `Variant = i & 1` and the cone-hit test unchanged. It is not T01-specific: every
+school's tests run the same loop. `-barrelcones` keeps the old barrels. Evidence: `docs/images/licence_t01_course_spacing.webp` - the whole course from the far end, the
+first bend's walls, the start box with its two cone rows (build 449 (da5ffc56+dirty), headless, the test running:
+`-licensetest RSC4T01 -nointro -skipcine -nopad -fixedtimestep -photoat "<eye>,yaw,pitch,fov" -autoplay "400:shot=..." -exitframe 440`). Regression:
+`-licensetest RSC4T01 -licensewarp` passes (gates 1-3 at 0.28 / 0.82 / 1.35 s).
+
+**The record layouts** [DATA: `rsc4t01..06`, `rsa1t01`, `rsa1t04`, `rsc3t01`; big endian; `Ig2Challenge::load` reads them right]:
+- `CHK2` (0x68; 0x7c with a 20-byte road link before the version word): `u32 1; 3x4 matrix (the right, up and forward rows, the translation in the 4th column); vec3;
+  f scale (1); i32 kind; i32 side; f width; u32 0; 12 bytes ff`. **kind 0** = start / checkpoint / finish (width 20.0 on a pad, 7.0 on a road), **1** = slalom (16.5),
+  **2** = gate (14.0 - T04's middle gate), **3** = the stop zone (20.0).
+- `DEC2` (0x54 / 0x68): the same head, then `f scale (1); u32 type; u32 0`. The records of a file come in start / end pairs.
+- No record holds a spawn.
+
+**The spawn pose** [DATA: `ig2/replays/<test>.rly`, the first matrix chunk of 12.11 - the recorded demonstration's first keyframe, heading included], against gate 0's
+matrix: T01 **8.32 m behind**, 1.75 m off centre; T02 8.20 m / 2.25 m; T04 8.18 m / 2.32 m; T03 7.71 m / 3.58 m; T05 7.95 m **ahead** / 2.90 m; T06 4.17 m / 7.44 m - not a
+constant offset. The port puts the car on gate 0 (`FREERIDE: photoat car (11901.6 5.2 16031.8)` is T01's gate 0; retail's keyframe is (11902.44, 5.72, 16040.11)).
+**Not built**: the replay's first keyframe is the source (`TestReplay` already reads it) [INF: the player starts where the demonstration starts].
+
+**Hooks**: `-photoat` waits for a `-licensetest` course now - it opened at frame 91 and returned early every tick after, so the test (frame 120) never started and the pad
+was empty. With a profile that loads another car the test reloads the world with the school's car first: shoot from frame ~400. `-photoat` yaw 0 looks toward **+z**; T01
+from `11845,90,15620,0,-32,75` (the whole course), `11868,100,15815,0,-52,60` (the walls), `11901,55,15960,0,-50,60` (the start box).
+
+**Traps met in the dev build here**: nearly every call goes through the incremental-link thunks (`0x401000..0x446200`) - `devbuild_disasm.py --callers <function>`
+answers with a `jmp` thunk, and the real call sites are the `e8`s to that thunk (four for the placer). `DEC2` / `CHK2` / `IGE2` / `MDSC` are not in the exe as text:
+start from the actors' names. `pefile` / `capstone` live in the user site-packages, which `python -I` drops.
+
+Not done: the spawn pose, the cone scatter, the walls of T02 / T04 / T06 against their 360 clips (the same loop, the same rule), the function at `0x41e6b4`.
