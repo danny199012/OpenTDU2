@@ -4,6 +4,20 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, night (`main`, the Hawai overtaking demos checked by eye)
+
+Owner: "check the Hawaii overtaking demos by eye for the licence tests".
+
+- Ran `-gm FREERIDE -island hawai -licensetest <T> -skipcine -nopad -fixedtimestep -autoplay "<frame>:shot=..."` (the demonstration plays
+  with the intro on, shots every ~200 frames over ~2500 frames), build 455, for RSA1T06, RSA2T06, RSA4T05, RSA5T03, RSB3T07, RSC3T05.
+- Verified by eye: in all six the test car follows the road / track and the recorded traffic cars are ahead or alongside (white van and
+  blue car on RSA2T06, orange car at RSA5T03's checkpoint, green opponent at RSC3T05's checkpoint). Frames of only sky / trees are the
+  presentation camera sweeping past (the car is back in the next shot); sampling was ~200 frames, so a short glitch between samples is not excluded.
+- **Correction**: RSA7T06 is an **Ibiza** course, not Hawai. On `-island hawai` it shows a flat plain (the Hawai sectors at its position are
+  "not found, sector skipped"); on Ibiza (no `-island`) the orange Camaro drives a normal road with the "How to overtake" banner. So the
+  8 overtaking tests are 6 Hawai + RSA7T06 + RSC4T05 on Ibiza.
+- Not checked: the opponents' timing against the original presentation, or the camera path against the 360 clips.
+
 ## Session 2026-11-25, evening (`main`, the demonstration's traffic drives its recorded run + a VEHI parse bug)
 
 Owner: "Yes, do it" (drive the demo's Deltas along their own recorded run).
@@ -17,7 +31,7 @@ Owner: "Yes, do it" (drive the demo's Deltas along their own recorded run).
 - Verified (build 455/456): all 8 overtaking tests pair 0.0-0.8 m (RSA7T06's last Mito 140 m - the recording's own start);
   RSC4T05 demo shots at the two overtakes (`docs/images/licence_rsc4t05_demo_traffic_recorded.webp`); RSC4T05 runs on
   into the test after the presentation, no contact; RSA5T03's traffic now 661-2107 m along the course (was "lane 1854 m").
-- Not checked by eye: the Hawai overtaking demos (RSA*, RSB3T07, RSC3T05) - only the pairing logs.
+- Hawai overtaking demos: checked by eye in the next entry (RSA7T06 is Ibiza).
 
 ## Session 2026-11-25, later still (`main`, the overtaking tests' demonstration replay fixed)
 
