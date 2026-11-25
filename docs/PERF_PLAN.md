@@ -304,6 +304,7 @@ quietly becomes the one you read** (this cost session 50 an hour: an intro run's
   reader (`GSFile::prefetchFile`, `-filecachemb`), and an XZ grid for the collision height queries (update
   1.2 -> 0.4 ms). Frame 1132: 76-91 ms -> under 33, pixel-identical. Left: a preload step is still main-thread
   work (4-14 ms); the worker decode in the second bullet below only matters if those frames are felt.
+- **2026-11-25 (`main`) `[MEAS]` worker-thread sector bank (first slice)**: of a sector load's 338 ms over 23 sectors, bank 75 / objects 134 / heightfield 46 / carve 36 / textures 24 / instances 23. `BankPreloader` (`source/filesystem/bank_preloader.*`) reads + parses the next 3 banks on a worker: `bank` 81 -> 48 ms, worst preload step 27 -> 22 ms, pixel-identical; `-nobankworker` = A/B. Next: materials (65 ms of the models' 105), then item building / heightfield / carve on the worker. Details in `docs/state/main.md`.
 - **Every texture upload waits for the GPU**: `RenderDevice::createTexture…` → `endImmediateCommands`
   (`render_device.cpp:1617`) does `vkWaitForFences` per texture [CODE]. A sector bank has hundreds of 2DBs, so a
   sector load is hundreds of submit+wait round trips on the main thread — the 100-500 ms `[hitch]` frames at

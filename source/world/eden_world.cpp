@@ -1995,9 +1995,16 @@ bool EdenWorld::loadSector( const SectorId &id ) {
         OTDU_LOG_WARN( "EdenWorld: '%s' not found, sector skipped\n", path );
         return false;
     }
-    if ( !pSector->SectorBank.load( path ) ) {
-        OTDU_LOG_WARN( "EdenWorld: '%s' could not be loaded, skipped\n", path );
-        return false;
+    static const bool bNoBankWorker = CmdLine::HasArg( "-nobankworker" );
+    if ( std::unique_ptr<Bank> pPrepared = bNoBankWorker ? nullptr : bankPreloader.take( bankPath ) ) {
+        pSector->SectorBank.swap( *pPrepared ); // read + parsed on the worker
+        bankHits++;
+    } else {
+        bankMisses++;
+        if ( !pSector->SectorBank.load( path ) ) {
+            OTDU_LOG_WARN( "EdenWorld: '%s' could not be loaded, skipped\n", path );
+            return false;
+        }
     }
     stage( "bank" );
     gpRender->getTextureCache().loadBankTextures( pSector->SectorBank, path );
@@ -2850,6 +2857,14 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
     SectorId best;
     uint32_t bestKey = 0;
     float bestDistance = FLT_MAX;
+    // The nearest few candidates, nearest first: their banks are read + parsed on the worker (BankPreloader)
+    // so the next preload steps find them ready.
+    struct Candidate {
+        float Distance;
+        SectorId Id;
+        uint32_t Key;
+    };
+    std::vector<Candidate> candidates;
     for ( int32_t row = centerRow - sectorRadius; row <= centerRow + sectorRadius; row++ ) {
         for ( int32_t column = centerColumn - sectorRadius; column <= centerColumn + sectorRadius; column++ ) {
             if ( row < 0 || column < 0 ) {
@@ -2867,6 +2882,7 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
             const Vector3f middle = getSectorOrigin( id ) + Vector3f( kSectorSize * 0.5f, 0.0f, kSectorSize * 0.5f );
             const float dx = middle.x - ahead.x, dz = middle.z - ahead.z;
             const float distance = dx * dx + dz * dz;
+            candidates.push_back( { distance, id, key } );
             if ( distance < bestDistance ) {
                 bestDistance = distance;
                 best = id;
@@ -2877,6 +2893,27 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
     if ( bestDistance == FLT_MAX ) {
         return false;
     }
+    static const bool bNoBankWorker = CmdLine::HasArg( "-nobankworker" );
+    if ( !bNoBankWorker ) {
+        constexpr size_t kLookahead = 3;
+        const size_t numAhead = Min( kLookahead, candidates.size() );
+        std::partial_sort( candidates.begin(), candidates.begin() + numAhead, candidates.end(),
+                           []( const Candidate &a, const Candidate &b ) { return a.Distance < b.Distance; } );
+        for ( size_t i = 0; i < numAhead; i++ ) {
+            const std::string bankPath = getSectorBankPath( candidates[i].Id );
+            if ( gpFile->fileExists( bankPath.c_str() ) ) {
+                bankPreloader.request( bankPath );
+            }
+        }
+        // The bank of the sector to load is still being read: do not block the frame on it (an attempt,
+        // the ring is not finished). Two seconds of waiting falls back to the old synchronous load.
+        constexpr uint32_t kMaxWaitFrames = 120;
+        if ( bankPreloader.isPending( getSectorBankPath( best ) ) && preloadWaitFrames < kMaxWaitFrames ) {
+            preloadWaitFrames++;
+            return true;
+        }
+        preloadWaitFrames = 0;
+    }
     if ( !loadSector( best ) ) {
         failedSectors.insert( bestKey );
         return true; // an attempt: the ring is not finished, try the next one next frame
@@ -2884,7 +2921,8 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
     sectors.back()->bPreloaded = true;
     static const bool bLog = CmdLine::HasArg( "-logsectortimes" );
     if ( bLog ) {
-        OTDU_LOG_INFO( "[sector] preloaded %s (%zu loaded)\n", SectorName( best ).c_str(), sectors.size() );
+        OTDU_LOG_INFO( "[sector] preloaded %s (%zu loaded; bank worker %u ready / %u synchronous)\n", SectorName( best ).c_str(),
+                       sectors.size(), bankHits, bankMisses );
     }
     return true;
 }

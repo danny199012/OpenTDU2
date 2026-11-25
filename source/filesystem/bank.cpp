@@ -48,6 +48,12 @@ void Bank::unload() {
     entries.clear();
 }
 
+void Bank::swap( Bank &other ) {
+    std::swap( bankPath, other.bankPath );
+    buffer.swap( other.buffer );
+    entries.swap( other.entries );
+}
+
 bool Bank::load( const char *pPath ) {
     unload();
     std::vector<uint8_t> fileBuffer;

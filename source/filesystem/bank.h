@@ -95,6 +95,8 @@ public:
     bool load( const char *pPath );
     bool loadFromMemory( std::vector<uint8_t> &&bankBuffer, const char *pName );
     void unload();
+    // Exchanges the contents (a bank loaded on a worker is handed to its owner).
+    void swap( Bank &other );
 
     // Case insensitive lookup by filename ("fla_0042.2db") or by name and
     // extension ("fla_0042", "2db").

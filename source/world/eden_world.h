@@ -2,6 +2,7 @@
 
 #include "render/eden/eden_blade_grass.h"
 #include "filesystem/bank.h"
+#include "filesystem/bank_preloader.h"
 #include "render/eden/eden_model.h"
 #include "render/eden/eden_neons.h"
 #include "render/rt/ray_tracing.h"
@@ -496,6 +497,10 @@ private:
     std::vector<std::unique_ptr<Sector>> sectors;
     std::vector<std::unique_ptr<Area>> areas;
     std::unordered_set<uint32_t> failedSectors; // row * 1024 + column
+    // Sector banks read + parsed on a worker ahead of loadSector (-nobankworker = load on the main thread).
+    BankPreloader bankPreloader;
+    uint32_t preloadWaitFrames = 0; // frames preloadOne has waited for its bank
+    uint32_t bankHits = 0, bankMisses = 0;
     // commonworld.bnk library.3dd (models of the V / O .pmi lists).
     EdenModel libraryModel;
     std::unordered_map<uint64_t, int32_t> libraryNodes;

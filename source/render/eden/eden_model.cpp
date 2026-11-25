@@ -5,6 +5,7 @@
 #include "render/gs_render.h"
 #include "system/cmd_line.h"
 
+#include <chrono>
 #include <cfloat>
 #include <cstring>
 
@@ -260,6 +261,8 @@ bool EdenModel::load( EdenRenderer &renderer,
                       const MaterialSetup &materialSetup,
                       const GeometrySetup &geometrySetup ) {
     destroy();
+    static const bool bLogModelTimes = CmdLine::HasArg( "-logsectortimes" );
+    const auto tParse0 = std::chrono::steady_clock::now();
     Render3DG geometry;
     if ( !scene.parse( sceneEntry.pData, sceneEntry.Size, false ) ||
          !geometry.parse( geometryEntry.pData, geometryEntry.Size, false ) ) {
@@ -278,6 +281,7 @@ bool EdenModel::load( EdenRenderer &renderer,
     if ( pMaterialEntry != nullptr ) {
         localMaterials.parse( pMaterialEntry->pData, pMaterialEntry->Size );
     }
+    const auto tParse1 = std::chrono::steady_clock::now();
 
     const std::vector<SceneNode> &nodes = scene.getNodes();
     nodeTransforms.clear();
@@ -286,6 +290,7 @@ bool EdenModel::load( EdenRenderer &renderer,
     }
     nodeVisible.assign( nodes.size(), true );
 
+    double materialMs = 0.0;
     std::unordered_map<uint64_t, uint32_t> materialIndices;
     auto getMaterial = [&]( uint64_t hashcode ) -> int32_t {
         auto it = materialIndices.find( hashcode );
@@ -301,10 +306,12 @@ bool EdenModel::load( EdenRenderer &renderer,
             return -1;
         }
         EdenMaterial material;
+        const auto tMat0 = std::chrono::steady_clock::now();
         renderer.setupMaterial( *pDesc, material, pTextureOwner );
         if ( materialSetup ) {
             materialSetup( material );
         }
+        materialMs += std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - tMat0 ).count();
         materials.push_back( std::move( material ) );
         const uint32_t index = static_cast<uint32_t>( materials.size() - 1 );
         materialIndices[hashcode] = index;
@@ -549,6 +556,7 @@ bool EdenModel::load( EdenRenderer &renderer,
         nodeItems[n] = nodeLodItems[n][0];
     }
 
+    const auto tItems1 = std::chrono::steady_clock::now();
     RenderDevice &device = gpRender->getDevice();
     // Ray tracing is opt in (-rtworld): the structures cost memory and load
     // time, so a default run allocates nothing for them.
@@ -632,6 +640,13 @@ bool EdenModel::load( EdenRenderer &renderer,
             "Ray tracing: '%s': %u of %zu meshes have a BLAS (%u skipped)\n",
             sceneEntry.Filename.c_str(), numBlas, items.size(),
             numUnsupported );
+    }
+    if ( bLogModelTimes ) {
+        const auto tEnd = std::chrono::steady_clock::now();
+        auto ms = []( auto a, auto b ) { return std::chrono::duration<double, std::milli>( b - a ).count(); };
+        OTDU_LOG_INFO( "[model] %s parse %.1f items+materials %.1f (materials %.1f) buffers %.1f (%zu items)\n",
+                       sceneEntry.Filename.c_str(), ms( tParse0, tParse1 ), ms( tParse1, tItems1 ), materialMs, ms( tItems1, tEnd ),
+                       items.size() );
     }
     OTDU_LOG_DEBUG(
         "EdenModel '%s': %zu items, %zu materials, %zu KB vertices\n",

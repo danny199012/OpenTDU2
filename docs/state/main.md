@@ -4,6 +4,27 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, worker-thread sector bank: first slice, measured)
+
+Owner: "TDU2 used to run on old hardware, can we use SSD/NVMe ... start the worker-thread sector decode".
+
+**Measured first** (`-gm FREERIDE -skipcine -nopad -fixedtimestep -logsectortimes -tp 21796.3,24188.1 -snaproad 150 -autoplay "60:hold=accel" -exitframe 900`, 23 sector loads, main thread): total 338 ms = objects 134, bank 75, heightfield 46, carve 36, textures 24, instances 23. Inside the 23 sector models: parse 20, items + materials 105 (of which `EdenRenderer::setupMaterial` + the sector's materialSetup **65**), GPU buffers 6. [MEAS]
+
+### What changed
+- `source/filesystem/bank_preloader.{h,cpp}` (new): `BankPreloader`, one worker thread that does `Bank::load` (file copy + directory parse; the file cache / `resolvePath` are locked) and hands over the parsed `Bank`; at most 6 finished banks kept.
+- `source/filesystem/bank.{h,cpp}`: `Bank::swap`.
+- `source/world/eden_world.{h,cpp}`: `preloadOne` requests the 3 nearest candidates' banks and no longer blocks on the one it is about to load (waits up to 120 frames for the worker, then the old synchronous load); `loadSector` takes the prepared bank. `-nobankworker` = the old path (A/B). The preload log line shows `bank worker N ready / M synchronous`.
+- `source/render/eden/eden_model.cpp`: `-logsectortimes` also prints `[model] <3dd> parse / items+materials (materials) / buffers` per model load.
+
+### Verified
+- Same drive, `-nobankworker` vs default: sector `bank` stage 81.1 -> 47.8 ms over 23 loads (14 ready on the worker, 9 synchronous = the start-up ring), worst preload step 27.4 -> 22.1 ms, avg 7.8 -> 6.9 ms, `[hitch]` lines 8 -> 7. Frame 800 pixel-identical (mean abs diff 0.0, build stamp rows excluded).
+
+### Not done / next (in order of measured value)
+1. **Materials, 65 of 338 ms** - `setupMaterial` + `updateProgram` do `ToUpper(IdentifierToString(...))` per slot and library lookups per material; cache per `MaterialDesc` hashcode / precompute the slot flags before threading anything.
+2. **Item building** (about 40 ms of the models' 105) is pure CPU once materials are resolved; resolve materials on the main thread, build vertex/index/collision arrays on the worker.
+3. Heightfield decode (46) and carve / road index (36) are CPU-only on the parsed bank; move them to the same worker after the bank (needs `Sector` to be built in two phases).
+- Not changed: the collision's own `VehicleWorldCollision::loadSector` still loads the bank synchronously.
+
 ## Session 2026-11-25, night (`main`, the Hawai overtaking demos checked by eye)
 
 Owner: "check the Hawaii overtaking demos by eye for the licence tests".
