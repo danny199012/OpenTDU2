@@ -1629,6 +1629,7 @@ void EdenWorld::destroy() {
     if ( gpRender == nullptr ) {
         return;
     }
+    finishPendingSectors( true );
     RenderDevice &device = gpRender->getDevice();
     if ( modelUnloadedCallback ) {
         for ( auto &pSector : sectors ) {
@@ -1819,7 +1820,28 @@ bool EdenWorld::isSectorLoaded( const SectorId &id ) const {
             return true;
         }
     }
+    for ( const PendingSector &pending : pendingSectors ) {
+        if ( pending.pSector->Id == id ) {
+            return true;
+        }
+    }
     return false;
+}
+
+void EdenWorld::finishPendingSectors( bool bWait ) {
+    for ( auto it = pendingSectors.begin(); it != pendingSectors.end(); ) {
+        if ( !bWait && it->Done.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready ) {
+            ++it;
+            continue;
+        }
+        it->Done.get();
+        const SectorId id = it->pSector->Id;
+        it->pSector->bPreloaded = it->bPreloaded;
+        sectors.push_back( std::move( it->pSector ) );
+        it = pendingSectors.erase( it );
+        markAreasDirty( id );
+        bOceanVisibilityDirty = true;
+    }
 }
 
 bool EdenWorld::isSectorShown( const SectorId &id ) const {
@@ -1964,7 +1986,7 @@ bool EdenWorld::loadHeightfield( const Bank &bank, const char *pBaseName, const 
     return out.Materials[0].pProgram != nullptr;
 }
 
-bool EdenWorld::loadSector( const SectorId &id ) {
+bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
     if ( id.AreaX < 0 || id.AreaY < 0 || id.AreaX >= areaColumns || id.AreaY >= areaRows || id.X < 0 || id.Y < 0 ||
          id.X >= static_cast<int32_t>( kSectorsPerArea ) || id.Y >= static_cast<int32_t>( kSectorsPerArea ) ) {
         return false;
@@ -2132,20 +2154,30 @@ bool EdenWorld::loadSector( const SectorId &id ) {
     // A/B) are marked now that the node bounds exist; the index split happens
     // at the first draw. The carve ground (the nodes' walkable triangles for
     // the drive physics) is indexed with them.
-    if ( !CmdLine::HasArg( "-nocarve" ) ) {
-        MarkCarvedCells( *pSector );
-        BuildCarveGround( *pSector );
-        // Only the cells the structure actually floors over may lose their
-        // terrain: the rest are holes you can see through and fall through.
-        // -noprunecarve restores the holes for the A/B.
-        if ( !CmdLine::HasArg( "-noprunecarve" ) ) {
-            PruneUncoveredCarveCells( *pSector );
+    // CPU only, on the sector alone: it runs last and, for a preloaded sector, on a worker (bDeferCarve).
+    // The debug dumps below read the carve result, so they keep it synchronous.
+    auto runCarve = []( Sector &sector ) {
+        if ( !CmdLine::HasArg( "-nocarve" ) ) {
+            MarkCarvedCells( sector );
+            BuildCarveGround( sector );
+            // Only the cells the structure actually floors over may lose their
+            // terrain: the rest are holes you can see through and fall through.
+            // -noprunecarve restores the holes for the A/B.
+            if ( !CmdLine::HasArg( "-noprunecarve" ) ) {
+                PruneUncoveredCarveCells( sector );
+            }
         }
+        // The road-surface index the grass emitter suppresses against (the
+        // poke-through fix) - independent of the carve A/Bs.
+        BuildRoadIndex( sector );
+    };
+    static const bool bNoCarveWorker = CmdLine::HasArg( "-nocarveworker" ) || CmdLine::HasArg( "-logtunnels" ) ||
+                                       CmdLine::HasArg( "-lognodesnear" );
+    const bool bDeferCarve = bAsync && !bNoCarveWorker;
+    if ( !bDeferCarve ) {
+        runCarve( *pSector );
+        stage( "carve" );
     }
-    // The road-surface index the grass emitter suppresses against (the
-    // poke-through fix) - independent of the carve A/Bs.
-    BuildRoadIndex( *pSector );
-    stage( "carve" );
     if ( CmdLine::HasArg( "-logtunnels" ) && pSector->Objects.isLoaded() ) {
         // World bounds of the sector nodes named like a tunnel (finding the
         // tunnels of an island: their meshes are "<sector>Tunnel_mesh" /
@@ -2346,6 +2378,15 @@ bool EdenWorld::loadSector( const SectorId &id ) {
                     pSector->Objects.getBoundsMin().y, pSector->Objects.getBoundsMin().z,
                     pSector->Objects.getBoundsMax().x, pSector->Objects.getBoundsMax().y,
                     pSector->Objects.getBoundsMax().z );
+    if ( bDeferCarve ) {
+        // Published by finishPendingSectors once the worker is done with it; nothing touches the sector meanwhile.
+        PendingSector pending;
+        Sector *pRaw = pSector.get();
+        pending.pSector = std::move( pSector );
+        pending.Done = std::async( std::launch::async, [pRaw, runCarve]() { runCarve( *pRaw ); } );
+        pendingSectors.push_back( std::move( pending ) );
+        return true;
+    }
     sectors.push_back( std::move( pSector ) );
     markAreasDirty( id );
     bOceanVisibilityDirty = true;
@@ -2779,6 +2820,7 @@ void EdenWorld::updateIslandIndices() {
 }
 
 bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int32_t maxSectors ) {
+    finishPendingSectors( false );
     if ( areas.empty() ) {
         for ( int32_t y = 0; y < areaRows; y++ ) {
             for ( int32_t x = 0; x < areaColumns; x++ ) {
@@ -2824,6 +2866,12 @@ bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int3
             id.X = column % kSectorsPerArea;
             id.Y = row % kSectorsPerArea;
             const uint32_t key = static_cast<uint32_t>( row * 1024 + column );
+            for ( const PendingSector &pending : pendingSectors ) {
+                if ( pending.pSector->Id == id ) {
+                    finishPendingSectors( true ); // wanted inside the square now: do not wait for a later frame
+                    break;
+                }
+            }
             if ( !isSectorLoaded( id ) && failedSectors.count( key ) == 0 ) {
                 if ( loadSector( id ) ) {
                     bLoadedAny = true;
@@ -2851,6 +2899,7 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
     if ( areas.empty() ) {
         return false; // loadAround sets the world up first
     }
+    finishPendingSectors( false );
     const SectorId center = getSectorAt( position );
     const int32_t centerColumn = center.AreaX * kSectorsPerArea + center.X;
     const int32_t centerRow = center.AreaY * kSectorsPerArea + center.Y;
@@ -2914,11 +2963,15 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
         }
         preloadWaitFrames = 0;
     }
-    if ( !loadSector( best ) ) {
+    if ( !loadSector( best, true ) ) {
         failedSectors.insert( bestKey );
         return true; // an attempt: the ring is not finished, try the next one next frame
     }
-    sectors.back()->bPreloaded = true;
+    if ( !pendingSectors.empty() && pendingSectors.back().pSector->Id == best ) {
+        pendingSectors.back().bPreloaded = true;
+    } else {
+        sectors.back()->bPreloaded = true;
+    }
     static const bool bLog = CmdLine::HasArg( "-logsectortimes" );
     if ( bLog ) {
         OTDU_LOG_INFO( "[sector] preloaded %s (%zu loaded; bank worker %u ready / %u synchronous)\n", SectorName( best ).c_str(),

@@ -4,6 +4,21 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, carve on a worker; heightfield left on the main thread)
+
+Follow-up: "Yes, heightfield + carve".
+
+### What changed
+- `source/world/eden_world.{h,cpp}`: the carve step of `loadSector` (`MarkCarvedCells`, `BuildCarveGround`, `PruneUncoveredCarveCells`, `BuildRoadIndex` - static, CPU only, read `Objects` + `Terrain.Heights`, write only the sector's own carve data; no shared mutable statics) is now the last step. For a preload (`preloadOne` -> `loadSector( id, true )`) it runs on a `std::async` worker and the sector waits in `pendingSectors`; `finishPendingSectors` publishes the finished ones (`sectors.push_back`, `markAreasDirty`, `bPreloaded`) at the top of `preloadOne` / `loadAround`. `isSectorLoaded` counts pending sectors; `loadAround` waits for a pending sector that falls inside its square; `destroy()` waits for all. Synchronous loads (`loadAround`, `-scantunnels`, the start-up ring) are unchanged. `-nocarveworker` = the old path; `-logtunnels` / `-lognodesnear` keep it synchronous (they read the carve result).
+
+### Verified
+- Same drive, 3 runs each, `-nocarveworker` vs default (preload steps): avg 5.60-5.68 -> 5.05-5.28 ms, worst 16.9-17.4 -> 13.7-14.0 ms, steps over 10 ms 3 -> 2. Main-thread carve over 23 sector loads 34.5 -> 23 ms (the rest is the synchronous start-up ring).
+- Pixel-identical (mean abs diff 0.0, `-clock 13.00`) at frame 800 of the standard drive and at frame 700 near the tunnel site (`-tp 22700,22400`). A first A/B run looked worse (avg 6.1 / max 24 ms): noise - repeated runs did not reproduce it.
+
+### Ruled out / not done
+- **Heightfield (43 ms) was not moved.** `loadHeightfield` interleaves the three parses (scene / geometry / 2DM, CPU) with `createBuffer`, `setupMaterial` and the `-s` map lookup (main thread); only the parse and the height copy can leave it, ~1 ms of the 1.9 ms per sector, and the carve needs `Objects` which only exists after the main-thread model load - so it cannot share the bank worker without a staged `Sector`. Next step if wanted: a `PreparedHeightfield` (parsed streams + data blob) built by `BankPreloader` right after the bank parse, consumed by `loadHeightfield`.
+- Still on the main thread per sector: objects 81 (item building ~40), bank 51 (start-up ring), heightfield 43, textures 25, instances 20 ms over 23 loads.
+
 ## Session 2026-11-25, late (`main`, getProgram ruled out as a streaming cost)
 
 Follow-up: "Yes, getProgram".

@@ -10,6 +10,7 @@
 #include "world/sign_text.h"
 
 #include <functional>
+#include <future>
 
 // Island streaming data (Euro/Bnk/islands/<island>/level), rendered with the
 // original shaders.
@@ -499,6 +500,12 @@ private:
     std::unordered_set<uint32_t> failedSectors; // row * 1024 + column
     // Sector banks read + parsed on a worker ahead of loadSector (-nobankworker = load on the main thread).
     BankPreloader bankPreloader;
+    struct PendingSector {
+        std::unique_ptr<Sector> pSector; // declared before Done: the job is waited for first when this is destroyed
+        std::future<void> Done;
+        bool bPreloaded = false;
+    };
+    std::vector<PendingSector> pendingSectors;
     uint32_t preloadWaitFrames = 0; // frames preloadOne has waited for its bank
     uint32_t bankHits = 0, bankMisses = 0;
     // commonworld.bnk library.3dd (models of the V / O .pmi lists).
@@ -562,7 +569,11 @@ private:
 
 private:
     bool loadHeightfield( const Bank &bank, const char *pBaseName, const char *pTextureOwner, Heightfield &out );
-    bool loadSector( const SectorId &id );
+    // bAsync: the carve step (MarkCarvedCells ... BuildRoadIndex, CPU only) runs on a worker and the sector joins
+    // `sectors` once it is done (finishPendingSectors); -nocarveworker = always synchronous.
+    bool loadSector( const SectorId &id, bool bAsync = false );
+    // Publishes the sectors whose carve job is done (bWait: all of them, blocking).
+    void finishPendingSectors( bool bWait );
     bool loadArea( int32_t x, int32_t y );
     void updateAreaIndices( Area &area );
     void markAreasDirty( const SectorId &id );
