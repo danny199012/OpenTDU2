@@ -4,6 +4,19 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the performance list: what was tried after the verdict cache)
+
+### Ruled out [MEAS]
+- **Caching the decoded `.pgr` rows** (the RLE expand of a 1024-cell row per visited row per frame; a per-sector 1 MB decoded grid + row states, built and A/B'd as `-nopgrrowcache`): frame 600 **8.1 / 8.3 ms with it vs 8.2 / 8.3 / 9.0 without** (run noise is larger than any gain), pixel-identical, so no change worth a megabyte a sector - **reverted**. The expand is not where `buildGrassBatch`'s 18 % self time is; the remaining candidates are the per-cell hash / density law (camera dependent, not cacheable image-identically), `SampleSectorHeight` and the append lambda.
+- Re-profile after the verdict cache (`-sampleprof 360,600`): 1480 -> **1195 samples** for the same frames (-19 % main-thread work); `buildGrassBatch` 18.4 %, `_NLG_Return2` 7.3 % + `vkGetInstanceProcAddr` 7.2 % (both driver / API-call time, nothing to patch - fewer draws is the lever), `fillConstants` 5.6 %, `drawInstances` 5.2 %, `recordDrawImpl` 3.6 %, `Grid::isHidden` 3.5 %, `isBoxVisible` 3.3 %.
+
+### Measured, not changed: the environment cube is the real-play cost [MEAS]
+- Standard spawn, 720p, `-clock 02.00`, **without** `-staticcubemap`: car idle 9.9 ms (env 0.7-1.0 ms CPU); **driving 17.1 ms (59 fps), env 3.8-4.1 ms CPU** against 8.1-9.1 ms (110+ fps) with `-staticcubemap`. The refresh is deliberately coherent (`EdenSceneView`, around line 1444: all six faces together every >= 200 ms while the car moves = ~1200 extra draws in that frame, plus the two rear faces every 70 ms) - so the cost is spiky, not a steady 4 ms. `-cubemapstagger` (one face a frame) and a longer `-cubemapinterval` flatten it but change the picture (faces from different instants, reflection lag - the owner has complained about both); **owner decision**, not made here.
+
+### Where the list stands (docs/PERF_PLAN.md order)
+- Done: grass road verdict cache (prepass 6.5 -> 5.1 ms, pixel-identical). Next image-identical lever: the per-draw constant resolve (`fillConstants` + `recordDrawImpl` + `FindSmall` + the `unordered_map<u64, Vector4f>` lookups, ~12 % of the main thread): cache the world-independent part of each block per (program, material, scene fingerprint) - a bigger change, not started.
+- Need the owner's eye: the env-cube cadence above, `MASSINSTANCE_VIS_MAX` (retail's draw budget), P3 far-vegetation LODs. Not started: the `TD_HardwareInstance` instancing check.
+
 ## Session 2026-11-25, late (`main`, the performance list: grass road verdict cached, prepass 6.5 -> 5.1 ms)
 
 Owner: "Yes, the rest of the performance list" (`docs/PERF_PLAN.md` section 0b levers, P3, P4).
