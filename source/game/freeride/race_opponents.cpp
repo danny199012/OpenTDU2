@@ -539,7 +539,8 @@ void RaceOpponents::assignSticker( EdenRenderer &renderer, GPUTexture *pTexture 
 void RaceOpponents::assignStickers( EdenRenderer &renderer, const std::function<GPUTexture *( int32_t carId )> &lookup ) {
     for ( Racer &racer : racers ) {
         if ( CinematicCar *pCar = racer.Car->getCar() ) {
-            if ( GPUTexture *pTexture = lookup( pCar->getIdCar() ) ) {
+            // The entry's id (the .ig2's VSph, 500 for the school Delta), not the loaded model's (355).
+            if ( GPUTexture *pTexture = lookup( racer.Info.CarId ) ) {
                 pCar->bindStickerTexture( renderer, pTexture );
             }
         }

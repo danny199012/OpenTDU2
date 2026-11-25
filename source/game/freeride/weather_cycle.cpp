@@ -230,6 +230,44 @@ const WeatherPreset *WeatherCycle::findPresetAt( int32_t minuteOfDay, int32_t wa
     return presetFor( findTimePreset( minuteOfDay ), wantedIntempery );
 }
 
+bool WeatherCycle::findPresetPairAt( int32_t minuteOfDay, int32_t wantedIntempery, const WeatherPreset *&outA,
+                                     const WeatherPreset *&outB, float &outT ) const {
+    outA = outB = nullptr;
+    outT = 0.0f;
+    if ( pLibrary == nullptr || pLibrary->getPresets().empty() ) {
+        return false;
+    }
+    const std::vector<WeatherPreset> &presets = pLibrary->getPresets();
+    const int32_t a = findTimePreset( minuteOfDay );
+    const int32_t minuteA = presets[static_cast<size_t>( a )].Hour * 60 + presets[static_cast<size_t>( a )].Minutes;
+    // B: the first key after A (the file is not sorted), else the day's first key (wrap).
+    int32_t b = -1, minuteB = 1 << 30, first = -1, firstMinute = 1 << 30;
+    for ( size_t i = 0; i < presets.size(); i++ ) {
+        const int32_t m = presets[i].Hour * 60 + presets[i].Minutes;
+        if ( m > minuteA && m < minuteB ) {
+            minuteB = m;
+            b = static_cast<int32_t>( i );
+        }
+        if ( m < firstMinute ) {
+            firstMinute = m;
+            first = static_cast<int32_t>( i );
+        }
+    }
+    if ( b < 0 ) {
+        b = first;
+        minuteB = firstMinute + 1440;
+    }
+    int32_t now = minuteOfDay;
+    if ( now < minuteA ) {
+        now += 1440; // before the day's first key: A is yesterday's last
+    }
+    outA = presetFor( a, wantedIntempery );
+    outB = presetFor( b, wantedIntempery );
+    outT = minuteB > minuteA ? Clamp( static_cast<float>( now - minuteA ) / static_cast<float>( minuteB - minuteA ), 0.0f, 1.0f )
+                             : 0.0f;
+    return outA != nullptr && outB != nullptr;
+}
+
 void WeatherCycle::setPinnedAt( const WeatherPreset *pNewPreset, int32_t minuteOfDay ) {
     setPinned( pNewPreset );
     if ( pNewPreset == nullptr ) {

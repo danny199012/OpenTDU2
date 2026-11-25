@@ -262,7 +262,9 @@ GMFreeRide::~GMFreeRide() { exit(); }
 // with t^2 when the rain grows (a drizzle first, then it picks up) and out with
 // the mirrored curve when it fades. Strings (cloud meshes) switch at the middle.
 // The result is flat: the overlay intemperies are resolved into Values.
-static void BlendWeather( const WeatherPreset &a, const WeatherPreset &b, float t, WeatherPreset &out ) {
+// bLinear: the retail time-of-day law, a plain component lerp for every parameter (weather_spec.md 2) - a school test's
+// hour between two keys.
+static void BlendWeather( const WeatherPreset &a, const WeatherPreset &b, float t, WeatherPreset &out, bool bLinear = false ) {
     out.Name = b.Name;
     out.Hour = b.Hour;
     out.Minutes = b.Minutes;
@@ -284,9 +286,9 @@ static void BlendWeather( const WeatherPreset &a, const WeatherPreset &b, float 
     std::unordered_map<std::string, Vector4f> keysA;
     collect( a, keysA );
     collect( b, keysB );
-    const float smooth = t * t * ( 3.0f - 2.0f * t );
+    const float smooth = bLinear ? t : t * t * ( 3.0f - 2.0f * t );
     const bool bRainGrows = b.getFloat( "rain_alpha", 0.0f ) >= a.getFloat( "rain_alpha", 0.0f );
-    const float rainT = bRainGrows ? t * t : 1.0f - ( 1.0f - t ) * ( 1.0f - t );
+    const float rainT = bLinear ? t : bRainGrows ? t * t : 1.0f - ( 1.0f - t ) * ( 1.0f - t );
     std::unordered_map<std::string, Vector4f> merged;
     for ( const auto &kv : keysB ) {
         auto itA = keysA.find( kv.first );
@@ -4857,20 +4859,28 @@ void GMFreeRide::applyTestWeather( const std::string &testName, int32_t kind ) {
             const int32_t minuteOfDay = static_cast<int32_t>( std::lround( row["_hour"].asDouble() * 60.0 ) );
             const int32_t weatherType = Clamp( static_cast<int32_t>( row["_weather"].asDouble() ), 0, 5 );
             const WeatherPreset *pPreset = weatherCycle.findPresetAt( minuteOfDay, weatherType + 1 );
-            if ( pPreset == nullptr ) {
+            // The hour sits between two of the file's keys: blend them like the retail clock does (t = 0.75 for a 17:00
+            // test between the 14 and 18 keys).
+            const WeatherPreset *pNext = nullptr;
+            float t = 0.0f;
+            if ( pPreset == nullptr || !weatherCycle.findPresetPairAt( minuteOfDay, weatherType + 1, pPreset, pNext, t ) ) {
                 break;
             }
-            intemperyWeather = *pPreset;
-            intemperyWeather.ActiveIntempery = -1;
+            if ( t > 0.0f && pNext != pPreset ) {
+                BlendWeather( *pPreset, *pNext, t, intemperyWeather, true );
+            } else {
+                intemperyWeather = *pPreset;
+                intemperyWeather.ActiveIntempery = -1;
+            }
             weatherCycle.setPinnedAt( pPreset, minuteOfDay );
             bBlending = false;
             pWeather = &intemperyWeather;
             view.setWeather( pWeather );
             bTestWeather = true;
-            OTDU_LOG_INFO( "FREERIDE: test weather for %s (DBChallWeather): %02d:%02d, type %d -> preset '%s' (%02d:%02d) "
+            OTDU_LOG_INFO( "FREERIDE: test weather for %s (DBChallWeather): %02d:%02d, type %d -> keys '%s' -> '%s' t %.2f, "
                            "intempery %d\n",
                            testName.c_str(), minuteOfDay / 60, minuteOfDay % 60, weatherType, pPreset->Name.c_str(),
-                           pPreset->Hour, pPreset->Minutes, pPreset->Intempery );
+                           pNext->Name.c_str(), t, pPreset->Intempery );
             return;
         }
     }

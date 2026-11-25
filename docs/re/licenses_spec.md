@@ -681,3 +681,130 @@ answers with a `jmp` thunk, and the real call sites are the `e8`s to that thunk 
 start from the actors' names. `pefile` / `capstone` live in the user site-packages, which `python -I` drops.
 
 Not done: the spawn pose, the cone scatter, the walls of T02 / T04 / T06 against their 360 clips (the same loop, the same rule), the function at `0x41e6b4`.
+
+### 12.24 Every test key named, the time limit, the per-test weather and the school liveries (2026-11-25, `main`; owner: "make sure all tests are as accurate as possible for the licences")
+
+Sources: the dev build's research folder (`E:\Documents\TDU2+Dev+Build\_re\docs\10-licences\*.md`, `out/licence_tests.csv`,
+`out/livery_maps.csv`), `TestDrive2DEV.exe` and the retail data. Script: the property table below was read with
+`tools/devbuild_disasm.py` (scratch scripts, the recipe is in the shard entry).
+
+**The challenge editor names every `.ig2` key** [CODE-dev]: the challenge class registers each MDSC key as an editor property
+(`call 0x4470f0` with the member, the fourcc and a **DBLoc id for the label**, `0xb38102..0xb38d05` for the challenge,
+`0xade003..0xadf376` for its sub-objects: penalty, countdown, checkpoint distances, handicaps). Reading the label ids through
+`db_us.cpr` decodes the keys that were `[INF]` or unknown. `- (no editor label)` = DBLoc 36 "Error", an internal key the
+editor does not show. Labels in the `0xade...` group are taken from the same argument slot [INF: the group pushes its
+arguments in another order; `OrMd` 77 "Penalties mode" and `PeLv` 5413 "Penalty level" are read by hand at `0xadeabd` / `0xadeb0f`].
+
+| key | label (DBLoc) | registered at | values over the 58 RS tests |
+|---|---|---|---|
+| `CarB` | 1 "Make" | `0xadedcc` | 0 |
+| `CCol` | 21 "Avoid collisions" | `0xb382d0` | 0 |
+| `Cgli` | 88 "GPS Live" | `0xb386dc` | 0 |
+| `ChBo` | 24 "Time bonus at checkpoint" | `0xadf156` | 0 |
+| `ChCB` | 1 "Make" | `0xadf376` | 0 |
+| `ChCD` | 12 "The Challenge has a time limit" | `0xb384b5` | 0, 1 |
+| `ChCO` | 14 "With police cars" | `0xb386b2` | 0 |
+| `ChGP` | 27 "With GPS help" | `0xb388a7` | 1 |
+| `ChKD` | 25 "Display all checkpoints" | `0xb38588` | 0, 1 |
+| `ChNC` | 28 "Deactivate player-on-player collisions" | `0xb3831e` | 0 |
+| `ChSD` | 83 "Tail" | `0xb38532` | 0 |
+| `Chse` | 98 "Chase" | `0xb38789` | 0 |
+| `ChSL` | 93 "Speed limit" | `0xb38735` | 0 |
+| `ChTR` | 13 "With traffic" | `0xb385de` | 0 |
+| `CkMa` | 85 "Maximum distance" | `0xadefe6` | 50 |
+| `CkMi` | 84 "Minimal distance" | `0xadef8b` | 10 |
+| `Cock` | 29 "Cockpit View only" | `0xb3884e` | 0 |
+| `cops` | 134 "Police" | `0xadf0a2` | 2 |
+| `CpTs` | - (no editor label) | `0xb38824` | - |
+| `CtDw` | 11 "Countdown" | `0xadf121` | 30 values, 23000..240000 |
+| `CvBr` | 1 "Make" | `0xadeb46` | 0, 1 |
+| `CvMo` | 2 "Model" | `0xadeb6f` | -1, 102 |
+| `Cwwa` | 82 "GPS Wrong way allowed" | `0xb388cd` | 1 |
+| `dbd1` | - (no editor label) | `0xb38d05` | 58 values, 3197..6626 |
+| `dbna` | - (no editor label) | `0xb38cb1` | 58 values, 3200..6625 |
+| `DesC` | 5012 "Description of my challenge" | `0xb38c3d` | - |
+| `dscr` | 3196 "Display trajectory" | `0xb38a37` | 0, 1 |
+| `fee1` | 181 "Entry fee" | `0xb38984` | 50 |
+| `forc` | 15 "The route is marked" | `0xb382f7` | 0, 1 |
+| `Gmax` | 90 "Turn max. distance" | `0xadf26c` | 50 |
+| `Gmin` | 89 "Turn min. distance" | `0xadf241` | 20 |
+| `gmpm` | - (no editor label) | `0xb38156` | 49344 |
+| `gmth` | - (no editor label) | `0xb38102` | 0 |
+| `Hbrk` | 97 "No brake" | `0xade05f` | 0 |
+| `Hcap` | 94 "Handicap" | `0xb3875f` | 0 |
+| `Hhlg` | 96 "No headlights" | `0xade02f` | 0 |
+| `Hwsc` | 95 "No windscreens" | `0xade003` | 0 |
+| `IASA` | 33 "AI Vehicle Specs" | `0xb387d7` | 0 |
+| `isla` | - (no editor label) | `0xb381aa` | 0, 1 |
+| `lcpi` | - (no editor label) | `0xb38c62` | 0, 1 |
+| `leme` | - (no editor label) | `0xb381fe` | 58 values, 19..12189 |
+| `mnme` | 5011 "My challenge" | `0xb38c15` | - |
+| `NbCp` | - (no editor label) | `0xb387fe` | 3 |
+| `NbIA` | 20 "No. of AI opponents" | `0xb387b0` | 3 |
+| `nblp` | 68 "Laps" | `0xb3865c` | 1, 2, 3 |
+| `nbtm` | - (no editor label) | `0xb38b9c` | 1 |
+| `next` | 25 "Display all checkpoints" | `0xb384d9` | 0, 1 |
+| `offR` | 146 "Driving gauge" | `0xb382ab` | 0, 1 |
+| `PeCr` | 8 "Penalties" | `0xadeae8` | 50, 100 |
+| `rewm` | 1329 "Reward" | `0xb389df` | 20000 |
+| `rsl1` | 3194 "Place of the test" | `0xb38a9b` | 0, 1 |
+| `rsl2` | 3195 "Type of test" | `0xb38af3` | 11 values, 0..12 |
+| `rswh` | 136 "Required weather" | `0xb38b4b` | 0, 1, 2 |
+| `SLMl` | 78 "Minimum speed to reach" | `0xade7f4` | 0 |
+| `SP2R` | 143 "Target speed" | `0xb3837a` | 13000, 30000, 35756, 36112 |
+| `SPPG` | 765 "Points" | `0xb38432` | 1000, 1000000 |
+| `TEST` | - (no editor label) | `0xb38252` | 0, 1 |
+| `timG` | 138 "Target time" | `0xb3848e` | 49 values, 23000..260305 |
+| `tras` | 616 "Radars: activation speed" | `0xb383d6` | 5000, 13409, 13889 |
+| `trat` | 137 "Traffic" | `0xb38607` | -1, 0, 3, 5 |
+| `VSpe` | 76 "Vehicle specifications" | `0xb38926` | 2 |
+
+| `OrMd` | 77 "Penalties mode" | `0xadeac5` | 0, 4 |
+| `PeLv` | 5413 "Penalty level" | `0xadeb1a` | 0, 1, 2 |
+
+What this settles:
+- **`ChCD` = "The Challenge has a time limit"** - `CtDw` ("Countdown") is a limit only when it is set. The port failed every
+  test at `CtDw`; 29 of the 58 tests have `ChCD 0`, and on 7 of them the target is over `CtDw` (RSA1T08 222.1 s / 120 s,
+  RSA2T08 169.9 / 120, RSA3T04 176.8 / 120, RSB3T05 177.1 / 120, RSB3T08 260.3 / 240, RSA7T06 67 / 55, RSA4T06 79.9 / 79)
+  - those could not be passed. The dev research's "CtDw is not enforced here (I - confirmed by the port's behaviour)" is
+  now `[CODE-dev]` and per test. The 360 clips agree: T01 / T02 / T04 (`ChCD 1`) show the hourglass, T03 / T05 / T06
+  (`ChCD 0`) the count-up timer with the target. Built: `Ig2Challenge::hasTimeLimit()`, `LicenseTest::tick`, the school HUD
+  (`race.Limit` iff `ChCD`; it was "target == limit", wrong for RSA2T06).
+- **`dscr` = "Display trajectory"**: the racing line. 0 on ten road tests only (the port draws no line on road tests), the
+  360 RSC4T05 (0) has no chevrons on the road. Built as a gate on the line.
+- **`ChKD` / `next` = "Display all checkpoints"** (both carry label 25 [INF: one may be the editor's sub-checkbox]): not
+  built - the port shows the next two gates; the C4 clips (3-4 gates) cannot tell the difference. Next: a Hawai A-school
+  clip with 10+ gates and `ChKD 1`.
+- **`forc` = "The route is marked"** (1 on nine road tests and the RSC4T02 slalom), **`trat` "Traffic"** (-1/0/3/5: ambient traffic density
+  [INF]), **`tras` "Radars: activation speed"**, **`SP2R` "Target speed"**, **`SPPG` "Points"**, **`offR` "Driving
+  gauge"** (the penalty gauge shown), **`PeCr` "Penalties"**: named, not built beyond what 12.8 already does.
+
+**The per-test time of day and weather: `DBChallWeather`** [DATA]: 58 rows, one per test (`_ige_name`, `_hour` float hours,
+`_weather`). `_weather` is the retail intempery enum 0 Sunny, 1 Cloudy, 2 Rainny, 3 Before_rain, 4 After_rain, 5 Tempest
+[CODE: weather_spec.md 1.2] = the file intempery + 1. Cross-checked on all 58: the list's rain icon (`rswh` 1) is exactly the
+tests with 2 / 5, the moon (`rswh` 2) exactly the dark dry hours; the 360 C4 clips: T01 06:00 clear dawn, T02 14:00 cloudy,
+T03 14:00 Before_rain ("overcast damp"), T04 18:00 rain, T05 20:15 After_rain (a wet road at sunset), T06 23:30 night.
+(The clip notes' "the ig2 files have no weather / time-of-day field" was right about the ig2 - the table is in the database.)
+Built: `GMFreeRide::applyTestWeather( name, rswh )` pins the hour on the clock and blends the two time keys around it with
+the retail linear law (t = (now - A) / (B - A), weather_spec 2: RSA5T01 17:00 = keys 14 -> 18 at t 0.75); `rswh`'s three
+fixed hours are the fallback; `-nochallweather` reverts.
+
+**Every school car's livery: `DBCarPhysicsData._sticker`** [DATA] -> `euro/bnk/scenarics/stickers/<name>.2db` [CODE-dev
+string "scenarics/Stickers/%s.2db", "_Med" the half-size companion]. Every school car has one (`rsa_Mito`, `rsa_Camaro1LT`,
+`rsa_AudiS5`, `rsa_V8Vantage`, `rsa_mercedes_clk63_amg`, `rsa_Zonda_F`, `rsd_Land_Rover`, `rsd_Toureg`, `rsd_ML63AMG`,
+`rsd_Q7`, `rsc_lancia_delta`, `rsc_lotus_esprit`, `rsc_mustang_fastback`, `rsc_TypeE`, `rsc_308GTS`); `rsa_viper_srt10`
+(A2) and `rsa_CCXR` (A1 T1-T3) are named but not shipped, so those cars stay plain. 12.4's "no livery data was found" was
+wrong: it looked in the car banks and `DBCarsAndColors`. The C4 sheets are the ones the owner dumped from the 360 (mean
+|diff| 2.5 / 0.2 / 0.1 of 255 for 500 / 501 / 502, same orientation), so the port no longer needs the dumps. Built:
+`getSchoolLivery` reads `_sticker` (a `<userdata>/school_liveries/<id>.png` still overrides; `-nocarsticker`), the test car
+binds it, and the overtaking traffic binds each car's own by its `VSph` id (`assignStickers`; RSA4T05's Mitos, RSC4T05's
+Deltas; RSA5T03's stock cars have none). Evidence: `docs/images/licence_rsa7_mito_livery_2db.webp` (the "09" Mito),
+`licence_rsc4t05_afterrain_livery_2db.webp` (the Mustang on the wet 20:15 road), `licence_rsa5t01_hawaii_livery_blend.webp`
+(Hawai, the "88" S5 at 17:00).
+
+Verified (build 451/452, headless, `-licensetest <test> -nointro -skipcine -nopad -fixedtimestep`, fresh userdata):
+RSC4T04 (`ChCD 1`) "Out of time in 33.02 s"; RSC4T05 (`ChCD 0`, `CtDw` 40 s) ran ~60 s of test time with no timeout;
+RSA7T01 / RSB4T01 / RSA5T01 (`-island hawai`) / RSB3T05 / RSC4T05 load their school car, livery and DBChallWeather weather,
+0 stalls. Hawai tests need `-island hawai` with the hook (the reload keeps the island).
+
+Not done: the spawn pose (12.23), `ChKD`, the cone scatter, ambient traffic per `trat`, `forc`'s marked route.

@@ -75,6 +75,10 @@ public:
     // The preset of a time of day (the latest key at or before it) with a file intempery's full set (1 Sunny ... 6 Tempest,
     // the highest the island's file has); nullptr with no library. A school test's DBChallWeather row pins it.
     const WeatherPreset *findPresetAt( int32_t minuteOfDay, int32_t wantedIntempery ) const;
+    // The two time keys around `minuteOfDay` (A at or before, B the next, wrapping) with that intempery, and the retail
+    // blend factor t = (now - A) / (B - A) [CODE: weather_spec.md 2, FUN_00af7d40 / FUN_00af7aa0]. False with no library.
+    bool findPresetPairAt( int32_t minuteOfDay, int32_t wantedIntempery, const WeatherPreset *&outA, const WeatherPreset *&outB,
+                           float &outT ) const;
     // Pins a preset and shows `minuteOfDay` on the clock (the test's own hour, between two of the file's keys).
     void setPinnedAt( const WeatherPreset *pPreset, int32_t minuteOfDay );
 

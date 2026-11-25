@@ -4,6 +4,55 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25 (`main`, the licence tests from the game's own data: the time limit, the per-test weather, every school's livery)
+
+Owner: "I had cline and glm do some research on licences I want you to make sure all tests are as accurate as possible for
+the licences I believe Clines findings were from the dev build I did have docs made about it".
+
+The research read: `E:\Documents\TDU2+Dev+Build\_re\docs\10-licences\00-licence-system.md`, `01-asphalt.md`,
+`02-offroad.md`, `out/licence_tests.csv`, `out/livery_maps.csv` (the DBLicense table, the 58 tests' keys, the test cars,
+the `rsa_` / `rsd_` livery maps, the cheat / registry code). Its claims that change a test were checked in the data and the
+dev exe, not taken on trust - one of them was the wrong way round (below).
+
+### What changed (licenses_spec 12.24 has the decode and the full key table)
+- **The time limit is per test** [CODE-dev + DATA]: the dev build's challenge editor registers every `.ig2` key with a
+  DBLoc label (property table `TestDrive2DEV.exe 0xb38102..0xb38d05`, `0xade003..0xadf376`); `ChCD` is "The Challenge has
+  a time limit", `CtDw` "Countdown". The port failed every test at `CtDw`: 7 of the 29 `ChCD 0` tests have a target over
+  it (RSA1T08 222 s vs 120 s, RSB3T08 260 vs 240, RSA7T06 67 vs 55 ...) and could not be passed. `Ig2Challenge::hasTimeLimit`,
+  `LicenseTest::tick`; the school HUD's hourglass follows `ChCD` (was "target == limit"). The research's "CtDw is not
+  enforced (confirmed by the port's behaviour)" was circular and only half right - it IS enforced on the 29 `ChCD 1` tests.
+- **Each test's hour and weather: `DBChallWeather`** [DATA, 58 rows]; `_weather` = the retail intempery enum Sunny, Cloudy,
+  Rainny, Before_rain, After_rain, Tempest [CODE weather_spec 1.2]. `applyTestWeather( name, rswh )` pins the hour and blends
+  the two time keys around it with the retail linear law (`WeatherCycle::findPresetPairAt`, `BlendWeather(..., bLinear)`);
+  `-nochallweather` falls back to the old `rswh` hours.
+- **Every school car's livery from the PC data**: `DBCarPhysicsData._sticker` -> `euro/bnk/scenarics/stickers/<name>.2db`
+  (dev string "scenarics/Stickers/%s.2db"). `getSchoolLivery` reads it for any test car (was: only 500-502 from the owner's
+  360 PNG dumps, which still override); the overtaking traffic gets each car's own by its VSph id
+  (`RaceOpponents::assignStickers`; the loaded model reports the base id, 355 for the school Delta 500).
+- `dscr` ("Display trajectory") gates the racing line (no visible change: its ten 0s are road tests).
+
+### Verified (build 451/452, headless, fresh `-userdata C:\temp\otdu2-lic-userdata`)
+    build-main\bin\opentdu2-main.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata C:\temp\otdu2-lic-userdata -gm FREERIDE -licensetest RSC4T05 -nointro -skipcine -nopad -fixedtimestep -exitframe 4200
+- RSC4T04 (`ChCD 1`): "Out of time in 33.02 s"; RSC4T05 (`ChCD 0`, `CtDw` 40 s): ~60 s of test time, no timeout.
+- Weather lines: RSC4T04 "18:00, type 2 -> keys '18' -> '19.30' t 0.00, intempery 3"; RSA5T01 (`-island hawai`) "17:00 ->
+  keys '14' -> '18' t 0.75". All 58 rows agree with the list's rain / moon icons (scripted cross-check).
+- Liveries: `rsa_Mito`, `rsd_Land_Rover`, `rsa_AudiS5`, `rsd_Q7`, `rsc_mustang_fastback`, traffic `rsc_lancia_delta` x3,
+  "school livery bound on 1 paint material(s)". The PC sheets vs the 360 dumps: mean |diff| 2.5 / 0.2 / 0.1 of 255.
+  Shots: `docs/images/licence_rsa7_mito_livery_2db.webp`, `licence_rsc4t05_afterrain_livery_2db.webp` (wet road at 20:15,
+  as in the 360 clip), `licence_rsa5t01_hawaii_livery_blend.webp`.
+- The 360 RSC4T05 clip (dscr 0): no chevrons on the road; RSC4T01 (dscr 1) has them.
+
+### Ruled out
+- `rsa_viper_srt10` / `rsa_CCXR` (A2 car, A1 T1-T3 car): named in `_sticker`, no file on disk - retail draws them plain too [INF].
+- The research's car / target / limit / lap tables match what the port loads (`licence_dump.py` and `licence_tests.csv` agree).
+
+### Not done / next
+- `ChKD` / `next` "Display all checkpoints": the port shows the next two gates; needs a clip with many gates to see the
+  retail rule (`GMFreeRide` gate push, the `pushGate` block after `courseMarkersFor`).
+- The spawn pose (12.23), the cone scatter, `forc` "The route is marked", `trat` "Traffic" (ambient density) - named only.
+- Hawai tests with the `-licensetest` hook need `-island hawai` (in play the reload keeps the island).
+- `reference/` (the 360 clips + NOTES.md) is untracked and stays so (video); NOTES.md got a "found" note locally.
+
 ## Session 2026-11-22 + 24 (`main`, licence test 1: the barriers' retail layout - the dev build's DEC2 placer)
 
 Owner (22 Nov, with a port photo of T01's walls as continuous red / white rails): "Test 1 in Classic Licence school these barriers
