@@ -167,6 +167,34 @@ public:
                const GeometrySetup &geometrySetup = nullptr );
     void destroy();
 
+    // The CPU half of load() for a world sector, built on a worker thread (2026-11-25): parses, the items with their
+    // vertex / index / collision data and bounds - everything that does not need a material or the GPU. The item loop
+    // is a copy of load()'s, minus the material-dependent steps; loadPrepared() does those on the main thread.
+    struct Prepared {
+        Render3DD Scene;
+        Render2DM LocalMaterials;
+        std::vector<Item> Items;                  // MaterialIndex is set by loadPrepared
+        std::vector<uint64_t> ItemMaterialHashes; // per item
+        std::vector<uint8_t> VertexData;
+        std::vector<uint32_t> IndexData;
+        std::vector<Vector3f> CollisionVertices;
+        std::vector<uint32_t> CollisionIndices;
+        Vector3f BoundsMin;
+        Vector3f BoundsMax;
+        std::vector<Matrix4x4f> NodeTransforms;
+        std::vector<std::pair<uint32_t, uint32_t>> NodeItems;
+        std::vector<std::array<std::pair<uint32_t, uint32_t>, 3>> NodeLodItems;
+    };
+    // The entries are chosen as load( bank, pBaseName ) does. Null when the model has nothing to draw, or when a
+    // debug flag needs the old path (-noitemworker, -loguvrange).
+    static std::shared_ptr<Prepared> Prepare( const Bank &bank, const char *pBaseName, const Render2DM *pFallbackMaterials,
+                                              bool bKeepCollision );
+    // Finishes a Prepared on the main thread: materials, buffers. False (nothing changed) when this model's setup does not
+    // match what Prepare assumed, or when an item has no usable material (the old load drops such items): the caller then
+    // runs load(). Consumes pPrepared on success.
+    bool loadPrepared( EdenRenderer &renderer, Prepared &prepared, const Render2DM *pFallbackMaterials,
+                       const char *pTextureOwner, const MaterialSetup &materialSetup );
+
     // Texture coordinate animations (.UVA entries of 'bank', see
     // EdenUVAnimation) of this model's materials: an animation is bound when
     // its id is listed in the UVAA section of the model's material library

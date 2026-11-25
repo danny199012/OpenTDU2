@@ -33,6 +33,8 @@ public:
 
     // Queues a bank (idempotent: a bank already queued, loading or ready is left alone).
     void request( const std::string &path, Prepare prepare = nullptr );
+    // Drops everything queued or finished and waits for the job in flight (the world is being torn down).
+    void clear();
     // True while the bank is queued or loading.
     bool isPending( const std::string &path );
     // The finished bank, moved out; an empty Result when it is not ready or failed.
@@ -54,6 +56,8 @@ private:
 
     std::mutex mutex;
     std::condition_variable signal;
+    std::condition_variable idleSignal;
+    bool bBusy = false; // a bank is loading on the worker
     std::deque<std::string> queue;
     std::deque<std::string> finishedOrder;
     std::unordered_map<std::string, Entry> entries;

@@ -4,6 +4,25 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, item building on the bank worker)
+
+Follow-up: "Yes, item building".
+
+### What changed
+- `source/render/eden/eden_model.{h,cpp}`: `EdenModel::Prepare( bank, name, fallbackMaterials, keepCollision )` (static, CPU only) parses the scene / geometry / 2DM and builds the LOD0 items with their vertex / index / collision data, bounds, node ranges and each item's material hash - a copy of `load()`'s item loop minus everything that needs a material or the GPU. `loadPrepared( renderer, prepared, fallback, owner, materialSetup )` runs on the main thread: resolves the materials in `load()`'s first-use order (`setupMaterial` + the sector's `materialSetup`), creates the two buffers, swaps the data in. It returns false and changes nothing when the model's setup differs from what Prepare assumed (LODs, kept indices / vertex data / parsed geometry, triangle drop, ray tracing structures, no collision copy), or when an item's material is missing / has no program (the old load drops such items with their vertices) - the caller then runs the old `load()`. TD_Impostor streams are kept for any primitive of <= 64 vertices on the worker and cleared by `loadPrepared` for materials that are not the impostor shader. `load()` itself is untouched (cars, props, areas, the library).
+- `source/world/eden_world.{h,cpp}`: the bank worker's prepare hook now returns a `SectorPrepared` (heightfield + objects); `loadSector` tries `loadPrepared` before `load`. `-noitemworker` (also `-loguvrange`) = the old path.
+- `source/filesystem/bank_preloader.{h,cpp}`: `clear()` drops the queue / finished banks and waits for the job in flight; `EdenWorld::destroy()` calls it (the worker reads `libraryMaterials`).
+- `-checkprepared`: loads every prepared sector's `-o` model the old way too and compares items (node, material, mesh ranges / offsets / strides, vertex counts, bounds, collision ranges, impostor sizes), materials, collision arrays, node ranges.
+
+### Verified
+- `-checkprepared` over the standard drive: 12 prepared sectors, **0 mismatches** (sizes 35-360 items).
+- Same drive, 3 runs each vs `-noitemworker`: main-thread `objects` stage over 23 loads 84 / 92.1 / 91.9 -> 53.1 / 52.5 / 51.8 ms; preload step avg 4.65-4.83 -> 3.56-3.98 ms, worst 12.2-14.6 -> 9.9-10.4 ms, steps over 10 ms 3 -> 0-1. Frame 800 pixel-identical (mean abs diff 0.0, `-clock 13.00`).
+- Whole-load picture (23 sector loads, `-logsectortimes`): 338 ms at the start of this series; the main-thread stages are now about objects 52, bank 48 (the start-up ring), textures 25, heightfield 20, instances 20, carve 23.
+
+### Not done / next
+- The start-up ring (`loadAround`, 9 of the 23 loads) is fully synchronous: bank 48 ms of the remainder is theirs; a ring prepared before the first frame (loading screen) would take them off the main thread too. The ring's loads also pay the full model parse.
+- The remaining object-stage cost is the material setup + buffer creation (main thread by nature) and `modelLoadedCallback`.
+
 ## Session 2026-11-25, late (`main`, heightfield decode on the bank worker)
 
 Follow-up: "Yes, move heightfield to the worker".

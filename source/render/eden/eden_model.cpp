@@ -220,6 +220,218 @@ void EdenModel::destroy() {
     keptGeometry.reset();
 }
 
+std::shared_ptr<EdenModel::Prepared> EdenModel::Prepare( const Bank &bank, const char *pBaseName,
+                                                         const Render2DM *pFallbackMaterials, bool bKeepCollision ) {
+    static const bool bDisabled = CmdLine::HasArg( "-noitemworker" ) || CmdLine::HasArg( "-loguvrange" );
+    if ( bDisabled ) {
+        return nullptr;
+    }
+    const BankEntry *pScene = nullptr;
+    const BankEntry *pGeometry = nullptr;
+    const BankEntry *pMaterials = nullptr;
+    for ( const BankEntry &entry : bank.getEntries() ) {
+        if ( pBaseName != nullptr && StringCmpI( entry.Name.c_str(), pBaseName ) != 0 ) {
+            continue;
+        }
+        if ( entry.Extension == "3dd" && pScene == nullptr ) {
+            pScene = &entry;
+        } else if ( entry.Extension == "3dg" && pGeometry == nullptr ) {
+            pGeometry = &entry;
+        } else if ( entry.Extension == "2dm" && pMaterials == nullptr ) {
+            pMaterials = &entry;
+        }
+    }
+    if ( pScene == nullptr || pGeometry == nullptr ) {
+        return nullptr;
+    }
+    auto pOut = std::make_shared<Prepared>();
+    Prepared &prep = *pOut;
+    Render3DG geometry;
+    if ( !prep.Scene.parse( pScene->pData, pScene->Size, false ) || !geometry.parse( pGeometry->pData, pGeometry->Size, false ) ) {
+        return nullptr;
+    }
+    if ( pMaterials != nullptr ) {
+        prep.LocalMaterials.parse( pMaterials->pData, pMaterials->Size );
+    }
+    const std::vector<SceneNode> &nodes = prep.Scene.getNodes();
+    for ( const SceneNode &node : nodes ) {
+        prep.NodeTransforms.push_back( node.World );
+    }
+    prep.BoundsMin = Vector3f( 1e9f, 1e9f, 1e9f );
+    prep.BoundsMax = Vector3f( -1e9f, -1e9f, -1e9f );
+    // load()'s addGeometry for LOD0, without the material / program / impostor-GUID decisions (main thread).
+    auto addGeometry = [&]( int32_t nodeIndex, const Geometry *pGeometryData ) {
+        const SceneNode &node = nodes[nodeIndex];
+        for ( size_t primitiveIndex = 0; primitiveIndex < pGeometryData->Primitives.size(); primitiveIndex++ ) {
+            const GeometryPrimitive &primitive = pGeometryData->Primitives[primitiveIndex];
+            if ( primitive.NumRawVertex == 0 || primitive.Indices.empty() ) {
+                continue;
+            }
+            const uint64_t materialHash = primitive.MaterialIndex < node.Materials.size() ? node.Materials[primitive.MaterialIndex] : 0;
+            const MaterialDesc *pDesc = prep.LocalMaterials.find( materialHash );
+            if ( pDesc == nullptr && pFallbackMaterials != nullptr ) {
+                pDesc = pFallbackMaterials->find( materialHash );
+            }
+            if ( pDesc == nullptr ) {
+                continue; // load() skips the primitive: no material
+            }
+            Item item;
+            item.NodeIndex = nodeIndex;
+            item.Lod = 0;
+            item.BonePalette = primitive.BonePalette;
+            EdenMesh &mesh = item.Mesh;
+            mesh.NumStreams = 0;
+            for ( uint32_t stream = 0; stream < 2; stream++ ) {
+                if ( primitive.RawStrides[stream] == 0 ) {
+                    continue;
+                }
+                const size_t offset = Align<size_t>( prep.VertexData.size(), 16 );
+                prep.VertexData.resize( offset );
+                prep.VertexData.insert( prep.VertexData.end(), primitive.RawStreams[stream].begin(), primitive.RawStreams[stream].end() );
+                mesh.StreamOffsets[stream] = offset;
+                mesh.Strides[stream] = primitive.RawStrides[stream];
+                mesh.NumStreams = stream + 1;
+            }
+            mesh.Attributes = primitive.RawAttributes;
+            // TD_Impostor quads (<= 64 vertices): kept here, dropped by loadPrepared for the other shaders.
+            if ( primitive.Vertices.size() <= 64 ) {
+                for ( uint32_t stream = 0; stream < 2; stream++ ) {
+                    item.ImpostorStreams[stream] = primitive.RawStreams[stream];
+                }
+                item.ImpostorIndices = primitive.Indices;
+            }
+            const std::vector<uint32_t> &useIndices = primitive.Indices;
+            mesh.FirstIndex = static_cast<uint32_t>( prep.IndexData.size() );
+            mesh.IndexCount = static_cast<uint32_t>( useIndices.size() );
+            item.NumVertices = static_cast<uint32_t>( primitive.Vertices.size() );
+            item.NumRawVertices = primitive.NumRawVertex;
+            mesh.VertexOffset = 0;
+            prep.IndexData.insert( prep.IndexData.end(), useIndices.begin(), useIndices.end() );
+            mesh.computeLayoutKey();
+            if ( bKeepCollision ) {
+                const uint32_t base = static_cast<uint32_t>( prep.CollisionVertices.size() );
+                item.CollisionFirst = static_cast<uint32_t>( prep.CollisionIndices.size() );
+                for ( const MeshVertex &vertex : primitive.Vertices ) {
+                    prep.CollisionVertices.push_back(
+                        node.World.transformPoint( Vector3f( vertex.Position[0], vertex.Position[1], vertex.Position[2] ) ) );
+                }
+                for ( uint32_t index : useIndices ) {
+                    prep.CollisionIndices.push_back( base + index );
+                }
+                item.CollisionCount = static_cast<uint32_t>( useIndices.size() );
+            }
+            item.BoundsMin = Vector3f( 1e9f, 1e9f, 1e9f );
+            item.BoundsMax = Vector3f( -1e9f, -1e9f, -1e9f );
+            for ( const MeshVertex &vertex : primitive.Vertices ) {
+                const Vector3f p( vertex.Position[0], vertex.Position[1], vertex.Position[2] );
+                item.BoundsMin = Vector3f( Min( item.BoundsMin.x, p.x ), Min( item.BoundsMin.y, p.y ), Min( item.BoundsMin.z, p.z ) );
+                item.BoundsMax = Vector3f( Max( item.BoundsMax.x, p.x ), Max( item.BoundsMax.y, p.y ), Max( item.BoundsMax.z, p.z ) );
+                const Vector3f w = node.World.transformPoint( p );
+                prep.BoundsMin = Vector3f( Min( prep.BoundsMin.x, w.x ), Min( prep.BoundsMin.y, w.y ), Min( prep.BoundsMin.z, w.z ) );
+                prep.BoundsMax = Vector3f( Max( prep.BoundsMax.x, w.x ), Max( prep.BoundsMax.y, w.y ), Max( prep.BoundsMax.z, w.z ) );
+            }
+            prep.ItemMaterialHashes.push_back( materialHash );
+            prep.Items.push_back( std::move( item ) );
+        }
+    };
+    for ( int32_t nodeIndex = 0; nodeIndex < static_cast<int32_t>( nodes.size() ); nodeIndex++ ) {
+        const SceneNode &node = nodes[nodeIndex];
+        if ( node.ObjectHashcode == 0 ) {
+            continue;
+        }
+        if ( const Geometry *pGeometryData = geometry.find( node.ObjectHashcode ) ) {
+            addGeometry( nodeIndex, pGeometryData );
+        }
+    }
+    if ( prep.Items.empty() ) {
+        return nullptr;
+    }
+    prep.NodeLodItems.assign( nodes.size(), {} );
+    for ( uint32_t i = 0; i < prep.Items.size(); i++ ) {
+        auto &range = prep.NodeLodItems[prep.Items[i].NodeIndex][0];
+        if ( range.second == 0 ) {
+            range.first = i;
+        }
+        range.second = i + 1 - range.first;
+    }
+    prep.NodeItems.assign( nodes.size(), { 0u, 0u } );
+    for ( uint32_t n = 0; n < nodes.size(); n++ ) {
+        prep.NodeItems[n] = prep.NodeLodItems[n][0];
+    }
+    return pOut;
+}
+
+bool EdenModel::loadPrepared( EdenRenderer &renderer, Prepared &prep, const Render2DM *pFallbackMaterials,
+                              const char *pTextureOwner, const MaterialSetup &materialSetup ) {
+    // What Prepare assumed: LOD0 only, the collision copy, no per-item extras, no ray tracing structures.
+    if ( bKeepVertexData || bKeepItemIndices || bKeepParsedGeometry || triangleDrop || bLoadLods || !bKeepCollision ||
+         ( IsRayTracingWorldEnabled() && gpRender->getRayTracing().isReady() ) ) {
+        return false;
+    }
+    // The materials, in the order of the first item that uses each (load()'s getMaterial order).
+    std::vector<EdenMaterial> newMaterials;
+    std::unordered_map<uint64_t, uint32_t> materialIndices;
+    std::vector<uint32_t> itemMaterial( prep.Items.size() );
+    for ( size_t i = 0; i < prep.Items.size(); i++ ) {
+        const uint64_t hash = prep.ItemMaterialHashes[i];
+        auto it = materialIndices.find( hash );
+        if ( it == materialIndices.end() ) {
+            const MaterialDesc *pDesc = prep.LocalMaterials.find( hash );
+            if ( pDesc == nullptr && pFallbackMaterials != nullptr ) {
+                pDesc = pFallbackMaterials->find( hash );
+            }
+            if ( pDesc == nullptr ) {
+                return false;
+            }
+            EdenMaterial material;
+            renderer.setupMaterial( *pDesc, material, pTextureOwner );
+            if ( materialSetup ) {
+                materialSetup( material );
+            }
+            newMaterials.push_back( std::move( material ) );
+            it = materialIndices.emplace( hash, static_cast<uint32_t>( newMaterials.size() - 1 ) ).first;
+        }
+        if ( newMaterials[it->second].pProgram == nullptr ) {
+            return false; // the old load drops this item (and its vertices): let it
+        }
+        itemMaterial[i] = it->second;
+    }
+    destroy();
+    scene = std::move( prep.Scene );
+    localMaterials = std::move( prep.LocalMaterials );
+    materials = std::move( newMaterials );
+    items = std::move( prep.Items );
+    for ( size_t i = 0; i < items.size(); i++ ) {
+        items[i].MaterialIndex = itemMaterial[i];
+        if ( materials[itemMaterial[i]].ShaderSetGUID != 0x83078865caca336dull ) {
+            items[i].ImpostorStreams[0].clear();
+            items[i].ImpostorStreams[1].clear();
+            items[i].ImpostorIndices.clear();
+        }
+    }
+    nodeTransforms = std::move( prep.NodeTransforms );
+    nodeVisible.assign( nodeTransforms.size(), true );
+    collisionVertices = std::move( prep.CollisionVertices );
+    collisionIndices = std::move( prep.CollisionIndices );
+    bSurfaceGridBuilt = false;
+    boundsMin = prep.BoundsMin;
+    boundsMax = prep.BoundsMax;
+    nodeItems = std::move( prep.NodeItems );
+    nodeLodItems = std::move( prep.NodeLodItems );
+
+    RenderDevice &device = gpRender->getDevice();
+    pVertexBuffer = device.createBuffer( prep.VertexData.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, prep.VertexData.data() );
+    pIndexBuffer =
+        device.createBuffer( prep.IndexData.size() * sizeof( uint32_t ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, prep.IndexData.data() );
+    for ( Item &item : items ) {
+        for ( uint32_t stream = 0; stream < item.Mesh.NumStreams; stream++ ) {
+            item.Mesh.pStreamBuffers[stream] = pVertexBuffer;
+        }
+        item.Mesh.pIndexBuffer = pIndexBuffer;
+    }
+    return pVertexBuffer != nullptr && pIndexBuffer != nullptr;
+}
+
 bool EdenModel::load( EdenRenderer &renderer,
                       const Bank &bank,
                       const char *pBaseName,

@@ -1630,6 +1630,7 @@ void EdenWorld::destroy() {
         return;
     }
     finishPendingSectors( true );
+    bankPreloader.clear();
     RenderDevice &device = gpRender->getDevice();
     if ( modelUnloadedCallback ) {
         for ( auto &pSector : sectors ) {
@@ -2041,9 +2042,13 @@ bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
     }
     static const bool bNoBankWorker = CmdLine::HasArg( "-nobankworker" );
     std::shared_ptr<PreparedHeightfield> pPreparedHeightfield;
+    std::shared_ptr<EdenModel::Prepared> pPreparedObjects;
     if ( BankPreloader::Result prepared = bNoBankWorker ? BankPreloader::Result() : bankPreloader.take( bankPath ); prepared.pBank ) {
         pSector->SectorBank.swap( *prepared.pBank ); // read + parsed on the worker
-        pPreparedHeightfield = std::static_pointer_cast<PreparedHeightfield>( prepared.pExtra );
+        if ( auto pExtra = std::static_pointer_cast<SectorPrepared>( prepared.pExtra ) ) {
+            pPreparedHeightfield = pExtra->Heightfield;
+            pPreparedObjects = pExtra->Objects;
+        }
         bankHits++;
     } else {
         bankMisses++;
@@ -2107,8 +2112,55 @@ bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
         }
     };
     pSector->Objects.setKeepCollision( true );
-    pSector->Objects.load( *pRenderer, pSector->SectorBank, ( name + "-o" ).c_str(), &libraryMaterials, path, nullptr,
-                           materialSetup );
+    // The CPU half was built on the bank worker (EdenModel::Prepare); loadPrepared refuses when the model's setup or a
+    // material does not match, and the old load runs.
+    bool bObjectsPrepared = pPreparedObjects && pSector->Objects.loadPrepared( *pRenderer, *pPreparedObjects, &libraryMaterials, path, materialSetup );
+    if ( !bObjectsPrepared ) {
+        pSector->Objects.load( *pRenderer, pSector->SectorBank, ( name + "-o" ).c_str(), &libraryMaterials, path, nullptr,
+                               materialSetup );
+    }
+    // -checkprepared: loads the model the old way too and compares what the prepared path built.
+    static const bool bCheckPrepared = CmdLine::HasArg( "-checkprepared" );
+    if ( bCheckPrepared && bObjectsPrepared ) {
+        EdenModel ref;
+        ref.setKeepCollision( true );
+        ref.load( *pRenderer, pSector->SectorBank, ( name + "-o" ).c_str(), &libraryMaterials, path, nullptr, materialSetup );
+        const EdenModel &got = pSector->Objects;
+        uint32_t bad = 0;
+        auto vecEq = []( const Vector3f &x, const Vector3f &y ) { return x.x == y.x && x.y == y.y && x.z == y.z; };
+        if ( got.getItems().size() != ref.getItems().size() || got.getMaterials().size() != ref.getMaterials().size() ||
+             got.getCollisionVertices().size() != ref.getCollisionVertices().size() ||
+             got.getCollisionIndices().size() != ref.getCollisionIndices().size() ||
+             !vecEq( got.getBoundsMin(), ref.getBoundsMin() ) || !vecEq( got.getBoundsMax(), ref.getBoundsMax() ) ) {
+            bad++;
+        } else {
+            for ( size_t i = 0; i < got.getItems().size(); i++ ) {
+                const EdenModel::Item &x = got.getItems()[i], &y = ref.getItems()[i];
+                if ( x.NodeIndex != y.NodeIndex || x.MaterialIndex != y.MaterialIndex || x.Mesh.FirstIndex != y.Mesh.FirstIndex ||
+                     x.Mesh.IndexCount != y.Mesh.IndexCount || x.Mesh.NumStreams != y.Mesh.NumStreams ||
+                     x.Mesh.StreamOffsets[0] != y.Mesh.StreamOffsets[0] || x.Mesh.StreamOffsets[1] != y.Mesh.StreamOffsets[1] ||
+                     x.Mesh.Strides[0] != y.Mesh.Strides[0] || x.Mesh.Strides[1] != y.Mesh.Strides[1] ||
+                     x.NumVertices != y.NumVertices || x.CollisionFirst != y.CollisionFirst || x.CollisionCount != y.CollisionCount ||
+                     !vecEq( x.BoundsMin, y.BoundsMin ) || !vecEq( x.BoundsMax, y.BoundsMax ) ||
+                     x.ImpostorIndices.size() != y.ImpostorIndices.size() || x.ImpostorStreams[0].size() != y.ImpostorStreams[0].size() ||
+                     x.ImpostorStreams[1].size() != y.ImpostorStreams[1].size() ) {
+                    bad++;
+                }
+            }
+            for ( size_t i = 0; i < got.getMaterials().size(); i++ ) {
+                if ( got.getMaterials()[i].Name != ref.getMaterials()[i].Name ) {
+                    bad++;
+                }
+            }
+            const int32_t numNodes = static_cast<int32_t>( got.getScene().getNodes().size() );
+            for ( int32_t n = 0; n < numNodes; n++ ) {
+                if ( got.getNodeItemRange( n ) != ref.getNodeItemRange( n ) || got.getNodeItemRange( n, 0 ) != ref.getNodeItemRange( n, 0 ) ) {
+                    bad++;
+                }
+            }
+        }
+        OTDU_LOG_INFO( "[checkprepared] %s: %zu items, %u mismatches\n", name.c_str(), got.getItems().size(), bad );
+    }
     applyVisibility( pSector->Objects );
     stage( "objects" );
     // Rotating actors (the wind turbine rotors): the sector bank nests a "<sector>_sc" bank whose entities.xmb lists
@@ -2978,10 +3030,15 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
                 // The heightfield decode rides along on the worker (-noheightworker: the main thread does it).
                 static const bool bNoHeightWorker = CmdLine::HasArg( "-noheightworker" );
                 const std::string baseName = SectorName( candidates[i].Id );
-                bankPreloader.request( bankPath, bNoHeightWorker ? BankPreloader::Prepare()
-                                                                 : [baseName]( const Bank &bank ) -> std::shared_ptr<void> {
-                                                                       return PrepareHeightfield( bank, baseName.c_str() );
-                                                                   } );
+                const Render2DM *pLibrary = &libraryMaterials;
+                bankPreloader.request( bankPath, [baseName, pLibrary]( const Bank &bank ) -> std::shared_ptr<void> {
+                    auto pExtra = std::make_shared<SectorPrepared>();
+                    if ( !bNoHeightWorker ) {
+                        pExtra->Heightfield = PrepareHeightfield( bank, baseName.c_str() );
+                    }
+                    pExtra->Objects = EdenModel::Prepare( bank, ( baseName + "-o" ).c_str(), pLibrary, true );
+                    return pExtra;
+                } );
             }
         }
         // The bank of the sector to load is still being read: do not block the frame on it (an attempt,

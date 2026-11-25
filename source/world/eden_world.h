@@ -580,6 +580,11 @@ private:
         MaterialDesc Desc;
     };
     static std::shared_ptr<PreparedHeightfield> PrepareHeightfield( const Bank &bank, const char *pBaseName );
+    // What the bank worker prepares for a sector besides the bank: the heightfield and the -o model (CPU half).
+    struct SectorPrepared {
+        std::shared_ptr<PreparedHeightfield> Heightfield;
+        std::shared_ptr<EdenModel::Prepared> Objects;
+    };
     bool loadHeightfield( const Bank &bank, const char *pBaseName, const char *pTextureOwner, Heightfield &out,
                           const PreparedHeightfield *pPrepared = nullptr );
     // bAsync: the carve step (MarkCarvedCells ... BuildRoadIndex, CPU only) runs on a worker and the sector joins

@@ -36,6 +36,14 @@ void BankPreloader::request( const std::string &path, Prepare prepare ) {
     signal.notify_one();
 }
 
+void BankPreloader::clear() {
+    std::unique_lock<std::mutex> lock( mutex );
+    queue.clear();
+    finishedOrder.clear();
+    entries.clear();
+    idleSignal.wait( lock, [this]() { return !bBusy; } );
+}
+
 bool BankPreloader::isPending( const std::string &path ) {
     std::lock_guard<std::mutex> lock( mutex );
     auto it = entries.find( Key( path ) );
@@ -90,11 +98,14 @@ void BankPreloader::run() {
             }
             it->second.Status = State::Loading;
             prepare = it->second.PrepareFn;
+            bBusy = true;
         }
         auto pBank = std::make_unique<Bank>();
         const bool bOk = pBank->load( key.c_str() );
         std::shared_ptr<void> pExtra = bOk && prepare ? prepare( *pBank ) : nullptr;
         std::lock_guard<std::mutex> lock( mutex );
+        bBusy = false;
+        idleSignal.notify_all();
         auto it = entries.find( key );
         if ( it == entries.end() ) {
             continue;
