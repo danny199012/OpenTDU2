@@ -38,6 +38,12 @@ public:
     inline const Ig2Challenge &getChallenge() const { return challenge; }
     // The start pose (gates[0]): position and heading (radians, forward = (sin, 0, cos)).
     Vector3f getStartPosition() const;
+    // Where the car stands for the countdown. A racing school test (RS*): 8.5 m behind gate 0 on its axis, facing it - the
+    // first keyframe of every test's retail recording (ig2/replays/<test>.rly) is there on all 58 tests (8.36-8.54 m back,
+    // lateral <= 0.04 m, heading <= 1 deg) [DATA], and the 360 clips stand the car behind the start line. Other challenges
+    // (no recordings): gate 0 itself.
+    Vector3f getSpawnPosition() const;
+    bool isSchoolTest() const;
     float getStartHeading() const;
     // 3, 2, 1 while counting down (0 = "GO!"), -1 otherwise.
     int32_t getCountdownNumber() const;

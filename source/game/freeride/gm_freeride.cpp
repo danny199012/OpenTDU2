@@ -3909,7 +3909,7 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
             restoreTestWeather();
         }
     }
-    placeCar( licenseTest.getStartPosition(), licenseTest.getStartHeading() );
+    placeCar( licenseTest.getSpawnPosition(), licenseTest.getStartHeading() );
     hud.closeEnterSpot();
     const std::string title = licenseTest.getChallenge().getTitle();
     // The school's instructor rides beside the player in every test (Marco asphalt, Jane dirt, Todd classic: SPT_ NPCs).
@@ -3981,9 +3981,12 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
         hud.showGoal( title.empty() ? test : title );
     }
     applySchoolCamera();
-    OTDU_LOG_INFO( "FREERIDE: licence test %s from (%.1f, %.1f, %.1f), car %d (test car %d)\n", test.c_str(),
-                   licenseTest.getStartPosition().x, licenseTest.getStartPosition().y, licenseTest.getStartPosition().z,
-                   car.getIdCar(), licenseTest.getChallenge().getCarId() );
+    {
+        const Vector3f gate0 = licenseTest.getStartPosition(), spawn = licenseTest.getSpawnPosition();
+        OTDU_LOG_INFO( "FREERIDE: licence test %s from (%.1f, %.1f, %.1f), %.2f m behind gate 0, car %d (test car %d)\n",
+                       test.c_str(), spawn.x, spawn.y, spawn.z, Vector3f( gate0.x - spawn.x, 0.0f, gate0.z - spawn.z ).length(),
+                       car.getIdCar(), licenseTest.getChallenge().getCarId() );
+    }
 }
 
 void GMFreeRide::startDuel( const DuelSpot &duel ) {
@@ -4128,7 +4131,7 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
     }
     // The car waits on the start line during the countdown.
     if ( licenseTest.getStage() == LicenseTest::eStage::Countdown ) {
-        const Vector3f start = licenseTest.getStartPosition();
+        const Vector3f start = licenseTest.getSpawnPosition();
         const Vector3f at = vehicle.getWorldMatrix().getTranslation();
         if ( Vector3f( at.x - start.x, 0.0f, at.z - start.z ).length() > 1.5f ) {
             placeCar( start, licenseTest.getStartHeading() );
@@ -4680,7 +4683,7 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
     if ( bStart || bCancel ) {
         testIntro.stop();
         licenseResult.closePreview();
-        placeCar( licenseTest.getStartPosition(), licenseTest.getStartHeading() );
+        placeCar( licenseTest.getSpawnPosition(), licenseTest.getStartHeading() );
         licenseTest.setHold( false );
         applySchoolCamera();
         const std::string title = licenseTest.getChallenge().getTitle();
@@ -5318,10 +5321,9 @@ void GMFreeRide::updateRaceGates() {
             }
             licenseTest.setVisualHalfWidth( static_cast<size_t>( gateIndex ),
                                             gate.Model == RaceGates::eModel::Barrels ? 0.0f : gate.Width * 0.5f );
-            // The countdown: the car stands on the start pose, the chase
-            // camera behind it; the line is drawn just ahead so it reads in
-            // front of the car [INF].
-            if ( bStartLine ) {
+            // The countdown: a race's car stands on gate 0, so its line is drawn just ahead to read in front of the car
+            // [INF]; a school test's car stands 8.5 m behind gate 0 (getSpawnPosition) and the line is gate 0 itself.
+            if ( bStartLine && !licenseTest.isSchoolTest() ) {
                 gate.Position = gate.Position + gate.Forward * kStartLineAhead;
                 snapToGround( gate.Position );
             }

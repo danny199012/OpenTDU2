@@ -667,7 +667,8 @@ first bend's walls, the start box with its two cone rows (build 449 (da5ffc56+di
 - `DEC2` (0x54 / 0x68): the same head, then `f scale (1); u32 type; u32 0`. The records of a file come in start / end pairs.
 - No record holds a spawn.
 
-**The spawn pose** [DATA: `ig2/replays/<test>.rly`, the first matrix chunk of 12.11 - the recorded demonstration's first keyframe, heading included], against gate 0's
+**The spawn pose** (**superseded by 12.25**: the offsets below were measured against the car's photoat position, not
+gate 0 - against gate 0 every test's keyframe is 8.5 m straight behind it) [DATA: `ig2/replays/<test>.rly`, the first matrix chunk of 12.11 - the recorded demonstration's first keyframe, heading included], against gate 0's
 matrix: T01 **8.32 m behind**, 1.75 m off centre; T02 8.20 m / 2.25 m; T04 8.18 m / 2.32 m; T03 7.71 m / 3.58 m; T05 7.95 m **ahead** / 2.90 m; T06 4.17 m / 7.44 m - not a
 constant offset. The port puts the car on gate 0 (`FREERIDE: photoat car (11901.6 5.2 16031.8)` is T01's gate 0; retail's keyframe is (11902.44, 5.72, 16040.11)).
 **Not built**: the replay's first keyframe is the source (`TestReplay` already reads it) [INF: the player starts where the demonstration starts].
@@ -814,3 +815,22 @@ RSA7T01 / RSB4T01 / RSA5T01 (`-island hawai`) / RSB3T05 / RSC4T05 load their sch
 0 stalls. Hawai tests need `-island hawai` with the hook (the reload keeps the island).
 
 Not done: the spawn pose (12.23), `ChKD`, the cone scatter, ambient traffic per `trat`, `forc`'s marked route.
+
+### 12.25 The spawn pose: 8.5 m behind gate 0 (2026-11-25, `main`; owner: "do the spawn pose next")
+
+[DATA] The first keyframe of every school test's recording (`ig2/replays/<test>.rly`, the presentation's demo run) against
+gate 0 of its `.ig2`, measured on all 58 tests: **8.36-8.54 m behind gate 0 along its forward (8.50 on most), lateral
+<= 0.04 m, the same heading (<= 1 deg, 0.9 on RSB4T05 only)**, pad and road tests alike, 0.3-1.5 m above the gate's stored
+height (the car's origin on the ground). The car then stands still for 18-23 keyframes (3.6-4.6 s: the countdown) on every
+test but the 8 overtaking tests, whose recordings use a larger matrix chunk (the traffic cars' poses are recorded too) and
+were not decoded past the first keyframe. 12.23's "T05 7.95 m ahead, T06 4.17 m behind and 7.44 m off centre" was a
+misreading of the same files - corrected. No literal 8.5 in the dev build's code [CODE-dev, negative: `--float 8.5` has no
+xref]; the value is a computed offset or data the editor holds. Only the RS tests ship recordings (none of the 480 other
+`.ig2`), so championship races keep the old start (on gate 0).
+
+Built: `LicenseTest::getSpawnPosition()` (RS tests: gate 0 - forward x 8.5), used by the three `placeCar` calls of a test
+(the start, the countdown hold, the end of the presentation); the start line is drawn on gate 0 itself for a school test
+(the 8 m "draw it ahead of the car" stand-in stays for races). Verified (build 453): log "licence test RSC4T01 from
+(11902.4, 5.0, 16040.1), 8.50 m behind gate 0"; the countdown view next to the 360 frame at 31.5 s - the same cone rows
+and the start glow at the same distance (`docs/images/licence_t01_spawn_vs_360.webp`); `-licensewarp` RSC4T01 gates
+1-3 at 0.28 / 0.82 / 1.35 s and RSC4T06 (the circuit, laps close on gate 0) 10 / 10, both "passed".

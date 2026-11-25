@@ -4,6 +4,29 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, later (`main`, the licence spawn pose: 8.5 m behind gate 0, on all 58 tests)
+
+Owner: "do the spawn pose next".
+
+### What changed
+- `LicenseTest::getSpawnPosition()`: a school test's car stands **8.5 m behind gate 0** on its axis, facing it [DATA: the
+  first keyframe of all 58 `ig2/replays/*.rly` is 8.36-8.54 m back, lateral <= 0.04 m, heading <= 1 deg]; the start, the
+  countdown hold and the end of the presentation place it there; the start line is drawn on gate 0 itself for school
+  tests (the 8 m "ahead of the car" stand-in stays for races, which have no recordings). licenses_spec 12.25.
+- The 22/24 Nov entry's "T05 7.95 m ahead, T06 off centre - not a constant offset" was a mismeasure (it compared against the
+  car's photoat position, not gate 0); spec 12.23 marked superseded.
+
+### Verified (build 453)
+- "licence test RSC4T01 from (11902.4, 5.0, 16040.1), 8.50 m behind gate 0" - retail's recorded T01 start is (11902.44,
+  5.72, 16040.11). Countdown view next to the 360 frame (31.5 s): same cone rows, start glow at the same distance
+  (`docs/images/licence_t01_spawn_vs_360.webp`).
+- `-licensewarp`: RSC4T01 gates 1-3 at 0.28 / 0.82 / 1.35 s passed; RSC4T06 (circuit) 10 / 10 passed.
+
+### Not done / next
+- The overtaking tests' recordings past the first keyframe (a bigger matrix chunk with the traffic cars) - the demo replay
+  of those tests may be reading the wrong chunk size: check `TestReplay::load` on RSC4T05 (`MatrixChunkSize`).
+- Where the 8.5 m comes from in code (no float literal in the dev build).
+
 ## Session 2026-11-25 (`main`, the licence tests from the game's own data: the time limit, the per-test weather, every school's livery)
 
 Owner: "I had cline and glm do some research on licences I want you to make sure all tests are as accurate as possible for

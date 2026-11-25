@@ -92,6 +92,26 @@ Vector3f LicenseTest::getStartPosition() const {
     return challenge.getGates().empty() ? Vector3f() : challenge.getGates()[0].Position;
 }
 
+bool LicenseTest::isSchoolTest() const {
+    const std::string &name = challenge.getName();
+    return name.size() > 2 && tolower( static_cast<unsigned char>( name[0] ) ) == 'r' &&
+           tolower( static_cast<unsigned char>( name[1] ) ) == 's';
+}
+
+Vector3f LicenseTest::getSpawnPosition() const {
+    constexpr float kSchoolSpawnBack = 8.5f; // [DATA: the .rly first keyframes, see the header]
+    if ( challenge.getGates().empty() ) {
+        return Vector3f();
+    }
+    const Ig2Gate &start = challenge.getGates()[0];
+    if ( !isSchoolTest() ) {
+        return start.Position;
+    }
+    Vector3f back( start.Forward.x, 0.0f, start.Forward.z );
+    const float length = back.length();
+    return length > 1e-4f ? start.Position - back * ( kSchoolSpawnBack / length ) : start.Position;
+}
+
 float LicenseTest::getStartHeading() const {
     if ( challenge.getGates().empty() ) {
         return 0.0f;
