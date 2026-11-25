@@ -1482,7 +1482,8 @@ void EdenSceneView::renderOffscreen() {
         // (the 6-face rebuild = ~1200 extra draws). The faces of one pass are from
         // slightly different instants - the mix the full refresh above was written to avoid
         // - which is the price. The "changed" reference only moves after a full round.
-        static const bool bStaggerFaces = CmdLine::HasArg( "-cubemapstagger" );
+        // Default since 2026-11-25 (owner OK after the A/B: spike-free, no slower); -cubemapcoherent = the old all-six-faces refresh.
+        static const bool bStaggerFaces = !CmdLine::HasArg( "-cubemapcoherent" );
         if ( bStaggerFaces ) {
             // The spacing between two faces: with an explicit -cubemapinterval N every Nth FRAME (the old rule), else
             // every -cubemapstaggerms (default 32 ms) of TIME, so the cube refreshes at the same rate at any frame rate:

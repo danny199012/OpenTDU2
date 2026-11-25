@@ -4,6 +4,14 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the staggered environment cube is the default)
+
+Owner: "Yes" (make it the default).
+
+- `source/render/eden/eden_scene_view.cpp`: the time-spaced stagger (one face every 32 ms while the content changes or every 500 ms parked) is now the **default**; **`-cubemapcoherent`** restores the old all-six-faces refresh (+ the rear faces). `-cubemapstagger` stays accepted (the Android Phone preset passes it with `-cubemapinterval 2`, which keeps the every-2nd-frame rule); `-cubemapstaggerms N` changes the spacing; `-staticcubemap` is unchanged.
+- Verified (standard drive, `-clock 02.00`, `-hitchms 25`): default 10.9 / 11.4 ms, worst draw frame 15.0 / 18.0 ms, **0 frames over 25 ms**; `-cubemapcoherent` 10.8 ms, worst 23.8 ms, **22 frames over 25 ms**. One default run read 17.4 ms and 55 slow frames (the first run after the build; the repeat did not reproduce it - machine noise, not the change).
+- Owner to confirm in play: the car paint / glass reflections with six faces from slightly different instants (the earlier flicker report). If they flicker, `-cubemapcoherent` is the one-flag way back, and `-cubemapstaggerms 16` refreshes faster at a higher cost.
+
 ## Session 2026-11-25, late (`main`, the environment cube: one face a frame was worse; one face every ~32 ms is spike-free)
 
 Owner: "Try one face a frame".
