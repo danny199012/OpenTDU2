@@ -1853,20 +1853,19 @@ bool EdenWorld::isSectorShown( const SectorId &id ) const {
     return false;
 }
 
-bool EdenWorld::loadHeightfield( const Bank &bank, const char *pBaseName, const char *pTextureOwner,
-                                 Heightfield &out ) {
+std::shared_ptr<EdenWorld::PreparedHeightfield> EdenWorld::PrepareHeightfield( const Bank &bank, const char *pBaseName ) {
     const BankEntry *pScene = bank.findEntry( pBaseName, "3dd" );
     const BankEntry *pGeometry = bank.findEntry( pBaseName, "3dg" );
     const BankEntry *pMaterials = bank.findEntry( pBaseName, "2dm" );
     if ( pScene == nullptr || pGeometry == nullptr || pMaterials == nullptr ) {
-        return false;
+        return nullptr;
     }
     Render3DD scene;
     Render3DG geometry;
     Render2DM materials;
     if ( !scene.parse( pScene->pData, pScene->Size, false ) || !geometry.parse( pGeometry->pData, pGeometry->Size, false ) ||
          !materials.parse( pMaterials->pData, pMaterials->Size ) ) {
-        return false;
+        return nullptr;
     }
     const GeometryPrimitive *pPrimitive = nullptr;
     uint64_t materialHash = 0;
@@ -1893,14 +1892,40 @@ bool EdenWorld::loadHeightfield( const Bank &bank, const char *pBaseName, const 
     }
     if ( pPrimitive == nullptr || pDesc == nullptr ) {
         OTDU_LOG_WARN( "EdenWorld: no heightfield in '%s'\n", pBaseName );
+        return nullptr;
+    }
+    auto pOut = std::make_shared<PreparedHeightfield>();
+    PreparedHeightfield &prep = *pOut;
+    // Heights (stream 0, R32)
+    prep.Heights.resize( kHeightfieldSize * kHeightfieldSize );
+    if ( pPrimitive->RawStrides[0] == 4 ) {
+        memcpy( prep.Heights.data(), pPrimitive->RawStreams[0].data(), prep.Heights.size() * sizeof( float ) );
+    }
+    prep.Data.insert( prep.Data.end(), pPrimitive->RawStreams[0].begin(), pPrimitive->RawStreams[0].end() );
+    prep.Stream1Offset = Align<size_t>( prep.Data.size(), 16 );
+    prep.Data.resize( prep.Stream1Offset );
+    prep.Data.insert( prep.Data.end(), pPrimitive->RawStreams[1].begin(), pPrimitive->RawStreams[1].end() );
+    prep.Strides[0] = pPrimitive->RawStrides[0];
+    prep.Strides[1] = pPrimitive->RawStrides[1];
+    prep.StreamSizes[0] = pPrimitive->RawStreams[0].size();
+    prep.StreamSizes[1] = pPrimitive->RawStreams[1].size();
+    prep.Attributes = pPrimitive->RawAttributes;
+    prep.Desc = *pDesc;
+    return pOut;
+}
+
+bool EdenWorld::loadHeightfield( const Bank &bank, const char *pBaseName, const char *pTextureOwner, Heightfield &out,
+                                 const PreparedHeightfield *pPrepared ) {
+    std::shared_ptr<PreparedHeightfield> pOwned;
+    if ( pPrepared == nullptr ) {
+        pOwned = PrepareHeightfield( bank, pBaseName );
+        pPrepared = pOwned.get();
+    }
+    if ( pPrepared == nullptr ) {
         return false;
     }
-
-    // Heights (stream 0, R32)
-    out.Heights.resize( kHeightfieldSize * kHeightfieldSize );
-    if ( pPrimitive->RawStrides[0] == 4 ) {
-        memcpy( out.Heights.data(), pPrimitive->RawStreams[0].data(), out.Heights.size() * sizeof( float ) );
-    }
+    const PreparedHeightfield &prep = *pPrepared;
+    out.Heights = prep.Heights;
 
     if ( CmdLine::HasArg( "-dumpheights" ) ) {
         // 257 x 257 f32 heights + the raw streams, for offline comparison of the area / sector layers
@@ -1910,18 +1935,15 @@ bool EdenWorld::loadHeightfield( const Bank &bank, const char *pBaseName, const 
             fclose( pFile );
         }
         if ( FILE *pFile = fopen( ( dumpName + ".s1.bin" ).c_str(), "wb" ) ) {
-            fwrite( pPrimitive->RawStreams[1].data(), 1, pPrimitive->RawStreams[1].size(), pFile );
+            fwrite( prep.Data.data() + prep.Stream1Offset, 1, prep.StreamSizes[1], pFile );
             fclose( pFile );
         }
-        OTDU_LOG_INFO( "dumpheights: %s strides %u/%u stream sizes %zu/%zu\n", pBaseName, pPrimitive->RawStrides[0],
-                       pPrimitive->RawStrides[1], pPrimitive->RawStreams[0].size(), pPrimitive->RawStreams[1].size() );
+        OTDU_LOG_INFO( "dumpheights: %s strides %u/%u stream sizes %zu/%zu\n", pBaseName, prep.Strides[0], prep.Strides[1],
+                       prep.StreamSizes[0], prep.StreamSizes[1] );
     }
 
-    std::vector<uint8_t> data;
-    data.insert( data.end(), pPrimitive->RawStreams[0].begin(), pPrimitive->RawStreams[0].end() );
-    const size_t stream1Offset = Align<size_t>( data.size(), 16 );
-    data.resize( stream1Offset );
-    data.insert( data.end(), pPrimitive->RawStreams[1].begin(), pPrimitive->RawStreams[1].end() );
+    const std::vector<uint8_t> &data = prep.Data;
+    const size_t stream1Offset = prep.Stream1Offset;
     out.pBuffer = gpRender->getDevice().createBuffer( data.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, data.data() );
 
     EdenMesh &mesh = out.Mesh;
@@ -1932,10 +1954,10 @@ bool EdenWorld::loadHeightfield( const Bank &bank, const char *pBaseName, const 
     mesh.StreamOffsets[0] = 0;
     mesh.StreamOffsets[1] = stream1Offset;
     mesh.StreamOffsets[2] = 0;
-    mesh.Strides[0] = pPrimitive->RawStrides[0];
-    mesh.Strides[1] = pPrimitive->RawStrides[1];
+    mesh.Strides[0] = prep.Strides[0];
+    mesh.Strides[1] = prep.Strides[1];
     mesh.Strides[2] = 8;
-    mesh.Attributes = pPrimitive->RawAttributes;
+    mesh.Attributes = prep.Attributes;
     RawVertexAttribute gridAttribute;
     gridAttribute.Usage = 5; // TEXCOORD0
     gridAttribute.UsageIndex = 0;
@@ -1949,7 +1971,7 @@ bool EdenWorld::loadHeightfield( const Bank &bank, const char *pBaseName, const 
     mesh.computeLayoutKey();
 
     out.Materials.resize( 1 );
-    pRenderer->setupMaterial( *pDesc, out.Materials[0], pTextureOwner );
+    pRenderer->setupMaterial( prep.Desc, out.Materials[0], pTextureOwner );
     // The -s map on the SHADOW slot (night_lighting_spec 2: TD_HeightMap
     // samples it as g_Shadow_Snight_Grass_Sampler - R sun shadow, G the
     // baked street-lamp light drawn at night through UserVector1.y, B the
@@ -2018,8 +2040,10 @@ bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
         return false;
     }
     static const bool bNoBankWorker = CmdLine::HasArg( "-nobankworker" );
-    if ( std::unique_ptr<Bank> pPrepared = bNoBankWorker ? nullptr : bankPreloader.take( bankPath ) ) {
-        pSector->SectorBank.swap( *pPrepared ); // read + parsed on the worker
+    std::shared_ptr<PreparedHeightfield> pPreparedHeightfield;
+    if ( BankPreloader::Result prepared = bNoBankWorker ? BankPreloader::Result() : bankPreloader.take( bankPath ); prepared.pBank ) {
+        pSector->SectorBank.swap( *prepared.pBank ); // read + parsed on the worker
+        pPreparedHeightfield = std::static_pointer_cast<PreparedHeightfield>( prepared.pExtra );
         bankHits++;
     } else {
         bankMisses++;
@@ -2032,7 +2056,7 @@ bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
     gpRender->getTextureCache().loadBankTextures( pSector->SectorBank, path );
     stage( "textures" );
     const std::string name = SectorName( id );
-    loadHeightfield( pSector->SectorBank, name.c_str(), path, pSector->Terrain );
+    loadHeightfield( pSector->SectorBank, name.c_str(), path, pSector->Terrain, pPreparedHeightfield.get() );
     stage( "heightfield" );
     // The sector Spacing is the 3 m default (loadHeightfield leaves it), so
     // the BLAS can be built here (-rtworld only; rebuilt by
@@ -2951,7 +2975,13 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
         for ( size_t i = 0; i < numAhead; i++ ) {
             const std::string bankPath = getSectorBankPath( candidates[i].Id );
             if ( gpFile->fileExists( bankPath.c_str() ) ) {
-                bankPreloader.request( bankPath );
+                // The heightfield decode rides along on the worker (-noheightworker: the main thread does it).
+                static const bool bNoHeightWorker = CmdLine::HasArg( "-noheightworker" );
+                const std::string baseName = SectorName( candidates[i].Id );
+                bankPreloader.request( bankPath, bNoHeightWorker ? BankPreloader::Prepare()
+                                                                 : [baseName]( const Bank &bank ) -> std::shared_ptr<void> {
+                                                                       return PrepareHeightfield( bank, baseName.c_str() );
+                                                                   } );
             }
         }
         // The bank of the sector to load is still being read: do not block the frame on it (an attempt,

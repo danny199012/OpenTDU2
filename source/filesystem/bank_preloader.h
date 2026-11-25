@@ -4,6 +4,7 @@
 
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -23,18 +24,27 @@ public:
     BankPreloader( const BankPreloader & ) = delete;
     BankPreloader &operator=( const BankPreloader & ) = delete;
 
+    // Extra work done on the worker with the parsed bank (the sector's heightfield decode); its result travels with the bank.
+    using Prepare = std::function<std::shared_ptr<void>( const Bank & )>;
+    struct Result {
+        std::unique_ptr<Bank> pBank;
+        std::shared_ptr<void> pExtra; // what Prepare returned (nullptr without one)
+    };
+
     // Queues a bank (idempotent: a bank already queued, loading or ready is left alone).
-    void request( const std::string &path );
+    void request( const std::string &path, Prepare prepare = nullptr );
     // True while the bank is queued or loading.
     bool isPending( const std::string &path );
-    // The finished bank, moved out; nullptr when it is not ready or failed.
-    std::unique_ptr<Bank> take( const std::string &path );
+    // The finished bank, moved out; an empty Result when it is not ready or failed.
+    Result take( const std::string &path );
 
 private:
     enum class State { Queued, Loading, Ready, Failed };
     struct Entry {
         State Status = State::Queued;
         std::unique_ptr<Bank> pBank;
+        std::shared_ptr<void> pExtra;
+        Prepare PrepareFn;
     };
     // Finished banks nobody took (the car turned away) are dropped oldest first.
     static constexpr size_t kMaxFinished = 6;

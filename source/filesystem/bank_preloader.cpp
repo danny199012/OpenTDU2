@@ -20,13 +20,14 @@ BankPreloader::~BankPreloader() {
     }
 }
 
-void BankPreloader::request( const std::string &path ) {
+void BankPreloader::request( const std::string &path, Prepare prepare ) {
     const std::string key = Key( path );
     std::lock_guard<std::mutex> lock( mutex );
     if ( entries.count( key ) != 0 ) {
         return;
     }
     entries[key].Status = State::Queued;
+    entries[key].PrepareFn = std::move( prepare );
     queue.push_back( key );
     if ( !thread.joinable() ) {
         bStop = false;
@@ -41,25 +42,27 @@ bool BankPreloader::isPending( const std::string &path ) {
     return it != entries.end() && ( it->second.Status == State::Queued || it->second.Status == State::Loading );
 }
 
-std::unique_ptr<Bank> BankPreloader::take( const std::string &path ) {
+BankPreloader::Result BankPreloader::take( const std::string &path ) {
     const std::string key = Key( path );
     std::lock_guard<std::mutex> lock( mutex );
     auto it = entries.find( key );
     if ( it == entries.end() ) {
-        return nullptr;
+        return {};
     }
     if ( it->second.Status == State::Ready ) {
-        std::unique_ptr<Bank> pBank = std::move( it->second.pBank );
+        Result result;
+        result.pBank = std::move( it->second.pBank );
+        result.pExtra = std::move( it->second.pExtra );
         entries.erase( it );
         finishedOrder.erase( std::remove( finishedOrder.begin(), finishedOrder.end(), key ), finishedOrder.end() );
-        return pBank;
+        return result;
     }
     if ( it->second.Status == State::Failed ) {
         // The caller loads it the old way (and logs the failure); a later request may try again.
         entries.erase( it );
         finishedOrder.erase( std::remove( finishedOrder.begin(), finishedOrder.end(), key ), finishedOrder.end() );
     }
-    return nullptr;
+    return {};
 }
 
 void BankPreloader::trimFinished() {
@@ -72,6 +75,7 @@ void BankPreloader::trimFinished() {
 void BankPreloader::run() {
     for ( ;; ) {
         std::string key;
+        Prepare prepare;
         {
             std::unique_lock<std::mutex> lock( mutex );
             signal.wait( lock, [this]() { return bStop || !queue.empty(); } );
@@ -85,9 +89,11 @@ void BankPreloader::run() {
                 continue;
             }
             it->second.Status = State::Loading;
+            prepare = it->second.PrepareFn;
         }
         auto pBank = std::make_unique<Bank>();
         const bool bOk = pBank->load( key.c_str() );
+        std::shared_ptr<void> pExtra = bOk && prepare ? prepare( *pBank ) : nullptr;
         std::lock_guard<std::mutex> lock( mutex );
         auto it = entries.find( key );
         if ( it == entries.end() ) {
@@ -96,6 +102,7 @@ void BankPreloader::run() {
         it->second.Status = bOk ? State::Ready : State::Failed;
         if ( bOk ) {
             it->second.pBank = std::move( pBank );
+            it->second.pExtra = std::move( pExtra );
         }
         finishedOrder.push_back( key );
         trimFinished();

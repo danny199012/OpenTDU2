@@ -568,7 +568,20 @@ private:
     uint32_t rippleFrame = 0;
 
 private:
-    bool loadHeightfield( const Bank &bank, const char *pBaseName, const char *pTextureOwner, Heightfield &out );
+    // The CPU half of loadHeightfield (parses, the heights, the vertex blob, the material description): runs on the
+    // BankPreloader worker for a preloaded sector. Null when the bank has no heightfield for pBaseName.
+    struct PreparedHeightfield {
+        std::vector<float> Heights;
+        std::vector<uint8_t> Data; // stream 0, aligned stream 1
+        size_t Stream1Offset = 0;
+        uint32_t Strides[2] = { 0, 0 };
+        size_t StreamSizes[2] = { 0, 0 };
+        std::vector<RawVertexAttribute> Attributes;
+        MaterialDesc Desc;
+    };
+    static std::shared_ptr<PreparedHeightfield> PrepareHeightfield( const Bank &bank, const char *pBaseName );
+    bool loadHeightfield( const Bank &bank, const char *pBaseName, const char *pTextureOwner, Heightfield &out,
+                          const PreparedHeightfield *pPrepared = nullptr );
     // bAsync: the carve step (MarkCarvedCells ... BuildRoadIndex, CPU only) runs on a worker and the sector joins
     // `sectors` once it is done (finishPendingSectors); -nocarveworker = always synchronous.
     bool loadSector( const SectorId &id, bool bAsync = false );

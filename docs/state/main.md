@@ -4,6 +4,21 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, heightfield decode on the bank worker)
+
+Follow-up: "Yes, move heightfield to the worker".
+
+### What changed
+- `source/world/eden_world.{h,cpp}`: `loadHeightfield` is split. `EdenWorld::PrepareHeightfield( bank, name )` (static, CPU only) does the scene / geometry / 2DM parses, the height copy, the stream-0 + aligned stream-1 blob, strides, attributes and a copy of the material description into a `PreparedHeightfield`; `loadHeightfield` keeps the GPU buffer, mesh, `setupMaterial` and the `-s` map lookup and takes an optional prepared one (areas / island still prepare synchronously inside it). `-dumpheights` reads the prepared data.
+- `source/filesystem/bank_preloader.{h,cpp}`: `request( path, Prepare )` - an optional callback run on the worker right after the bank parse; its `shared_ptr<void>` result comes back with the bank (`take` returns a `Result`). `preloadOne` passes `PrepareHeightfield` for the sector's name; `loadSector` hands it to `loadHeightfield`. `-noheightworker` = the main thread decodes (A/B).
+
+### Verified
+- Same drive, 3 runs each vs `-noheightworker`: main-thread `heightfield` stage over 23 loads 45.5 / 46.4 / 54.6 -> 21.2 / 20.2 / 20.4 ms (the remaining ~20 ms is the 9 start-up-ring sectors + `createBuffer` + `setupMaterial`). Frame 800 pixel-identical (mean abs diff 0.0, `-clock 13.00`). Preload-step average was lower in 2 of 3 runs (4.7 vs 5.1-6.2); whole-drive step numbers are noisy, the stage number is the clean signal.
+
+### Not done / next
+- Still on the main thread per sector (23 loads): objects 81 (item building ~40, material setup now ~3), bank 51 (start-up ring), heightfield 20, textures 25, instances 20 ms. Item building needs the materials resolved first (main thread), then the vertex / index / collision arrays could be built on the worker - the biggest remaining piece.
+- The start-up ring (`loadAround`) is still fully synchronous: `-logsectortimes` at frame 1 is where the 9 un-prepared loads sit.
+
 ## Session 2026-11-25, late (`main`, carve on a worker; heightfield left on the main thread)
 
 Follow-up: "Yes, heightfield + carve".
