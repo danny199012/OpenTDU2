@@ -1484,7 +1484,17 @@ void EdenSceneView::renderOffscreen() {
         // - which is the price. The "changed" reference only moves after a full round.
         static const bool bStaggerFaces = CmdLine::HasArg( "-cubemapstagger" );
         if ( bStaggerFaces ) {
-            if ( ( bContentChanged || refreshTimer >= 0.5f ) && ( environmentFrame % kCubeMapInterval ) == 0 ) {
+            // The spacing between two faces: with an explicit -cubemapinterval N every Nth FRAME (the old rule), else
+            // every -cubemapstaggerms (default 32 ms) of TIME, so the cube refreshes at the same rate at any frame rate:
+            // one face a frame was measured 3x the cost of the coherent refresh (a face every frame while driving),
+            // every 3rd frame (~32 ms at 96 fps) cost less than it with no spike.
+            static const bool bFrameSpacing = CmdLine::HasArg( "-cubemapinterval" );
+            static const float staggerSeconds = static_cast<float>( Max( 1, CmdLine::GetArgInt( "-cubemapstaggerms", 32 ) ) ) * 0.001f;
+            static float staggerTimer = 0.0f;
+            staggerTimer += frameDelta;
+            const bool bSpaced = bFrameSpacing ? ( environmentFrame % kCubeMapInterval ) == 0 : staggerTimer >= staggerSeconds;
+            if ( ( bContentChanged || refreshTimer >= 0.5f ) && bSpaced ) {
+                staggerTimer = 0.0f;
                 renderEnvironment( params, false );
                 if ( environmentFace == 0 ) {
                     lastCenter = environmentCenter;

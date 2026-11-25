@@ -4,6 +4,25 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the environment cube: one face a frame was worse; one face every ~32 ms is spike-free)
+
+Owner: "Try one face a frame".
+
+### Measured [MEAS] (standard drive, 720p, `-clock 02.00`, `-hitchms 25`, frames up to 620)
+- Default (coherent refresh: all six faces together >= every 200 ms while moving + the two rear faces every 70 ms): **11.0-11.8 ms**, worst draw frame 24-25 ms, **17-94 frames over 25 ms**, env 2.4-2.5 ms CPU.
+- **`-cubemapstagger` as it was (one face every frame): 19.2 ms (52 fps), env 5.6 ms, 30 frames over 25 ms - 1.7x slower.** While driving the content is always "changed", so a face renders EVERY frame: ~100 faces a second against ~30 for the default's full refresh (+ the rear faces).
+- `-cubemapstagger -cubemapinterval N` (one face every Nth frame): N=2 14.1 ms, **N=3 10.4 ms (env 1.4, 1 frame over 25 ms)**, N=4 10.6 ms (env 1.1). The cadence is in frames, so it drifts with the frame rate.
+- The picture: frame 500 of the N=3 run vs the default, 755 pixels differ by > 12 (all on the car's boot, the reflections; side by side `_cs_cmp.png` looks the same by eye).
+
+### What changed
+- `source/render/eden/eden_scene_view.cpp`: with `-cubemapstagger` the spacing between two faces is **time based**: every `-cubemapstaggerms` (default 32 ms) unless `-cubemapinterval N` is given (then the old every-Nth-frame rule). Default behaviour (no flag) is unchanged.
+
+### Verified (2 paired runs, default vs `-cubemapstagger` = 32 ms)
+- Frame 11.0 / 11.8 -> **10.7 / 11.0 ms**; worst draw frame **23.9 / 25.3 -> 15.1 / 17.7 ms**; frames over 25 ms **17 / 94 -> 2 / 0**. A 48 ms spacing measured 12.3 ms with 3 slow frames (not better: keep 32).
+
+### Not done / next (owner)
+- **Not made the default**: it is the picture's timing (each face refreshed every ~190 ms but from six different instants - the mix the coherent refresh was written to avoid, the owner's earlier flicker report) - drive with `-cubemapstagger` and say whether the paint / glass reflections look right; if yes, the default flips in `EdenSceneView` (one line) and the rear-face branch can go. At 4K the full refresh is the bigger spike, so the gain should be larger there (not measured).
+
 ## Session 2026-11-25, late (`main`, the performance list: what was tried after the verdict cache)
 
 ### Ruled out [MEAS]
