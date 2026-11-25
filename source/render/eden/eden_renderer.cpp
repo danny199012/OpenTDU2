@@ -1447,10 +1447,17 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
         pDevice->getCurrentRenderPass() != VK_NULL_HANDLE ? pDevice->getCurrentRenderPass() : pDevice->getRenderPass();
 
     VkPipeline pipeline = VK_NULL_HANDLE;
+    static const bool bLogPipeTimes = CmdLine::HasArg( "-logpipetimes" );
+    const auto pipeStart = std::chrono::steady_clock::now();
     if ( vkCreateGraphicsPipelines( device, pDevice->getPipelineCache(), 1, &pipelineInfo, nullptr, &pipeline ) !=
          VK_SUCCESS ) {
         OTDU_LOG_WARN( "Eden: pipeline creation failed for %s\n", pProgram->Name.c_str() );
         pipeline = VK_NULL_HANDLE;
+    }
+    if ( bLogPipeTimes ) {
+        OTDU_LOG_INFO( "[pipe] frame %llu %.2f ms %s\n", static_cast<unsigned long long>( pDevice->getFrameNumber() ),
+                       std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - pipeStart ).count(),
+                       pProgram->Name.c_str() );
     }
     vkDestroyShaderModule( device, vertexModule, nullptr );
     vkDestroyShaderModule( device, fragmentModule, nullptr );

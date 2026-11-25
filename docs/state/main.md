@@ -4,6 +4,23 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the spawn frame profiled: first-sight pipelines, no cheap fix)
+
+Follow-up: "Yes, profile frame 1".
+
+### What changed (instrumentation only)
+- `source/render/eden/eden_scene_view.cpp`: `-logscenetimes` also prints the cumulative step times of the first three frames (`[perf] scene frame N (cumulative)`; frame N = sum N - sum N-1).
+- `source/render/eden/eden_renderer.cpp`: `-logpipetimes` logs every `vkCreateGraphicsPipelines` of the Eden renderer with the device frame number, its ms and the program (`[pipe] frame F x ms NAME`).
+
+### Measured (standard spawn, `-fixedtimestep`, warm `pipeline_cache.bin`) [MEAS]
+- Scene steps of the first frame vs the second: **ocean 50.6 -> 8.6 ms, prepass 35.6 -> 9.5, opaque 12.2 -> 3.5, blended 4.2 -> 0.8**; shadows / planar 0 (disabled at spawn). The ocean step is the first reflection pass (`oceanReflectionFrame == 0` always renders): the whole world re-submitted in another render pass.
+- Eden pipelines created on the first frame: **311, 35.3 ms (0.11 ms each)**; the next frame 2 (0.2 ms), then ~46 (4.8 ms) when new shaders come into view. By family: TD_Building 83 (8.5 ms), TD_CarPaint 36 (5.3), TD_Ground 38 (3.6), TD_CarPaint_NM 16 (2.5), TD_Road 15 (1.9), TD_Vegetation 25 (1.8).
+- The same frame with `pipeline_cache.bin` removed (backed up and restored): **311 pipelines, 356 ms; frame 1 = 519 ms** (ocean 147, prepass 176, opaque 71, blended 36) against ~130 ms warm - so the saved cache (2026-11-04) already took ~390 ms off; what is left of the first frame's excess over the second (~68 ms in ocean + prepass) is about half pipelines (35 ms) and half other first-sight work (descriptor sets, per-shader constant caches).
+
+### Not done / next (judged not worth it now)
+- A pipeline manifest (record the pipeline keys of the last run, re-create them on the bank workers while the world loads; `VkPipelineCache` is internally synchronised) would take the 35 ms to ~12 ms, once per run, at the risk of keys that depend on the render pass / mesh layout - skipped: the spawn frame is a one-off and 130 ms is within the loading hitch the player already waits through.
+- The first reflection pass could be skipped on frame 0 (the static setting then has no reflection for a few frames) - changes the picture, not tried.
+
 ## Session 2026-11-25, late (`main`, ring uploads: already batched, nothing to change)
 
 Follow-up: "Yes, batch the ring uploads".

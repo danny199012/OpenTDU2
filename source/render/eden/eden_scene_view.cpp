@@ -205,7 +205,15 @@ struct SceneTimes {
         }
     }
     void endFrame() {
-        if ( ++Frames < 120 ) {
+        ++Frames;
+        if ( Frames <= 3 ) {
+            // The first frames one by one (cumulative sums: frame N = sum N - sum N-1): the spawn frame's passes.
+            OTDU_LOG_INFO( "[perf] scene frame %u (cumulative): env %.1f  ocean %.1f  prepass %.1f  shadows %.1f  planar %.1f  "
+                           "opaque %.1f  blended %.1f  post %.1f ms\n",
+                           Frames, Sum[Env], Sum[Ocean], Sum[Prepass], Sum[Shadows], Sum[Planar], Sum[Opaque], Sum[Blended],
+                           Sum[Post] );
+        }
+        if ( Frames < 120 ) {
             return;
         }
         OTDU_LOG_INFO( "[perf] scene: env %.1f  ocean %.1f  prepass %.1f  shadows %.1f  planar %.1f  opaque %.1f  "
