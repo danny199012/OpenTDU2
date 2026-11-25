@@ -289,6 +289,8 @@ void TextureCache::destroy() {
     pCheckerTexture = nullptr;
 }
 
+static std::string IslandOfOwner( const std::string &owner );
+
 TextureCache::OwnerTextures &TextureCache::getOwner( const char *pOwner ) {
     const std::string name = pOwner != nullptr ? pOwner : "";
     for ( OwnerTextures &owner : owners ) {
@@ -298,6 +300,7 @@ TextureCache::OwnerTextures &TextureCache::getOwner( const char *pOwner ) {
     }
     owners.push_back( OwnerTextures() );
     owners.back().Owner = name;
+    owners.back().Island = IslandOfOwner( name );
     return owners.back();
 }
 
@@ -738,10 +741,16 @@ GPUTexture *TextureCache::findForOwner( const char *pBorrower, uint64_t hashcode
     // first (owner report 2026-11-15: red / white kerb stripes down the Ibiza roads after Ibiza -> Hawai -> Ibiza).
     // -noislandborrow = the old newest-first search.
     static const bool bOldSearch = CmdLine::HasArg( "-noislandborrow" );
-    const std::string borrowerIsland = bOldSearch ? std::string() : IslandOfOwner( borrower );
+    // The borrower is the same bank for every material of a model: its island is worked out once per change.
+    static std::string lastBorrower, lastBorrowerIsland;
+    if ( borrower != lastBorrower ) {
+        lastBorrower = borrower;
+        lastBorrowerIsland = IslandOfOwner( borrower );
+    }
+    const std::string &borrowerIsland = bOldSearch ? std::string() : lastBorrowerIsland;
     for ( int32_t pass = borrowerIsland.empty() ? 1 : 0; pass < 2; pass++ ) {
     for ( auto it = owners.rbegin(); it != owners.rend(); ++it ) {
-        if ( pass == 0 && IslandOfOwner( it->Owner ) != borrowerIsland ) {
+        if ( pass == 0 && it->Island != borrowerIsland ) {
             continue;
         }
         auto texture = it->Textures.find( hashcode );

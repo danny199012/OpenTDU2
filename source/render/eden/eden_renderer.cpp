@@ -1,4 +1,5 @@
 #include "shared.h"
+#include <chrono>
 #include "eden_renderer.h"
 
 #include <set>
@@ -598,6 +599,9 @@ static bool IsTagTexture( uint64_t textureHash ) {
 }
 
 void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMaterial, const char *pTextureOwner ) {
+    static const bool bLogMat = CmdLine::HasArg( "-logmattimes" );
+    const auto tm0 = std::chrono::steady_clock::now();
+    double findMs = 0.0;
     outMaterial.Name = desc.Name;
     outMaterial.Hashcode = desc.Hashcode;
     outMaterial.ShaderSetGUID = desc.ShaderSetGUID;
@@ -668,6 +672,7 @@ void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMat
             continue;
         }
         GPUTexture *pTexture = nullptr;
+        const auto tf0 = std::chrono::steady_clock::now();
         if ( pTextureOwner != nullptr ) {
             // By hash: the string form re-hashes IdentifierToString(hashcode),
             // whose round trip is not idempotent (slot bytes in 'a'..'z' fold
@@ -679,6 +684,7 @@ void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMat
             // which then outlives this one (TextureCache::findForOwner).
             pTexture = pTextureCache->findForOwner( pTextureOwner, textureHash );
         }
+        findMs += std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - tf0 ).count();
         outMaterial.pTextures[i] = pTexture;
         if ( pTexture == nullptr ) {
             OTDU_LOG_DEBUG( "Eden material '%s': texture '%s' (slot %zu) not found\n", desc.Name.c_str(),
@@ -707,9 +713,17 @@ void EdenRenderer::setupMaterial( const MaterialDesc &desc, EdenMaterial &outMat
 
     // Load time preparation of the original renderer (GUID / switches /
     // render states rewritten by the shader family handler).
+    const auto tm1 = std::chrono::steady_clock::now();
     outMaterial.Bucket = ApplyEdenMaterialHandler( outMaterial );
     applyRenderStates( outMaterial );
+    const auto tm2 = std::chrono::steady_clock::now();
     updateProgram( outMaterial );
+    if ( bLogMat ) {
+        const auto tm3 = std::chrono::steady_clock::now();
+        auto ms = []( auto a, auto b ) { return std::chrono::duration<double, std::milli>( b - a ).count(); };
+        OTDU_LOG_INFO( "[mat] slots %.2f (texture lookups %.2f) handler %.2f program %.2f\n", ms( tm0, tm1 ), findMs, ms( tm1, tm2 ),
+                       ms( tm2, tm3 ) );
+    }
 }
 
 void EdenRenderer::applyRenderStates( EdenMaterial &material ) {

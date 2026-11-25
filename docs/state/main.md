@@ -4,6 +4,25 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, sector materials: the texture lookup was the cost)
+
+Follow-up of the bank worker entry below: "Yes, materials".
+
+**Profiled first** (`-logmattimes`, new: per `setupMaterial` call the slot loop / handler / `updateProgram`; 2585 materials over the drive): slot loop 82 ms, of which **80 ms was `TextureCache::findForOwner`**; `updateProgram` 43-48 ms; handler ~0. The `ToUpper(IdentifierToString(..))` string work I suspected first was not it (memoizing it changed nothing, backed out). [MEAS]
+
+### What changed
+- `source/render/texture_cache.{h,cpp}`: `findForOwner` walked every live owner (one per sector bank) and ran `IslandOfOwner` (ToLower + replace + find + substr) on each, per texture, per material. The island is now stored on the owner once (`OwnerTextures::Island`, set in `getOwner`) and the borrower's island is cached while the borrower stays the same. Same search order, same result.
+- `source/render/eden/eden_renderer.cpp`: `-logmattimes` instrumentation.
+
+### Verified
+- Same drive with `-clock 13.00` (the in-game clock follows the PC's time, so shots a minute apart differ by ~56 mean): slot loop 82.6 -> 7.3 ms (texture lookups 80.2 -> 3.3), frame 800 **pixel-identical** (mean abs diff 0.0, build-stamp rows excluded).
+- `-logsectortimes` over 23 sector loads: total 338 -> 257 ms (objects 134 -> 81), preload step avg 7.8 -> 5.7 ms, worst 27.4 -> 16.6 ms.
+
+### Not done / next
+1. `updateProgram` / `EdenShaderSystem::getProgram` 43-48 ms over 2585 calls: builds a std::string key per call before the cache lookup; a per-(GUID, spec) pointer cache would skip it. Misses (first-use translation) are the heavy part and stay on the main thread.
+2. Then the items from the entry below: item building (CPU, worker), heightfield 43 ms, carve 36 ms, instances 20 ms.
+- Trap: pixel A/B runs need `-clock HH.MM`, the lighting follows the wall clock.
+
 ## Session 2026-11-25, late (`main`, worker-thread sector bank: first slice, measured)
 
 Owner: "TDU2 used to run on old hardware, can we use SSD/NVMe ... start the worker-thread sector decode".

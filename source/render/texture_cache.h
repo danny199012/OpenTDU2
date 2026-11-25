@@ -71,6 +71,7 @@ private:
         uint32_t References = 0; // loadBankTextures ++, releaseOwner --
         std::unordered_map<uint64_t, GPUTexture *> Textures;  // Owned
         std::unordered_map<uint64_t, GPUTexture *> Aliases;   // Not owned
+        std::string Island; // island folder of the bank path, set once with the owner (findForOwner compared it per owner per call)
     };
 
     RenderDevice *pDevice;
