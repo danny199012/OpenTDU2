@@ -368,7 +368,8 @@ void Renderer2D::recordDraw( const Vertex2D *pVertices, uint32_t numVertices,
     push.Params[3] = 0.0f;
 
     VkPipeline selected = stencilPipelines[static_cast<size_t>( currentStencil )];
-    vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, selected != VK_NULL_HANDLE ? selected : pipeline );
+    vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                       pDevice->getPipelineForCurrentPass( selected != VK_NULL_HANDLE ? selected : pipeline ) );
     if ( currentStencil != eStencilMode::SM_None ) {
         vkCmdSetStencilReference( commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, currentStencilReference );
     }

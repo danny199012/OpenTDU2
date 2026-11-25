@@ -1127,6 +1127,10 @@ void RenderDevice::destroy() {
         vkDestroyRenderPass( device, entry.second, nullptr );
     }
     targetRenderPasses.clear();
+    for ( auto &variant : passPipelineVariants ) {
+        vkDestroyPipeline( device, variant.second, nullptr );
+    }
+    passPipelineVariants.clear();
     vkDestroyPipelineCache( device, pipelineCache, nullptr );
     vmaDestroyAllocator( allocator );
     vkDestroyDevice( device, nullptr );
@@ -1340,6 +1344,7 @@ bool RenderDevice::beginFrame( const ColorRGBA &clearColor ) {
     frameClearColor = clearColor;
     bInMainPass = false;
     currentRenderPass = VK_NULL_HANDLE;
+    activeRenderPass = VK_NULL_HANDLE;
     bFrameStarted = true;
     return true;
 }
@@ -1380,6 +1385,9 @@ void RenderDevice::beginMainPass() {
     currentScissor = scissor;
     bInMainPass = true;
     currentRenderPass = mainRenderPass;
+    // The secondary command buffers of the main pass inherit THIS pass (their pipelines are built for it): the
+    // value used to stay stale from the last offscreen target (one without depth - VUID-vkCmdDraw-renderPass-02684).
+    activeRenderPass = mainRenderPass;
 }
 
 bool RenderDevice::getRenderPassKey( VkRenderPass pass, uint64_t &outKey ) const {
@@ -1950,6 +1958,7 @@ void RenderDevice::endFrame() {
         beginMainPass();
     }
     currentRenderPass = VK_NULL_HANDLE;
+    activeRenderPass = VK_NULL_HANDLE;
 
     FrameData &frame = frames[frameIndex];
     vkCmdEndRenderPass( frame.CommandBuffer );
@@ -2795,12 +2804,44 @@ VkPipeline RenderDevice::createPipeline( const PipelineDesc &desc ) {
 
     vkDestroyShaderModule( device, vertexModule, nullptr );
     vkDestroyShaderModule( device, fragmentModule, nullptr );
+    if ( pipeline != VK_NULL_HANDLE && desc.RenderPass == VK_NULL_HANDLE ) {
+        mainPassPipelineDescs[pipeline] = desc;
+    }
     return pipeline;
+}
+
+VkPipeline RenderDevice::getPipelineForCurrentPass( VkPipeline base ) {
+    if ( base == VK_NULL_HANDLE || currentRenderPass == VK_NULL_HANDLE || currentRenderPass == mainRenderPass ) {
+        return base;
+    }
+    auto description = mainPassPipelineDescs.find( base );
+    if ( description == mainPassPipelineDescs.end() ) {
+        return base; // built for an explicit pass already
+    }
+    const std::pair<VkPipeline, VkRenderPass> key( base, currentRenderPass );
+    auto variant = passPipelineVariants.find( key );
+    if ( variant != passPipelineVariants.end() ) {
+        return variant->second;
+    }
+    PipelineDesc variantDesc = description->second;
+    variantDesc.RenderPass = currentRenderPass;
+    const VkPipeline created = createPipeline( variantDesc );
+    passPipelineVariants[key] = created;
+    return created != VK_NULL_HANDLE ? created : base;
 }
 
 void RenderDevice::destroyPipeline( VkPipeline pipeline ) {
     if ( pipeline != VK_NULL_HANDLE ) {
         vkDeviceWaitIdle( device );
+        for ( auto it = passPipelineVariants.begin(); it != passPipelineVariants.end(); ) {
+            if ( it->first.first == pipeline ) {
+                vkDestroyPipeline( device, it->second, nullptr );
+                it = passPipelineVariants.erase( it );
+            } else {
+                ++it;
+            }
+        }
+        mainPassPipelineDescs.erase( pipeline );
         vkDestroyPipeline( device, pipeline, nullptr );
     }
 }

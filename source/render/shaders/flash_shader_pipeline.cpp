@@ -320,7 +320,8 @@ bool FlashShaderPipeline::bind( VkCommandBuffer commandBuffer, GPUTexture *pText
 
     const VkDescriptorSet sets[2] = { set, samplerSet };
     VkPipeline selected = bFont ? fontPipelines[static_cast<size_t>( stencil )] : stencilPipelines[static_cast<size_t>( stencil )];
-    vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, selected != VK_NULL_HANDLE ? selected : pipeline );
+    vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                       pDevice->getPipelineForCurrentPass( selected != VK_NULL_HANDLE ? selected : pipeline ) );
     if ( stencil != eStencilMode::SM_None ) {
         vkCmdSetStencilReference( commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, stencilReference );
     }

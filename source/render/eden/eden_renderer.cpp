@@ -1581,6 +1581,22 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
     st.bBlended = material.isBlended();
     const VkRenderPass currentPass = pDevice->getCurrentRenderPass();
     const PipelineKey fullKey = makePipelineKey( currentPass, pProgram, mesh, st );
+    static const bool bLogPassMismatch = CmdLine::HasArg( "-logpassmismatch" );
+    if ( bLogPassMismatch ) {
+        // The pipeline is built for currentPass; the secondary command buffers inherit the active pass.
+        uint64_t currentKey = 0, activeKey = 0;
+        const bool bCurrentKnown = pDevice->getRenderPassKey( currentPass, currentKey );
+        const bool bActiveKnown = pDevice->getRenderPassKey( pDevice->getActiveRenderPass(), activeKey );
+        auto hasDepth = []( uint64_t key ) { return key == RenderDevice::kMainPassKey || ( ( key >> 24 ) & 0xffffffull ) != 0; };
+        static std::unordered_set<std::string> reported;
+        if ( bCurrentKnown != bActiveKnown || ( bCurrentKnown && hasDepth( currentKey ) != hasDepth( activeKey ) ) ) {
+            if ( reported.insert( pProgram->Name ).second ) {
+                OTDU_LOG_INFO( "[passmismatch] %s: pipeline pass %s key %llx, active pass %s key %llx\n", pProgram->Name.c_str(),
+                               bCurrentKnown ? "known" : "none", static_cast<unsigned long long>( currentKey ),
+                               bActiveKnown ? "known" : "none", static_cast<unsigned long long>( activeKey ) );
+            }
+        }
+    }
     // One-entry memo: consecutive draws mostly ask for the same pipeline, and
     // comparing six words is cheaper than hashing them (~2 % of the main
     // thread at 4K, -sampleprof).
@@ -1609,6 +1625,11 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
                                           material.Name.c_str() );
     pipelines[fullKey] = pipeline;
     recordManifest( mesh, pProgram, st, currentPass );
+    if ( bLogPassMismatch ) {
+        DebugPipelineInfo &info = debugPipelines[pipeline];
+        info.bPassKnown = pDevice->getRenderPassKey( currentPass != VK_NULL_HANDLE ? currentPass : pDevice->getRenderPass(), info.PassKey );
+        info.Program = pProgram->Name;
+    }
     return pipeline;
 }
 
@@ -2684,6 +2705,27 @@ void EdenRenderer::recordPacket( VkCommandBuffer commandBuffer, BoundState &stat
 void EdenRenderer::flushPendingRecords() {
     if ( pendingDraws.empty() ) {
         return;
+    }
+    static const bool bLogPassFlush = CmdLine::HasArg( "-logpassmismatch" );
+    if ( bLogPassFlush ) {
+        uint64_t activeKey = 0;
+        const bool bActiveKnown = pDevice->getRenderPassKey( pDevice->getActiveRenderPass(), activeKey );
+        auto hasDepth = []( uint64_t key ) { return key == RenderDevice::kMainPassKey || ( ( key >> 24 ) & 0xffffffull ) != 0; };
+        static std::unordered_set<std::string> reported;
+        for ( const DrawPacket &packet : pendingDraws ) {
+            auto it = debugPipelines.find( packet.Pipeline );
+            if ( it == debugPipelines.end() || !it->second.bPassKnown ) {
+                continue;
+            }
+            if ( !bActiveKnown || hasDepth( it->second.PassKey ) != hasDepth( activeKey ) ) {
+                if ( reported.insert( it->second.Program ).second ) {
+                    OTDU_LOG_INFO( "[passmismatch] flush: %s built for pass key %llx, recorded in %s key %llx (%zu pending, in target %d)\n",
+                                   it->second.Program.c_str(), static_cast<unsigned long long>( it->second.PassKey ),
+                                   bActiveKnown ? "pass" : "no pass", static_cast<unsigned long long>( activeKey ), pendingDraws.size(),
+                                   pDevice->isInRenderTarget() ? 1 : 0 );
+                }
+            }
+        }
     }
     VkCommandBuffer primary = pDevice->peekCommandBuffer();
     static const bool bBindCache = !CmdLine::HasArg( "-nobindcache" );

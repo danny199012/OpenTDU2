@@ -4,6 +4,23 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, VUID-vkCmdDraw-renderPass-02684: the 2D pipelines in the HUD gauge target)
+
+Follow-up: "Yes, look at the renderPass VUIDs".
+
+### Cause [MEAS]
+`vkCmdDraw(): pSubpasses[0].pDepthStencilAttachment->attachment is incompatible between VkRenderPass (command buffer: no depth) and VkRenderPass (pipeline: attachment 1)`, always the same pipeline, 10 reports (the layer's cap) on the first frames, present with the manifest warm-up off (not from it). `Renderer2D` and `FlashShaderPipeline` create their pipelines once with the default (main) render pass - which has depth + stencil - but the HUD's gauge texture (a **512 x 256 BGRA target, pass key 0x100000000002c, no depth**) is drawn through the same pipelines (`-logpassmismatch` logged the 2D draws inside a render target). Ruled out first: Eden's own packets (`-logpassmismatch` checks the pass at pipeline selection and at flush: no mismatch, warm on or off), `activeRenderPass` stale in the main pass (set now anyway), and the modules behind `-noocean -nobirds -nograss -nosky -nodroplets -noimgui` (the count did not move).
+
+### What changed
+- `source/render/vulkan/render_device.{h,cpp}`: `RenderDevice::getPipelineForCurrentPass( base )` - the pipeline itself in the swapchain pass or when it was built for an explicit pass, else a variant of the same `PipelineDesc` built for the current target pass and cached per (base, pass) (`mainPassPipelineDescs`, `passPipelineVariants`; destroyed with the base / at device teardown). `Renderer2D` and `FlashShaderPipeline` bind through it. `activeRenderPass` is also set in `beginMainPass` / cleared at frame start and end (the secondary command buffers inherit it).
+- `-logpassmismatch` (Eden): logs a program whose pipeline pass and the active pass differ in depth, at selection and at flush.
+
+### Verified
+- `-vk_enable_validation_layer` on the standard run: **`vkCmdDraw-renderPass-02684` 10 -> 0**. Frame 300 pixel-identical to the build before (mean abs diff 0.0 outside the build / clock watermark in the corner, which differs by design).
+
+### Not done / next
+- `VUID-vkCmdDraw-None-09600` x5 (a colour image is sampled while still in `VK_IMAGE_LAYOUT_UNDEFINED` at the first submits: a render target read by a pass before anything wrote to it - the first-frame contents are undefined; which target is not yet identified) and `VUID-vkDestroyDevice-device-05137` x1 (an object still alive at device destroy) remain.
+
 ## Session 2026-11-25, late (`main`, the pipeline manifest: spawn frame 137 -> 103 ms)
 
 Follow-up: "Yes, the pipeline manifest".

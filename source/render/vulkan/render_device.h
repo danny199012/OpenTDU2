@@ -359,6 +359,10 @@ public:
 
     VkPipeline createPipeline( const PipelineDesc &desc );
     void destroyPipeline( VkPipeline pipeline );
+    // A pipeline made by createPipeline with the default (main) render pass, for the pass being recorded now: the
+    // pipeline itself in the swapchain pass, else a variant built for the current target pass and cached (the 2D / Flash
+    // pipelines draw the HUD gauge textures into depth-less targets - VUID-vkCmdDraw-renderPass-02684).
+    VkPipeline getPipelineForCurrentPass( VkPipeline base );
 
     // Screenshot of the last presented frame (debug / automated tests). The
     // capture carries the burnt-in build stamp (source/debug/build_stamp.h)
@@ -460,6 +464,8 @@ private:
     bool bInMainPass = false;
     ColorRGBA frameClearColor;
     VkRenderPass currentRenderPass = VK_NULL_HANDLE;
+    std::unordered_map<VkPipeline, PipelineDesc> mainPassPipelineDescs; // the createPipeline calls with RenderPass == null
+    std::map<std::pair<VkPipeline, VkRenderPass>, VkPipeline> passPipelineVariants;
     mutable uint64_t commandTouches = 0; // see getCommandBuffer
     mutable PendingRecordHook *pPendingRecordHook = nullptr;
     VkRenderPass activeRenderPass = VK_NULL_HANDLE; // the begun one (LOAD variant after a restart)

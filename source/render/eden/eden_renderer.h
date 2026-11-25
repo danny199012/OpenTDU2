@@ -521,6 +521,13 @@ private:
         uint8_t Push[RenderDevice::kPushConstantsSize];
     };
     std::vector<DrawPacket> pendingDraws;
+    // -logpassmismatch: the pass and program of each pipeline, to compare with the pass the draw is recorded in.
+    struct DebugPipelineInfo {
+        uint64_t PassKey = 0;
+        bool bPassKnown = false;
+        std::string Program;
+    };
+    std::unordered_map<VkPipeline, DebugPipelineInfo> debugPipelines;
     void recordPacket( VkCommandBuffer commandBuffer, BoundState &state, const DrawPacket &packet,
                        bool bFilter ) const;
     struct ParallelRecord;
