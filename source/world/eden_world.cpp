@@ -1647,6 +1647,7 @@ void EdenWorld::destroy() {
     for ( auto &pSector : sectors ) {
         device.destroyBuffer( pSector->Terrain.pBuffer );
         destroyHeightfieldRt( pSector->Terrain );
+        destroyCarveBuffers( *pSector ); // the carve index buffers (unloadFar frees them; this path did not)
         gpRender->getTextureCache().releaseOwner( pSector->BankPath.c_str() );
     }
     for ( auto &pArea : areas ) {

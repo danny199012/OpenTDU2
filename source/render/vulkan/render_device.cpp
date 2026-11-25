@@ -1084,6 +1084,24 @@ void RenderDevice::destroy() {
     savePipelineCache();
     destroySwapchain();
 
+    // What callers never handed back (they hold a pointer in a static, or forgot): named in the log, then freed with
+    // the rest below.
+    if ( !liveTextures.empty() || !liveBuffers.empty() ) {
+        std::string names;
+        for ( GPUTexture *pTexture : liveTextures ) {
+            names += " '" + pTexture->Name + "'";
+            frames[0].PendingTextureDeletes.push_back( pTexture );
+        }
+        VkDeviceSize bufferBytes = 0;
+        for ( const auto &entry : liveBuffers ) {
+            bufferBytes += entry.second;
+            frames[0].PendingBufferDeletes.push_back( entry.first );
+        }
+        OTDU_LOG_INFO( "RenderDevice: freed at shutdown what nobody released: %zu textures (%s ), %zu buffers (%llu bytes)\n",
+                       liveTextures.size(), names.c_str(), liveBuffers.size(), static_cast<unsigned long long>( bufferBytes ) );
+        liveTextures.clear();
+        liveBuffers.clear();
+    }
     for ( FrameData &frame : frames ) {
         // Both batches: after vkDeviceWaitIdle everything is retired, so the
         // fresh queue needs no further grace at shutdown.
@@ -1981,6 +1999,7 @@ void RenderDevice::endFrame() {
         if ( frame.pLumaProbe == nullptr || frame.pLumaProbe->Size != rowSize * kNumRows ) {
             if ( frame.pLumaProbe != nullptr ) {
                 vmaDestroyBuffer( allocator, frame.pLumaProbe->Buffer, frame.pLumaProbe->Allocation );
+                liveBuffers.erase( frame.pLumaProbe );
                 delete frame.pLumaProbe;
             }
             frame.pLumaProbe = createBuffer( rowSize * kNumRows, VK_BUFFER_USAGE_TRANSFER_DST_BIT, nullptr );
@@ -2272,6 +2291,7 @@ void RenderDevice::retireUploads( bool bWaitAll ) {
         }
         for ( GPUBuffer *pStaging : inFlight.Staging ) {
             vmaDestroyBuffer( allocator, pStaging->Buffer, pStaging->Allocation );
+            liveBuffers.erase( pStaging );
             delete pStaging;
         }
         vkDestroyFence( device, inFlight.Fence, nullptr );
@@ -2411,11 +2431,14 @@ GPUTexture *RenderDevice::createTexture( VkImageViewType viewType,
         endImmediateCommands( commandBuffer );
         uploadStats.Submits++;
         vmaDestroyBuffer( allocator, pStaging->Buffer, pStaging->Allocation );
+        liveBuffers.erase( pStaging );
         delete pStaging;
+        liveTextures.insert( pTexture );
         return pTexture;
     }
     uploadBatchStaging.push_back( pStaging );
     uploadBatchBytes += totalSize;
+    liveTextures.insert( pTexture );
     if ( uploadBatchBytes >= kUploadBatchBytes ) {
         submitUploadBatch(); // bounds the staging memory held by one batch
     }
@@ -2424,6 +2447,7 @@ GPUTexture *RenderDevice::createTexture( VkImageViewType viewType,
 
 void RenderDevice::destroyTexture( GPUTexture *pTexture ) {
     if ( pTexture != nullptr ) {
+        liveTextures.erase( pTexture );
         frames[frameIndex].PendingTextureDeletes.push_back( pTexture );
     }
 }
@@ -2453,11 +2477,13 @@ GPUBuffer *RenderDevice::createBuffer( VkDeviceSize size,
         memcpy( pBuffer->pMapped, pInitialData, size );
         vmaFlushAllocation( allocator, pBuffer->Allocation, 0, VK_WHOLE_SIZE );
     }
+    liveBuffers[pBuffer] = pBuffer->Size;
     return pBuffer;
 }
 
 void RenderDevice::destroyBuffer( GPUBuffer *pBuffer ) {
     if ( pBuffer != nullptr ) {
+        liveBuffers.erase( pBuffer );
         frames[frameIndex].PendingBufferDeletes.push_back( pBuffer );
     }
 }
@@ -2487,6 +2513,7 @@ GPUBuffer *RenderDevice::createDeviceBuffer( VkDeviceSize size, VkBufferUsageFla
         delete pBuffer;
         return nullptr;
     }
+    liveBuffers[pBuffer] = pBuffer->Size;
     return pBuffer;
 }
 
@@ -2508,6 +2535,7 @@ GPUBuffer *RenderDevice::createReadbackBuffer( VkDeviceSize size, VkBufferUsageF
         return nullptr;
     }
     pBuffer->pMapped = allocationInfo.pMappedData;
+    liveBuffers[pBuffer] = pBuffer->Size;
     return pBuffer;
 }
 
@@ -2987,6 +3015,7 @@ void RenderDevice::captureSwapchainImage( const char *pPath, bool bBuildStamp ) 
     OTDU_LOG_INFO( "Screenshot saved to '%s' [%s]\n", path.c_str(), OTDU_BUILD_FULL_STRING );
 
     vmaDestroyBuffer( allocator, pReadback->Buffer, pReadback->Allocation );
+    liveBuffers.erase( pReadback );
     delete pReadback;
 }
 

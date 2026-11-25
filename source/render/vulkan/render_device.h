@@ -470,6 +470,11 @@ private:
     bool bInMainPass = false;
     ColorRGBA frameClearColor;
     VkRenderPass currentRenderPass = VK_NULL_HANDLE;
+    // Every texture / buffer this device made and nobody has handed back to destroyTexture / destroyBuffer yet: what is
+    // left at destroy() is reported (name, size) and freed, instead of leaking out of vkDestroyDevice
+    // (VUID-vkDestroyDevice-device-05137).
+    std::unordered_set<GPUTexture *> liveTextures;
+    std::unordered_map<GPUBuffer *, VkDeviceSize> liveBuffers;
     std::unordered_map<VkPipeline, PipelineDesc> mainPassPipelineDescs; // the createPipeline calls with RenderPass == null
     std::map<std::pair<VkPipeline, VkRenderPass>, VkPipeline> passPipelineVariants;
     mutable uint64_t commandTouches = 0; // see getCommandBuffer

@@ -4,6 +4,24 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, VUID-vkDestroyDevice-device-05137: the shutdown leak)
+
+Follow-up: "Yes, the leak".
+
+### Found [MEAS]
+`vkDestroyDevice(): 6 leaked objects`: two buffers and the images (+ views) **`LicencePhoto`** and **`station_asphalt`** (named since the image-name step). Both textures come from `TextureCache::createFromRGBA`, which returns a texture the caller owns: `LicencePhoto::GetTexture` replaces its texture on every reload without freeing the old one (its comment says "left to the cache": the cache does not own it) and never frees the last; `GetStationAsphalt` keeps one in a function static for the process. The two buffers (1,572,864 bytes together = 2 x 256 x 256 x 6 16-bit indices) were the sectors' **carve index buffers**: `EdenWorld::unloadFar` calls `destroyCarveBuffers`, `EdenWorld::destroy()` did not.
+
+### What changed
+- `source/world/eden_world.cpp`: `destroy()` frees each sector's carve buffers (the buffer leak was real and is fixed at its owner).
+- `source/render/vulkan/render_device.{h,cpp}`: `RenderDevice` tracks every texture (`liveTextures`) and buffer (`liveBuffers`, with size) it creates until `destroyTexture` / `destroyBuffer` (or one of the four direct deleters: the luma probe, the two staging paths, the screenshot readback) hands it back; `destroy()` logs what is left - `RenderDevice: freed at shutdown what nobody released: N textures ('name' ...), M buffers (B bytes)` - and frees it with the rest. A safety net with a visible log line, not a licence to leak: a new name in that line is a bug to fix at its owner.
+
+### Verified
+- `-vk_enable_validation_layer`, standard run, 300 frames: **0 VUIDs** (it was 15 at the start of this series: `renderPass-02684` x10, `None-09600` x5, `vkDestroyDevice-05137` x1 - all gone); shutdown line: 2 textures (`LicencePhoto`, `station_asphalt`), 0 buffers. A plain run exits normally.
+
+### Not done / next
+- `LicencePhoto` still leaks the previous photo texture at each reload (a handful per session, freed at shutdown by the net): `destroyTexture` on the old one is deferred by the device's frame lists, but whether the pause-menu ID card keeps the old pointer in a cache past that is not checked - the comment's claim ("left to the cache") is wrong, the cache never held it.
+- `station_asphalt` lives for the process by design (shared by every world); the net frees it.
+
 ## Session 2026-11-25, late (`main`, VUID-vkCmdDraw-None-09600: render targets sampled before their first write)
 
 Follow-up: "Yes, the layout VUID".
