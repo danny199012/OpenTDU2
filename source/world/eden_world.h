@@ -594,6 +594,8 @@ private:
     void finishPendingSectors( bool bWait );
     // Queues a sector bank (with its heightfield and -o model preparation) on the bank workers; false when it has no bank.
     bool requestSectorBank( const SectorId &id );
+    // The same for an area bank (the heightfield and the -o model, no collision copy).
+    bool requestAreaBank( int32_t x, int32_t y );
     bool loadArea( int32_t x, int32_t y );
     void updateAreaIndices( Area &area );
     void markAreasDirty( const SectorId &id );

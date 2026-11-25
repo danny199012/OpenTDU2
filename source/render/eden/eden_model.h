@@ -171,6 +171,7 @@ public:
     // vertex / index / collision data and bounds - everything that does not need a material or the GPU. The item loop
     // is a copy of load()'s, minus the material-dependent steps; loadPrepared() does those on the main thread.
     struct Prepared {
+        bool bKeepCollision = false; // what Prepare built; loadPrepared needs the same setting on the model
         Render3DD Scene;
         Render2DM LocalMaterials;
         std::vector<Item> Items;                  // MaterialIndex is set by loadPrepared

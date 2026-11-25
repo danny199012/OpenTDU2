@@ -4,6 +4,23 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the areas on the bank workers)
+
+Follow-up: "Yes, the areas".
+
+### What changed
+- `source/world/eden_world.{h,cpp}`: `loadAround` queues every area bank (`requestAreaBank`: the heightfield `area-x-y` and the `-o` model, no collision copy) before `loadArea` runs; `loadArea` waits for / takes the worker's bank, heightfield and model (`loadHeightfield( .., pPrepared )`, `Objects.loadPrepared( .., nullptr )`) and falls back to the old reads. `-noringworker` = the old path for areas and the ring; `-checkprepared` also compares each prepared area model (the comparison is now `CountModelMismatches`, shared with the sectors).
+- `source/render/eden/eden_model.{h,cpp}`: `Prepared` records the collision flag it was built with; `loadPrepared` refuses only when it differs from the model's (areas load without the collision copy, sectors with it).
+- `source/filesystem/bank_preloader.h`: finished-bank cap 6 -> 48 (all 30 area banks, 51 MB in total, must survive until the main thread takes them; with 16 the oldest were evicted and re-read synchronously).
+
+### Verified
+- First `loadAround` at the standard spawn (areas + ring), 4 runs each: **328.7 / 330.0 / 355.8 / 355.6 ms (`-noringworker`) -> 153.2 / 152.5 / 148.2 / 149.4 ms**. Frame 800 pixel-identical (mean abs diff 0.0, `-clock 13.00`). `-checkprepared`: **30 of 30 areas prepared, 0 mismatches**.
+- Whole spawn call, the three steps of this series (bank worker + ring + areas): ~340 ms -> ~150 ms.
+
+### Not done / next
+- What is left in that call is the main thread's own work per area / sector: textures, materials, buffers, carve (synchronous in the ring), instances. The ring's carve could use the pending list (`bAsync`) with a wait before the first draw (~1.7 ms x 9); the area `bindUVAnimations` / `RegisterNeons` / ocean groups are small.
+- The rotor sub-banks (`-norotors`), `loadInstances` (~1-2 ms a sector) and the sector `modelLoadedCallback` stay on the main thread.
+
 ## Session 2026-11-25, late (`main`, the start-up ring on the bank workers)
 
 Follow-up: "Yes, the ring".

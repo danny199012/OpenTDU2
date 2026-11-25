@@ -246,6 +246,7 @@ std::shared_ptr<EdenModel::Prepared> EdenModel::Prepare( const Bank &bank, const
     }
     auto pOut = std::make_shared<Prepared>();
     Prepared &prep = *pOut;
+    prep.bKeepCollision = bKeepCollision;
     Render3DG geometry;
     if ( !prep.Scene.parse( pScene->pData, pScene->Size, false ) || !geometry.parse( pGeometry->pData, pGeometry->Size, false ) ) {
         return nullptr;
@@ -364,7 +365,7 @@ std::shared_ptr<EdenModel::Prepared> EdenModel::Prepare( const Bank &bank, const
 bool EdenModel::loadPrepared( EdenRenderer &renderer, Prepared &prep, const Render2DM *pFallbackMaterials,
                               const char *pTextureOwner, const MaterialSetup &materialSetup ) {
     // What Prepare assumed: LOD0 only, the collision copy, no per-item extras, no ray tracing structures.
-    if ( bKeepVertexData || bKeepItemIndices || bKeepParsedGeometry || triangleDrop || bLoadLods || !bKeepCollision ||
+    if ( bKeepVertexData || bKeepItemIndices || bKeepParsedGeometry || triangleDrop || bLoadLods || prep.bKeepCollision != bKeepCollision ||
          ( IsRayTracingWorldEnabled() && gpRender->getRayTracing().isReady() ) ) {
         return false;
     }

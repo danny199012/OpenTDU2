@@ -2009,6 +2009,44 @@ bool EdenWorld::loadHeightfield( const Bank &bank, const char *pBaseName, const 
     return out.Materials[0].pProgram != nullptr;
 }
 
+// -checkprepared: what the prepared load built against the old load of the same model (0 = identical).
+static uint32_t CountModelMismatches( const EdenModel &got, const EdenModel &ref ) {
+    uint32_t bad = 0;
+    auto vecEq = []( const Vector3f &x, const Vector3f &y ) { return x.x == y.x && x.y == y.y && x.z == y.z; };
+    if ( got.getItems().size() != ref.getItems().size() || got.getMaterials().size() != ref.getMaterials().size() ||
+         got.getCollisionVertices().size() != ref.getCollisionVertices().size() ||
+         got.getCollisionIndices().size() != ref.getCollisionIndices().size() ||
+         !vecEq( got.getBoundsMin(), ref.getBoundsMin() ) || !vecEq( got.getBoundsMax(), ref.getBoundsMax() ) ) {
+        bad++;
+    } else {
+        for ( size_t i = 0; i < got.getItems().size(); i++ ) {
+            const EdenModel::Item &x = got.getItems()[i], &y = ref.getItems()[i];
+            if ( x.NodeIndex != y.NodeIndex || x.MaterialIndex != y.MaterialIndex || x.Mesh.FirstIndex != y.Mesh.FirstIndex ||
+                 x.Mesh.IndexCount != y.Mesh.IndexCount || x.Mesh.NumStreams != y.Mesh.NumStreams ||
+                 x.Mesh.StreamOffsets[0] != y.Mesh.StreamOffsets[0] || x.Mesh.StreamOffsets[1] != y.Mesh.StreamOffsets[1] ||
+                 x.Mesh.Strides[0] != y.Mesh.Strides[0] || x.Mesh.Strides[1] != y.Mesh.Strides[1] ||
+                 x.NumVertices != y.NumVertices || x.CollisionFirst != y.CollisionFirst || x.CollisionCount != y.CollisionCount ||
+                 !vecEq( x.BoundsMin, y.BoundsMin ) || !vecEq( x.BoundsMax, y.BoundsMax ) ||
+                 x.ImpostorIndices.size() != y.ImpostorIndices.size() || x.ImpostorStreams[0].size() != y.ImpostorStreams[0].size() ||
+                 x.ImpostorStreams[1].size() != y.ImpostorStreams[1].size() ) {
+                bad++;
+            }
+        }
+        for ( size_t i = 0; i < got.getMaterials().size(); i++ ) {
+            if ( got.getMaterials()[i].Name != ref.getMaterials()[i].Name ) {
+                bad++;
+            }
+        }
+        const int32_t numNodes = static_cast<int32_t>( got.getScene().getNodes().size() );
+        for ( int32_t n = 0; n < numNodes; n++ ) {
+            if ( got.getNodeItemRange( n ) != ref.getNodeItemRange( n ) || got.getNodeItemRange( n, 0 ) != ref.getNodeItemRange( n, 0 ) ) {
+                bad++;
+            }
+        }
+    }
+    return bad;
+}
+
 bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
     if ( id.AreaX < 0 || id.AreaY < 0 || id.AreaX >= areaColumns || id.AreaY >= areaRows || id.X < 0 || id.Y < 0 ||
          id.X >= static_cast<int32_t>( kSectorsPerArea ) || id.Y >= static_cast<int32_t>( kSectorsPerArea ) ) {
@@ -2126,39 +2164,7 @@ bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
         ref.setKeepCollision( true );
         ref.load( *pRenderer, pSector->SectorBank, ( name + "-o" ).c_str(), &libraryMaterials, path, nullptr, materialSetup );
         const EdenModel &got = pSector->Objects;
-        uint32_t bad = 0;
-        auto vecEq = []( const Vector3f &x, const Vector3f &y ) { return x.x == y.x && x.y == y.y && x.z == y.z; };
-        if ( got.getItems().size() != ref.getItems().size() || got.getMaterials().size() != ref.getMaterials().size() ||
-             got.getCollisionVertices().size() != ref.getCollisionVertices().size() ||
-             got.getCollisionIndices().size() != ref.getCollisionIndices().size() ||
-             !vecEq( got.getBoundsMin(), ref.getBoundsMin() ) || !vecEq( got.getBoundsMax(), ref.getBoundsMax() ) ) {
-            bad++;
-        } else {
-            for ( size_t i = 0; i < got.getItems().size(); i++ ) {
-                const EdenModel::Item &x = got.getItems()[i], &y = ref.getItems()[i];
-                if ( x.NodeIndex != y.NodeIndex || x.MaterialIndex != y.MaterialIndex || x.Mesh.FirstIndex != y.Mesh.FirstIndex ||
-                     x.Mesh.IndexCount != y.Mesh.IndexCount || x.Mesh.NumStreams != y.Mesh.NumStreams ||
-                     x.Mesh.StreamOffsets[0] != y.Mesh.StreamOffsets[0] || x.Mesh.StreamOffsets[1] != y.Mesh.StreamOffsets[1] ||
-                     x.Mesh.Strides[0] != y.Mesh.Strides[0] || x.Mesh.Strides[1] != y.Mesh.Strides[1] ||
-                     x.NumVertices != y.NumVertices || x.CollisionFirst != y.CollisionFirst || x.CollisionCount != y.CollisionCount ||
-                     !vecEq( x.BoundsMin, y.BoundsMin ) || !vecEq( x.BoundsMax, y.BoundsMax ) ||
-                     x.ImpostorIndices.size() != y.ImpostorIndices.size() || x.ImpostorStreams[0].size() != y.ImpostorStreams[0].size() ||
-                     x.ImpostorStreams[1].size() != y.ImpostorStreams[1].size() ) {
-                    bad++;
-                }
-            }
-            for ( size_t i = 0; i < got.getMaterials().size(); i++ ) {
-                if ( got.getMaterials()[i].Name != ref.getMaterials()[i].Name ) {
-                    bad++;
-                }
-            }
-            const int32_t numNodes = static_cast<int32_t>( got.getScene().getNodes().size() );
-            for ( int32_t n = 0; n < numNodes; n++ ) {
-                if ( got.getNodeItemRange( n ) != ref.getNodeItemRange( n ) || got.getNodeItemRange( n, 0 ) != ref.getNodeItemRange( n, 0 ) ) {
-                    bad++;
-                }
-            }
-        }
+        const uint32_t bad = CountModelMismatches( got, ref );
         OTDU_LOG_INFO( "[checkprepared] %s: %zu items, %u mismatches\n", name.c_str(), got.getItems().size(), bad );
     }
     applyVisibility( pSector->Objects );
@@ -2469,6 +2475,28 @@ bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
     return true;
 }
 
+bool EdenWorld::requestAreaBank( int32_t x, int32_t y ) {
+    char path[256];
+    snprintf( path, sizeof( path ), "%sarea-%d/area-%d-%d/area-%d-%d.bnk", islandFolder.c_str(), x, x, y, x, y );
+    if ( !gpFile->fileExists( path ) ) {
+        return false;
+    }
+    char name[64];
+    snprintf( name, sizeof( name ), "area-%d-%d", x, y );
+    static const bool bNoHeightWorker = CmdLine::HasArg( "-noheightworker" );
+    const std::string baseName = name;
+    const Render2DM *pLibrary = &libraryMaterials;
+    bankPreloader.request( path, [baseName, pLibrary]( const Bank &bank ) -> std::shared_ptr<void> {
+        auto pExtra = std::make_shared<SectorPrepared>();
+        if ( !bNoHeightWorker ) {
+            pExtra->Heightfield = PrepareHeightfield( bank, baseName.c_str() );
+        }
+        pExtra->Objects = EdenModel::Prepare( bank, ( baseName + "-o" ).c_str(), pLibrary, false );
+        return pExtra;
+    } );
+    return true;
+}
+
 bool EdenWorld::loadArea( int32_t x, int32_t y ) {
     auto pArea = std::make_unique<Area>();
     pArea->X = x;
@@ -2480,15 +2508,43 @@ bool EdenWorld::loadArea( int32_t x, int32_t y ) {
     if ( !gpFile->fileExists( path ) ) {
         return false; // open sea or data not installed (counted by loadAround)
     }
-    if ( !pArea->AreaBank.load( path ) ) {
+    // The bank, heightfield and -o model were prepared on the bank workers when loadAround queued them (-noringworker:
+    // read here as before).
+    static const bool bNoAreaWorker = CmdLine::HasArg( "-noringworker" ) || CmdLine::HasArg( "-nobankworker" );
+    std::shared_ptr<PreparedHeightfield> pPreparedHeightfield;
+    std::shared_ptr<EdenModel::Prepared> pPreparedObjects;
+    bool bBankReady = false;
+    if ( !bNoAreaWorker ) {
+        bankPreloader.wait( path );
+        BankPreloader::Result prepared = bankPreloader.take( path );
+        if ( prepared.pBank ) {
+            pArea->AreaBank.swap( *prepared.pBank );
+            if ( auto pExtra = std::static_pointer_cast<SectorPrepared>( prepared.pExtra ) ) {
+                pPreparedHeightfield = pExtra->Heightfield;
+                pPreparedObjects = pExtra->Objects;
+            }
+            bBankReady = true;
+        }
+    }
+    if ( !bBankReady && !pArea->AreaBank.load( path ) ) {
         return false;
     }
     gpRender->getTextureCache().loadBankTextures( pArea->AreaBank, path );
     char name[64];
     snprintf( name, sizeof( name ), "area-%d-%d", x, y );
-    loadHeightfield( pArea->AreaBank, name, path, pArea->Terrain );
+    loadHeightfield( pArea->AreaBank, name, path, pArea->Terrain, pPreparedHeightfield.get() );
     pArea->Terrain.Spacing = 24.0f;
-    pArea->Objects.load( *pRenderer, pArea->AreaBank, ( std::string( name ) + "-o" ).c_str(), &libraryMaterials, path );
+    const bool bObjectsPrepared = pPreparedObjects && pArea->Objects.loadPrepared( *pRenderer, *pPreparedObjects, &libraryMaterials, path, nullptr );
+    if ( !bObjectsPrepared ) {
+        pArea->Objects.load( *pRenderer, pArea->AreaBank, ( std::string( name ) + "-o" ).c_str(), &libraryMaterials, path );
+    }
+    static const bool bCheckAreaPrepared = CmdLine::HasArg( "-checkprepared" );
+    if ( bCheckAreaPrepared && bObjectsPrepared ) {
+        EdenModel ref;
+        ref.load( *pRenderer, pArea->AreaBank, ( std::string( name ) + "-o" ).c_str(), &libraryMaterials, path );
+        OTDU_LOG_INFO( "[checkprepared] %s: %zu items, %u mismatches\n", name, pArea->Objects.getItems().size(),
+                       CountModelMismatches( pArea->Objects, ref ) );
+    }
     pArea->Objects.bindUVAnimations( pArea->AreaBank );
     applyVisibility( pArea->Objects );
     if ( modelLoadedCallback && pArea->Objects.isLoaded() ) {
@@ -2920,6 +2976,16 @@ bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int3
     const auto loadAroundStart = std::chrono::steady_clock::now();
     finishPendingSectors( false );
     if ( areas.empty() ) {
+        // Every area bank is queued first: they parse side by side on the workers while the main thread finishes one
+        // area after the other (-noringworker = read in loadArea).
+        static const bool bNoAreaQueue = CmdLine::HasArg( "-noringworker" ) || CmdLine::HasArg( "-nobankworker" );
+        if ( !bNoAreaQueue ) {
+            for ( int32_t y = 0; y < areaRows; y++ ) {
+                for ( int32_t x = 0; x < areaColumns; x++ ) {
+                    requestAreaBank( x, y );
+                }
+            }
+        }
         for ( int32_t y = 0; y < areaRows; y++ ) {
             for ( int32_t x = 0; x < areaColumns; x++ ) {
                 loadArea( x, y );

@@ -52,7 +52,7 @@ private:
         Prepare PrepareFn;
     };
     // Finished banks nobody took (the car turned away) are dropped oldest first.
-    static constexpr size_t kMaxFinished = 6;
+    static constexpr size_t kMaxFinished = 48;
 
     void run();
     void trimFinished();
