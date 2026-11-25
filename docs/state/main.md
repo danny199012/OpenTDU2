@@ -4,6 +4,16 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, getProgram ruled out as a streaming cost)
+
+Follow-up: "Yes, getProgram".
+
+### Ruled out (with the measurement)
+- Timed `EdenShaderSystem::getProgram(guid, spec)` misses separately (temporary instrumentation, reverted): over the 900-frame FREERIDE drive 2585 `updateProgram` calls total 46 ms, **443 are first-use misses totalling 59 ms** (avg 0.13 ms, worst 0.41 ms, spread across the run - a few per sector at most). The hit path (the 57-byte `std::string` key) is below the noise, so a pointer-keyed fast path would gain nothing. The miss is the permutation search + `buildProgram`; it is once per (GUID, spec) per run and is already amortised. [MEAS]
+
+### Not done / next
+- The remaining sector-load stages (23 loads, `-logsectortimes`): objects 81 (item building ~40 CPU, parse 20), heightfield 43, carve 36, bank 51 (9 are the start-up ring), textures 25, instances 20 ms. Heightfield decode and carve / road index are CPU-only on the parsed bank: the next worker candidates (needs `Sector` built in two phases).
+
 ## Session 2026-11-25, late (`main`, sector materials: the texture lookup was the cost)
 
 Follow-up of the bank worker entry below: "Yes, materials".
