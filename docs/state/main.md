@@ -4,6 +4,22 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, VUID-vkCmdDraw-None-09600: render targets sampled before their first write)
+
+Follow-up: "Yes, the layout VUID".
+
+### Cause [MEAS]
+`vkQueueSubmit(): ... expects VkImage ... to be in layout SHADER_READ_ONLY_OPTIMAL - instead, current layout is UNDEFINED`, 5 reports on the first frames. New in this step: `RenderDevice::setImageName` (VK_EXT_debug_utils object names, only with `-vk_enable_validation_layer`) on the render target, cube target and texture images, so the layer's message names the image instead of a handle: **`CloudHistoryA`** (the cloud temporal history, read by the first frame before any pass wrote it) and **`CarEnvironmentScratch`** (the scratch cube the car environment faces render into; the cars drawn into one face sample the cube, whose other faces - layers 1, 2, 3, 5 - had not been rendered yet). A target's first pass clears it (`InitializedLayers`), so only a read before that first write saw the undefined layout.
+
+### What changed
+- `source/render/vulkan/render_device.{h,cpp}`: `clearNewColorImage( image, layers )` - a new colour render target (`createRenderTarget`, `createCubeRenderTarget`) is cleared to black and moved to SHADER_READ_ONLY_OPTIMAL (the layout its passes leave it in) in the upload batch, which is submitted before the frame's own submit. The first-frame contents of such a target are now defined (black) instead of undefined.
+
+### Verified
+- `-vk_enable_validation_layer` on the standard run: **`vkCmdDraw-None-09600` 5 -> 0**; with the previous step `renderPass-02684` 10 -> 0. Frame 300 pixel-identical to the build before the VUID work (mean abs diff 0.0, watermark masked).
+
+### Not done / next
+- `VUID-vkDestroyDevice-device-05137` x1 is the last report: objects still alive at device destroy - two buffers, the images `LicencePhoto` and `station_asphalt` (and their views): textures held past teardown (the licence photo texture and a station texture), found now that images carry names. Not looked into.
+
 ## Session 2026-11-25, late (`main`, VUID-vkCmdDraw-renderPass-02684: the 2D pipelines in the HUD gauge target)
 
 Follow-up: "Yes, look at the renderPass VUIDs".

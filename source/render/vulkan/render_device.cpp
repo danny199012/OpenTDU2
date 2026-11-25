@@ -1514,6 +1514,7 @@ RenderTarget *RenderDevice::createRenderTarget( uint32_t width, uint32_t height,
         VmaAllocationCreateInfo allocInfo = {};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
         vmaCreateImage( allocator, &imageInfo, &allocInfo, &texture.Image, &texture.Allocation, nullptr );
+        setImageName( texture.Image, pName );
         VkImageViewCreateInfo viewInfo = {};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = texture.Image;
@@ -1527,6 +1528,7 @@ RenderTarget *RenderDevice::createRenderTarget( uint32_t width, uint32_t height,
                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | // NGX (DLSS) clears the images it is given
                      VK_IMAGE_USAGE_STORAGE_BIT, // the compute passes write targets too (-rtao)
                  VK_IMAGE_ASPECT_COLOR_BIT );
+    clearNewColorImage( pTarget->Color.Image, 1 );
     VkImageView attachments[2] = { pTarget->Color.View, VK_NULL_HANDLE };
     if ( bDepth ) {
         const VkFormat depthFormat = depthTexture.Format;
@@ -1589,6 +1591,8 @@ RenderTarget *RenderDevice::createCubeRenderTarget( uint32_t size, bool bDepth, 
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateImage( allocator, &imageInfo, &allocInfo, &color.Image, &color.Allocation, nullptr );
+    setImageName( color.Image, pName );
+    clearNewColorImage( color.Image, 6 );
     VkImageViewCreateInfo viewInfo = {};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = color.Image;
@@ -2334,6 +2338,7 @@ GPUTexture *RenderDevice::createTexture( VkImageViewType viewType,
         delete pTexture;
         return nullptr;
     }
+    setImageName( pTexture->Image, pName );
     const uint32_t numImageLayers = imageInfo.arrayLayers;
 
     VkImageViewCreateInfo viewInfo = {};
@@ -2808,6 +2813,46 @@ VkPipeline RenderDevice::createPipeline( const PipelineDesc &desc ) {
         mainPassPipelineDescs[pipeline] = desc;
     }
     return pipeline;
+}
+
+void RenderDevice::clearNewColorImage( VkImage image, uint32_t numLayers ) {
+    if ( image == VK_NULL_HANDLE ) {
+        return;
+    }
+    VkCommandBuffer commandBuffer = getUploadBatch();
+    VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, numLayers };
+    VkImageMemoryBarrier barrier = {};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange = range;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier( commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                          nullptr, 1, &barrier );
+    const VkClearColorValue black = {};
+    vkCmdClearColorImage( commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range );
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier( commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                          nullptr, 1, &barrier );
+}
+
+void RenderDevice::setImageName( VkImage image, const char *pName ) {
+    if ( debugMessenger == VK_NULL_HANDLE || vkSetDebugUtilsObjectNameEXT == nullptr || pName == nullptr ) {
+        return;
+    }
+    VkDebugUtilsObjectNameInfoEXT info = {};
+    info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    info.objectType = VK_OBJECT_TYPE_IMAGE;
+    info.objectHandle = reinterpret_cast<uint64_t>( image );
+    info.pObjectName = pName;
+    vkSetDebugUtilsObjectNameEXT( device, &info );
 }
 
 VkPipeline RenderDevice::getPipelineForCurrentPass( VkPipeline base ) {

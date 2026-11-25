@@ -363,6 +363,12 @@ public:
     // pipeline itself in the swapchain pass, else a variant built for the current target pass and cached (the 2D / Flash
     // pipelines draw the HUD gauge textures into depth-less targets - VUID-vkCmdDraw-renderPass-02684).
     VkPipeline getPipelineForCurrentPass( VkPipeline base );
+    // Names an image for the validation layer's messages (debug utils; only when the layer is on).
+    void setImageName( VkImage image, const char *pName );
+    // A new colour render target starts defined: black, in SHADER_READ_ONLY_OPTIMAL (the layout its passes leave it in).
+    // Targets are sampled before their first pass wrote them (the cloud history, the car environment scratch cube's
+    // other faces): that read was of an UNDEFINED layout (VUID-vkCmdDraw-None-09600). Recorded in the upload batch.
+    void clearNewColorImage( VkImage image, uint32_t numLayers );
 
     // Screenshot of the last presented frame (debug / automated tests). The
     // capture carries the burnt-in build stamp (source/debug/build_stamp.h)
