@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 // Reads and parses banks on a worker thread (2026-11-25): the sector load on
 // the main thread spent 22 % of its time in Bank::load (file copy + directory
@@ -35,6 +36,8 @@ public:
     void request( const std::string &path, Prepare prepare = nullptr );
     // Drops everything queued or finished and waits for the job in flight (the world is being torn down).
     void clear();
+    // Blocks until the bank is no longer queued or loading (ready, failed or unknown).
+    void wait( const std::string &path );
     // True while the bank is queued or loading.
     bool isPending( const std::string &path );
     // The finished bank, moved out; an empty Result when it is not ready or failed.
@@ -57,10 +60,12 @@ private:
     std::mutex mutex;
     std::condition_variable signal;
     std::condition_variable idleSignal;
-    bool bBusy = false; // a bank is loading on the worker
+    uint32_t numBusy = 0; // workers with a bank in hand
     std::deque<std::string> queue;
     std::deque<std::string> finishedOrder;
     std::unordered_map<std::string, Entry> entries;
-    std::thread thread;
+    // Two workers: the banks of a start-up ring parse side by side while the main thread finishes the previous sector.
+    static constexpr size_t kNumWorkers = 2;
+    std::vector<std::thread> threads;
     bool bStop = false;
 };

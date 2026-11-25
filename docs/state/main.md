@@ -4,6 +4,21 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the start-up ring on the bank workers)
+
+Follow-up: "Yes, the ring".
+
+### What changed
+- `source/world/eden_world.{h,cpp}`: `loadAround` queues every missing bank of its square on the bank workers first (`requestSectorBank`, the code `preloadOne` used, now shared), then waits per sector for the worker's copy (`BankPreloader::wait`) instead of reading + parsing + preparing it on the main thread; `loadSector` takes the prepared bank / heightfield / model as for a preload. The sector is still published at once (synchronous carve). `-noringworker` = the old path; the pre-pass honours `maxSectors` (the map pan's one-per-frame budget). `-logsectortimes`: the "sectors loaded around" line now carries the elapsed ms.
+- `source/filesystem/bank_preloader.{h,cpp}`: two worker threads (the next banks parse while the main thread finishes the previous sector), `wait( path )`, a busy counter for `clear()`.
+
+### Verified
+- First `loadAround` at the standard spawn (it also loads the areas), 4 runs each: **336.7 / 344.6 / 341.0 / 325.7 ms (`-noringworker`) -> 259.0 / 252.9 / 266.0 / 264.7 ms**, about 80 ms off the spawn hitch. Frame 800 pixel-identical (mean abs diff 0.0, `-clock 13.00`).
+- `-checkprepared` with the ring prepared: 19-21 sectors compared, 0 mismatches (that flag reloads each sector the old way, so its own timings are not meaningful).
+
+### Not done / next
+- What remains in the ring is main-thread work per sector (textures ~1 ms, materials + buffers, carve ~1.7 ms, instances ~1-2 ms, the `-o` model callback): about 9 x 12 ms. The carve could join the ring's pending list (`bAsync`) with a wait before the first draw; the areas (`loadArea`, ~160 ms of that first call) are still synchronous and unprepared - the same Prepare idea would apply (area heightfield + `-o` model).
+
 ## Session 2026-11-25, late (`main`, item building on the bank worker)
 
 Follow-up: "Yes, item building".

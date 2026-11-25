@@ -15,8 +15,10 @@ BankPreloader::~BankPreloader() {
         bStop = true;
     }
     signal.notify_all();
-    if ( thread.joinable() ) {
-        thread.join();
+    for ( std::thread &thread : threads ) {
+        if ( thread.joinable() ) {
+            thread.join();
+        }
     }
 }
 
@@ -29,9 +31,11 @@ void BankPreloader::request( const std::string &path, Prepare prepare ) {
     entries[key].Status = State::Queued;
     entries[key].PrepareFn = std::move( prepare );
     queue.push_back( key );
-    if ( !thread.joinable() ) {
+    if ( threads.empty() ) {
         bStop = false;
-        thread = std::thread( [this]() { run(); } );
+        for ( size_t i = 0; i < kNumWorkers; i++ ) {
+            threads.emplace_back( [this]() { run(); } );
+        }
     }
     signal.notify_one();
 }
@@ -41,7 +45,16 @@ void BankPreloader::clear() {
     queue.clear();
     finishedOrder.clear();
     entries.clear();
-    idleSignal.wait( lock, [this]() { return !bBusy; } );
+    idleSignal.wait( lock, [this]() { return numBusy == 0; } );
+}
+
+void BankPreloader::wait( const std::string &path ) {
+    const std::string key = Key( path );
+    std::unique_lock<std::mutex> lock( mutex );
+    idleSignal.wait( lock, [&]() {
+        auto it = entries.find( key );
+        return it == entries.end() || ( it->second.Status != State::Queued && it->second.Status != State::Loading );
+    } );
 }
 
 bool BankPreloader::isPending( const std::string &path ) {
@@ -98,13 +111,13 @@ void BankPreloader::run() {
             }
             it->second.Status = State::Loading;
             prepare = it->second.PrepareFn;
-            bBusy = true;
+            numBusy++;
         }
         auto pBank = std::make_unique<Bank>();
         const bool bOk = pBank->load( key.c_str() );
         std::shared_ptr<void> pExtra = bOk && prepare ? prepare( *pBank ) : nullptr;
         std::lock_guard<std::mutex> lock( mutex );
-        bBusy = false;
+        numBusy--;
         idleSignal.notify_all();
         auto it = entries.find( key );
         if ( it == entries.end() ) {

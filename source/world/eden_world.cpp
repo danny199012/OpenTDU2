@@ -2895,7 +2895,29 @@ void EdenWorld::updateIslandIndices() {
     numIslandIndices = static_cast<uint32_t>( indices.size() );
 }
 
+bool EdenWorld::requestSectorBank( const SectorId &id ) {
+    const std::string bankPath = getSectorBankPath( id );
+    if ( !gpFile->fileExists( bankPath.c_str() ) ) {
+        return false;
+    }
+    // The heightfield decode and the -o model's CPU half ride along on the worker (-noheightworker / -noitemworker:
+    // the main thread does them).
+    static const bool bNoHeightWorker = CmdLine::HasArg( "-noheightworker" );
+    const std::string baseName = SectorName( id );
+    const Render2DM *pLibrary = &libraryMaterials;
+    bankPreloader.request( bankPath, [baseName, pLibrary]( const Bank &bank ) -> std::shared_ptr<void> {
+        auto pExtra = std::make_shared<SectorPrepared>();
+        if ( !bNoHeightWorker ) {
+            pExtra->Heightfield = PrepareHeightfield( bank, baseName.c_str() );
+        }
+        pExtra->Objects = EdenModel::Prepare( bank, ( baseName + "-o" ).c_str(), pLibrary, true );
+        return pExtra;
+    } );
+    return true;
+}
+
 bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int32_t maxSectors ) {
+    const auto loadAroundStart = std::chrono::steady_clock::now();
     finishPendingSectors( false );
     if ( areas.empty() ) {
         for ( int32_t y = 0; y < areaRows; y++ ) {
@@ -2931,6 +2953,28 @@ bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int3
         bOceanVisibilityDirty = true;
         drawEpoch++;
     }
+    // The ring: every missing bank of the square is queued on the workers first (-noringworker = the old
+    // synchronous read), so the banks parse side by side while this thread finishes one sector after the other.
+    static const bool bNoRingWorker = CmdLine::HasArg( "-noringworker" ) || CmdLine::HasArg( "-nobankworker" );
+    if ( !bNoRingWorker ) {
+        int32_t numRequested = 0;
+        for ( int32_t row = centerRow - sectorRadius; row <= centerRow + sectorRadius; row++ ) {
+            for ( int32_t column = centerColumn - sectorRadius; column <= centerColumn + sectorRadius; column++ ) {
+                if ( row < 0 || column < 0 || ( maxSectors > 0 && numRequested >= maxSectors ) ) {
+                    continue;
+                }
+                SectorId id;
+                id.AreaX = column / kSectorsPerArea;
+                id.AreaY = row / kSectorsPerArea;
+                id.X = column % kSectorsPerArea;
+                id.Y = row % kSectorsPerArea;
+                if ( failedSectors.count( static_cast<uint32_t>( row * 1024 + column ) ) == 0 && !isSectorLoaded( id ) &&
+                     requestSectorBank( id ) ) {
+                    numRequested++;
+                }
+            }
+        }
+    }
     for ( int32_t row = centerRow - sectorRadius; row <= centerRow + sectorRadius; row++ ) {
         for ( int32_t column = centerColumn - sectorRadius; column <= centerColumn + sectorRadius; column++ ) {
             if ( row < 0 || column < 0 ) {
@@ -2949,6 +2993,13 @@ bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int3
                 }
             }
             if ( !isSectorLoaded( id ) && failedSectors.count( key ) == 0 ) {
+                if ( !bNoRingWorker ) {
+                    // Quicker than reading and parsing the bank here: the worker has it (or is on it).
+                    const std::string ringPath = getSectorBankPath( id );
+                    if ( bankPreloader.isPending( ringPath ) ) {
+                        bankPreloader.wait( ringPath );
+                    }
+                }
                 if ( loadSector( id ) ) {
                     bLoadedAny = true;
                     numLoaded++;
@@ -2965,8 +3016,9 @@ bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int3
     }
     if ( bLoadedAny ) {
         drawEpoch++;
-        OTDU_LOG_INFO( "EdenWorld: %zu sectors loaded around (%.0f, %.0f)\n", sectors.size(), position.x,
-                       position.z );
+        OTDU_LOG_INFO( "EdenWorld: %zu sectors loaded around (%.0f, %.0f) in %.1f ms\n", sectors.size(), position.x,
+                       position.z,
+                       std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - loadAroundStart ).count() );
     }
     return bLoadedAny;
 }
@@ -3025,21 +3077,7 @@ bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int
         std::partial_sort( candidates.begin(), candidates.begin() + numAhead, candidates.end(),
                            []( const Candidate &a, const Candidate &b ) { return a.Distance < b.Distance; } );
         for ( size_t i = 0; i < numAhead; i++ ) {
-            const std::string bankPath = getSectorBankPath( candidates[i].Id );
-            if ( gpFile->fileExists( bankPath.c_str() ) ) {
-                // The heightfield decode rides along on the worker (-noheightworker: the main thread does it).
-                static const bool bNoHeightWorker = CmdLine::HasArg( "-noheightworker" );
-                const std::string baseName = SectorName( candidates[i].Id );
-                const Render2DM *pLibrary = &libraryMaterials;
-                bankPreloader.request( bankPath, [baseName, pLibrary]( const Bank &bank ) -> std::shared_ptr<void> {
-                    auto pExtra = std::make_shared<SectorPrepared>();
-                    if ( !bNoHeightWorker ) {
-                        pExtra->Heightfield = PrepareHeightfield( bank, baseName.c_str() );
-                    }
-                    pExtra->Objects = EdenModel::Prepare( bank, ( baseName + "-o" ).c_str(), pLibrary, true );
-                    return pExtra;
-                } );
-            }
+            requestSectorBank( candidates[i].Id );
         }
         // The bank of the sector to load is still being read: do not block the frame on it (an attempt,
         // the ring is not finished). Two seconds of waiting falls back to the old synchronous load.

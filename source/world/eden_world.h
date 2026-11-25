@@ -592,6 +592,8 @@ private:
     bool loadSector( const SectorId &id, bool bAsync = false );
     // Publishes the sectors whose carve job is done (bWait: all of them, blocking).
     void finishPendingSectors( bool bWait );
+    // Queues a sector bank (with its heightfield and -o model preparation) on the bank workers; false when it has no bank.
+    bool requestSectorBank( const SectorId &id );
     bool loadArea( int32_t x, int32_t y );
     void updateAreaIndices( Area &area );
     void markAreasDirty( const SectorId &id );
