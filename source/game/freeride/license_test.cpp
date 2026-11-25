@@ -153,7 +153,7 @@ void LicenseTest::tick( float deltaTime, const Vector3f &carPosition ) {
         return;
     }
     time += deltaTime;
-    const int32_t limitMs = bTimeLimit ? challenge.getLimitMs() : 0;
+    const int32_t limitMs = bTimeLimit && challenge.hasTimeLimit() ? challenge.getLimitMs() : 0;
     if ( limitMs > 0 && time * 1000.0f > static_cast<float>( limitMs ) ) {
         finish( eResult::OutOfTime );
         return;

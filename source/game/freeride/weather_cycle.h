@@ -72,6 +72,11 @@ public:
     void setPinned( const WeatherPreset *pPreset );
     // Back to the running clock after a pin (a school test's own weather): the next tick re-picks the preset.
     void clearPin();
+    // The preset of a time of day (the latest key at or before it) with a file intempery's full set (1 Sunny ... 6 Tempest,
+    // the highest the island's file has); nullptr with no library. A school test's DBChallWeather row pins it.
+    const WeatherPreset *findPresetAt( int32_t minuteOfDay, int32_t wantedIntempery ) const;
+    // Pins a preset and shows `minuteOfDay` on the clock (the test's own hour, between two of the file's keys).
+    void setPinnedAt( const WeatherPreset *pPreset, int32_t minuteOfDay );
 
 private:
     const WeatherLibrary *pLibrary = nullptr;

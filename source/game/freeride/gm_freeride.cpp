@@ -35,6 +35,7 @@
 #include "input/gs_input.h"
 #include "physics/havok_collision.h"
 #include "render/eden/eden_headlights.h"
+#include "render/2db.h"
 #include "render/gs_render.h"
 #include "render/renderer_2d.h"
 #include "system/cmd_line.h"
@@ -3901,7 +3902,7 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
         const std::string &name = licenseTest.getChallenge().getName();
         if ( name.size() > 2 && tolower( static_cast<unsigned char>( name[0] ) ) == 'r' &&
              tolower( static_cast<unsigned char>( name[1] ) ) == 's' && !CmdLine::HasArg( "-notestweather" ) ) {
-            applyTestWeather( static_cast<int32_t>( licenseTest.getChallenge().getValue( "rswh", 0 ) ) );
+            applyTestWeather( name, static_cast<int32_t>( licenseTest.getChallenge().getValue( "rswh", 0 ) ) );
         } else {
             restoreTestWeather();
         }
@@ -4271,15 +4272,16 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
             race.Checkpoints = licenseTest.getGatesPerLap();
             race.Lap = licenseTest.getLap();
             race.Laps = licenseTest.getLapCount();
-            // The school's HUD (the 360 clips): pad tests (rsl1 0) count the limit down on the hourglass and show no minimap;
-            // a test whose target equals its limit (T01 / T02 / T04) is limit-driven, the others show the target under the timer.
+            // The school's HUD (the 360 clips): a test with a time limit (ChCD, "The Challenge has a time limit") counts it down
+            // on the hourglass (T01 / T02 / T04), the others show the target under the count-up timer; pad tests (rsl1 0) show
+            // no minimap.
             {
                 const Ig2Challenge &challenge = licenseTest.getChallenge();
                 const std::string &cname = challenge.getName();
                 if ( cname.size() > 2 && tolower( static_cast<unsigned char>( cname[0] ) ) == 'r' &&
                      tolower( static_cast<unsigned char>( cname[1] ) ) == 's' && !CmdLine::HasArg( "-noschoolhud" ) ) {
                     const float target = challenge.getTargetMs() / 1000.0f, limit = challenge.getLimitMs() / 1000.0f;
-                    if ( limit > 0.0f && std::fabs( target - limit ) < 0.05f ) {
+                    if ( challenge.hasTimeLimit() ) {
                         race.Limit = limit;
                     } else {
                         race.Target = target;
@@ -4601,7 +4603,14 @@ GPUTexture *GMFreeRide::getSchoolLivery( int32_t carId ) {
     if ( it != schoolLiveryTextures.end() ) {
         return it->second;
     }
+    // The car's fixed livery [DATA: DBCarPhysicsData._sticker - rsc_lancia_delta, rsa_Mito, rsd_Q7 ... on every school
+    // car, the story cars' too (VW-Touareg_Ryan); CODE-dev: "scenarics/Stickers/%s.2db" + the "_Med" companion]: a 1024 x
+    // 1024 DXT5 sheet bound as the paint's sticker layer. Measured against the owner's 360 dumps of the C4 cars (500 / 501
+    // / 502): mean |diff| 2.5 / 0.2 / 0.1 of 255, same orientation - the same sheets. A name without a file on disk
+    // (rsa_viper_srt10, rsa_CCXR) leaves the car plain. <userdata>/school_liveries/<car id>.png still overrides.
     GPUTexture *pTexture = nullptr;
+    const char *pSource = "none";
+    std::string sticker;
     if ( gpFile != nullptr && gpRender != nullptr ) {
         const std::filesystem::path path = gpFile->getUserDataFolder() / "school_liveries" / ( std::to_string( carId ) + ".png" );
         std::error_code ec;
@@ -4611,9 +4620,29 @@ GPUTexture *GMFreeRide::getSchoolLivery( int32_t carId ) {
             const void *pData = pixels.data();
             const uint32_t size = static_cast<uint32_t>( pixels.size() );
             pTexture = gpRender->getDevice().createTexture2D( w, h, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, "school livery" );
+            pSource = "userdata png";
+        }
+        if ( pTexture == nullptr && gpDatabase != nullptr && !CmdLine::HasArg( "-nocarsticker" ) ) {
+            const XmbValue root = gpDatabase->getDocument().getRoot();
+            for ( uint32_t i = 0; i < root.getArraySize( "DBCarPhysicsData" ); i++ ) {
+                XmbValue row = root.getArrayElement( "DBCarPhysicsData", i );
+                if ( static_cast<int32_t>( row["_id_car"].asDouble() ) == carId ) {
+                    sticker = row["_sticker"].asString();
+                    break;
+                }
+            }
+            if ( !sticker.empty() && sticker != "##" ) {
+                std::vector<uint8_t> file;
+                Texture2DB texture;
+                if ( gpFile->loadFile( ( gpFile->getBankFolder() + "scenarics/stickers/" + sticker + ".2db" ).c_str(), file ) &&
+                     texture.parse( file.data(), static_cast<uint32_t>( file.size() ) ) && texture.Depth == 1 ) {
+                    pTexture = gpRender->getTextureCache().createFrom2DB( texture, ( "sticker " + sticker ).c_str() );
+                    pSource = "scenarics/stickers";
+                }
+            }
         }
     }
-    OTDU_LOG_INFO( "FREERIDE: school livery for car %d: %s\n", carId, pTexture != nullptr ? "loaded" : "not found in <userdata>/school_liveries" );
+    OTDU_LOG_INFO( "FREERIDE: livery for car %d ('%s'): %s\n", carId, sticker.c_str(), pTexture != nullptr ? pSource : "none" );
     schoolLiveryTextures[carId] = pTexture;
     return pTexture;
 }
@@ -4801,13 +4830,49 @@ void GMFreeRide::returnToSchool( const std::string &test ) {
     openSchool( letter, test );
 }
 
-void GMFreeRide::applyTestWeather( int32_t kind ) {
+void GMFreeRide::applyTestWeather( const std::string &testName, int32_t kind ) {
     const std::vector<WeatherPreset> &presets = gameWeathers.getPresets();
     if ( presets.empty() ) {
         return;
     }
     if ( !bTestWeather ) {
         bTestWeatherWasRunning = weatherCycle.isRunning();
+    }
+    // DBChallWeather [DATA: 58 rows, one per licence test, _ige_name / _hour (float hours) / _weather]: the test's time of
+    // day and weather type. _weather is the retail intempery enum 0 Sunny, 1 Cloudy, 2 Rainny, 3 Before_rain, 4 After_rain,
+    // 5 Tempest [CODE: weather_spec.md 1.2], the file's intempery + 1 (file intempery 0 is the global block). Every test
+    // whose rswh icon is rain has 2 or 5; the 360 C4 clips agree on all six (T01 06:00 clear, T03 14:00 Before_rain
+    // "overcast damp", T04 18:00 rain, T05 20:15 dusk, T06 23:30 night). The rswh hours below are the fallback only.
+    if ( gpDatabase != nullptr && !CmdLine::HasArg( "-nochallweather" ) ) {
+        const XmbValue root = gpDatabase->getDocument().getRoot();
+        for ( uint32_t i = 0; i < root.getArraySize( "DBChallWeather" ); i++ ) {
+            XmbValue row = root.getArrayElement( "DBChallWeather", i );
+            const std::string ige = row["_ige_name"].asString();
+            if ( ige.size() != testName.size() ||
+                 !std::equal( ige.begin(), ige.end(), testName.begin(), []( char a, char b ) {
+                     return tolower( static_cast<unsigned char>( a ) ) == tolower( static_cast<unsigned char>( b ) );
+                 } ) ) {
+                continue;
+            }
+            const int32_t minuteOfDay = static_cast<int32_t>( std::lround( row["_hour"].asDouble() * 60.0 ) );
+            const int32_t weatherType = Clamp( static_cast<int32_t>( row["_weather"].asDouble() ), 0, 5 );
+            const WeatherPreset *pPreset = weatherCycle.findPresetAt( minuteOfDay, weatherType + 1 );
+            if ( pPreset == nullptr ) {
+                break;
+            }
+            intemperyWeather = *pPreset;
+            intemperyWeather.ActiveIntempery = -1;
+            weatherCycle.setPinnedAt( pPreset, minuteOfDay );
+            bBlending = false;
+            pWeather = &intemperyWeather;
+            view.setWeather( pWeather );
+            bTestWeather = true;
+            OTDU_LOG_INFO( "FREERIDE: test weather for %s (DBChallWeather): %02d:%02d, type %d -> preset '%s' (%02d:%02d) "
+                           "intempery %d\n",
+                           testName.c_str(), minuteOfDay / 60, minuteOfDay % 60, weatherType, pPreset->Name.c_str(),
+                           pPreset->Hour, pPreset->Minutes, pPreset->Intempery );
+            return;
+        }
     }
     const int32_t targetHour = kind == 2 ? 23 : 15;
     const WeatherPreset *pBest = nullptr;
@@ -5050,9 +5115,12 @@ void GMFreeRide::buildCourseMarkers() {
     // gate openings of the manoeuvre tests]: a Catmull-Rom curve from the
     // start pose through every opening of one lap, cut into strips; a road
     // test (gates on road links, 150-600 m apart) has no straight line to
-    // draw and gets none.
+    // draw and gets none. The test's dscr key ("Display trajectory", the challenge editor's checkbox, DBLoc 3196 [CODE-dev:
+    // property table 0xb38a37]) turns it off: 0 on ten road tests (the overtaking ones, RSA1T08, RSA2T08) [DATA]; the 360
+    // RSC4T05 run (dscr 0) has no chevrons on the road, RSC4T01 (dscr 1) has them.
+    const bool bTrajectory = licenseTest.getChallenge().getValue( "dscr", 1 ) != 0;
     int32_t numStrips = 0, numBrakes = 0;
-    if ( !CmdLine::HasArg( "-noracingline" ) && raceGates.hasModel( RaceGates::eModel::Trajectory ) ) {
+    if ( bTrajectory && !CmdLine::HasArg( "-noracingline" ) && raceGates.hasModel( RaceGates::eModel::Trajectory ) ) {
         std::vector<Vector3f> points;
         points.push_back( gates[0].Position );
         const int32_t perLap = Max( 1, licenseTest.getGatesPerLap() );
@@ -10111,9 +10179,9 @@ void GMFreeRide::drawOffscreen() {
         }
         if ( !bSchoolTrafficBound ) {
             bSchoolTrafficBound = true;
-            if ( GPUTexture *pLivery = getSchoolLivery( 500 ) ) {
-                schoolTraffic.assignSticker( *pRenderer, pLivery );
-            }
+            // Each traffic car's own livery (VSph: RSC4T05's Deltas rsc_lancia_delta, RSA4T05's Mitos rsa_Mito, RSA5T03's
+            // stock cars none).
+            schoolTraffic.assignStickers( *pRenderer, [this]( int32_t carId ) { return getSchoolLivery( carId ); } );
         }
     }
     if ( opponents.isActive() || traffic.hasRivals() ) {
@@ -10122,9 +10190,8 @@ void GMFreeRide::drawOffscreen() {
             traffic.assignRivalEnvironment( *pRenderer, pCube );
         }
     }
-    // The racing school cars' liveries (docs/re/x360_texture_dump.md): a 1024x1024 sheet per car (Delta 07, Esprit 70, Mustang 71)
-    // bound as the paint's sticker layer. The sheets come from the owner's 360 capture, not from the PC game data: put them
-    // in <userdata>/school_liveries/<car id>.png (500 / 501 / 502), or test one with -liverytex <png>.
+    // The racing school cars' liveries: DBCarPhysicsData._sticker -> scenarics/stickers/<name>.2db (getSchoolLivery), a
+    // 1024x1024 sheet bound as the paint's sticker layer, for every school's car; -liverytex <png> tests another sheet.
     if ( !bLiveryBound && car.isLoaded() && pRenderer != nullptr ) {
         bLiveryBound = true; // once per car load
         GPUTexture *pLiveryTex = nullptr;
@@ -10136,8 +10203,10 @@ void GMFreeRide::drawOffscreen() {
                 const uint32_t size = static_cast<uint32_t>( pixels.size() );
                 pLiveryTex = gpRender->getDevice().createTexture2D( w, h, 1, VK_FORMAT_R8G8B8A8_UNORM, &pData, &size, "school livery" );
             }
-        } else if ( const int32_t liveryCar = testCarOverride >= 0 ? testCarOverride : car.getIdCar(); liveryCar >= 500 && liveryCar <= 502 ) {
-            pLiveryTex = getSchoolLivery( liveryCar );
+        } else if ( testCarOverride >= 0 ) {
+            // A school test's car (VMod): its _sticker livery. The player's own cars keep their paint (a car with a
+            // _sticker of its own outside the school is a story car, not handled here).
+            pLiveryTex = getSchoolLivery( testCarOverride );
         }
         if ( pLiveryTex != nullptr ) {
             const uint32_t bound = car.bindStickerTexture( *pRenderer, pLiveryTex );

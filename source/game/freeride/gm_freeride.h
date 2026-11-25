@@ -424,7 +424,8 @@ private:
     bool carHitsCoursePole() const;
     // A school test's own weather (the .ig2's rswh: 0 sun, 1 rain, 2 night [DATA; the 360 capture: T04 rain, T06 night]):
     // the cycle is pinned to an afternoon / night preset for the run and set free again at the school.
-    void applyTestWeather( int32_t kind );
+    // A school test's time of day and weather: its DBChallWeather row (_hour, _weather), else the .ig2's rswh icon.
+    void applyTestWeather( const std::string &testName, int32_t kind );
     void restoreTestWeather();
     bool bTestWeather = false;
     bool bTestWeatherWasRunning = false;

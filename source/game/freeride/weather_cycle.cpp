@@ -223,6 +223,25 @@ void WeatherCycle::setPinned( const WeatherPreset *pNewPreset ) {
     lastMinuteOfDay = hour * 60 + minute;
 }
 
+const WeatherPreset *WeatherCycle::findPresetAt( int32_t minuteOfDay, int32_t wantedIntempery ) const {
+    if ( pLibrary == nullptr || pLibrary->getPresets().empty() ) {
+        return nullptr;
+    }
+    return presetFor( findTimePreset( minuteOfDay ), wantedIntempery );
+}
+
+void WeatherCycle::setPinnedAt( const WeatherPreset *pNewPreset, int32_t minuteOfDay ) {
+    setPinned( pNewPreset );
+    if ( pNewPreset == nullptr ) {
+        return;
+    }
+    minuteOfDay = ( ( minuteOfDay % 1440 ) + 1440 ) % 1440;
+    hour = minuteOfDay / 60;
+    minute = minuteOfDay % 60;
+    secondsOfDay = static_cast<float>( minuteOfDay ) * 60.0f;
+    lastMinuteOfDay = minuteOfDay;
+}
+
 void WeatherCycle::clearPin() {
     bPinned = false;
     presetIndex = -1;

@@ -536,6 +536,16 @@ void RaceOpponents::assignSticker( EdenRenderer &renderer, GPUTexture *pTexture 
     }
 }
 
+void RaceOpponents::assignStickers( EdenRenderer &renderer, const std::function<GPUTexture *( int32_t carId )> &lookup ) {
+    for ( Racer &racer : racers ) {
+        if ( CinematicCar *pCar = racer.Car->getCar() ) {
+            if ( GPUTexture *pTexture = lookup( pCar->getIdCar() ) ) {
+                pCar->bindStickerTexture( renderer, pTexture );
+            }
+        }
+    }
+}
+
 void RaceOpponents::stop() {
     if ( !racers.empty() ) {
         OTDU_LOG_INFO( "RaceOpponents: race over, %zu opponent(s) removed\n", racers.size() );

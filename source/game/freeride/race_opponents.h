@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include "game/freeride/ai_drivers.h"
 
 #include <memory>
@@ -74,6 +76,8 @@ public:
     int32_t findTrafficContact( const Vector3f &playerPosition, float playerYaw ) const;
     // Binds a livery on every car's sticker layer (once).
     void assignSticker( EdenRenderer &renderer, GPUTexture *pTexture );
+    // Binds each car's own livery (the lookup returns nullptr for a car without one: it stays plain).
+    void assignStickers( EdenRenderer &renderer, const std::function<GPUTexture *( int32_t carId )> &lookup );
 
     // bRunning: the race has started (after the countdown); raceTime: its clock.
     void tick( float deltaTime, bool bRunning, float raceTime, const Vector3f &playerPosition,

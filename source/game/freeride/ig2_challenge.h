@@ -86,6 +86,12 @@ public:
     int64_t getValue( const char *pKey, int64_t fallback = 0 ) const;
     inline int32_t getTargetMs() const { return static_cast<int32_t>( getValue( "timG" ) ); }
     inline int32_t getLimitMs() const { return static_cast<int32_t>( getValue( "CtDw" ) ); }
+    // ChCD: "The Challenge has a time limit" (the challenge editor's checkbox, DBLoc 12) - CtDw ("Countdown", DBLoc 11) is
+    // the limit only when it is set [CODE-dev: the property table TestDrive2DEV.exe 0xb384b5 / 0xadf121 labels the keys
+    // with loc ids]. Without it CtDw is the editor's default and is not a limit: RSA1T08's 222 s target over a 120 s
+    // CtDw, RSA7T06's 67 s over 55 s [DATA]; the 360 clips show the count-up timer + target on those tests (RSC4T03 /
+    // T05 / T06) and the hourglass on the ChCD 1 ones (T01 / T02 / T04).
+    inline bool hasTimeLimit() const { return getValue( "ChCD", 1 ) != 0 && getLimitMs() > 0; }
     inline int32_t getCarId() const { return static_cast<int32_t>( getValue( "VMod", -1 ) ); }
     // gmth: 0 time attack (and the licence tests), 1 speedtrap ('A' races),
     // 3 race ('R'), 10 speed ('S'), 7 events, 11 / 12 missions [DATA: the
