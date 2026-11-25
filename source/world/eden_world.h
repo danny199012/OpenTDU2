@@ -409,6 +409,11 @@ private:
         // "can a card here touch a road surface" prefilter (one array read
         // instead of a hash-map find per probe, grass_spec.md 11).
         std::vector<uint8_t> RoadMask;
+        // The grass emitter's road verdict per lattice cell ((1024 / stride + 1)^2 entries, allocated on first use):
+        // 0 unknown, 1 clear, 2 on a road surface, 3 on the road graph. A pure function of the cell (the sector's road
+        // index, the road graph and the options are fixed once the graph is built), so the per-frame re-walk reads it
+        // instead of re-running the five-probe test (-nograssverdictcache = the A/B).
+        std::vector<uint8_t> GrassRoadVerdict;
         // .pmi lists (V / O static library models, A actors).
         std::vector<PmiInstance> Instances;
         std::vector<int32_t> InstanceModels;   // library node or actor model index

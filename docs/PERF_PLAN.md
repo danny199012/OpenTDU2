@@ -4,6 +4,10 @@ A self-contained brief for whoever picks up performance. Read `CLAUDE.md` first 
 "stop only your own exe" rule), then this. Keep the doc tags: `[MEAS]` measured this session, `[CODE]` read from
 our source, `[INF]` inferred.
 
+## 0c. 2026-11-25 (`main`) - the current baseline and the grass road verdict cache
+
+Baseline at 720p (standard drive, `-clock 02.00 -staticcubemap`): **10.5 ms (95 fps)**, prepass 6.6 ms CPU (1.5 of it recording), `-sampleprof` has the grass emit at ~29 % of the main thread. First lever taken: the per-cell road verdict is cached (`Sector::GrassRoadVerdict`, `-nograssverdictcache` = A/B): prepass 6.2-7.8 -> 5.0-5.2 ms, frame 9.7-12.5 -> 8.6-9.1 ms, pixel-identical. Profile build: `cmake --build build-prof` (PDB, `build-profin\opentdu2-prof.exe -sampleprof 360,600 -log <path>`). Details and the remaining list: `docs/state/main.md`.
+
 ## 0b. 2026-11-16 (`main`, session 39) — 4K High 17.9 -> 15.9 ms with the image untouched; where the next 5 ms live
 
 Same command as §0a (`-profile high -width 3840 -height 2160 ... -tp 21796.3,24188.1 -snaproad 150 -carlod 4

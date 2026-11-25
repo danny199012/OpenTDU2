@@ -4,6 +4,26 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the performance list: grass road verdict cached, prepass 6.5 -> 5.1 ms)
+
+Owner: "Yes, the rest of the performance list" (`docs/PERF_PLAN.md` section 0b levers, P3, P4).
+
+### Fresh baseline [MEAS] (standard drive, `-clock 02.00 -staticcubemap`, 720p, build before this change)
+- Frame 600: **10.5 ms (95 fps)**: prepass 6.6 / opaque 1.8 / ocean 0.4 / blended 0.4 ms CPU; GPU about 1.4 ms. `-logrecordtimes`: of the prepass's 7.9 ms only 1.5 ms is draw recording (1190 draws) - the rest is the scene traversal. 2400 draws, ~950 distinct mesh / material pairs a frame.
+- `-sampleprof 360,600` (the `build-prof` PDB build, `build-profin\opentdu2-prof.exe`; 1480 samples): `buildGrassBatch` 16.4 %, `drawInstances` 6.5 %, `_NLG_Return2` 6.4 % (EH glue), `vkGetInstanceProcAddr` 6.2 % (API-call overhead, a symbolisation artefact), `GrassRoadIndex::nearRoad` 5.3 %, `fillConstants` 4.9 %, `SampleRoadSurface` 3.6 %, `recordDrawImpl` 3.2 %, `isBoxVisible` 2.7 %, `maybeNear` 1.6 %, the append lambda 1.6 %. The grass emit (build + probes + lambda + AppendBlade) is ~29 % of the main thread.
+
+### What changed
+- `source/world/eden_world.{h,cpp}`: the grass emitter's road verdict (`maybeNear` + `SampleRoadSurface` x5 probes + `nearRoad`) is a pure function of the lattice cell - the sector's road index, the road graph and the options are fixed once the graph is built - so it is cached per sector and cell (`Sector::GrassRoadVerdict`, 0 unknown / 1 clear / 2 on a road surface / 3 on the road graph; ~1 MB a sector at stride 1) and the per-frame re-walk reads it. Not cached: a card the car flatten lowered (the surface probe reaches `y + cardHeight`, so `bHeightModified`), and anything before the road graph is built. `-nograssverdictcache` = the old path (A/B).
+
+### Verified
+- Six paired runs (`-nograssverdictcache` vs default, same command): prepass **6.2-7.8 -> 5.0-5.2 ms**, frame **9.7-12.5 -> 8.6-9.1 ms (~103 -> ~115 fps)**; the machine is noisy run to run (the old side ranges 9.7-12.5), the new side is tight. Frame 600 pixel-identical (mean abs diff 0.0, max 0, watermark masked).
+
+### Not done / next (the rest of the list, in the plan's order)
+1. Grass: the row decode (`pgrRowScratch` RLE expand of a 1024-cell row per visited row per frame), `SampleSectorHeight` per card and the per-card hash / density law are the remaining `buildGrassBatch` self time; the keep law is camera dependent (not image-identical to cache), the row decode and the heights are not.
+2. Per-draw resolve (`fillConstants` + `recordDrawImpl` + `FindSmall`, ~14 %): cache the world-independent part of each constant block per (program, material, scene fingerprint).
+3. `MASSINSTANCE_VIS_MAX` (retail's draw budget) as an opt-in knob, and the `TD_HardwareInstance` instancing check - both image-affecting / bigger, need the owner's eye.
+4. P3 far vegetation (LOD1+ library objects), P4 (the env cube refresh while the car is static, frame pacing at 4K).
+
 ## Session 2026-11-25, late (`main`, the replaced LicencePhoto textures are freed)
 
 Follow-up: "Yes, free the old LicencePhoto texture".

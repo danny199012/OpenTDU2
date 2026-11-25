@@ -4326,6 +4326,7 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 const float scale = 1.0f + type.SizeDelta * ( f2 * 2.0f - 1.0f );
                 const float w = type.Width * scale;
                 float cardHeight = type.Height * scale;
+                bool bHeightModified = false; // the car flatten lowered this card
                 // The car flatten (grass_spec.md 12): cards under and right
                 // beside the player's car are dropped, a ring around it is
                 // lowered (the retail VS bends them away from CarPos).
@@ -4340,6 +4341,7 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                             continue;
                         }
                         cardHeight *= t * t * ( 3.0f - 2.0f * t );
+                        bHeightModified = true;
                     }
                 }
                 // A paved surface within the card's reach of the sheet: the
@@ -4371,22 +4373,42 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                 // exact probes only run where a road surface / graph segment
                 // can be within reach (grass_spec.md 11 - the five-probe test
                 // alone cost ~10 ms of emit per frame in a field).
-                const int32_t roadCellX = static_cast<int32_t>( std::floor( ( px - origin.x ) / 8.0f ) );
-                const int32_t roadCellZ = static_cast<int32_t>( std::floor( ( pz - origin.z ) / 8.0f ) );
-                const bool bRoadPossible = !pSector->RoadMask.empty() && roadCellX >= 0 && roadCellX < 96 &&
-                                           roadCellZ >= 0 && roadCellZ < 96 &&
-                                           pSector->RoadMask[ roadCellZ * 96 + roadCellX ] != 0;
-                const bool bGraphPossible = grassRoads.bBuilt && ( roadWidth > 6.5f || grassRoads.maybeNear( px, pz ) );
-                for ( int32_t probe = 0; probe < numProbes && !bOnRoad && !bOnGraph && ( bRoadPossible || bGraphPossible );
-                      probe++ ) {
-                    float roadY;
-                    if ( GrassRoadSkip() && bRoadPossible &&
-                         SampleRoadSurface( *pSector, probeX[probe], probeZ[probe], y + cardHeight + 0.25f, roadY ) &&
-                         roadY > y - RoadSkipTolerance() ) {
-                        bOnRoad = true;
-                    } else if ( GrassRoadSkip() && bGraphPossible &&
-                                grassRoads.nearRoad( probeX[probe], probeZ[probe], GrassRoadWidth() ) ) {
-                        bOnGraph = true;
+                // The verdict is cached per lattice cell unless the car flatten changed this card's height (the
+                // surface probe reaches y + cardHeight) or the road graph is not built yet (it would cache "clear").
+                static const bool bNoVerdictCache = CmdLine::HasArg( "-nograssverdictcache" );
+                uint8_t *pVerdict = nullptr;
+                if ( !bNoVerdictCache && !bHeightModified && grassRoads.bBuilt ) {
+                    const size_t verdictStride = static_cast<size_t>( 1024 / stride + 1 );
+                    if ( pSector->GrassRoadVerdict.empty() ) {
+                        pSector->GrassRoadVerdict.assign( verdictStride * verdictStride, 0 );
+                    }
+                    pVerdict = &pSector->GrassRoadVerdict[static_cast<size_t>( gy / stride ) * verdictStride +
+                                                          static_cast<size_t>( gx / stride )];
+                }
+                if ( pVerdict != nullptr && *pVerdict != 0 ) {
+                    bOnRoad = *pVerdict == 2;
+                    bOnGraph = *pVerdict == 3;
+                } else {
+                    const int32_t roadCellX = static_cast<int32_t>( std::floor( ( px - origin.x ) / 8.0f ) );
+                    const int32_t roadCellZ = static_cast<int32_t>( std::floor( ( pz - origin.z ) / 8.0f ) );
+                    const bool bRoadPossible = !pSector->RoadMask.empty() && roadCellX >= 0 && roadCellX < 96 &&
+                                               roadCellZ >= 0 && roadCellZ < 96 &&
+                                               pSector->RoadMask[ roadCellZ * 96 + roadCellX ] != 0;
+                    const bool bGraphPossible = grassRoads.bBuilt && ( roadWidth > 6.5f || grassRoads.maybeNear( px, pz ) );
+                    for ( int32_t probe = 0; probe < numProbes && !bOnRoad && !bOnGraph && ( bRoadPossible || bGraphPossible );
+                          probe++ ) {
+                        float roadY;
+                        if ( GrassRoadSkip() && bRoadPossible &&
+                             SampleRoadSurface( *pSector, probeX[probe], probeZ[probe], y + cardHeight + 0.25f, roadY ) &&
+                             roadY > y - RoadSkipTolerance() ) {
+                            bOnRoad = true;
+                        } else if ( GrassRoadSkip() && bGraphPossible &&
+                                    grassRoads.nearRoad( probeX[probe], probeZ[probe], GrassRoadWidth() ) ) {
+                            bOnGraph = true;
+                        }
+                    }
+                    if ( pVerdict != nullptr ) {
+                        *pVerdict = bOnRoad ? 2 : ( bOnGraph ? 3 : 1 );
                     }
                 }
                 if ( bOnRoad ) {
