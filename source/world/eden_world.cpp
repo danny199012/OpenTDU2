@@ -3066,7 +3066,9 @@ bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int3
                         bankPreloader.wait( ringPath );
                     }
                 }
-                if ( loadSector( id ) ) {
+                // The carve of each ring sector runs on a worker while the next one loads; everything is joined
+                // before this call returns, so callers see the same loaded set as before (-noringworker = synchronous).
+                if ( loadSector( id, !bNoRingWorker ) ) {
                     bLoadedAny = true;
                     numLoaded++;
                 } else {
@@ -3075,11 +3077,13 @@ bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int3
                 if ( maxSectors > 0 && numLoaded >= maxSectors ) {
                     // The caller's budget is spent: the rest of the square
                     // lands on the following frames' calls.
+                    finishPendingSectors( true );
                     return bLoadedAny;
                 }
             }
         }
     }
+    finishPendingSectors( true );
     if ( bLoadedAny ) {
         drawEpoch++;
         OTDU_LOG_INFO( "EdenWorld: %zu sectors loaded around (%.0f, %.0f) in %.1f ms\n", sectors.size(), position.x,

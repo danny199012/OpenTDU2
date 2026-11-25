@@ -4,6 +4,19 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the ring carve on a worker)
+
+Follow-up: "Yes, the ring carve".
+
+### What changed
+- `source/world/eden_world.cpp`: `loadAround` loads its ring with `loadSector( id, true )` (the carve runs on a `std::async` worker while the next sector loads) and calls `finishPendingSectors( true )` before every return, so callers see the same loaded set as before; only the last carve is exposed. `-noringworker` = synchronous as before.
+
+### Verified
+- First `loadAround` at spawn, 4 runs each: 321-333 ms (`-noringworker`) -> 143-148 ms (it was 148-153 ms before this step: ~5 ms, as expected for ~1.7 ms x 9 carves overlapped). Frame 800 and the tunnel site (`-tp 22700,22400`, frame 700) pixel-identical (mean abs diff 0.0); 9 sectors loaded at both spots, same as the old path.
+
+### Not done / next
+- The spawn call is now ~145 ms against ~340 at the start of the series; what is left is main-thread-only work (textures, materials, buffers, `loadInstances`, `modelLoadedCallback`). Further wins there would need the GPU side batched (one upload batch per ring, not per sector) - not measured yet.
+
 ## Session 2026-11-25, late (`main`, the areas on the bank workers)
 
 Follow-up: "Yes, the areas".
