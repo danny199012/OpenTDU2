@@ -2460,6 +2460,8 @@ bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
                     pSector->Objects.getBoundsMin().y, pSector->Objects.getBoundsMin().z,
                     pSector->Objects.getBoundsMax().x, pSector->Objects.getBoundsMax().y,
                     pSector->Objects.getBoundsMax().z );
+    // The sector's materials built their programs: warm the pipelines the last run used with them (worker threads).
+    pRenderer->prewarmPipelines();
     if ( bDeferCarve ) {
         // Published by finishPendingSectors once the worker is done with it; nothing touches the sector meanwhile.
         PendingSector pending;
@@ -2593,6 +2595,7 @@ bool EdenWorld::loadArea( int32_t x, int32_t y ) {
         }
     }    RegisterNeons( pArea->Objects, static_cast<uint32_t>( GetIdentifier64bit( name ) ), pArea->NeonMaterials,
                    pArea->NeonBlinks );    areas.push_back( std::move( pArea ) );
+    pRenderer->prewarmPipelines();
     bIslandIndicesDirty = true;
     bOceanVisibilityDirty = true;
     return true;

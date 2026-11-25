@@ -4,6 +4,26 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the pipeline manifest: spawn frame 137 -> 103 ms)
+
+Follow-up: "Yes, the pipeline manifest".
+
+### What changed
+- `source/render/eden/eden_renderer.{h,cpp}`: `getPipeline` is split: `makePipelineKey` (the old key), `PipelineState` (the cull / blend / depth / mask values the pipeline depends on) and `createPipeline( mesh, program, state, pass, name )`, which only touches the device, the pipeline cache and the layout (thread safe). **Manifest**: every pipeline a run creates is recorded (`recordManifest`: library + vs / ps attrib, render pass key, mesh layout, state) and saved in `<userdata>/pipeline_manifest.bin` at renderer destroy (written beside + renamed; cap 6000 entries). The next run loads it in `initialize`; `prewarmPipelines()` - called at the end of `loadSector`, `loadArea`, `EdenModel::load` and `loadPrepared`, and a no-op unless a program was built since its last scan - re-creates, on 3 low-priority worker threads, every entry whose program already exists (`EdenShaderSystem::findProgramByKey`, never builds one). The main thread adopts the finished pipelines into `pipelines` (`adoptWarmedPipelines`) at the first `getPipeline` miss after waiting for the pool, so the first draw finds them. `-nopipelinewarm` = off (and no recording), `-logpipetimes` tags each creation `MAIN` / `WORKER`.
+- `source/render/vulkan/render_device.{h,cpp}`: `getRenderPassKey( pass )` / `getRenderPassForKey( key )` - a run-independent identity for the swapchain pass and the target passes (formats + clear).
+- `source/render/eden/eden_shader_system.{h,cpp}`: `findProgram` / `findProgramByKey` / `getNumPrograms`.
+
+### Verified (standard spawn, 3 runs each, `-nopipelinewarm` vs default with a recorded manifest of 465 entries)
+- Frame 0: main-thread pipelines **311 (30 ms) -> 22 (2 ms)**; 393 created on the workers (45 ms of worker time, in parallel with the load).
+- `[hitch] frame 1`: **137 / 140 / 137 ms -> 101 / 106 ms (`offscreen` 93-96 -> 58-60, `update` unchanged 31-35)**. Frame 300 pixel-identical warm on / off (mean abs diff 0.0).
+- `-vk_enable_validation_layer`, warm on vs off: the same VUIDs both ways (`vkCmdDraw-renderPass-02684` x10, `vkCmdDraw-None-09600` x5, `vkDestroyDevice-device-05137` x1) - pre-existing, nothing from the warm-up (they are the next thing to look at: a render pass / pipeline compatibility report on the first frames).
+- Two traps hit on the way: the scan used `findProgram` (ToUpper + string building per entry per call) and pushed `update` from 31 to 37-71 ms - the precomputed `ProgramKey` fixed it; the car's shaders are built at car load, after the world's last scan, so the scan also runs at the end of every model load (that took the main-thread count from 115 to 22).
+
+### Not done / next
+- The "3 used on a first draw" line of the shutdown log counts only the first adoption: use the `-logpipetimes` MAIN count as the measure.
+- 47 of the 440 submitted pipelines are not needed by a spawn like this one (other modes' entries); the manifest has no mode tag, so a mode that draws less still warms the union. A mode tag per entry would trim that; the cost is worker time only.
+- The pre-existing VUIDs above.
+
 ## Session 2026-11-25, late (`main`, the spawn frame profiled: first-sight pipelines, no cheap fix)
 
 Follow-up: "Yes, profile frame 1".

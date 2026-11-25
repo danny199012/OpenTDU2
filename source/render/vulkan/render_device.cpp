@@ -1382,6 +1382,32 @@ void RenderDevice::beginMainPass() {
     currentRenderPass = mainRenderPass;
 }
 
+bool RenderDevice::getRenderPassKey( VkRenderPass pass, uint64_t &outKey ) const {
+    if ( pass == VK_NULL_HANDLE ) {
+        return false;
+    }
+    if ( pass == mainRenderPass ) {
+        outKey = kMainPassKey;
+        return true;
+    }
+    for ( const auto &entry : targetRenderPasses ) {
+        if ( entry.second == pass ) {
+            outKey = entry.first;
+            return true;
+        }
+    }
+    return false;
+}
+
+VkRenderPass RenderDevice::getRenderPassForKey( uint64_t key ) {
+    if ( key == kMainPassKey ) {
+        return mainRenderPass;
+    }
+    const VkFormat colorFormat = static_cast<VkFormat>( key & 0xffffffull );
+    const VkFormat depthFormat = static_cast<VkFormat>( ( key >> 24 ) & 0xffffffull );
+    return getTargetRenderPass( colorFormat, depthFormat, ( key & ( 1ull << 48 ) ) != 0 );
+}
+
 VkRenderPass RenderDevice::getTargetRenderPass( VkFormat colorFormat, VkFormat depthFormat, bool bClear ) {
     const uint64_t key = static_cast<uint64_t>( colorFormat ) | ( static_cast<uint64_t>( depthFormat ) << 24 ) |
                          ( bClear ? 1ull << 48 : 0ull );

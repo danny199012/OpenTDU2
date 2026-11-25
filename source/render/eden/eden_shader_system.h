@@ -79,6 +79,15 @@ public:
 
     ShaderLibrary *findLibrary( uint64_t guid );
     ShaderLibrary *findLibrary( const char *pName );
+    // The program of a library permutation when it has already been built (never builds one): the pipeline manifest
+    // replay only warms what the loaded materials already use.
+    const EdenProgram *findProgram( const char *pLibraryName, uint32_t vsAttrib, uint32_t psAttrib );
+    // The same by the "LIBRARY:vs:ps" key (what findProgram builds): no string work per call beyond the lookup.
+    const EdenProgram *findProgramByKey( const std::string &key ) const {
+        auto it = programs.find( key );
+        return it != programs.end() ? it->second.get() : nullptr;
+    }
+    size_t getNumPrograms() const { return programs.size(); }
 
     // Permutation of a material (nullptr if the family is unknown).
     const EdenProgram *getProgram( uint64_t guid, const uint8_t *pSpec );

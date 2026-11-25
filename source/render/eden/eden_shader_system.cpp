@@ -178,6 +178,16 @@ EdenProgram *EdenShaderSystem::buildProgram( ShaderLibrary *pLibrary, uint32_t v
     return pResult;
 }
 
+const EdenProgram *EdenShaderSystem::findProgram( const char *pLibraryName, uint32_t vsAttrib, uint32_t psAttrib ) {
+    ShaderLibrary *pLibrary = findLibrary( pLibraryName );
+    if ( pLibrary == nullptr ) {
+        return nullptr;
+    }
+    const std::string key = pLibrary->getName() + ":" + std::to_string( vsAttrib ) + ":" + std::to_string( psAttrib );
+    auto it = programs.find( key );
+    return it != programs.end() ? it->second.get() : nullptr;
+}
+
 const EdenProgram *EdenShaderSystem::getProgram( const char *pLibraryName, uint32_t vsAttrib, uint32_t psAttrib ) {
     ShaderLibrary *pLibrary = findLibrary( pLibraryName );
     return pLibrary != nullptr ? buildProgram( pLibrary, vsAttrib, psAttrib ) : nullptr;

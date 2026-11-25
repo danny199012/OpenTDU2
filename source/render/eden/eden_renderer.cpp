@@ -1,6 +1,7 @@
 #include "shared.h"
 #include <chrono>
 #include "eden_renderer.h"
+#include "filesystem/gs_file.h"
 
 #include <set>
 #include <cfloat>
@@ -8,6 +9,7 @@
 #include <functional>
 #include <condition_variable>
 #include <mutex>
+#include <SDL3/SDL_thread.h>
 #include <thread>
 #include <unordered_set>
 #include "eden_material_handlers.h"
@@ -294,6 +296,63 @@ EdenRenderer::EdenRenderer()
       bInScene( false ),
       bReady( false ) {}
 
+// A small worker pool for the pipeline manifest replay.
+struct EdenRenderer::WarmPool {
+    std::mutex Mutex;
+    std::condition_variable Cv, IdleCv;
+    std::deque<std::function<void()>> Queue;
+    std::vector<std::thread> Threads;
+    uint32_t Pending = 0;
+    bool bStop = false;
+
+    explicit WarmPool( size_t numThreads ) {
+        for ( size_t i = 0; i < numThreads; i++ ) {
+            Threads.emplace_back( [this]() { run(); } );
+        }
+    }
+    ~WarmPool() {
+        {
+            std::lock_guard<std::mutex> lock( Mutex );
+            bStop = true;
+        }
+        Cv.notify_all();
+        for ( std::thread &thread : Threads ) {
+            thread.join();
+        }
+    }
+    void submit( std::function<void()> job ) {
+        std::lock_guard<std::mutex> lock( Mutex );
+        Queue.push_back( std::move( job ) );
+        Pending++;
+        Cv.notify_one();
+    }
+    void waitIdle() {
+        std::unique_lock<std::mutex> lock( Mutex );
+        IdleCv.wait( lock, [this]() { return Pending == 0; } );
+    }
+    void run() {
+        // Behind the main thread and the bank workers: this is warm-up, nothing waits for it until the first draw.
+        SDL_SetCurrentThreadPriority( SDL_THREAD_PRIORITY_LOW );
+        for ( ;; ) {
+            std::function<void()> job;
+            {
+                std::unique_lock<std::mutex> lock( Mutex );
+                Cv.wait( lock, [this]() { return bStop || !Queue.empty(); } );
+                if ( Queue.empty() ) {
+                    return; // stopping
+                }
+                job = std::move( Queue.front() );
+                Queue.pop_front();
+            }
+            job();
+            std::lock_guard<std::mutex> lock( Mutex );
+            if ( --Pending == 0 ) {
+                IdleCv.notify_all();
+            }
+        }
+    }
+};
+
 EdenRenderer::~EdenRenderer() {}
 
 GPUTexture *EdenRenderer::createWhiteTexture( VkImageViewType viewType, const char *pName ) {
@@ -350,6 +409,7 @@ void EdenRenderer::refreshSamplers() {
 }
 
 bool EdenRenderer::initialize( RenderDevice *pRenderDevice, TextureCache *pCache ) {
+    loadManifest();
     pDevice = pRenderDevice;
     pTextureCache = pCache;
     if ( CmdLine::HasArg( "-nosob" ) || !pDevice->supportsDxsoShaders() ) {
@@ -540,6 +600,16 @@ void EdenRenderer::destroy() {
                        static_cast<unsigned long long>( parallelFlushes ), static_cast<unsigned long long>( parallelDraws ),
                        static_cast<unsigned long long>( inlineFlushDraws ) );
         pParallel.reset();
+    }
+    if ( pWarmPool != nullptr ) {
+        pWarmPool->waitIdle();
+        adoptWarmedPipelines();
+        pWarmPool.reset();
+    }
+    saveManifest();
+    if ( numWarmSubmitted != 0 ) {
+        OTDU_LOG_INFO( "EdenRenderer: pipeline warm-up: %u submitted, %u adopted, %u used on a first draw\n", numWarmSubmitted,
+                       numWarmAdopted, numWarmHits );
     }
     for ( auto &pipeline : pipelines ) {
         pDevice->destroyPipeline( pipeline.second );
@@ -1217,9 +1287,275 @@ void EdenRenderer::draw( const EdenMesh &mesh, const EdenMaterial &material, con
     recordDraw( mesh, material, world, pParams );
 }
 
+std::string EdenRenderer::serializeManifestEntry( const ManifestEntry &entry ) {
+    std::string out;
+    auto put = [&out]( const void *pData, size_t size ) { out.append( static_cast<const char *>( pData ), size ); };
+    auto put32 = [&put]( uint32_t value ) { put( &value, sizeof( value ) ); };
+    put32( static_cast<uint32_t>( entry.Library.size() ) );
+    put( entry.Library.data(), entry.Library.size() );
+    put32( entry.VS );
+    put32( entry.PS );
+    put( &entry.Pass, sizeof( entry.Pass ) );
+    put32( entry.NumStreams );
+    for ( uint32_t stride : entry.Strides ) {
+        put32( stride );
+    }
+    put32( entry.Topology );
+    put32( static_cast<uint32_t>( entry.Attributes.size() ) );
+    for ( const RawVertexAttribute &attribute : entry.Attributes ) {
+        put32( attribute.Usage );
+        put32( attribute.UsageIndex );
+        put32( attribute.Stream );
+        put32( static_cast<uint32_t>( attribute.Format ) );
+        put32( attribute.Offset );
+    }
+    const PipelineState &st = entry.State;
+    for ( uint32_t value : { st.SrcBlend, st.DstBlend, st.CullMode, st.BlendOp, st.WriteMask, st.DepthFunc, st.BlendFactor,
+                             st.bDepthTest ? 1u : 0u, st.bDepthWrite ? 1u : 0u, st.bBlended ? 1u : 0u } ) {
+        put32( value );
+    }
+    return out;
+}
+
+void EdenRenderer::loadManifest() {
+    if ( CmdLine::HasArg( "-nopipelinewarm" ) || gpFile == nullptr ) {
+        return;
+    }
+    std::ifstream stream( gpFile->getUserDataFolder() / "pipeline_manifest.bin", std::ios::binary );
+    if ( !stream.is_open() ) {
+        return;
+    }
+    uint32_t header[2] = { 0, 0 };
+    stream.read( reinterpret_cast<char *>( header ), sizeof( header ) );
+    constexpr uint32_t kMagic = 0x31464d50; // "PMF1"
+    if ( !stream || header[0] != kMagic || header[1] > 20000 ) {
+        return;
+    }
+    for ( uint32_t i = 0; i < header[1]; i++ ) {
+        uint32_t size = 0;
+        stream.read( reinterpret_cast<char *>( &size ), sizeof( size ) );
+        if ( !stream || size > ( 1u << 16 ) ) {
+            break;
+        }
+        std::string blob( size, '\0' );
+        stream.read( blob.data(), size );
+        if ( !stream ) {
+            break;
+        }
+        // The reverse of serializeManifestEntry; any overrun drops the entry.
+        size_t at = 0;
+        bool bOk = true;
+        auto get = [&]( void *pOut, size_t n ) {
+            if ( at + n > blob.size() ) {
+                bOk = false;
+                return;
+            }
+            memcpy( pOut, blob.data() + at, n );
+            at += n;
+        };
+        auto get32 = [&get]() {
+            uint32_t value = 0;
+            get( &value, sizeof( value ) );
+            return value;
+        };
+        ManifestEntry entry;
+        const uint32_t libSize = get32();
+        if ( !bOk || at + libSize > blob.size() ) {
+            continue;
+        }
+        entry.Library.assign( blob.data() + at, libSize );
+        at += libSize;
+        entry.VS = get32();
+        entry.PS = get32();
+        get( &entry.Pass, sizeof( entry.Pass ) );
+        entry.NumStreams = get32();
+        for ( uint32_t &stride : entry.Strides ) {
+            stride = get32();
+        }
+        entry.Topology = get32();
+        const uint32_t numAttributes = get32();
+        if ( !bOk || numAttributes > 64 || entry.NumStreams > EdenMesh::kMaxStreams ) {
+            continue;
+        }
+        for ( uint32_t a = 0; a < numAttributes; a++ ) {
+            RawVertexAttribute attribute;
+            attribute.Usage = static_cast<uint8_t>( get32() );
+            attribute.UsageIndex = static_cast<uint8_t>( get32() );
+            attribute.Stream = static_cast<uint8_t>( get32() );
+            attribute.Format = static_cast<eVertexAttributeFormat>( get32() );
+            attribute.Offset = static_cast<uint16_t>( get32() );
+            entry.Attributes.push_back( attribute );
+        }
+        PipelineState &st = entry.State;
+        st.SrcBlend = get32();
+        st.DstBlend = get32();
+        st.CullMode = get32();
+        st.BlendOp = get32();
+        st.WriteMask = get32();
+        st.DepthFunc = get32();
+        st.BlendFactor = get32();
+        st.bDepthTest = get32() != 0;
+        st.bDepthWrite = get32() != 0;
+        st.bBlended = get32() != 0;
+        if ( !bOk || at != blob.size() ) {
+            continue;
+        }
+        if ( manifestKeys.insert( blob ).second ) {
+            entry.ProgramKey = entry.Library + ":" + std::to_string( entry.VS ) + ":" + std::to_string( entry.PS );
+            manifest.push_back( std::move( entry ) );
+        }
+    }
+    manifestSubmitted.assign( manifest.size(), false );
+    OTDU_LOG_INFO( "EdenRenderer: pipeline manifest: %zu entries\n", manifest.size() );
+}
+
+void EdenRenderer::saveManifest() {
+    if ( !bManifestDirty || gpFile == nullptr ) {
+        return;
+    }
+    const std::filesystem::path path = gpFile->getUserDataFolder() / "pipeline_manifest.bin";
+    std::filesystem::path temp = path;
+    temp += ".tmp";
+    {
+        std::ofstream stream( temp, std::ios::binary | std::ios::trunc );
+        if ( !stream.is_open() ) {
+            return;
+        }
+        const uint32_t header[2] = { 0x31464d50, static_cast<uint32_t>( manifest.size() ) };
+        stream.write( reinterpret_cast<const char *>( header ), sizeof( header ) );
+        for ( const ManifestEntry &entry : manifest ) {
+            const std::string blob = serializeManifestEntry( entry );
+            const uint32_t size = static_cast<uint32_t>( blob.size() );
+            stream.write( reinterpret_cast<const char *>( &size ), sizeof( size ) );
+            stream.write( blob.data(), blob.size() );
+        }
+    }
+    std::error_code error;
+    std::filesystem::rename( temp, path, error );
+    OTDU_LOG_INFO( "EdenRenderer: pipeline manifest saved (%zu entries)\n", manifest.size() );
+}
+
+void EdenRenderer::recordManifest( const EdenMesh &mesh, const EdenProgram *pProgram, const PipelineState &state,
+                                   VkRenderPass pass ) {
+    if ( manifest.size() >= 6000 || CmdLine::HasArg( "-nopipelinewarm" ) ) {
+        return;
+    }
+    uint64_t passKey = 0;
+    if ( !pDevice->getRenderPassKey( pass != VK_NULL_HANDLE ? pass : pDevice->getRenderPass(), passKey ) ) {
+        return;
+    }
+    const size_t at = pProgram->Name.rfind( " vs" );
+    if ( at == std::string::npos ) {
+        return;
+    }
+    ManifestEntry entry;
+    entry.Library = pProgram->Name.substr( 0, at );
+    entry.VS = pProgram->VSAttrib;
+    entry.PS = pProgram->PSAttrib;
+    entry.ProgramKey = entry.Library + ":" + std::to_string( entry.VS ) + ":" + std::to_string( entry.PS );
+    entry.Pass = passKey;
+    entry.NumStreams = mesh.NumStreams;
+    for ( uint32_t i = 0; i < 3; i++ ) {
+        entry.Strides[i] = mesh.Strides[i];
+    }
+    entry.Topology = static_cast<uint32_t>( mesh.Topology );
+    entry.Attributes = mesh.Attributes;
+    entry.State = state;
+    if ( manifestKeys.insert( serializeManifestEntry( entry ) ).second ) {
+        manifest.push_back( std::move( entry ) );
+        manifestSubmitted.push_back( true ); // created by this run already
+        bManifestDirty = true;
+    }
+}
+
+void EdenRenderer::adoptWarmedPipelines() {
+    std::vector<std::pair<PipelineKey, VkPipeline>> results;
+    {
+        std::lock_guard<std::mutex> lock( warmMutex );
+        results.swap( warmed );
+    }
+    for ( auto &result : results ) {
+        if ( result.second == VK_NULL_HANDLE ) {
+            continue;
+        }
+        if ( pipelines.count( result.first ) != 0 ) {
+            pDevice->destroyPipeline( result.second ); // the main thread made it first
+        } else {
+            pipelines[result.first] = result.second;
+            numWarmAdopted++;
+        }
+    }
+}
+
+void EdenRenderer::prewarmPipelines() {
+    if ( manifest.empty() || !bReady ) {
+        return;
+    }
+    // Only when a program was built since the last scan: the entries wait for their program (the materials of the
+    // world being loaded build them).
+    const size_t numPrograms = shaderSystem.getNumPrograms();
+    if ( numPrograms == lastWarmProgramCount ) {
+        return;
+    }
+    lastWarmProgramCount = numPrograms;
+    for ( size_t i = 0; i < manifest.size(); i++ ) {
+        if ( manifestSubmitted[i] ) {
+            continue;
+        }
+        const ManifestEntry &entry = manifest[i];
+        const EdenProgram *pProgram = shaderSystem.findProgramByKey( entry.ProgramKey );
+        if ( pProgram == nullptr || pProgram->pVS == nullptr || pProgram->pPS == nullptr ) {
+            continue;
+        }
+        const VkRenderPass pass = pDevice->getRenderPassForKey( entry.Pass );
+        if ( pass == VK_NULL_HANDLE ) {
+            manifestSubmitted[i] = true;
+            continue;
+        }
+        EdenMesh mesh;
+        mesh.NumStreams = entry.NumStreams;
+        for ( uint32_t s = 0; s < 3; s++ ) {
+            mesh.Strides[s] = entry.Strides[s];
+        }
+        mesh.Topology = static_cast<VkPrimitiveTopology>( entry.Topology );
+        mesh.Attributes = entry.Attributes;
+        mesh.computeLayoutKey();
+        const PipelineKey key = makePipelineKey( pass, pProgram, mesh, entry.State );
+        manifestSubmitted[i] = true;
+        if ( pipelines.count( key ) != 0 || !warmKeys.insert( key ).second ) {
+            continue;
+        }
+        if ( pWarmPool == nullptr ) {
+            pWarmPool = std::make_unique<WarmPool>( 3 );
+        }
+        numWarmSubmitted++;
+        const PipelineState state = entry.State;
+        pWarmPool->submit( [this, key, mesh, pProgram, state, pass]() {
+            VkPipeline pipeline = createPipeline( mesh, pProgram, state, pass, "warm" );
+            std::lock_guard<std::mutex> lock( warmMutex );
+            warmed.emplace_back( key, pipeline );
+        } );
+    }
+}
+
+EdenRenderer::PipelineKey EdenRenderer::makePipelineKey( VkRenderPass pass, const EdenProgram *pProgram, const EdenMesh &mesh,
+                                                         const PipelineState &st ) {
+    PipelineKey key;
+    key.Words[0] = reinterpret_cast<uintptr_t>( pass );
+    key.Words[1] = reinterpret_cast<uintptr_t>( pProgram->pVS );
+    key.Words[2] = reinterpret_cast<uintptr_t>( pProgram->pPS );
+    key.Words[3] = mesh.LayoutKey;
+    key.Words[4] = static_cast<uint64_t>( st.SrcBlend ) | static_cast<uint64_t>( st.DstBlend ) << 8 |
+                   static_cast<uint64_t>( st.CullMode ) << 16 | static_cast<uint64_t>( st.bDepthTest ? 1 : 0 ) << 24 |
+                   static_cast<uint64_t>( st.bDepthWrite ? 1 : 0 ) << 32 | static_cast<uint64_t>( st.bBlended ? 1 : 0 ) << 40 |
+                   static_cast<uint64_t>( st.BlendOp ) << 48;
+    key.Words[5] = static_cast<uint64_t>( st.WriteMask ) | static_cast<uint64_t>( st.DepthFunc ) << 8 |
+                   static_cast<uint64_t>( st.BlendFactor ) << 16;
+    return key;
+}
+
 VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &material, bool bMirrored ) {
     const EdenProgram *pProgram = material.pProgram;
-    static const bool bSwapCull = CmdLine::HasArg( "-edenswapcull" );
     static const bool bNoCull = CmdLine::HasArg( "-nocull" );
     uint8_t cullMode = bNoCull ? 1 : material.CullMode;
     // Eden cull state 3 = two-sided (data: *_dblS meshes, eyelashes, car
@@ -1232,19 +1568,19 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
     if ( bMirrored && ( cullMode == 2 || cullMode == 4 ) ) {
         cullMode = cullMode == 2 ? 4 : 2;
     }
-    const uint8_t writeMask = bDepthOnly ? 0 : material.ColorWriteMask;
-    PipelineKey fullKey;
-    fullKey.Words[0] = reinterpret_cast<uintptr_t>( pDevice->getCurrentRenderPass() );
-    fullKey.Words[1] = reinterpret_cast<uintptr_t>( pProgram->pVS );
-    fullKey.Words[2] = reinterpret_cast<uintptr_t>( pProgram->pPS );
-    fullKey.Words[3] = mesh.LayoutKey;
-    fullKey.Words[4] = static_cast<uint64_t>( material.SrcBlend ) | static_cast<uint64_t>( material.DstBlend ) << 8 |
-                       static_cast<uint64_t>( cullMode ) << 16 | static_cast<uint64_t>( material.bDepthTest ? 1 : 0 ) << 24 |
-                       static_cast<uint64_t>( material.bDepthWrite ? 1 : 0 ) << 32 |
-                       static_cast<uint64_t>( material.isBlended() ? 1 : 0 ) << 40 |
-                       static_cast<uint64_t>( material.BlendOp ) << 48;
-    fullKey.Words[5] = static_cast<uint64_t>( writeMask ) | static_cast<uint64_t>( material.DepthFunc ) << 8 |
-                       static_cast<uint64_t>( material.blendFactorByte() ) << 16;
+    PipelineState st;
+    st.SrcBlend = material.SrcBlend;
+    st.DstBlend = material.DstBlend;
+    st.CullMode = cullMode;
+    st.BlendOp = material.BlendOp;
+    st.WriteMask = bDepthOnly ? 0 : material.ColorWriteMask;
+    st.DepthFunc = material.DepthFunc;
+    st.BlendFactor = material.blendFactorByte();
+    st.bDepthTest = material.bDepthTest;
+    st.bDepthWrite = material.bDepthWrite;
+    st.bBlended = material.isBlended();
+    const VkRenderPass currentPass = pDevice->getCurrentRenderPass();
+    const PipelineKey fullKey = makePipelineKey( currentPass, pProgram, mesh, st );
     // One-entry memo: consecutive draws mostly ask for the same pipeline, and
     // comparing six words is cheaper than hashing them (~2 % of the main
     // thread at 4K, -sampleprof).
@@ -1257,7 +1593,30 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
         lastPipeline = it->second;
         return it->second;
     }
+    // Warmed on the workers (prewarmPipelines)? They are finished or finishing: take them, then look again.
+    if ( pWarmPool != nullptr ) {
+        pWarmPool->waitIdle();
+        adoptWarmedPipelines();
+        it = pipelines.find( fullKey );
+        if ( it != pipelines.end() ) {
+            numWarmHits++;
+            lastPipelineKey = fullKey;
+            lastPipeline = it->second;
+            return it->second;
+        }
+    }
+    VkPipeline pipeline = createPipeline( mesh, pProgram, st, currentPass != VK_NULL_HANDLE ? currentPass : pDevice->getRenderPass(),
+                                          material.Name.c_str() );
+    pipelines[fullKey] = pipeline;
+    recordManifest( mesh, pProgram, st, currentPass );
+    return pipeline;
+}
 
+VkPipeline EdenRenderer::createPipeline( const EdenMesh &mesh, const EdenProgram *pProgram, const PipelineState &st,
+                                         VkRenderPass pass, const char *pMaterialName ) {
+    static const bool bSwapCull = CmdLine::HasArg( "-edenswapcull" );
+    const uint32_t cullMode = st.CullMode;
+    const uint32_t writeMask = st.WriteMask;
     VkDevice device = pDevice->getDevice();
     auto createModule = [&]( const std::vector<uint32_t> &code ) {
         VkShaderModuleCreateInfo info = {};
@@ -1330,8 +1689,8 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
                            "+" + std::to_string( attribute.offset ) + "/f" + std::to_string( attribute.format );
         }
         OTDU_LOG_DEBUG( "Eden pipeline %s (%s): %s blend %u/%u op %u at %d zw %d mask %x\n", pProgram->Name.c_str(),
-                        material.Name.c_str(), description.c_str(), material.SrcBlend, material.DstBlend,
-                        material.BlendOp, material.bAlphaTest ? 1 : 0, material.bDepthWrite ? 1 : 0, writeMask );
+                        pMaterialName, description.c_str(), st.SrcBlend, st.DstBlend,
+                        st.BlendOp, 0, st.bDepthWrite ? 1 : 0, writeMask );
     }
 
     VkPipelineVertexInputStateCreateInfo vertexInput = {};
@@ -1386,29 +1745,29 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
 
     VkPipelineDepthStencilStateCreateInfo depthStencil = {};
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = material.bDepthTest ? VK_TRUE : VK_FALSE;
+    depthStencil.depthTestEnable = st.bDepthTest ? VK_TRUE : VK_FALSE;
     // D3DRS_ZWRITEENABLE of the material, blended or not.
-    depthStencil.depthWriteEnable = material.bDepthWrite ? VK_TRUE : VK_FALSE;
+    depthStencil.depthWriteEnable = st.bDepthWrite ? VK_TRUE : VK_FALSE;
     // D3DCMPFUNC (MAT. render state +0x3b: TD_ShadowBox uses GREATEREQUAL)
     static constexpr VkCompareOp kCompareOps[9] = { VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_NEVER,
                                                     VK_COMPARE_OP_LESS,          VK_COMPARE_OP_EQUAL,
                                                     VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_GREATER,
                                                     VK_COMPARE_OP_NOT_EQUAL,     VK_COMPARE_OP_GREATER_OR_EQUAL,
                                                     VK_COMPARE_OP_ALWAYS };
-    depthStencil.depthCompareOp = kCompareOps[material.DepthFunc <= 8 ? material.DepthFunc : 0];
+    depthStencil.depthCompareOp = kCompareOps[st.DepthFunc <= 8 ? st.DepthFunc : 0];
 
     VkPipelineColorBlendAttachmentState blendAttachment = {};
     blendAttachment.colorWriteMask = ( ( writeMask & 1 ) ? VK_COLOR_COMPONENT_R_BIT : 0 ) |
                                      ( ( writeMask & 2 ) ? VK_COLOR_COMPONENT_G_BIT : 0 ) |
                                      ( ( writeMask & 4 ) ? VK_COLOR_COMPONENT_B_BIT : 0 ) |
                                      ( ( writeMask & 8 ) ? VK_COLOR_COMPONENT_A_BIT : 0 );
-    if ( material.isBlended() ) {
+    if ( st.bBlended ) {
         static constexpr VkBlendOp kBlendOps[6] = { VK_BLEND_OP_ADD, VK_BLEND_OP_ADD, VK_BLEND_OP_SUBTRACT,
                                                     VK_BLEND_OP_REVERSE_SUBTRACT, VK_BLEND_OP_MIN, VK_BLEND_OP_MAX };
         blendAttachment.blendEnable = VK_TRUE;
-        blendAttachment.srcColorBlendFactor = GetBlendFactor( material.SrcBlend );
-        blendAttachment.dstColorBlendFactor = GetBlendFactor( material.DstBlend );
-        blendAttachment.colorBlendOp = kBlendOps[material.BlendOp <= 5 ? material.BlendOp : 1];
+        blendAttachment.srcColorBlendFactor = GetBlendFactor( st.SrcBlend );
+        blendAttachment.dstColorBlendFactor = GetBlendFactor( st.DstBlend );
+        blendAttachment.colorBlendOp = kBlendOps[st.BlendOp <= 5 ? st.BlendOp : 1];
         blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
@@ -1418,7 +1777,7 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
     colorBlend.attachmentCount = 1;
     colorBlend.pAttachments = &blendAttachment;
     // D3DBLENDFACTOR / D3DBLEND_INVBLENDFACTOR (14 / 15): the constant alpha
-    const float blendFactor = static_cast<float>( material.blendFactorByte() ) / 255.0f;
+    const float blendFactor = static_cast<float>( st.BlendFactor ) / 255.0f;
     colorBlend.blendConstants[0] = blendFactor;
     colorBlend.blendConstants[1] = blendFactor;
     colorBlend.blendConstants[2] = blendFactor;
@@ -1443,8 +1802,7 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
     pipelineInfo.pColorBlendState = &colorBlend;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineLayout;
-    pipelineInfo.renderPass =
-        pDevice->getCurrentRenderPass() != VK_NULL_HANDLE ? pDevice->getCurrentRenderPass() : pDevice->getRenderPass();
+    pipelineInfo.renderPass = pass;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     static const bool bLogPipeTimes = CmdLine::HasArg( "-logpipetimes" );
@@ -1455,13 +1813,12 @@ VkPipeline EdenRenderer::getPipeline( const EdenMesh &mesh, const EdenMaterial &
         pipeline = VK_NULL_HANDLE;
     }
     if ( bLogPipeTimes ) {
-        OTDU_LOG_INFO( "[pipe] frame %llu %.2f ms %s\n", static_cast<unsigned long long>( pDevice->getFrameNumber() ),
+        OTDU_LOG_INFO( "[pipe] frame %llu %.2f ms %s %s\n", static_cast<unsigned long long>( pDevice->getFrameNumber() ),
                        std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - pipeStart ).count(),
-                       pProgram->Name.c_str() );
+                       pMaterialName != nullptr && strcmp( pMaterialName, "warm" ) == 0 ? "WORKER" : "MAIN", pProgram->Name.c_str() );
     }
     vkDestroyShaderModule( device, vertexModule, nullptr );
     vkDestroyShaderModule( device, fragmentModule, nullptr );
-    pipelines[fullKey] = pipeline;
     return pipeline;
 }
 

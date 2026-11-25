@@ -250,6 +250,12 @@ public:
     bool copyTexture( GPUTexture *pSource, GPUTexture *pDestination, uint32_t numLayers = 1, uint32_t baseLayer = 0 );
     // Render pass of the pass being recorded (pipelines are created for it).
     inline VkRenderPass getCurrentRenderPass() const { return currentRenderPass; }
+    // A render pass identity that survives a run (the pipeline manifest): kMainPassKey for the swapchain pass, else the
+    // target pass key (formats + clear). False for an unknown handle. getRenderPassForKey creates a target pass on demand
+    // (main thread only).
+    static constexpr uint64_t kMainPassKey = ~0ull;
+    bool getRenderPassKey( VkRenderPass pass, uint64_t &outKey ) const;
+    VkRenderPass getRenderPassForKey( uint64_t key );
     inline VkFormat getSwapchainFormat() const { return swapchainFormat; }
     void requestSwapchainRecreation() { bSwapchainDirty = true; }
     // Options > Video: VSync changes the present mode, so the swapchain is rebuilt.

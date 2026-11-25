@@ -430,6 +430,7 @@ bool EdenModel::loadPrepared( EdenRenderer &renderer, Prepared &prep, const Rend
         }
         item.Mesh.pIndexBuffer = pIndexBuffer;
     }
+    renderer.prewarmPipelines();
     return pVertexBuffer != nullptr && pIndexBuffer != nullptr;
 }
 
@@ -865,6 +866,8 @@ bool EdenModel::load( EdenRenderer &renderer,
         "EdenModel '%s': %zu items, %zu materials, %zu KB vertices\n",
         sceneEntry.Filename.c_str(), items.size(), materials.size(),
         vertexData.size() / 1024 );
+    // The model's materials built their programs: warm the pipelines the last run used with them.
+    renderer.prewarmPipelines();
     return pVertexBuffer != nullptr && pIndexBuffer != nullptr;
 }
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <mutex>
 #include <functional>
 
 #include <memory>
@@ -529,6 +530,52 @@ private:
     uint64_t recordCountTotal = 0;
     bool bInScene;
     bool bReady;
+
+private:
+    // Everything a pipeline depends on besides the program, the mesh layout and the render pass.
+    struct PipelineState {
+        uint32_t SrcBlend = 0, DstBlend = 0, CullMode = 0, BlendOp = 0, WriteMask = 0, DepthFunc = 0, BlendFactor = 0;
+        bool bDepthTest = false, bDepthWrite = false, bBlended = false;
+    };
+    static PipelineKey makePipelineKey( VkRenderPass pass, const EdenProgram *pProgram, const EdenMesh &mesh,
+                                        const PipelineState &state );
+    // Builds the VkPipeline (thread safe: only the device, the pipeline cache and the layout are touched).
+    VkPipeline createPipeline( const EdenMesh &mesh, const EdenProgram *pProgram, const PipelineState &state, VkRenderPass pass,
+                               const char *pMaterialName );
+
+    // The pipeline manifest (2026-11-25): the inputs of every pipeline a run created, saved in
+    // <userdata>/pipeline_manifest.bin. After the next run's materials exist, prewarmPipelines() re-creates the ones whose
+    // program is built on worker threads while the world loads, so the first frame finds them (-nopipelinewarm = off).
+    struct ManifestEntry {
+        std::string Library;
+        std::string ProgramKey; // "LIBRARY:vs:ps" (EdenShaderSystem::programs), set when loaded / recorded
+        uint32_t VS = 0, PS = 0;
+        uint64_t Pass = 0;
+        uint32_t NumStreams = 0;
+        uint32_t Strides[3] = { 0, 0, 0 };
+        uint32_t Topology = 0;
+        std::vector<RawVertexAttribute> Attributes;
+        PipelineState State;
+    };
+    static std::string serializeManifestEntry( const ManifestEntry &entry );
+    void loadManifest();
+    void saveManifest();
+    void recordManifest( const EdenMesh &mesh, const EdenProgram *pProgram, const PipelineState &state, VkRenderPass pass );
+    void adoptWarmedPipelines();
+    struct WarmPool;
+    std::unique_ptr<WarmPool> pWarmPool;
+    std::mutex warmMutex;
+    std::vector<std::pair<PipelineKey, VkPipeline>> warmed;
+    std::unordered_set<PipelineKey, PipelineKeyHash> warmKeys;
+    std::vector<ManifestEntry> manifest;
+    std::vector<bool> manifestSubmitted;
+    std::unordered_set<std::string> manifestKeys;
+    bool bManifestDirty = false;
+    size_t lastWarmProgramCount = 0;
+    uint32_t numWarmSubmitted = 0, numWarmAdopted = 0, numWarmHits = 0;
+public:
+    // Re-creates the manifest pipelines whose programs exist by now on worker threads (cheap when nothing new is built).
+    void prewarmPipelines();
 
 private:
     VkPipeline getPipeline( const EdenMesh &mesh, const EdenMaterial &material, bool bMirrored );
