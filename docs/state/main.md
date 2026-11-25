@@ -4,6 +4,14 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, last (`main`, per-draw constant resolve cache: measured, NOT built)
+
+Owner: "Yes, the per-draw constant resolve".
+
+- [MEAS] A temporary timer around the two `fillConstants` calls in `recordDrawImpl` (standard drive, `-clock 02.00`, 720p, 1.8 M draws): **0.43 us per draw, ~2850 draws a frame = ~1.2 ms of the 11.3 ms frame** (whole `recordDraw` is ~2.3 ms: env 0.5 + prepass 1.0 + opaque 0.7 + blended 0.1). The timer is removed, no code change.
+- Most of that 0.43 us is work a cache cannot skip: the precise world-view-projection multiply, the world-dependent matrices and the material-parameter writes are per-draw by nature. The name lookups the cache would replace are already enum-classified per member (`ClassifyConstant`, scene pointers per epoch, `FindSmall` on empty maps). Upper bound of the gain ~0.2-0.4 ms (2-4 %) against a correctness risk in a path every draw uses -> **ruled out**.
+- Where the frame actually is: the prepass is 5.2 ms, of which recording is 1.0; the rest is the grass emit + sector walk (main thread), not draw recording. Next real lever is there (grass emit per-frame walk), not in `fillConstants`.
+
 ## Session 2026-11-25, late (`main`, the staggered environment cube is the default)
 
 Owner: "Yes" (make it the default).
