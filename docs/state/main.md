@@ -4,6 +4,19 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, the replaced LicencePhoto textures are freed)
+
+Follow-up: "Yes, free the old LicencePhoto texture".
+
+### What changed
+- `source/game/freeride/licence_photo.cpp`: `GetTexture` kept every texture it ever made (the old comment said the cache owned them; `createFromRGBA` hands ownership to the caller). A replaced texture is now freed **one reload later** (`spPrevious`): the Flash player holds the pointer as a bitmap override and the consumers rebind on their own schedule (`PauseMenu::tick` each frame via `pCardPhoto`, `SchoolScreen` on entry), so freeing at once could leave a live movie drawing a freed texture. At most two photos exist (the current and the previous); the shutdown net of the previous step frees those. `-testlicencephoto N` forces the first N `GetTexture` calls to reload (the check below).
+
+### Verified
+- `-testlicencephoto 6`, pause menu open (`-autoplay "120:press=pause"`), validation layer on: 6 reloads, shutdown line `3 textures ('station_asphalt' 'LicencePhoto' 'LicencePhoto')` - two photos left instead of six; 0 VUIDs; the ID card still shows the photo (`_lp_pause.ppm`, screenshot read by eye).
+
+### Not done / next
+- A consumer that stored the pointer and does NOT rebind within one reload would still draw a freed texture; the two known ones rebind (`pCardPhoto` compare each frame; the school screen on every entry). A third consumer would need the same rule.
+
 ## Session 2026-11-25, late (`main`, VUID-vkDestroyDevice-device-05137: the shutdown leak)
 
 Follow-up: "Yes, the leak".
