@@ -1,7 +1,8 @@
-#include "shared.h"
+﻿#include "shared.h"
 #include "test_replay.h"
 #include "core/xmb.h"
 #include "filesystem/gs_file.h"
+#include "system/cmd_line.h"
 
 namespace {
 template <typename T> T ReadAt( const std::vector<uint8_t> &buffer, size_t offset ) {
@@ -47,8 +48,14 @@ bool TestReplay::load( const std::string &testName ) {
     size_t pos = 12 + xmbSize;
     const uint32_t carSize = ReadAt<uint32_t>( data, pos );
     pos += 4 + carSize;
-    for ( int64_t i = 0; i < matrixUsed; i++ ) {
-        const size_t at = pos + static_cast<size_t>( i * matrixSize );
+    // The matrix chunks are interleaved per keyframe, one per car slot: CarNumber records each step [DATA: rsc4t05.rly, CarNumber 9 =
+    // VehicleInfo[0..8] - the test car 502, the three school Deltas 500, three ambient traffic slots and two empty ones; 1530 chunks =
+    // 170 steps x 9; each record opens with a valid byte and the u16 car id, the traffic / empty slots are all zero]. Slot 0 is the
+    // test car (VehicleInfo[0], the only one on the tests without traffic, CarNumber 1). Reading every chunk as the test car made
+    // the overtaking tests' demonstration jump between the cars and the origin.
+    const int64_t carNumber = Max<int64_t>( 1, root["CarNumber"].asInt( 1 ) );
+    for ( int64_t i = 0; i < matrixUsed / carNumber; i++ ) {
+        const size_t at = pos + static_cast<size_t>( i * carNumber * matrixSize );
         if ( at + 45 > data.size() ) {
             break;
         }
@@ -79,6 +86,22 @@ bool TestReplay::load( const std::string &testName ) {
     carId = root.getArraySize( "VehicleInfo" ) > 0 ? static_cast<int32_t>( root.getArrayElement( "VehicleInfo", 0 )["Id"].asInt( -1 ) ) : -1;
     OTDU_LOG_INFO( "TestReplay: %s: %zu keyframe(s), %.2f s, car %d, clock %.0f s\n", path.c_str(), keys.size(), duration, carId,
                    clock );
+    if ( CmdLine::HasArg( "-logreplay" ) ) {
+        OTDU_LOG_INFO( "TestReplay: matrix chunk %lld bytes x %lld used (rate %lld), input %lld x %lld, timestep %lld, frames %lld, "
+                       "car chunk %u, CarNumber %lld, file %zu bytes\n",
+                       static_cast<long long>( matrixSize ), static_cast<long long>( matrixUsed ), static_cast<long long>( matrixRate ),
+                       static_cast<long long>( inputSize ), static_cast<long long>( inputUsed ), static_cast<long long>( timestepSize ),
+                       static_cast<long long>( frames ), carSize, static_cast<long long>( root["CarNumber"].asInt() ), data.size() );
+        for ( uint32_t i = 0; i < root.getArraySize( "VehicleInfo" ); i++ ) {
+            const XmbValue info = root.getArrayElement( "VehicleInfo", i );
+            OTDU_LOG_INFO( "TestReplay: VehicleInfo[%u] Id %lld IsTrafficCar %lld\n", i, static_cast<long long>( info["Id"].asInt( -1 ) ),
+                           static_cast<long long>( info["IsTrafficCar"].asInt( -1 ) ) );
+        }
+        for ( size_t i = 0; i < keys.size(); i += Max<size_t>( 1, keys.size() / 8 ) ) {
+            OTDU_LOG_INFO( "TestReplay: key %zu (%.1f, %.1f, %.1f) fwd (%.2f, %.2f, %.2f)\n", i, keys[i].Position.x, keys[i].Position.y,
+                           keys[i].Position.z, keys[i].Forward.x, keys[i].Forward.y, keys[i].Forward.z );
+        }
+    }
     return !keys.empty();
 }
 

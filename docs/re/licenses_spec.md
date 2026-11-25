@@ -822,8 +822,8 @@ Not done: the spawn pose (12.23), `ChKD`, the cone scatter, ambient traffic per 
 gate 0 of its `.ig2`, measured on all 58 tests: **8.36-8.54 m behind gate 0 along its forward (8.50 on most), lateral
 <= 0.04 m, the same heading (<= 1 deg, 0.9 on RSB4T05 only)**, pad and road tests alike, 0.3-1.5 m above the gate's stored
 height (the car's origin on the ground). The car then stands still for 18-23 keyframes (3.6-4.6 s: the countdown) on every
-test but the 8 overtaking tests, whose recordings use a larger matrix chunk (the traffic cars' poses are recorded too) and
-were not decoded past the first keyframe. 12.23's "T05 7.95 m ahead, T06 4.17 m behind and 7.44 m off centre" was a
+test, the 8 overtaking tests included (3.6-4.6 s; their records are interleaved per car, 12.26 - read as one car they looked
+like a moving start). 12.23's "T05 7.95 m ahead, T06 4.17 m behind and 7.44 m off centre" was a
 misreading of the same files - corrected. No literal 8.5 in the dev build's code [CODE-dev, negative: `--float 8.5` has no
 xref]; the value is a computed offset or data the editor holds. Only the RS tests ship recordings (none of the 480 other
 `.ig2`), so championship races keep the old start (on gate 0).
@@ -834,3 +834,22 @@ Built: `LicenseTest::getSpawnPosition()` (RS tests: gate 0 - forward x 8.5), use
 (11902.4, 5.0, 16040.1), 8.50 m behind gate 0"; the countdown view next to the 360 frame at 31.5 s - the same cone rows
 and the start glow at the same distance (`docs/images/licence_t01_spawn_vs_360.webp`); `-licensewarp` RSC4T01 gates
 1-3 at 0.28 / 0.82 / 1.35 s and RSC4T06 (the circuit, laps close on gate 0) 10 / 10, both "passed".
+
+### 12.26 The overtaking tests' recordings hold every car, interleaved (2026-11-25, `main`; owner: "check the overtaking test replay on RSC4T05")
+
+[DATA] `ReplayBaseParams.CarNumber` is the number of car slots and the matrix chunks are **interleaved per keyframe**: each
+0.2 s step stores CarNumber records of 105 bytes, slot k = `VehicleInfo[k]`. Each record opens with a valid byte (1) and
+the u16 car id (`0x1f6` 502, `0x1f4` 500). RSC4T05: CarNumber 9 = the test car 502, the three school Deltas 500 (the
+`.ig2`'s VEHI, `IsTrafficCar 0`), three ambient traffic cars (3007 / 3014 / 3013, `IsTrafficCar 1`, their records all
+zero - not recorded) and two empty slots; 1530 chunks = 170 steps x 9 = 33.9 s. The car chunk (9099 = 9 x 1011) and the
+input chunks are per slot too. The 8 overtaking tests (RSA1T06, RSA2T06, RSA4T05, RSA5T03, RSA7T06, RSB3T07, RSC3T05,
+RSC4T05) have 9 slots; the other 50 have 1. (`rsa2t03.rly` has another layout and no test uses it.)
+
+Bug fixed: `TestReplay::load` read every chunk as the test car, so those 8 demonstrations jumped between the player's car,
+the Deltas and (0, 0, 0) every keyframe. It now takes slot 0 (stride CarNumber): RSC4T05 170 keyframes over 33.89 s, a
+continuous path (max 10.2 m per 0.2 s; 8.9-12.1 m on the 8 tests), the car standing for the 3.8 s countdown; RSC4T01 is
+byte-for-byte the same 94 keyframes. `-logreplay` prints the layout, the VehicleInfo slots and sampled keyframes. Evidence:
+`docs/images/licence_rsc4t05_demo_replay_fixed.webp` (the Mustang on the road under the presentation banner).
+
+Not used yet: slots 1-3 are the school traffic's own recorded run - the demonstration could drive the Deltas along them
+instead of the port's constant-speed traffic.

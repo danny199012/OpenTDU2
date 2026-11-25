@@ -4,6 +4,19 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, later still (`main`, the overtaking tests' demonstration replay fixed)
+
+Owner: "check the overtaking test replay on RSC4T05".
+
+- **Found a real bug**: the `.rly` matrix chunks are interleaved per keyframe, `CarNumber` records per step (RSC4T05: 9 -
+  the Mustang, the 3 school Deltas, 3 unrecorded ambient traffic slots, 2 empty). `TestReplay::load` read all 1530 as the
+  test car, so the 8 overtaking tests' demonstrations jumped between cars and the world origin. Now slot 0, stride
+  `CarNumber` (licenses_spec 12.26). `-logreplay` added (layout, slots, sampled keys).
+- Verified (build 454): RSC4T05 170 keyframes / 33.89 s, continuous; all 8 overtaking recordings 8.9-12.1 m max per 0.2 s;
+  RSC4T01 unchanged (94 keys). Demo shot: `docs/images/licence_rsc4t05_demo_replay_fixed.webp`.
+- Corrected the spawn entry below: the overtaking recordings do stand still for the countdown (3.6-4.6 s) like the rest.
+- Next: drive the presentation's Deltas from slots 1-3 (their own recorded run) - `GMFreeRide` presentation, `schoolTraffic`.
+
 ## Session 2026-11-25, later (`main`, the licence spawn pose: 8.5 m behind gate 0, on all 58 tests)
 
 Owner: "do the spawn pose next".
@@ -23,8 +36,7 @@ Owner: "do the spawn pose next".
 - `-licensewarp`: RSC4T01 gates 1-3 at 0.28 / 0.82 / 1.35 s passed; RSC4T06 (circuit) 10 / 10 passed.
 
 ### Not done / next
-- The overtaking tests' recordings past the first keyframe (a bigger matrix chunk with the traffic cars) - the demo replay
-  of those tests may be reading the wrong chunk size: check `TestReplay::load` on RSC4T05 (`MatrixChunkSize`).
+- The overtaking tests' recordings: checked and fixed in the entry above (interleaved per car).
 - Where the 8.5 m comes from in code (no float literal in the dev build).
 
 ## Session 2026-11-25 (`main`, the licence tests from the game's own data: the time limit, the per-test weather, every school's livery)
