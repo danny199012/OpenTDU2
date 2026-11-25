@@ -4,6 +4,17 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, late (`main`, ring uploads: already batched, nothing to change)
+
+Follow-up: "Yes, batch the ring uploads".
+
+### Ruled out (with the measurement)
+- The spawn frame's own counters (`[hitch] frame 1`, standard spawn, `-fixedtimestep`): **2376 textures, 153.5 MB, 3 submits, 0 waits, 0 ms of wait**. Textures already join the shared upload batch (`RenderDevice::getUploadBatch`, one fence per batch, no host wait - the 2026-11-04 work); buffers are host-mapped `memcpy` + flush (`RenderDevice::createBuffer`, no GPU wait at all). A per-ring batch would change 3 submits into 1; there is nothing to gain. [MEAS]
+- Where the spawn frame's time actually is: `[hitch] frame 1: 130-132 ms (update 31, draw 98-101; offscreen 87-90 ...)` - the draw side, inside the offscreen passes (first-sight pipeline compiles / shadow and reflection passes), not the load. The load (`update` 31 ms) is what this series reduced (the `loadAround` call 340 -> ~145 ms).
+
+### Not done / next
+- If the spawn frame still matters: profile the 87-90 ms of "offscreen" at frame 1 (`-logpipelines` style A/B with `pipeline_cache.bin` removed vs present; the 2026-11-04 entry measured 552 -> 156 ms with the driver cache off). Not started.
+
 ## Session 2026-11-25, late (`main`, the ring carve on a worker)
 
 Follow-up: "Yes, the ring carve".
