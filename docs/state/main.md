@@ -47,8 +47,10 @@ dev exe, not taken on trust - one of them was the wrong way round (below).
 - The research's car / target / limit / lap tables match what the port loads (`licence_dump.py` and `licence_tests.csv` agree).
 
 ### Not done / next
-- `ChKD` / `next` "Display all checkpoints": the port shows the next two gates; needs a clip with many gates to see the
-  retail rule (`GMFreeRide` gate push, the `pushGate` block after `courseMarkersFor`).
+- `ChKD` / `next` "Display all checkpoints" - **settled the same day, no code change**: the dev build never reads `ChKD`
+  at runtime (only registration / constructor / reset touch `+0x2430`; `next` is read once in `GameMechs.cpp`, `0xb3f492`),
+  and the 360 minimaps show next + one faded checkpoint on both `ChKD 0` (T05) and `ChKD 1` (T03 / T06) - the port's
+  "next two". licenses_spec 12.24. Open: what `next`'s flag (`[+0x84]+0x69`) drives.
 - The spawn pose (12.23), the cone scatter, `forc` "The route is marked", `trat` "Traffic" (ambient density) - named only.
 - Hawai tests with the `-licensetest` hook need `-island hawai` (in play the reload keeps the island).
 - `reference/` (the 360 clips + NOTES.md) is untracked and stays so (video); NOTES.md got a "found" note locally.

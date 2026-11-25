@@ -772,9 +772,15 @@ What this settles:
   (`race.Limit` iff `ChCD`; it was "target == limit", wrong for RSA2T06).
 - **`dscr` = "Display trajectory"**: the racing line. 0 on ten road tests only (the port draws no line on road tests), the
   360 RSC4T05 (0) has no chevrons on the road. Built as a gate on the line.
-- **`ChKD` / `next` = "Display all checkpoints"** (both carry label 25 [INF: one may be the editor's sub-checkbox]): not
-  built - the port shows the next two gates; the C4 clips (3-4 gates) cannot tell the difference. Next: a Hawai A-school
-  clip with 10+ gates and `ChKD 1`.
+- **`ChKD` / `next` = "Display all checkpoints"** (both carry label 25): **no change - the port's "next two" is the retail
+  display** (follow-up, same day). `ChKD` (challenge `+0x2430`) is a group property (vtable `0x14d8d38`, sub-properties at
+  `+0x98` / `+0x148`, the `CkMi` / `CkMa` "Minimal / Maximum distance" layout) and the dev build touches it only in the
+  editor registration (`0xb3858d`), the constructor (`0xb37f58`) and the reset (`0xb379af`, default 1) - every 32-bit
+  encoding of `0x2430` in `.text` was checked, none is a game-side read [CODE-dev, negative]. `next` (`+0x1ad0`) does have
+  one: `GameMechs.cpp`'s mode setup (`0xb3f492`) reads it and stores `next < 1` in a component flag (`[+0x84]+0x69`)
+  [CODE-dev; the flag's consumer not traced]. The 360 clips show the same checkpoint display for both values: the minimap
+  carries the next checkpoint plus a faded one after it on RSC4T05 (`ChKD 0`) and on RSC4T03 / T06 (`ChKD 1`) - the port's
+  two gates.
 - **`forc` = "The route is marked"** (1 on nine road tests and the RSC4T02 slalom), **`trat` "Traffic"** (-1/0/3/5: ambient traffic density
   [INF]), **`tras` "Radars: activation speed"**, **`SP2R` "Target speed"**, **`SPPG` "Points"**, **`offR` "Driving
   gauge"** (the penalty gauge shown), **`PeCr` "Penalties"**: named, not built beyond what 12.8 already does.
