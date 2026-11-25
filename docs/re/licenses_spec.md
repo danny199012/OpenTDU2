@@ -851,5 +851,23 @@ continuous path (max 10.2 m per 0.2 s; 8.9-12.1 m on the 8 tests), the car stand
 byte-for-byte the same 94 keyframes. `-logreplay` prints the layout, the VehicleInfo slots and sampled keyframes. Evidence:
 `docs/images/licence_rsc4t05_demo_replay_fixed.webp` (the Mustang on the road under the presentation banner).
 
-Not used yet: slots 1-3 are the school traffic's own recorded run - the demonstration could drive the Deltas along them
-instead of the port's constant-speed traffic.
+Slots 1-n are the school traffic's own recorded run: used since 12.27.
+
+### 12.27 The demonstration's traffic drives its recorded run; the two VEHI record forms (2026-11-25, `main`; owner: "Yes, do it")
+
+- **The traffic slots** [DATA]: slots 1-n of an overtaking test's `.rly` are its `.ig2` VEHI cars (each slot's first
+  record carries the car id), but **not in file order** - usually reversed (RSC4T05: slot 3 = VEHI 0), and RSA5T03 mixes
+  five models. Built: `TestReplay` keeps every recorded slot (`getSlotCount`, `getSlotCarId`, `sampleSlot`); at the
+  presentation's start `GMFreeRide::matchSchoolTrafficSlots` gives each traffic car the slot with its car id whose first
+  pose is nearest its VEHI (closest pairs first), and the presentation tick poses the cars from the recording
+  (`RaceOpponents::setTrafficPose`, wheels rolled by the distance moved; a loop restart does not spin them). After A the
+  test's own traffic law takes over from the VEHI starts as before. `-noreplaytraffic` keeps them standing; `-logintro`
+  logs their poses. All 8 overtaking tests pair within 0.0-0.8 m except RSA7T06's last Mito (the recording starts it
+  140 m from its VEHI - the only slot left for it; a data fact).
+- **VEHI has two record forms, like CHK2** [DATA, 538 files]: `u32 1`, the matrix at +12 (0x11c bytes, 6 records) or
+  `u32 0` + the road-link prefix, the matrix at +32 (0x130, 25 records). The port read +32 for both, so the plain records
+  came out five floats off: RSA5T03's four plain cars stood ~23 km from the course (lane 1854 m), RSA2T06 / RSA4T05 had
+  one misplaced car each. `Ig2Challenge::load` now picks the offset by the first word: RSA5T03's cars sit 0.0-0.4 m from
+  their recorded starts.
+- Evidence: `docs/images/licence_rsc4t05_demo_traffic_recorded.webp` (the demo's Mustang passing a school Delta at the
+  checkpoint, two moments); RSC4T05 runs on into the test after the presentation with no contact.

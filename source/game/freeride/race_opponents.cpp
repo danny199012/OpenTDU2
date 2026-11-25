@@ -453,6 +453,7 @@ bool RaceOpponents::startTraffic( const std::vector<Vector3f> &waypoints, float 
         Racer racer;
         racer.Info.Name = "traffic";
         racer.Info.CarId = car.CarId;
+        racer.Origin = car.Position;
         racer.Car = std::make_unique<AiCar>();
         // The school Delta's own paint (the first DBCarsAndColors row: the colour the player's school car wears).
         if ( !racer.Car->load( car.CarId, CinematicCar::DatabasePaintColorId( car.CarId, 0 ) ) ) {
@@ -508,6 +509,28 @@ void RaceOpponents::tickTraffic( float deltaTime, bool bRunning ) {
         racer.Steer = Clamp( std::atan( 2.7f * curvatureAt( racer.Distance ) ), -0.6f, 0.6f );
         racer.Car->animate( deltaTime, racer.Speed * deltaTime, racer.Steer, false, bNight );
     }
+}
+
+bool RaceOpponents::getTrafficOrigin( size_t index, int32_t &outCarId, Vector3f &outOrigin ) const {
+    if ( index >= racers.size() ) {
+        return false;
+    }
+    outCarId = racers[index].Info.CarId;
+    outOrigin = racers[index].Origin;
+    return true;
+}
+
+void RaceOpponents::setTrafficPose( size_t index, const Vector3f &position, float yaw, float deltaTime ) {
+    if ( index >= racers.size() ) {
+        return;
+    }
+    Racer &racer = racers[index];
+    const float moved = Vector3f( position.x - racer.Position.x, 0.0f, position.z - racer.Position.z ).length();
+    const float step = moved < 30.0f ? moved : 0.0f; // a loop restart jumps back to the start: no wheel spin
+    racer.Position = position;
+    racer.Yaw = yaw;
+    racer.Speed = deltaTime > 0.0f ? step / deltaTime : 0.0f;
+    racer.Car->animate( deltaTime, step, 0.0f, false, bNight );
 }
 
 int32_t RaceOpponents::findTrafficContact( const Vector3f &playerPosition, float playerYaw ) const {

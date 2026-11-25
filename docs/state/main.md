@@ -4,6 +4,21 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-25, evening (`main`, the demonstration's traffic drives its recorded run + a VEHI parse bug)
+
+Owner: "Yes, do it" (drive the demo's Deltas along their own recorded run).
+
+- `TestReplay` keeps every recorded slot; `matchSchoolTrafficSlots` pairs each traffic car with its slot (same car id,
+  nearest first pose - the slots are not in VEHI order); the presentation poses them from the recording
+  (`RaceOpponents::setTrafficPose`). licenses_spec 12.27.
+- **Found on the way**: VEHI records come in two forms (matrix at +12 for `u32 1` / 0x11c, at +32 for the road-link 0x130);
+  the port read +32 always, so RSA5T03's four plain-form cars stood ~23 km off the course and RSA2T06 / RSA4T05 had one
+  misplaced car each - in the test itself, not just the demo. Fixed in `Ig2Challenge::load`.
+- Verified (build 455/456): all 8 overtaking tests pair 0.0-0.8 m (RSA7T06's last Mito 140 m - the recording's own start);
+  RSC4T05 demo shots at the two overtakes (`docs/images/licence_rsc4t05_demo_traffic_recorded.webp`); RSC4T05 runs on
+  into the test after the presentation, no contact; RSA5T03's traffic now 661-2107 m along the course (was "lane 1854 m").
+- Not checked by eye: the Hawai overtaking demos (RSA*, RSB3T07, RSC3T05) - only the pairing logs.
+
 ## Session 2026-11-25, later still (`main`, the overtaking tests' demonstration replay fixed)
 
 Owner: "check the overtaking test replay on RSC4T05".

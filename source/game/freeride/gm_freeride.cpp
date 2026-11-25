@@ -3971,6 +3971,7 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
                 testIntro.setNativeBanner( CmdLine::HasArg( "-nativebanner" ) ||
                                            !licenseResult.openPreview( info.Title, info.Description, typeName, placeName, meteoName ) );
                 licenseTest.setHold( true );
+                matchSchoolTrafficSlots();
                 OTDU_LOG_INFO( "FREERIDE: %s: the pre-test presentation (%zu waypoint(s))\n", test.c_str(), path.size() );
                 return;
             }
@@ -4702,6 +4703,21 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
     updateRaceGates(); // the course's gates, barriers and racing line are in the world during the presentation too
     testIntro.tick( deltaTime );
     placeCar( testIntro.getCarPosition(), testIntro.getCarHeading() );
+    // The school traffic drives its own recorded run beside the demo car (licenses_spec 12.27).
+    if ( const TestReplay *pReplay = testIntro.getReplay() ) {
+        for ( size_t i = 0; i < schoolTrafficSlots.size(); i++ ) {
+            Vector3f position, forward;
+            if ( schoolTrafficSlots[i] >= 0 &&
+                 pReplay->sampleSlot( schoolTrafficSlots[i], testIntro.getReplayTime(), position, forward ) ) {
+                schoolTraffic.setTrafficPose( i, position, std::atan2( forward.x, forward.z ), deltaTime );
+                static int32_t trafficLogFrames = 0;
+                if ( CmdLine::HasArg( "-logintro" ) && ( trafficLogFrames++ % 90 ) == 0 ) {
+                    OTDU_LOG_INFO( "INTRO traffic %zu (slot %d) at %.1f s: (%.1f, %.1f, %.1f)\n", i, schoolTrafficSlots[i],
+                                   testIntro.getReplayTime(), position.x, position.y, position.z );
+                }
+            }
+        }
+    }
     // The occupants follow the re-placed car (they stayed where the car was before: the avatar sat outside it).
     if ( bDriverSeated ) {
         driver.update( car, carWorld );
@@ -4719,6 +4735,44 @@ void GMFreeRide::tickTestIntro( float deltaTime ) {
     testIntro.getCamera( camera );
     view.setCamera( camera );
     view.tick( deltaTime );
+}
+
+void GMFreeRide::matchSchoolTrafficSlots() {
+    // The recording's slots 1..n are the .ig2's VEHI cars, but not in file order (usually reversed; RSA5T03 mixes models)
+    // [DATA: the first record of every slot against the VEHI positions, the 8 overtaking tests]. Each traffic car takes the
+    // slot with its car id whose first pose is nearest its VEHI position, the closest pairs first.
+    schoolTrafficSlots.assign( schoolTraffic.getTrafficCount(), -1 );
+    const TestReplay *pReplay = testIntro.getReplay();
+    if ( pReplay == nullptr || CmdLine::HasArg( "-noreplaytraffic" ) ) {
+        return;
+    }
+    struct Pair {
+        float Distance;
+        size_t Car;
+        int32_t Slot;
+    };
+    std::vector<Pair> pairs;
+    for ( size_t i = 0; i < schoolTraffic.getTrafficCount(); i++ ) {
+        int32_t carId = 0;
+        Vector3f origin;
+        schoolTraffic.getTrafficOrigin( i, carId, origin );
+        for ( int32_t slot = 1; slot < pReplay->getSlotCount(); slot++ ) {
+            Vector3f position, forward;
+            if ( pReplay->getSlotCarId( slot ) == carId && pReplay->sampleSlot( slot, 0.0f, position, forward ) ) {
+                pairs.push_back( { Vector3f( position.x - origin.x, 0.0f, position.z - origin.z ).length(), i, slot } );
+            }
+        }
+    }
+    std::sort( pairs.begin(), pairs.end(), []( const Pair &a, const Pair &b ) { return a.Distance < b.Distance; } );
+    std::vector<bool> slotTaken( static_cast<size_t>( Max( pReplay->getSlotCount(), 0 ) ), false );
+    for ( const Pair &pair : pairs ) {
+        if ( schoolTrafficSlots[pair.Car] < 0 && !slotTaken[static_cast<size_t>( pair.Slot )] ) {
+            schoolTrafficSlots[pair.Car] = pair.Slot;
+            slotTaken[static_cast<size_t>( pair.Slot )] = true;
+            OTDU_LOG_INFO( "FREERIDE: traffic car %zu drives the recording's slot %d (%.1f m from its VEHI)\n", pair.Car, pair.Slot,
+                           pair.Distance );
+        }
+    }
 }
 
 void GMFreeRide::tickLicenseResult( float deltaTime ) {

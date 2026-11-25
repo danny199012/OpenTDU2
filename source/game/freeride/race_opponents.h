@@ -74,6 +74,11 @@ public:
     void tickTraffic( float deltaTime, bool bRunning );
     // The index of a traffic car touching the player's box (a car 4.4 x 1.9 m at position / yaw), -1 when none.
     int32_t findTrafficContact( const Vector3f &playerPosition, float playerYaw ) const;
+    // The pre-test presentation drives the school traffic along its own recorded run (TestReplay slots): the cars, their
+    // .ig2 car id and start (VEHI), and a direct pose (ground-snapped when drawn; the wheels roll by the distance moved).
+    inline size_t getTrafficCount() const { return racers.size(); }
+    bool getTrafficOrigin( size_t index, int32_t &outCarId, Vector3f &outOrigin ) const;
+    void setTrafficPose( size_t index, const Vector3f &position, float yaw, float deltaTime );
     // Binds a livery on every car's sticker layer (once).
     void assignSticker( EdenRenderer &renderer, GPUTexture *pTexture );
     // Binds each car's own livery (the lookup returns nullptr for a car without one: it stays plain).
@@ -112,6 +117,7 @@ private:
     struct Racer {
         Entry Info;
         std::unique_ptr<AiCar> Car;
+        Vector3f Origin; // a traffic car: its VEHI position
         std::vector<float> Profile; // target speed per course point (m/s)
         float Distance = 0.0f;      // metres along the course
         float Speed = 0.0f;

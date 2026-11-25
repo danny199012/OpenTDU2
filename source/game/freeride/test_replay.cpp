@@ -1,4 +1,4 @@
-﻿#include "shared.h"
+#include "shared.h"
 #include "test_replay.h"
 #include "core/xmb.h"
 #include "filesystem/gs_file.h"
@@ -16,6 +16,7 @@ template <typename T> T ReadAt( const std::vector<uint8_t> &buffer, size_t offse
 
 bool TestReplay::load( const std::string &testName ) {
     keys.clear();
+    slots.clear();
     duration = 0.0f;
     if ( gpFile == nullptr ) {
         return false;
@@ -54,6 +55,36 @@ bool TestReplay::load( const std::string &testName ) {
     // test car (VehicleInfo[0], the only one on the tests without traffic, CarNumber 1). Reading every chunk as the test car made
     // the overtaking tests' demonstration jump between the cars and the origin.
     const int64_t carNumber = Max<int64_t>( 1, root["CarNumber"].asInt( 1 ) );
+    slots.assign( static_cast<size_t>( carNumber ), Slot() );
+    auto readKey = [&]( size_t at ) {
+        Key key;
+        key.Position = Vector3f( ReadAt<float>( data, at + 9 ), ReadAt<float>( data, at + 13 ), ReadAt<float>( data, at + 17 ) );
+        auto axis = [&]( size_t row ) {
+            const size_t base = at + 25 + row * 8;
+            return Vector3f( ReadAt<int16_t>( data, base ), ReadAt<int16_t>( data, base + 2 ), ReadAt<int16_t>( data, base + 4 ) ) *
+                   ( 1.0f / 32767.0f );
+        };
+        key.Right = axis( 0 );
+        key.Up = axis( 1 );
+        key.Forward = axis( 2 );
+        return key;
+    };
+    // The other slots: a record opens with its valid byte (1) and the u16 car id; a slot whose first record is not valid
+    // (ambient traffic, unused) is skipped.
+    for ( int64_t slot = 1; slot < carNumber; slot++ ) {
+        const size_t first = pos + static_cast<size_t>( slot * matrixSize );
+        if ( first + 45 > data.size() || data[first] == 0 ) {
+            continue;
+        }
+        slots[static_cast<size_t>( slot )].CarId = static_cast<int32_t>( ReadAt<uint16_t>( data, first + 1 ) );
+        for ( int64_t i = 0; i < matrixUsed / carNumber; i++ ) {
+            const size_t at = pos + static_cast<size_t>( ( i * carNumber + slot ) * matrixSize );
+            if ( at + 45 > data.size() || data[at] == 0 ) {
+                break;
+            }
+            slots[static_cast<size_t>( slot )].Keys.push_back( readKey( at ) );
+        }
+    }
     for ( int64_t i = 0; i < matrixUsed / carNumber; i++ ) {
         const size_t at = pos + static_cast<size_t>( i * carNumber * matrixSize );
         if ( at + 45 > data.size() ) {
@@ -84,6 +115,8 @@ bool TestReplay::load( const std::string &testName ) {
     keyInterval = dt * static_cast<float>( matrixRate );
     duration = dt * static_cast<float>( frames );
     carId = root.getArraySize( "VehicleInfo" ) > 0 ? static_cast<int32_t>( root.getArrayElement( "VehicleInfo", 0 )["Id"].asInt( -1 ) ) : -1;
+    slots[0].CarId = carId;
+    slots[0].Keys = keys;
     OTDU_LOG_INFO( "TestReplay: %s: %zu keyframe(s), %.2f s, car %d, clock %.0f s\n", path.c_str(), keys.size(), duration, carId,
                    clock );
     if ( CmdLine::HasArg( "-logreplay" ) ) {
@@ -105,7 +138,29 @@ bool TestReplay::load( const std::string &testName ) {
     return !keys.empty();
 }
 
+int32_t TestReplay::getSlotCarId( int32_t slot ) const {
+    return slot >= 0 && slot < getSlotCount() ? slots[static_cast<size_t>( slot )].CarId : -1;
+}
+
+bool TestReplay::hasSlot( int32_t slot ) const {
+    return slot >= 0 && slot < getSlotCount() && !slots[static_cast<size_t>( slot )].Keys.empty();
+}
+
+bool TestReplay::sampleSlot( int32_t slot, float time, Vector3f &outPosition, Vector3f &outForward ) const {
+    if ( !hasSlot( slot ) ) {
+        return false;
+    }
+    Vector3f up;
+    SampleKeys( slots[static_cast<size_t>( slot )].Keys, keyInterval, time, outPosition, outForward, up );
+    return true;
+}
+
 void TestReplay::sample( float time, Vector3f &outPosition, Vector3f &outForward, Vector3f &outUp ) const {
+    SampleKeys( keys, keyInterval, time, outPosition, outForward, outUp );
+}
+
+void TestReplay::SampleKeys( const std::vector<Key> &keys, float keyInterval, float time, Vector3f &outPosition,
+                             Vector3f &outForward, Vector3f &outUp ) {
     if ( keys.empty() ) {
         return;
     }

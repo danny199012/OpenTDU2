@@ -23,6 +23,13 @@ public:
     inline float getClock() const { return clock; }
     // The pose at a time (seconds from the start of the recording): position and the car's axes.
     void sample( float time, Vector3f &outPosition, Vector3f &outForward, Vector3f &outUp ) const;
+    // The other recorded cars (the overtaking tests: CarNumber slots interleaved per keyframe, slot 0 the test car, the
+    // school traffic next; ambient traffic / unused slots carry no data and have no keys).
+    inline int32_t getSlotCount() const { return static_cast<int32_t>( slots.size() ); }
+    int32_t getSlotCarId( int32_t slot ) const;
+    bool hasSlot( int32_t slot ) const;
+    // The pose of a slot's car (false when the slot was not recorded).
+    bool sampleSlot( int32_t slot, float time, Vector3f &outPosition, Vector3f &outForward ) const;
 
 private:
     struct Key {
@@ -30,6 +37,13 @@ private:
         Vector3f Right, Up, Forward;
     };
     std::vector<Key> keys;
+    struct Slot {
+        int32_t CarId = -1;
+        std::vector<Key> Keys;
+    };
+    std::vector<Slot> slots; // slot 0 mirrors keys
+    static void SampleKeys( const std::vector<Key> &keys, float keyInterval, float time, Vector3f &outPosition,
+                            Vector3f &outForward, Vector3f &outUp );
     float keyInterval = 0.2f;
     float duration = 0.0f;
     int32_t carId = -1;

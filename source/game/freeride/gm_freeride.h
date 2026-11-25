@@ -438,6 +438,9 @@ private:
     // The racing school overtaking traffic (VEHI of the .ig2: Lancia Deltas with the school livery driving the course).
     RaceOpponents schoolTraffic;
     bool bSchoolTrafficBound = false;
+    // The presentation's recorded traffic: per school traffic car, its TestReplay slot (-1: not recorded, it stands).
+    std::vector<int32_t> schoolTrafficSlots;
+    void matchSchoolTrafficSlots();
     std::map<int32_t, GPUTexture *> schoolLiveryTextures;
     GPUTexture *getSchoolLivery( int32_t carId );
     float opponentsHold = -1.0f;

@@ -103,7 +103,10 @@ bool Ig2Challenge::load( const std::string &challengeName ) {
                 } else if ( memcmp( pEntity, "VEHI", 4 ) == 0 ) {
                     numVehicles++;
                     if ( entitySize >= 0x60 ) {
-                        const uint8_t *m = pEntity + 32;
+                        // Two record forms, like CHK2: u32 1 then the matrix at +12 (0x11c bytes), or u32 0 + the road link
+                        // prefix, the matrix at +32 (0x130) [DATA: 25 + 6 records over the 538 files; the +32 read of a 0x11c
+                        // record put RSA5T03's cars ~23 km off, RSA2T06 / RSA4T05 have one each].
+                        const uint8_t *m = pEntity + ( ReadU32( pEntity + 8 ) == 1 ? 12 : 32 );
                         Ig2Vehicle vehicle;
                         vehicle.Position = Vector3f( ReadF32( m + 12 ), ReadF32( m + 28 ), ReadF32( m + 44 ) );
                         vehicle.Heading = std::atan2( ReadF32( m + 8 ), ReadF32( m + 40 ) );

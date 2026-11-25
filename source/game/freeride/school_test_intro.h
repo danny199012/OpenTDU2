@@ -42,6 +42,9 @@ public:
     void draw( Renderer2D &renderer, const Font *pFont ) const;
     // How many times the demonstration has restarted (test hook / log).
     inline int32_t getLoops() const { return loops; }
+    // The recorded run being played (nullptr for the gate-path fallback) and its clock (seconds into the recording).
+    inline const TestReplay *getReplay() const { return bReplay ? &replay : nullptr; }
+    inline float getReplayTime() const { return time < runTime ? time : runTime; }
 
 private:
     Vector3f pointAt( float distance, Vector3f &outForward ) const;
