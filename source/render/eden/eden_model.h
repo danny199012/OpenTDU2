@@ -106,6 +106,12 @@ public:
     void setLoadLods( bool bEnable ) { bLoadLods = bEnable; }
     inline std::vector<EdenMaterial> &getMaterials() { return materials; }
     inline const std::vector<EdenMaterial> &getMaterials() const { return materials; }
+    // Splits the items drawn with `material` by triangle: those for which moveTriangle(a, b, c) (primitive-local positions) is true
+    // go to a new item drawn with a COPY of the material (the avatar's per-side tattoos: both sides share one atlas, so each side
+    // needs its own skin texture). Needs setKeepItemIndices(true) before load. Returns the copy's material index, -1 if nothing moved.
+    // Appends to materials (references to them are invalidated).
+    int32_t splitMaterialTriangles( uint32_t material,
+                                    const std::function<bool( const Vector3f &, const Vector3f &, const Vector3f & )> &moveTriangle );
     // The MyHouse colour variants (houses_spec.md 12): the items drawn with a
     // "_MH<part>_<nn>" material switch to "_MH<part>_<variant + 1>" of the same
     // library (every part A / B / C at once). Returns the number of items
@@ -368,6 +374,7 @@ private:
     Vector3f foamOffset = Vector3f(); // OpenTDU2 surf run-up (setFoamOffset)
     GPUBuffer *pVertexBuffer;
     GPUBuffer *pIndexBuffer;
+    std::vector<GPUBuffer *> extraIndexBuffers; // splitMaterialTriangles
     // Ray tracing: one bottom level structure per item (empty when ray tracing
     // is off). Owned by RayTracing; released by destroy() while it is alive.
     std::vector<RayTracing::Blas *> blases;

@@ -430,20 +430,39 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
 
     // Body (material variant of the BodyID) and head.
     const Bank &bodies = library.getBodiesBank();
-    auto loadPart = [&]( const Bank &bank, const char *pMesh, const char *pMaterials ) -> EdenModel * {
+    auto loadPart = [&]( const Bank &bank, const char *pMesh, const char *pMaterials, bool bSplitSides = false ) -> EdenModel * {
         const BankEntry *pScene = bank.findEntry( pMesh, "3dd" );
         const BankEntry *pGeometry = bank.findEntry( pMesh, "3dg" );
         const BankEntry *pMaterialEntry = bank.findEntry( pMaterials, "2dm" );
         auto pModel = std::make_unique<EdenModel>();
+        pModel->setKeepItemIndices( bSplitSides );
         if ( pScene == nullptr || pGeometry == nullptr ||
              !pModel->load( *pRenderer, *pScene, *pGeometry, pMaterialEntry, nullptr, bank.getPath().c_str() ) ) {
             OTDU_LOG_WARN( "Avatars: part '%s' not loaded\n", pMesh );
             return nullptr;
         }
+        if ( bSplitSides ) {
+            // Per-side tattoos: the right half of every visible skin item gets its own copy of the skin material.
+            bodySideCopy.clear();
+            const size_t original = pModel->getMaterials().size();
+            for ( uint32_t m = 0; m < original; m++ ) {
+                const EdenMaterial &material = pModel->getMaterials()[m];
+                if ( material.ShaderSetGUID != 0xd5013ed0dbcdcdcdull || material.pProgram == nullptr ) {
+                    continue;
+                }
+                const int32_t copy = pModel->splitMaterialTriangles( m, []( const Vector3f &a, const Vector3f &b, const Vector3f &c ) {
+                    return ( a.x + b.x + c.x ) < 0.0f;
+                } );
+                if ( copy >= 0 ) {
+                    bodySideCopy[m] = static_cast<uint32_t>( copy );
+                }
+            }
+            pModel->clearPrimitiveData();
+        }
         parts.push_back( std::move( pModel ) );
         return parts.back().get();
     };
-    if ( EdenModel *pBody = loadPart( bodies, body.pBody, body.pMaterials ) ) {
+    if ( EdenModel *pBody = loadPart( bodies, body.pBody, body.pMaterials, ( bPlayerFace || CmdLine::HasArg( "-dumpbodyuv" ) ) && !CmdLine::HasArg( "-notattooside" ) ) ) {
         for ( EdenMaterial &material : pBody->getMaterials() ) {
             for ( uint32_t z = 0; z < 21; z++ ) {
                 if ( !zoneVisible[z] && !CmdLine::HasArg( "-nudeavatar" ) && material.Hashcode == GetIdentifier64bit( kZoneMaterials[z] ) ) {
@@ -474,14 +493,16 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
                 if ( sscanf( rays.substr( at, end - at ).c_str(), "%f,%f,%f,%f,%f,%f", &r[0], &r[1], &r[2], &r[3], &r[4], &r[5] ) == 6 ) {
                     float u = 0.0f, v = 0.0f;
                     bool bHeadHit = false;
-                    const bool bHit = pickSkin( Vector3f( r[0], r[1], r[2] ), Vector3f( r[3], r[4], r[5] ), Matrix4x4f::Identity(), {}, u, v, &bHeadHit );
-                    OTDU_LOG_INFO( "tattoopick (%.3f %.3f %.3f): %s u %.4f v %.4f %s\n", r[0], r[1], r[2], bHit ? "hit" : "miss", u, v, bHeadHit ? "head" : "body" );
+                    int hitSide = 0;
+                    const bool bHit = pickSkin( Vector3f( r[0], r[1], r[2] ), Vector3f( r[3], r[4], r[5] ), Matrix4x4f::Identity(), {}, u, v, &bHeadHit, &hitSide );
+                    OTDU_LOG_INFO( "tattoopick (%.3f %.3f %.3f): %s u %.4f v %.4f %s side %d\n", r[0], r[1], r[2], bHit ? "hit" : "miss", u, v, bHeadHit ? "head" : "body", hitSide );
                     OTDU_LOG_INFO( "Tattoo pick: ray %s -> %s u %.3f v %.3f\n", rays.substr( at, end - at ).c_str(), bHit ? "hit" : "miss", u, v );
                     if ( bHit ) {
                         TattooDecal decal;
                         decal.Design = "star";
                         decal.U = u;
                         decal.V = v;
+                        decal.Side = hitSide;
                         decal.Scale = 0.04f;
                         decal.Color = placed.size() % 2 == 0 ? 0xff0000 : 0x0000ff;
                         placed.push_back( decal );
@@ -753,13 +774,31 @@ void EdenAvatar::applyTattoos( const Bank &bodies ) {
     if ( pPart == nullptr ) {
         continue;
     }
-    std::vector<TattooDecal> mine;
+    std::vector<TattooDecal> passDecals;
     for ( const TattooDecal &decal : tattooDecals ) {
         if ( decal.Head == ( pass == 1 ) ) {
-            mine.push_back( decal );
+            passDecals.push_back( decal );
         }
     }
-    for ( EdenMaterial &material : pPart->getMaterials() ) {
+    for ( size_t materialIndex = 0; materialIndex < pPart->getMaterials().size(); materialIndex++ ) {
+        EdenMaterial &material = pPart->getMaterials()[materialIndex];
+        // per-side body skins: the material is the side-1 original, the side-2 copy, or unsplit (0: every decal)
+        int matSide = 0;
+        if ( pass == 0 ) {
+            for ( const auto &pair : bodySideCopy ) {
+                if ( pair.first == materialIndex ) {
+                    matSide = 1;
+                } else if ( pair.second == materialIndex ) {
+                    matSide = 2;
+                }
+            }
+        }
+        std::vector<TattooDecal> mine;
+        for ( const TattooDecal &decal : passDecals ) {
+            if ( matSide == 0 || decal.Side == 0 || decal.Side == matSide ) {
+                mine.push_back( decal );
+            }
+        }
         const bool bSkinSet = material.ShaderSetGUID == 0xd5013ed0dbcdcdcdull || ( pass == 1 && material.ShaderSetGUID == 0xd5013ed0dbcddbcaull );
         if ( !bSkinSet || material.pProgram == nullptr ) {
             continue;
@@ -790,10 +829,10 @@ void EdenAvatar::applyTattoos( const Bank &bodies ) {
             material.TextureHashes[pSaved->Slot] = pSaved->BaseHash;
             continue;
         }
-        const uint64_t compositeKey = pSaved->BaseHash + static_cast<uint64_t>( pass );
+        const uint64_t compositeKey = pSaved->BaseHash + static_cast<uint64_t>( pass ) + 16ull * static_cast<uint64_t>( matSide );
         if ( auto done = composited.find( compositeKey ); done != composited.end() ) {
             material.pTextures[pSaved->Slot] = done->second;
-            material.TextureHashes[pSaved->Slot] = GetIdentifier64bit( "tattoo_skin" ) + tattooRevision;
+            material.TextureHashes[pSaved->Slot] = GetIdentifier64bit( "tattoo_skin" ) + tattooRevision * 4ull + static_cast<uint64_t>( matSide );
             continue;
         }
         // The slot's texture is a .2db of the bodies bank (hash of its name).
@@ -820,7 +859,7 @@ void EdenAvatar::applyTattoos( const Bank &bodies ) {
         const std::string name = "tattoo_" + pEntry->Name;
         if ( GPUTexture *pTexture = textures.createFromRGBA( texture.Width, texture.Height, rgba.data(), name.c_str() ) ) {
             material.pTextures[pSaved->Slot] = pTexture;
-            material.TextureHashes[pSaved->Slot] = GetIdentifier64bit( "tattoo_skin" ) + tattooRevision;
+            material.TextureHashes[pSaved->Slot] = GetIdentifier64bit( "tattoo_skin" ) + tattooRevision * 4ull + static_cast<uint64_t>( matSide );
             composited[compositeKey] = pTexture;
             tattooTextures.push_back( pTexture );
             OTDU_LOG_INFO( "Tattoo: %zu decals composited into %s (%ux%u, slot %u)\n", mine.size(),
@@ -885,6 +924,12 @@ bool EdenAvatar::buildPickMesh() {
                 if ( bSkin ) {
                     pickMesh.TriMaterial.resize( pickMesh.TriMaterial.size() + prim.Indices.size() / 3, prim.MaterialIndex );
                     pickMesh.TriHead.resize( pickMesh.TriHead.size() + prim.Indices.size() / 3, static_cast<char>( pass ) );
+                    // the side whose skin copy draws this triangle (splitMaterialTriangles: parsed X < 0 = the copy = side 2)
+                    for ( size_t t = 0; t + 2 < prim.Indices.size(); t += 3 ) {
+                        const float ux = ( pickMesh.Positions[base + prim.Indices[t]].x + pickMesh.Positions[base + prim.Indices[t + 1]].x +
+                                           pickMesh.Positions[base + prim.Indices[t + 2]].x ) / 3.0f;
+                        pickMesh.TriSide.push_back( std::fabs( ux ) < kSideDeadZone ? 0 : ( ux > 0.0f ? 2 : 1 ) );
+                    }
                 }
                 for ( uint32_t index : prim.Indices ) {
                     if ( bSkin ) {
@@ -932,7 +977,7 @@ bool EdenAvatar::getSkinnedBounds( const Matrix4x4f &world, const std::vector<Ma
 // body and taking the hit triangle's UV. The body mesh is skinned on the CPU with each vertex's first bone (rigid): good enough
 // for picking. skinMatrices empty = the bind pose.
 bool EdenAvatar::pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirection, const Matrix4x4f &world,
-                           const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV, bool *pOutHead ) {
+                           const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV, bool *pOutHead, int *pOutSide ) {
     if ( pBodiesBank == nullptr ) {
         return false;
     }
@@ -987,6 +1032,9 @@ bool EdenAvatar::pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirecti
             }
             if ( pOutHead != nullptr ) {
                 *pOutHead = pickMesh.TriHead[t / 3] != 0;
+            }
+            if ( pOutSide != nullptr ) {
+                *pOutSide = pickMesh.TriHead[t / 3] != 0 ? 0 : pickMesh.TriSide[t / 3];
             }
             outU = b0 * pickMesh.UVs[i0].first + bu * pickMesh.UVs[i1].first + bv * pickMesh.UVs[i2].first;
             outV = b0 * pickMesh.UVs[i0].second + bu * pickMesh.UVs[i1].second + bv * pickMesh.UVs[i2].second;

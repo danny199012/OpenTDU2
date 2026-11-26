@@ -202,7 +202,11 @@ void EdenModel::destroy() {
     if ( gpRender != nullptr ) {
         gpRender->getDevice().destroyBuffer( pVertexBuffer );
         gpRender->getDevice().destroyBuffer( pIndexBuffer );
+        for ( GPUBuffer *pExtra : extraIndexBuffers ) {
+            gpRender->getDevice().destroyBuffer( pExtra );
+        }
     }
+    extraIndexBuffers.clear();
     pVertexBuffer = nullptr;
     pIndexBuffer = nullptr;
     items.clear();
@@ -869,6 +873,59 @@ bool EdenModel::load( EdenRenderer &renderer,
     // The model's materials built their programs: warm the pipelines the last run used with them.
     renderer.prewarmPipelines();
     return pVertexBuffer != nullptr && pIndexBuffer != nullptr;
+}
+
+int32_t EdenModel::splitMaterialTriangles( uint32_t material,
+                                           const std::function<bool( const Vector3f &, const Vector3f &, const Vector3f & )> &moveTriangle ) {
+    if ( gpRender == nullptr || material >= materials.size() ) {
+        return -1;
+    }
+    int32_t copyIndex = -1;
+    const size_t itemCount = items.size();
+    for ( size_t i = 0; i < itemCount; i++ ) {
+        if ( items[i].MaterialIndex != material || items[i].PrimitiveIndices.empty() ||
+             items[i].PrimitiveVertices.empty() ) {
+            continue;
+        }
+        std::vector<uint32_t> keep, moved;
+        const Item &source = items[i];
+        for ( size_t t = 0; t + 2 < source.PrimitiveIndices.size(); t += 3 ) {
+            const uint32_t a = source.PrimitiveIndices[t], b = source.PrimitiveIndices[t + 1], c = source.PrimitiveIndices[t + 2];
+            if ( a >= source.PrimitiveVertices.size() || b >= source.PrimitiveVertices.size() ||
+                 c >= source.PrimitiveVertices.size() ) {
+                continue;
+            }
+            std::vector<uint32_t> &target =
+                moveTriangle( source.PrimitiveVertices[a], source.PrimitiveVertices[b], source.PrimitiveVertices[c] ) ? moved : keep;
+            target.push_back( a );
+            target.push_back( b );
+            target.push_back( c );
+        }
+        if ( moved.empty() ) {
+            continue;
+        }
+        if ( copyIndex < 0 ) {
+            materials.push_back( materials[material] );
+            copyIndex = static_cast<int32_t>( materials.size() - 1 );
+        }
+        std::vector<uint32_t> all = keep;
+        all.insert( all.end(), moved.begin(), moved.end() );
+        GPUBuffer *pBuffer = gpRender->getDevice().createBuffer( all.size() * sizeof( uint32_t ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, all.data() );
+        if ( pBuffer == nullptr ) {
+            continue;
+        }
+        extraIndexBuffers.push_back( pBuffer );
+        Item extra = items[i]; // copies the primitive data too: harmless, clearPrimitiveData frees it
+        extra.MaterialIndex = static_cast<uint32_t>( copyIndex );
+        extra.Mesh.pIndexBuffer = pBuffer;
+        extra.Mesh.FirstIndex = static_cast<uint32_t>( keep.size() );
+        extra.Mesh.IndexCount = static_cast<uint32_t>( moved.size() );
+        items[i].Mesh.pIndexBuffer = pBuffer;
+        items[i].Mesh.FirstIndex = 0;
+        items[i].Mesh.IndexCount = static_cast<uint32_t>( keep.size() );
+        items.push_back( std::move( extra ) );
+    }
+    return copyIndex;
 }
 
 void EdenModel::clearPrimitiveData() {

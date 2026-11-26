@@ -19,6 +19,9 @@ struct TattooDecal {
     float Opacity = 0.9f;
     uint32_t Color = 0x181818; // 0xRRGGBB ink
     bool Head = false;         // on the head skin texture (face, neck, ears) instead of the body's
+    // Body decals: 0 both sides (torso, back...), 1 / 2 only the limbs of one side (the atlas shares L/R limbs, so the avatar draws
+    // the two sides with their own skin texture copy). Saved with Head in the optional trailing number: Head | Side << 1.
+    int Side = 0;
 };
 
 // Mask value 0..1 of a design at local coordinates x, y in -1..1 (< 0: unknown design).

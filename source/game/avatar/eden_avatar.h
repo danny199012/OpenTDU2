@@ -63,7 +63,8 @@ public:
     const std::vector<TattooDecal> &getTattoos() const { return tattooDecals; }
     // Aim-to-place: the skin (u, v) under a world-space ray, rigid CPU skinning (skinMatrices empty = bind pose).
     bool pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirection, const Matrix4x4f &world,
-                   const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV, bool *pOutHead = nullptr );
+                   const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV, bool *pOutHead = nullptr,
+                   int *pOutSide = nullptr /* body: 0 both sides (near the midline), 1 / 2 the one side's skin copy */ );
     // The skinned body's bounds in world space (the studio's camera pivot).
     bool getSkinnedBounds( const Matrix4x4f &world, const std::vector<Matrix4x4f> &skinMatrices, Vector3f &outMin, Vector3f &outMax );
     void setFaceEdit( const int8_t *pParams, float age, float freckle );
@@ -101,6 +102,10 @@ private:
         uint64_t BaseHash;
     };
     std::vector<SkinSlot> skinSlots;
+    // Per-side tattoos: the body's skin items are split by the side of the triangle (parsed X < 0 -> a copy of the material), so the
+    // two sides of the shared limb atlas can carry different decals. Original material index -> copy index.
+    std::unordered_map<uint32_t, uint32_t> bodySideCopy;
+    static constexpr float kSideDeadZone = 0.10f; // metres from the midline: decals there go on both sides
     struct PickMesh {
         std::vector<Vector3f> Positions;
         std::vector<std::pair<float, float>> UVs;
@@ -108,6 +113,7 @@ private:
         std::vector<uint32_t> Indices;
         std::vector<uint16_t> TriMaterial; // material index of each triangle
         std::vector<char> TriHead;         // 1 = a triangle of the head mesh (the head skin texture)
+        std::vector<char> TriSide;         // body: 0 near the midline (both skins), 1 / 2 = the side's skin copy (see bodySideCopy)
         bool bValid = false;
     } pickMesh;
 };

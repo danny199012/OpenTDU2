@@ -131,8 +131,13 @@ std::string SerializeTattoos( const std::vector<TattooDecal> &decals ) {
     std::string out;
     char buffer[160];
     for ( const TattooDecal &d : decals ) {
+        const int flags = ( d.Head ? 1 : 0 ) | ( d.Side << 1 );
+        char tail[16] = "";
+        if ( flags != 0 ) {
+            snprintf( tail, sizeof( tail ), ",%d", flags );
+        }
         snprintf( buffer, sizeof( buffer ), "%s,%.4f,%.4f,%.4f,%.1f,%.2f,%06x%s;", d.Design.c_str(), d.U, d.V, d.Scale,
-                  d.Rotation, d.Opacity, d.Color & 0xffffff, d.Head ? ",1" : "" );
+                  d.Rotation, d.Opacity, d.Color & 0xffffff, tail );
         out += buffer;
     }
     return out;
@@ -154,7 +159,8 @@ std::vector<TattooDecal> ParseTattoos( const std::string &text ) {
         int head = 0;
         if ( sscanf( item.c_str(), "%63[^,],%f,%f,%f,%f,%f,%x,%d", design, &d.U, &d.V, &d.Scale, &d.Rotation, &d.Opacity,
                      &color, &head ) >= 4 ) {
-            d.Head = head != 0;
+            d.Head = ( head & 1 ) != 0;
+            d.Side = ( head >> 1 ) & 3;
             d.Design = design;
             d.Color = color & 0xffffff;
             out.push_back( d );

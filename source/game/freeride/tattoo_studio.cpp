@@ -98,6 +98,7 @@ void TattooStudio::showWorking() {
         TattooDecal ghost;
         ghost.Design = designs[static_cast<size_t>( design )];
         ghost.Head = bHitHead;
+        ghost.Side = bHitSide;
         ghost.U = hitU;
         ghost.V = hitV;
         ghost.Scale = decalSize;
@@ -113,6 +114,7 @@ void TattooStudio::showWorking() {
     shownInk = ink;
     shownSize = decalSize;
     shownRotation = decalRotation;
+    shownSide = bHitSide;
 }
 
 int32_t TattooStudio::addedCount() const {
@@ -131,7 +133,7 @@ bool TattooStudio::removeNearest() {
     int32_t best = -1;
     float bestDistance = 1e9f;
     for ( size_t i = 0; i < working.size(); i++ ) {
-        if ( working[i].Head != bHitHead ) {
+        if ( working[i].Head != bHitHead || ( working[i].Side != 0 && bHitSide != 0 && working[i].Side != bHitSide ) ) {
             continue;
         }
         const float du = working[i].U - hitU, dv = working[i].V - hitV;
@@ -260,12 +262,13 @@ void TattooStudio::tick( float deltaTime ) {
         shownU = shownV = -1.0f;
         PlayFrontEndCue( "move" );
     }
-    bHit = host.Pick ? host.Pick( hitU, hitV, bHitHead ) : false;
+    bHit = host.Pick ? host.Pick( hitU, hitV, bHitHead, bHitSide ) : false;
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         if ( bHit ) {
             TattooDecal decal;
             decal.Design = designs[static_cast<size_t>( design )];
             decal.Head = bHitHead;
+            decal.Side = bHitSide;
             decal.U = hitU;
             decal.V = hitV;
             decal.Scale = decalSize;
@@ -273,7 +276,7 @@ void TattooStudio::tick( float deltaTime ) {
             decal.Color = kInks[ink].Color;
             working.push_back( decal );
             isNew.push_back( 1 );
-            OTDU_LOG_INFO( "TattooStudio: placed '%s' at u %.3f v %.3f (%zu worn + %zu new)\n", decal.Design.c_str(), hitU, hitV,
+            OTDU_LOG_INFO( "TattooStudio: placed '%s' at u %.3f v %.3f side %d (%zu worn + %zu new)\n", decal.Design.c_str(), hitU, hitV, bHitSide,
                            owned.size(), static_cast<size_t>( addedCount() ) );
             PlayFrontEndCue( "valid" );
             shownDesign = -1; // refresh
@@ -314,7 +317,7 @@ void TattooStudio::tick( float deltaTime ) {
     // Recomposite only when something visible changed (the skin is re-uploaded each time).
     const bool bMoved = std::fabs( hitU - shownU ) > 0.004f || std::fabs( hitV - shownV ) > 0.004f ||
                         ( bHit != ( shownU >= 0.0f ) );
-    if ( bMoved || design != shownDesign || ink != shownInk || decalSize != shownSize || decalRotation != shownRotation ) {
+    if ( bMoved || design != shownDesign || ink != shownInk || decalSize != shownSize || decalRotation != shownRotation || bHitSide != shownSide ) {
         showWorking();
     }
 }

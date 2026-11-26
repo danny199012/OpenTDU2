@@ -166,7 +166,7 @@ public:
     inline bool isTattooFace() const { return bTattooFace; }
     inline float getTattooHeight() const { return tattooHeight; }
     // The skin (u, v) under the view's centre; false when the ray misses the body.
-    bool pickTattooSpot( float &outU, float &outV, bool &outHead );
+    bool pickTattooSpot( float &outU, float &outV, bool &outHead, int &outSide );
     void setPlayerTattoos( const std::vector<TattooDecal> &decals ) {
         if ( player.Avatar ) {
             player.Avatar->setTattoos( decals );
