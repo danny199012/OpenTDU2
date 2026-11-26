@@ -4,6 +4,19 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26, Jane polish (`main`: checked in the quest flow)
+
+Owner: "Polish Jane".
+
+### Verified (profile with `avatar_config = AVT_Female_Intro`, `-storystep 9 -tp 13066,17091 -janetime 100`)
+- The profile's avatar **is** used in the scenes (`gm_cin_viewer.cpp` already reads `profile.AvatarConfig`; the earlier male avatar was the empty test profile's default).
+- Intro in the flow: the cockpit shot of the car at the gate with Jane beside it, then the drive resumes with the goal "Drop me at the driving school", the GPS route, the countdown and **`passenger Jane`** seated (log + the rear view): `docs/images/jane_quest_flow.webp`.
+- **Jane's voice plays**: `-logcinsound` shows `evja_intro_01_b_VOICE_STORYLINE` (5.2 s at 3.76 s) and `evja_intro_02_b_VOICE_STORYLINE` (3.0 s at 9 s) from `pack_events12__us.bnk`.
+
+### Not done
+- The scenes are daylight (the cinematic weather) while the drive can be at night: a cut, as the other story scenes.
+- `C_LOOP_WAIT` / `C_WIN_LOOP` / `C_LOOSE_LOOP` (retail: under a result menu), the win scene's voice and the lose scene's voice were not listened to, the save flag and the real timeout rule remain `[ENC]` guesses.
+
 ## Session 2026-11-26, Jane cutscenes, later (`main`: the intro / win / lose scenes play inside the quest)
 
 Owner: "Keep going".
