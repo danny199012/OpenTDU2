@@ -4,6 +4,25 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26, quests (`main`, build 481+: the Jane event is playable - drive Jane to the off-road school)
+
+Owner: "focus on quests ... driving the person to off road school ... the drive car from A to B all have data of which car it should be ... dev build may help". Then "Jane's event". Survey: `docs/re/quests_spec.md`.
+
+- **Data** [DATA, `ig2/evenjane.ig2`, real reader]: gate #0 (the start, a road gate) at (13069.8, 21.1, 17091.0), gate #1 (the finish) at (17178.1, 129.5, 18110.2) = **33 m from the `ERS_B` spot (17164, 18079)**, i.e. the off-road racing school (`B` = dirt, instructor Jane). `VMod -1` = **the player's own car** (no car in the file), `CtDw` 210 s, `timG` 160 s. `DBEvent` 27: `_eventtype 12`, `_moneyreward 3000`, `_pnj1` 0x17e = DBPNJ `Jane O` (config `SPT_Jane_Omahan`). Goal text loc **6112 "Drop me at the driving school"** (4038 is the step list's "Join Jane who needs some help").
+- `source/game/freeride/gm_freeride.{h,cpp}`: `startJaneMission` / `tickJaneMission` / `finishJaneMission` / `activeQuestEvent` (the finish gate draw + GPS target are shared with the Tess drive). Driving into the start gate on Ibiza at story step >= 5 [INF gate] starts it: goal 6112, GPS to the finish, 210 s countdown, Jane seated as passenger (when a driver avatar is seated), arrival pays $3000 and sets a once-per-session flag (`bJaneDone`; the retail lifetime / save flag is not read).
+- Hooks: `-janequest` (warp to the start gate and begin), `-janequest finish` (begin 90 m before the finish), `-janetime s`, `-nojane`, `-nojanepassenger`.
+
+### Verified
+- `-janequest finish -tp 13050,17091 -autoplay "300:hold=accel"`: `Jane event: start ... finish (17178.1, 129.5, 18110.2) ... limit 210 s, car -1` then `Jane event done with 198.5 s left, reward $3000`.
+- World trigger: `-storystep 9 -tp 13066,17091`: the event starts by itself; with `-nojane` it does not.
+- `-janequest` from the start: GPS route 4894 m (a 210 s limit needs ~84 km/h average).
+
+### Not done / next
+- **The cutscenes** (the owner's point): `pack_events12.bnk` holds `M_INTRO_E12_JANE_totem_winloose`, `M_WIN_E12_JANE...`, `M_LOOSE_E12_JANE...`, `M_WIN_LOOP`, `M_LOOP_WAIT`, `M_LOOSE_LOOP`, the `ev_jane*_npc` anims, 15 `evja` voice lines and `facial/evja`. `-gm CINVIEWER -cinbank scenarics/packs/pack_events12.bnk -cin M_INTRO_E12_JANE_totem_winloose` loads but reports "0 cameras, 2 set models" and `DBPNJ '' not found`: this `M_` kind is not the `C_` format of `GMCine`; read `entities.xmb` (19 KB) first. Hand-off to a cinematic and back needs the mission state to survive the mode switch (the Tess path stores it in the profile story step).
+- Passenger and the visual not seen: the headless profile has no avatar, so no driver is seated and `passenger none` was logged. Check on a profile with an avatar: `-janequest -tp 13050,17091` and look for Jane in the passenger seat.
+- Fail at 0 s, the damage rule, the real lifetime / save flag and the step gate are not known (`[ENC]`); `GM_Mission::Refresh` in the dev exe is the lead.
+- The same shape (ig2 start + finish gates + a passenger) should serve `CMK` / `CMF` and the `EVI`/`EVH` events; their `VMod` is mostly -1 too (quests_spec 1.3).
+
 ## Session 2026-11-26, later (`main`, `-grassasync`: the grass emit on a worker, one frame behind - opt-in)
 
 Owner: "Yes, try it".

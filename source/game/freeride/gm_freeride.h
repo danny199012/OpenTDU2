@@ -189,6 +189,20 @@ private:
     void startTessMission();
     void tickTessMission( float deltaTime );
     void finishTessMission();
+
+    // The Jane event (EVENJANE, DBEvent 27 _eventtype 12, goal 4038 "Join Jane who needs some help" / 6112 "Drop me at
+    // the driving school"): drive Jane O'Mahan from the start gate to the off-road school (ERS_B) [DATA:
+    // ig2/evenjane.ig2 gate #1 = (17178, 130, 18110), 33 m from the ERS_B spot; VMod -1 = the player's own car].
+    // docs/re/quests_spec.md.
+    Ig2Challenge janeEvent;
+    bool bJaneMission = false;
+    bool bJaneDone = false; // once per session (the retail lifetime / save flag is not read yet)
+    float janeTimeLeft = 0.0f;
+    Vector3f janePreviousCar;
+    void startJaneMission( bool bWarp );
+    void tickJaneMission( float deltaTime );
+    void finishJaneMission();
+    const Ig2Challenge *activeQuestEvent() const;
     // One-time wirings of this instance (callbacks that capture this mode).
     bool bPuddlesWired = false;
     bool bBankWired = false;

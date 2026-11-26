@@ -2336,7 +2336,9 @@ void GMFreeRide::startDriving() {
     if ( GetPlayerProfile().StoryStep == 3 && islandName == "ibiza" ) {
         GetPlayerProfile().StoryStep = 4;
     }
-    if ( GetPlayerProfile().StoryStep == 4 && islandName == "ibiza" && !CmdLine::HasArg( "-notess" ) ) {
+    if ( CmdLine::HasArg( "-janequest" ) && islandName == "ibiza" ) {
+        startJaneMission( true ); // -janequest: warp to the start gate and begin the Jane event now
+    } else if ( GetPlayerProfile().StoryStep == 4 && islandName == "ibiza" && !CmdLine::HasArg( "-notess" ) ) {
         startTessMission();
     } else if ( GetPlayerProfile().StoryStep == 9 ) {
         // Story step 9 "Go Home" (FUN_00b10da0's step table, docs/re/
@@ -5295,9 +5297,10 @@ void GMFreeRide::buildCourseMarkers() {
 
 void GMFreeRide::updateRaceGates() {
     std::vector<RaceGates::Gate> gates;
-    if ( bTessMission && raceGates.isLoaded() && tessEvent.getGates().size() > 1 ) {
-        // The mission's destination: the finish gate of tesseven.ig2 on the road.
-        const Ig2Gate &finish = tessEvent.getGates().back();
+    const Ig2Challenge *pQuest = activeQuestEvent();
+    if ( pQuest != nullptr && raceGates.isLoaded() && pQuest->getGates().size() > 1 ) {
+        // The mission's destination: the finish gate of tesseven.ig2 / evenjane.ig2 on the road.
+        const Ig2Gate &finish = pQuest->getGates().back();
         RaceGates::Gate gate;
         gate.Position = finish.Position;
         gate.Forward = finish.Forward;
@@ -6208,6 +6211,104 @@ void GMFreeRide::finishTessMission() {
     GetPlayerProfile().StoryStep = 5;
     SaveProfile( "story step 5" );
     pGameInstance->setNextGameMode( eGameMode::GM_Cine );
+}
+
+const Ig2Challenge *GMFreeRide::activeQuestEvent() const {
+    if ( bTessMission ) {
+        return &tessEvent;
+    }
+    return bJaneMission ? &janeEvent : nullptr;
+}
+
+void GMFreeRide::startJaneMission( bool bWarp ) {
+    if ( bJaneMission || bTessMission || licenseTest.isActive() ) {
+        return;
+    }
+    if ( !janeEvent.load( "evenjane" ) || janeEvent.getGates().size() < 2 ) {
+        OTDU_LOG_WARN( "FREERIDE: ig2/evenjane.ig2 has no start / finish gate, no Jane event\n" );
+        return;
+    }
+    const Ig2Gate &start = janeEvent.getGates().front();
+    const Ig2Gate &finish = janeEvent.getGates().back();
+    if ( bWarp ) {
+        // -janequest finish: begin 90 m before the finish gate instead (the headless check of the arrival).
+        const char *pAt = CmdLine::GetArgValue( "-janequest" );
+        const bool bNearFinish = pAt != nullptr && std::string( pAt ) == "finish";
+        const Ig2Gate &from = bNearFinish ? finish : start;
+        placeCar( from.Position - ( bNearFinish ? from.Forward * 90.0f : Vector3f( 0.0f, 0.0f, 0.0f ) ),
+                  std::atan2( from.Forward.x, from.Forward.z ) );
+    }
+    bJaneMission = true;
+    // Jane O'Mahan (DBEvent 27 _pnj1 = DBPNJ 0x17e, config SPT_Jane_Omahan) gets in beside the player.
+    if ( bDriverSeated && !bPassengerSeated && !CmdLine::HasArg( "-nojanepassenger" ) ) {
+        bPassengerSeated = passenger.load( avatars, "SPT_Jane_Omahan", SeatedAvatar::eSeat::Passenger, driverBank );
+    }
+    hud.showGoal( LocStr( 6112, "Drop me at the driving school" ) );
+    mapScreen.tickRoute( carWorld.getTranslation(), 0.0f );
+    mapScreen.setTarget( finish.Position );
+    // CtDw 210 s is the editor default here (ChCD 1 is set: the file's own limit) [DATA].
+    janeTimeLeft = CmdLine::HasArg( "-janetime" ) ? static_cast<float>( CmdLine::GetArgInt( "-janetime", 210 ) )
+                                                  : ( janeEvent.getLimitMs() > 0 ? janeEvent.getLimitMs() / 1000.0f : 210.0f );
+    hud.setTestDrive( true );
+    hud.setCountdown( janeTimeLeft );
+    janePreviousCar = carWorld.getTranslation();
+    OTDU_LOG_INFO( "FREERIDE: Jane event: start (%.1f, %.1f, %.1f), finish (%.1f, %.1f, %.1f) width %.1f, route %.0f m, "
+                   "limit %.0f s, car %d (-1 = the player's), passenger %s\n",
+                   start.Position.x, start.Position.y, start.Position.z, finish.Position.x, finish.Position.y,
+                   finish.Position.z, finish.Width, mapScreen.getRouteLength(), janeTimeLeft, janeEvent.getCarId(),
+                   bPassengerSeated ? "Jane" : "none" );
+}
+
+void GMFreeRide::tickJaneMission( float deltaTime ) {
+    if ( state != eState::Drive ) {
+        return;
+    }
+    const Vector3f car = carWorld.getTranslation();
+    if ( !bJaneMission ) {
+        // The start: driving into the first gate on Ibiza begins the event [INF: the retail trigger is the spot's
+        // enter hologram; the event spot sits on this gate].
+        if ( !bJaneDone && islandName == "ibiza" && !CmdLine::HasArg( "-nojane" ) && janeEvent.getName().empty() ) {
+            janeEvent.load( "evenjane" );
+        }
+        if ( !bJaneDone && islandName == "ibiza" && !CmdLine::HasArg( "-nojane" ) && janeEvent.getGates().size() > 1 &&
+             GetPlayerProfile().StoryStep >= 5 ) {
+            const Vector3f toStart = janeEvent.getGates().front().Position - car;
+            if ( Vector3f( toStart.x, 0.0f, toStart.z ).length() < 12.0f ) {
+                startJaneMission( false );
+            }
+        }
+        return;
+    }
+    janeTimeLeft = Max( janeTimeLeft - deltaTime, 0.0f ); // at zero the retail's behaviour is [ENC]: the clock stops [INF]
+    hud.setCountdown( janeTimeLeft );
+    const Ig2Gate &finish = janeEvent.getGates().back();
+    const Vector3f previous = janePreviousCar;
+    janePreviousCar = car;
+    const float distance = Vector3f( finish.Position.x - car.x, 0.0f, finish.Position.z - car.z ).length();
+    const Vector3f normal( finish.Forward.x, 0.0f, finish.Forward.z );
+    const float sideBefore = ( previous - finish.Position ).dot( normal );
+    const float sideNow = ( car - finish.Position ).dot( normal );
+    if ( ( sideBefore * sideNow <= 0.0f && distance < Max( 14.0f, finish.Width * 2.0f ) ) || distance < 12.0f ) {
+        finishJaneMission();
+    }
+}
+
+void GMFreeRide::finishJaneMission() {
+    // DBEvent 27 _moneyreward 3000 [DATA]; Jane gets out at the school.
+    const int32_t reward = 3000;
+    OTDU_LOG_INFO( "FREERIDE: Jane event done with %.1f s left, reward $%d\n", janeTimeLeft, reward );
+    bJaneMission = false;
+    bJaneDone = true;
+    GetPlayerProfile().Money += reward;
+    SaveProfile( "Jane event" );
+    hud.setCountdown( 0.0f );
+    hud.setTestDrive( false );
+    hud.closeGoal();
+    raceGates.clear();
+    if ( bPassengerSeated && !bSchoolInstructor ) {
+        passenger.unload();
+        bPassengerSeated = false;
+    }
 }
 
 void GMFreeRide::resolveSteeringWheel() {
@@ -8504,6 +8605,7 @@ void GMFreeRide::tick( float deltaTime ) {
             tickLicenseTest( deltaTime );
             updateRaceGates();
             tickTessMission( deltaTime );
+            tickJaneMission( deltaTime );
             float raceTime = 0.0f;
             int32_t raceReward = 0;
             bool bRaceSuccess = false;
