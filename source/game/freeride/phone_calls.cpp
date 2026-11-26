@@ -182,6 +182,13 @@ void PhoneCalls::checkNudges( const Context &context ) {
         }
         return false;
     };
+    // RIVAL_<class>: the rival's duel challenge, once a championship of the class is complete and the duel is not won
+    // yet (the caller stakes their car) [INF rule, the same as the duel spot's].
+    for ( const std::string &duelClass : context.OpenDuels ) {
+        if ( request( ( "RIVAL_" + duelClass ).c_str() ) ) {
+            return;
+        }
+    }
     // 3. REALTOR_CALL: one house and two or more cars (the garage is cramped).
     const size_t cars = std::max( profile.Garage.size(), profile.OwnedCars.size() + 1 );
     if ( profile.OwnedHouses.size() == 1 && cars >= 2 && request( "REALTOR_CALL" ) ) {

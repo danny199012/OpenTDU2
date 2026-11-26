@@ -487,6 +487,8 @@ private:
     void loadDuelSpots();
     void startDuel( const DuelSpot &duel );
     bool isDuelWon( const DuelSpot &duel ) const;
+    bool isDuelOpen( const DuelSpot &duel ) const; // a championship of its class is complete [INF]
+    void grantDuelCar( const DuelSpot &duel );      // DBRewardCar DUEL_WIN_<class>: the rival's car, tuned 3/3/3
     ChampionshipMenu championshipMenu;
     void loadChampionshipSpots();
     // The retail championship view: the world map's contest flow (MAP.vmf,

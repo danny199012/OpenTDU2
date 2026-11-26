@@ -34,6 +34,7 @@ public:
         bool bFreeDriving = false; // in the free roam, in the car, no modal screen
         int32_t StoryStep = 0;
         std::string Island;    // lower case: ibiza | hawai | casino
+        std::vector<std::string> OpenDuels; // classes of the duels open and not won on this island (C4, B4, A5 ...)
         bool bAccept = false;  // Validate pressed this frame (take the call)
         bool bDecline = false; // Back pressed this frame (decline the call)
     };

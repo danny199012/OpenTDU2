@@ -3342,15 +3342,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
         } else if ( pNearDuel != nullptr ) {
             // A duel is open once a championship of its class is complete [INF: the retail unlock rule is
             // not read; "Delock current Duel" in the dev exe's debug menu shows a per-duel lock].
-            bool bOpen = false;
-            bool bAnyOfClass = false;
-            for ( const LicenseInfo *pChampionship : GetChampionships( islandName == "hawai" ? 1 : 0 ) ) {
-                if ( pChampionship->VehicleCategory[0] == pNearDuel->Category ) {
-                    bAnyOfClass = true;
-                    bOpen = bOpen || IsChampionshipComplete( *pChampionship );
-                }
-            }
-            bOpen = bOpen || !bAnyOfClass || CmdLine::HasArg( "-opendevduels" );
+            const bool bOpen = isDuelOpen( *pNearDuel );
             if ( isDuelWon( *pNearDuel ) ) {
                 hud.showHint( "Duel against " + pNearDuel->Rival + " already won.", 4.0f );
             } else if ( !bOpen ) {
@@ -3791,6 +3783,48 @@ void GMFreeRide::loadDuelSpots() {
         duelSpots.push_back( duel );
         OTDU_LOG_INFO( "FREERIDE: duel %s (class %s) against '%s' at (%.0f, %.0f)\n", duel.File.c_str(), duel.Class.c_str(),
                        duel.Rival.c_str(), duel.Position.x, duel.Position.z );
+    }
+}
+
+bool GMFreeRide::isDuelOpen( const DuelSpot &duel ) const {
+    bool bOpen = false;
+    bool bAnyOfClass = false;
+    for ( const LicenseInfo *pChampionship : GetChampionships( islandName == "hawai" ? 1 : 0 ) ) {
+        if ( pChampionship->VehicleCategory[0] == duel.Category ) {
+            bAnyOfClass = true;
+            bOpen = bOpen || IsChampionshipComplete( *pChampionship );
+        }
+    }
+    return bOpen || !bAnyOfClass || CmdLine::HasArg( "-opendevduels" );
+}
+
+void GMFreeRide::grantDuelCar( const DuelSpot &duel ) {
+    // DBRewardCar _event DUEL_WIN_<class>: _carunlocked + the tuning levels [DATA]; "You win the challenger's car!" (loc 3852).
+    PlayerProfile &profile = GetPlayerProfile();
+    const std::string event = "DUEL_WIN_" + duel.Class;
+    const XmbValue root = gpDatabase->getDocument().getRoot();
+    for ( uint32_t i = 0; i < root.getArraySize( "DBRewardCar" ); i++ ) {
+        const XmbValue row = root.getArrayElement( "DBRewardCar", i );
+        if ( row["_event"].asString() != event ) {
+            continue;
+        }
+        const int32_t carId = static_cast<int32_t>( row["_carunlocked"].asInt() );
+        bool bOwned = std::find( profile.OwnedCars.begin(), profile.OwnedCars.end(), carId ) != profile.OwnedCars.end();
+        for ( const OwnedCar &owned : profile.Garage ) {
+            bOwned = bOwned || owned.IdCar == carId;
+        }
+        if ( bOwned ) {
+            return;
+        }
+        profile.OwnedCars.push_back( carId );
+        TuningLevels &levels = profile.OwnedCarTuning[carId];
+        levels.Accel = static_cast<int32_t>( row["_acceltuninglevel"].asInt() );
+        levels.Braking = static_cast<int32_t>( row["_brakingtuninglevel"].asInt() );
+        levels.Speed = static_cast<int32_t>( row["_speedtuninglevel"].asInt() );
+        hud.showDiscovery( LocStr( 3852, "You win the challenger's car!" ) );
+        OTDU_LOG_INFO( "FREERIDE: duel prize '%s': car %d added to the garage, tuning %d/%d/%d\n", event.c_str(), carId,
+                       levels.Accel, levels.Braking, levels.Speed );
+        return;
     }
 }
 
@@ -4470,6 +4504,7 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
             if ( result == LicenseTest::eResult::Passed ) {
                 AwardSkillEvent( ( "RACING_DUEL_" + pActiveDuel->Class ).c_str() );
                 hud.showDiscovery( "Duel won against " + pActiveDuel->Rival );
+                grantDuelCar( *pActiveDuel );
                 SaveProfile( "duel won" );
             }
             OTDU_LOG_INFO( "FREERIDE: duel %s result %s\n", pActiveDuel->File.c_str(), LicenseResultText( result ) );
@@ -9016,6 +9051,11 @@ void GMFreeRide::tick( float deltaTime ) {
         phoneContext.bFreeDriving = state == eState::Drive;
         phoneContext.StoryStep = GetPlayerProfile().StoryStep;
         phoneContext.Island = ToLower( islandName );
+        for ( const DuelSpot &duel : duelSpots ) {
+            if ( !isDuelWon( duel ) && isDuelOpen( duel ) ) {
+                phoneContext.OpenDuels.push_back( duel.Class );
+            }
+        }
         if ( phoneCalls.isActive() ) {
             phoneContext.bAccept = gpInput->wasPressed( eInputAction::IA_MenuValidate );
             phoneContext.bDecline = gpInput->wasPressed( eInputAction::IA_MenuBack );
@@ -9110,6 +9150,17 @@ void GMFreeRide::tick( float deltaTime ) {
         // Accepting a call points the GPS at the place it talks about: the
         // nearest spot of that kind [INF].
         const std::string accepted = phoneCalls.takeAccepted();
+        if ( accepted.compare( 0, 6, "RIVAL_" ) == 0 ) {
+            // The duel challenge: GPS to the rival's start (DBEvent type 11, spotworld DUEL*).
+            for ( const DuelSpot &duel : duelSpots ) {
+                if ( duel.Class == accepted.substr( 6 ) ) {
+                    hud.showGoal( "Duel against " + duel.Rival );
+                    mapScreen.setTarget( duel.Position );
+                    OTDU_LOG_INFO( "PhoneCalls: '%s' accepted -> GPS to the duel %s (%.0f, %.0f)\n", accepted.c_str(),
+                                   duel.File.c_str(), duel.Position.x, duel.Position.z );
+                }
+            }
+        }
         if ( accepted == "EVENT_JANE" && islandName == "ibiza" && !bJaneMission ) {
             // Todd's call: catch up to Jane. The goal is the event's start gate (the spot EVENJANE on the map).
             if ( janeEvent.getGates().empty() ) {
@@ -9345,6 +9396,16 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         // Test: -licensetest <RSA7T01 ...> drives a licence test straight away;
         // -schoolmenu <A|B|C> opens a school's desk without the spot.
+        if ( CmdLine::HasArg( "-duelnow" ) && ++questFrames == 90 ) {
+            // -duelnow <class> (test): start the duel of that class without walking to its spot.
+            const char *pClass = CmdLine::GetArgValue( "-duelnow" );
+            for ( const DuelSpot &duel : duelSpots ) {
+                if ( pClass != nullptr && duel.Class == pClass ) {
+                    startDuel( duel );
+                    break;
+                }
+            }
+        }
         if ( pendingQuest == "jane" && ++questFrames == 60 ) {
             pendingQuest.clear();
             startJaneMission( false ); // the intro scene just ended with the car at the start gate
