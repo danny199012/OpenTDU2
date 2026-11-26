@@ -1626,6 +1626,7 @@ void EdenWorld::drawInstances( EdenRenderer &renderer, Sector &sector, const Vec
 }
 
 void EdenWorld::destroy() {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     if ( gpRender == nullptr ) {
         return;
     }
@@ -1831,6 +1832,7 @@ bool EdenWorld::isSectorLoaded( const SectorId &id ) const {
 }
 
 void EdenWorld::finishPendingSectors( bool bWait ) {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     for ( auto it = pendingSectors.begin(); it != pendingSectors.end(); ) {
         if ( !bWait && it->Done.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready ) {
             ++it;
@@ -2049,6 +2051,7 @@ static uint32_t CountModelMismatches( const EdenModel &got, const EdenModel &ref
 }
 
 bool EdenWorld::loadSector( const SectorId &id, bool bAsync ) {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     if ( id.AreaX < 0 || id.AreaY < 0 || id.AreaX >= areaColumns || id.AreaY >= areaRows || id.X < 0 || id.Y < 0 ||
          id.X >= static_cast<int32_t>( kSectorsPerArea ) || id.Y >= static_cast<int32_t>( kSectorsPerArea ) ) {
         return false;
@@ -2501,6 +2504,7 @@ bool EdenWorld::requestAreaBank( int32_t x, int32_t y ) {
 }
 
 bool EdenWorld::loadArea( int32_t x, int32_t y ) {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     auto pArea = std::make_unique<Area>();
     pArea->X = x;
     pArea->Y = y;
@@ -2617,6 +2621,7 @@ uint32_t EdenWorld::unloadFar( const Vector3f &position, int32_t sectorRadius, i
 
 uint32_t EdenWorld::unloadFar( const Vector3f &position, const Vector3f &ahead, int32_t sectorRadius,
                                int32_t maxSectors ) {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     const SectorId center = getSectorAt( position );
     const int32_t centerColumn = center.AreaX * kSectorsPerArea + center.X;
     const int32_t centerRow = center.AreaY * kSectorsPerArea + center.Y;
@@ -2660,6 +2665,7 @@ uint32_t EdenWorld::unloadFar( const Vector3f &position, const Vector3f &ahead, 
 }
 
 void EdenWorld::scanTunnelTerrain() {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     // Node names are French-authored data: 'tun' covers the TUNNEL / *_W_T
     // pairs of the session-42 tunnel; pont / viad (and the English words)
     // are the bridge spellings to watch for.
@@ -2977,6 +2983,7 @@ bool EdenWorld::requestSectorBank( const SectorId &id ) {
 }
 
 bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int32_t maxSectors ) {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     const auto loadAroundStart = std::chrono::steady_clock::now();
     finishPendingSectors( false );
     if ( areas.empty() ) {
@@ -3098,6 +3105,7 @@ bool EdenWorld::loadAround( const Vector3f &position, int32_t sectorRadius, int3
 }
 
 bool EdenWorld::preloadOne( const Vector3f &position, const Vector3f &ahead, int32_t sectorRadius ) {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     if ( areas.empty() ) {
         return false; // loadAround sets the world up first
     }
@@ -3950,6 +3958,7 @@ static int32_t GrassAttrI( const std::unordered_map<std::string, std::string> &a
 }
 
 bool EdenWorld::loadGrassAssets( const char *pIsland ) {
+    joinGrassWorker(); // the grass emit worker reads the sectors (-grassasync)
     // grasstypes.xml: a loose file, and the shipped one is malformed (it ends
     // mid-tag) - a tolerant scan instead of an XML parser (grass_spec.md 1.2).
     std::vector<uint8_t> xml;
@@ -4107,8 +4116,32 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
     // for the whole frame); a rebuild happens when the frame rolls over or
     // the pass camera left the built radius.
     const uint64_t frame = gpRender->getDevice().getFrameNumber();
-    if ( !bGrassBatchBuilt || frame != grassBatchFrame ||
-         ( cameraPosition - grassBatchCamera ).length() > 2.0f ) {
+    // -grassasync: the emit of this frame's batch ran on a worker during the previous frame's draw (around that
+    // frame's camera and car) and is only uploaded here; the next one is started right after, so it overlaps the
+    // rest of this frame. A missing or far-off result (first frame, a teleport) falls back to the main-thread
+    // build. Within a frame the batch is reused whatever the pass camera (no 2 m rebuild).
+    static const bool bAsync = CmdLine::HasArg( "-grassasync" );
+    if ( bAsync ) {
+        if ( !bGrassBatchBuilt || frame != grassBatchFrame ) {
+            bool bAdopted = false;
+            if ( grassWorker.valid() ) {
+                grassWorker.get();
+                if ( grassEmit.bValid && ( grassEmit.Camera - cameraPosition ).length() < 40.0f ) {
+                    uploadGrassBatch( renderer, grassEmit, cameraPosition );
+                    bAdopted = true;
+                }
+            }
+            if ( !bAdopted ) {
+                buildGrassBatch( renderer, cameraPosition );
+            }
+            grassEmit.bValid = false;
+            const GrassCarSnapshot car = snapshotGrassCar();
+            grassWorker = std::async( std::launch::async, [this, cameraPosition, car] {
+                emitGrassBatch( cameraPosition, car, grassEmit );
+            } );
+        }
+    } else if ( !bGrassBatchBuilt || frame != grassBatchFrame ||
+                ( cameraPosition - grassBatchCamera ).length() > 2.0f ) {
         buildGrassBatch( renderer, cameraPosition );
     }
     if ( grassBatchMesh.IndexCount == 0 ) {
@@ -4119,7 +4152,22 @@ void EdenWorld::drawGrass( EdenRenderer &renderer, const Vector3f &cameraPositio
 }
 
 void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraPosition ) {
-    GrassBatch &batch = bGrassTallGrass ? grassTallBatch : grassBatch;
+    joinGrassWorker();
+    emitGrassBatch( cameraPosition, snapshotGrassCar(), grassEmit );
+    uploadGrassBatch( renderer, grassEmit, cameraPosition );
+}
+
+void EdenWorld::emitGrassBatch( const Vector3f &cameraPosition, const GrassCarSnapshot &car, GrassEmitResult &out ) {
+    GrassBatch &batch = out.Batch;
+    // Local names for what the walk below touches, so it reads the same on the main thread and on the worker (the
+    // car footprint is the caller's snapshot, the row scratch and the blade lists are the result's own).
+    std::vector<BladeVertex> &bladeVertices = out.BladeV;
+    std::vector<uint32_t> &bladeIndices = out.BladeI;
+    std::vector<uint8_t> pgrRowScratch;
+    const Vector3f grassCarPosition = car.Position;
+    const Vector3f grassCarForward = car.Forward;
+    const float grassCarHalfLength = car.HalfLength;
+    const float grassCarHalfWidth = car.HalfWidth;
     batch.Streams[0].clear();
     batch.Streams[1].clear();
     batch.Indices.clear();
@@ -4206,7 +4254,7 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
     const bool bDensityLaw = GrassDensityLaw();
     const float roadWidth = GrassRoadWidth();
     static const bool bNoCarFlatten = CmdLine::HasArg( "-nograsscar" );
-    const bool bCarFlatten = bGrassCar && !bNoCarFlatten;
+    const bool bCarFlatten = car.bValid && !bNoCarFlatten;
     const float densityScale = GrassDensityScale();
     static const bool bNoOrderHoist = CmdLine::HasArg( "-nograssorderhoist" );
     // The far reject (-nograssfarreject = the A/B): beyond 60 m the density law's smoothstep is 1, so a cell's keep
@@ -4593,12 +4641,32 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
             }
         }
     }
+    out.Camera = cameraPosition;
+    out.bValid = true;
+    out.bCapped = bCapped;
+    out.Cards = cards;
+    out.RoadSkipped = roadSkipped;
+    out.GraphSkipped = roadGraphSkipped;
+    out.MarkerSkipped = markerSkipped;
+}
+
+void EdenWorld::uploadGrassBatch( EdenRenderer &renderer, GrassEmitResult &emitted, const Vector3f &cameraPosition ) {
+    GrassBatch &batch = emitted.Batch;
+    const float dist = GrassDistance();
+    const uint32_t cards = emitted.Cards, roadSkipped = emitted.RoadSkipped, roadGraphSkipped = emitted.GraphSkipped,
+                   markerSkipped = emitted.MarkerSkipped;
+    const bool bCapped = emitted.bCapped;
+    // The blade layer (drawn later in the frame from the world's lists): swap it in, the result keeps the old
+    // buffers (cleared by the next emit).
+    std::swap( bladeVertices, emitted.BladeV );
+    std::swap( bladeIndices, emitted.BladeI );
+    emitted.bValid = false;
     // The cache markers go up before the upload: an empty batch (a sea view,
     // -nograss sectors only) is a valid this-frame answer for the other
     // passes - without them every pass would re-run the grid walk.
     bGrassBatchBuilt = true;
     grassBatchFrame = gpRender->getDevice().getFrameNumber();
-    grassBatchCamera = cameraPosition;
+    grassBatchCamera = emitted.Camera;
     if ( batch.Indices.empty() ) {
         grassBatchMesh.IndexCount = 0;
         return;

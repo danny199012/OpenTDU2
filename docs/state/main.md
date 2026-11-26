@@ -4,6 +4,17 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26, later (`main`, `-grassasync`: the grass emit on a worker, one frame behind - opt-in)
+
+Owner: "Yes, try it".
+
+- `source/world/eden_world.{h,cpp}`: `buildGrassBatch` is split into **`emitGrassBatch`** (pure CPU: reads sectors / road graph / clearings / grass types, writes only its `GrassEmitResult` + each sector's `GrassRoadVerdict`; the car footprint is a `GrassCarSnapshot`, the row scratch and blade lists are the result's own) and **`uploadGrassBatch`** (transient copy, mesh / params, blades swapped into the world's lists). Default behaviour is unchanged (same two calls back to back on the main thread).
+- **`-grassasync`** (opt-in): `drawGrass` adopts the batch the worker emitted during the previous frame's draw (around that frame's camera + car), uploads it, and starts the next emit with `std::async` - it overlaps the rest of the frame. No result, or one > 40 m from this camera (first frame, teleport) -> the main-thread build. Within a frame the batch is reused for every pass (no 2 m rebuild).
+- **Thread safety by joining**: `joinGrassWorker()` at the top of every function that changes what the emit reads - `destroy`, `finishPendingSectors`, `loadSector`, `loadArea`, `unloadFar`, `scanTunnelTerrain`, `loadAround`, `preloadOne`, `loadGrassAssets`, `addGrassClearing` / `clearGrassClearings`, `buildGrassRoadIndex`, `appendRoadShapes`. The worker never overlaps the sector list / heightfield / road-index changes. A new mutator of those must join first.
+- [MEAS] standard drive 720p: prepass **4.2 -> 2.4 ms**, `draw split: offscreen` **6.6 -> 4.7 ms** (the CPU the owner's frame loses); main-thread wait on the worker 1.3 ms over 600 frames (nothing). The **frame average does not move (8.3 ms both): both runs sit at the 120 Hz present cap** (fps 120/121), so the saving shows up as CPU headroom (4K / low-end CPUs / the next feature), not in this average. GPU is 1.7 ms, not the limit.
+- Verified: card count identical (9,045); frame 500 vs sync: mean 0.003 / max 14 (the one-frame lag only: the density edge and the car flatten trail by a frame - at 150 km/h that is ~0.7 m); `-vk_enable_validation_layer` 620 frames: no VUID; 4000-frame drive: exit 0, no errors, stable 8.3 ms.
+- Not default because the lag is visible in principle (the cards under the car lag one frame) and a missed join would be a rare crash. To make it default: owner plays a drive at speed through sector loads with it on. Ruled out: a per-frame persistent thread (std::async spawn is ~tens of microseconds, wait total 1.3 ms / 600 frames).
+
 ## Session 2026-11-26 (`main`, grass emit walk: far reject + hoisted column order, pixel-identical, ~0.4 ms)
 
 Owner: "Yes, the grass emit walk".

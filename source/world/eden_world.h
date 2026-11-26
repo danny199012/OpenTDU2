@@ -820,11 +820,13 @@ public:
     // parsed (map_screen.h getRoadShapes) as the grass road-suppression
     // index. Empty shapes (no ROAD_MAP) leave it unbuilt and the test inert.
     void buildGrassRoadIndex( const std::vector<std::vector<Vector3f>> &roadShapes ) {
+        joinGrassWorker();
         grassRoads.build( roadShapes );
     }
     // Appends shapes (the mod roads' centerlines) into the same index without
     // clearing the retail graph's build.
     void appendRoadShapes( const std::vector<std::vector<Vector3f>> &roadShapes ) {
+        joinGrassWorker();
         grassRoads.merge( roadShapes );
     }
     // Grass clearings (scene interiors, M4): world-space XZ rects without
@@ -835,8 +837,14 @@ public:
     struct GrassClearing {
         float MinX, MinZ, MaxX, MaxZ;
     };
-    void addGrassClearing( const GrassClearing &clearing ) { grassClearings.push_back( clearing ); }
-    void clearGrassClearings() { grassClearings.clear(); }
+    void addGrassClearing( const GrassClearing &clearing ) {
+        joinGrassWorker();
+        grassClearings.push_back( clearing );
+    }
+    void clearGrassClearings() {
+        joinGrassWorker();
+        grassClearings.clear();
+    }
     // Mod roads (the scene editor / scene runtime): road ribbons registered
     // as driveable surfaces (world-space, up-facing triangles). Added before
     // the first query that must see them (a mode's load, the editor's road
@@ -870,6 +878,31 @@ private:
     // casters, the ocean mirror, the environment cube faces and the main pass
     // all call EdenWorld::draw).
     void buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraPosition );
+    // The two halves of buildGrassBatch. emitGrassBatch is pure CPU (the grid walk: it reads the sectors, the road
+    // graph, the clearings and the grass types, and writes only `out` plus each sector's GrassRoadVerdict cache);
+    // uploadGrassBatch copies it into the frame's transient buffers and fills the mesh / params. -grassasync runs the
+    // emit on a worker one frame behind (see drawGrass); every function that changes what the emit reads joins it first.
+    struct GrassCarSnapshot {
+        bool bValid = false;
+        Vector3f Position;
+        Vector3f Forward = Vector3f( 0.0f, 0.0f, 1.0f );
+        float HalfLength = 2.4f;
+        float HalfWidth = 1.1f;
+    };
+    GrassCarSnapshot snapshotGrassCar() const {
+        GrassCarSnapshot car;
+        car.bValid = bGrassCar;
+        car.Position = grassCarPosition;
+        car.Forward = grassCarForward;
+        car.HalfLength = grassCarHalfLength;
+        car.HalfWidth = grassCarHalfWidth;
+        return car;
+    }
+    void joinGrassWorker() {
+        if ( grassWorker.valid() ) {
+            grassWorker.wait();
+        }
+    }
     void drawGrass( EdenRenderer &renderer, const Vector3f &cameraPosition );
     GrassRoadIndex grassRoads;          // the ROAD_MAP graph as an XZ segment hash
     std::vector<GrassClearing> grassClearings; // the scene interiors' footprints (M4)
@@ -891,6 +924,19 @@ private:
     };
     GrassBatch grassBatch;
     GrassBatch grassTallBatch;         // TD_TallGrass path: one 64-byte-corner stream
+    struct GrassEmitResult {
+        GrassBatch Batch;
+        std::vector<BladeVertex> BladeV;
+        std::vector<uint32_t> BladeI;
+        Vector3f Camera;
+        bool bValid = false;
+        bool bCapped = false;
+        uint32_t Cards = 0, RoadSkipped = 0, GraphSkipped = 0, MarkerSkipped = 0;
+    };
+    void emitGrassBatch( const Vector3f &cameraPosition, const GrassCarSnapshot &car, GrassEmitResult &out );
+    void uploadGrassBatch( EdenRenderer &renderer, GrassEmitResult &emitted, const Vector3f &cameraPosition );
+    GrassEmitResult grassEmit;          // the worker fills it, the main thread uploads + swaps the blades out of it
+    std::future<void> grassWorker;      // the in-flight emit (-grassasync)
     EdenMesh grassTallLayout;          // position / color / texcoord / tangent, 4 x f32
     bool bGrassTallGrass = false;      // -grasstallgrass: the materials resolve TD_TallGrass
     // The built batch (drawGrass re-draws it for the pass cameras without
