@@ -242,6 +242,7 @@ bool GMCinViewer::enter( TestDriveGameInstance *pInstance ) {
     }
     if ( request.bSceneAt ) {
         setup.bSceneAt = true;
+        setup.bAnchorToCar = request.bAnchorToCar || CmdLine::HasArg( "-cinanchor" );
         setup.SceneAtPosition = request.SceneAtPosition;
         setup.SceneAtHeading = request.SceneAtHeading;
         setup.HousePickX = request.SceneAtPosition.x; // no spot within 60 m on an open road: IntroCinematic streams at the frame
@@ -252,6 +253,7 @@ bool GMCinViewer::enter( TestDriveGameInstance *pInstance ) {
         float x = 0.0f, y = 0.0f, z = 0.0f, h = 0.0f;
         if ( sscanf( pAt, "%f,%f,%f,%f", &x, &y, &z, &h ) == 4 ) {
             setup.bSceneAt = true;
+            setup.bAnchorToCar = CmdLine::HasArg( "-cinanchor" );
             setup.SceneAtPosition = Vector3f( x, y, z );
             setup.SceneAtHeading = h;
         }

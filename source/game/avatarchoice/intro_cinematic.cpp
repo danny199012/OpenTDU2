@@ -145,6 +145,7 @@ bool IntroCinematic::load( const Setup &newSetup ) {
     if ( setup.bSceneAt ) {
         sceneRotation = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), setup.SceneAtHeading );
         sceneOrigin = Matrix4x4f::Translation( setup.SceneAtPosition ) * Matrix4x4f::FromQuaternion( sceneRotation );
+        sceneAtOrigin = sceneOrigin;
         // The scene frame is off the spot frame: the car floor queries go
         // through the world (fitOnSceneFloor) when the spot collision is
         // loaded (Setup::bExteriorCollision).
@@ -593,6 +594,11 @@ bool IntroCinematic::playMain( const std::string &name, bool bStopPrevious, floa
                 OTDU_LOG_INFO( "IntroCinematic:   '%s' object '%s' camera %d\n", name.c_str(), object.Name.c_str(), object.isCamera() ? 1 : 0 );
             }
         }
+    }
+    if ( setup.bSceneAt && setup.bAnchorToCar && !pDef->Scenes.empty() ) {
+        // The actors, the cameras and the cars go through sceneOrigin * scene.getOrigin(): cancel the scene's authored place.
+        sceneOrigin = sceneAtOrigin * pDef->Scenes[0].getOrigin().inverse();
+        sounds.setSceneOrigin( sceneOrigin );
     }
     start( main, pDef, ( pDef->CinProps & kCinPropLoop ) != 0, ( pDef->CinProps & kCinPropNoCamera ) != 0,
            startTime >= 0.0f ? startTime
@@ -2177,6 +2183,15 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
     }
     const Vector3f carSphereOffset( 0.0f, 0.8f, 0.0f );
     const bool bMirrorPass = pass == EdenSceneView::ePass::ProjectorScene || pass == EdenSceneView::ePass::ProjectorActors;
+    if ( CmdLine::HasArg( "-logcamtrack" ) ) {
+        static int32_t logCount = 0;
+        if ( ( logCount++ % 120 ) == 0 ) {
+            OTDU_LOG_INFO( "IntroCinematic: player avatar %s, visible %d, at (%.2f, %.2f, %.2f), camera (%.2f, %.2f, %.2f)\n", player.Avatar ? "loaded" : "NOT loaded",
+                           player.bVisible ? 1 : 0, player.World.getTranslation().x, player.World.getTranslation().y,
+                           player.World.getTranslation().z, view.getSceneParams().CameraPosition.x, view.getSceneParams().CameraPosition.y,
+                           view.getSceneParams().CameraPosition.z );
+        }
+    }
     if ( player.Avatar && player.bVisible && ( !bPlayerMirrorOnly || bMirrorPass ) &&
          renderer.isSphereVisible( player.World.getTranslation() + Vector3f( 0.0f, 1.0f, 0.0f ), 1.4f ) ) {
         // Seated under the game camera (cockpit view, camera mode 23): the

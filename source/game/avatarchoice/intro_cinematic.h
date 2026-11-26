@@ -88,6 +88,9 @@ public:
         // plays in front of the E_HOTELA exterior): island position + heading
         // (radians). The spot (HouseSpot) still places the exterior bank.
         bool bSceneAt = false;
+        // The scene frame is the car, not the .sce's authored origin (the duels: origin (27.9, -0.17, 49.19) heading -90 in sta_a5's
+        // intro, the authored place in the level): playMain cancels the scene's own origin so SceneAt is where the actors stand.
+        bool bAnchorToCar = false;
         Vector3f SceneAtPosition;
         float SceneAtHeading = 0.0f;
         // The scene bank has no collision: the spot exterior collision
@@ -691,6 +694,7 @@ private:
     bool bLogoSc = false;
     FlashPlayer general;            // GENERAL.vmf (black_stripes letterbox)
     Matrix4x4f sceneOrigin;         // cinematic scene space -> island
+    Matrix4x4f sceneAtOrigin;       // Setup::bSceneAt's frame before bAnchorToCar's correction
     float collisionLift = 0.0f;     // cinematic-local y + lift = collision (spot) local y
     bool bSceneMoved = false;       // sceneOrigin moved off the spot frame (liftOntoFloor / placeEntityAt)
     size_t interiorSetStart = 0;    // sets[interiorSetStart..) are the Setup::InteriorBank models (spot frame)

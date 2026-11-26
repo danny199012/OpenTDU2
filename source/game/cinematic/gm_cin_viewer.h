@@ -40,6 +40,7 @@ struct CinViewerRequest {
     bool bPlayerCar = false;
     // The scene frame on an open road (no spot there): island position + heading (radians), the Jane event's scenes.
     bool bSceneAt = false;
+    bool bAnchorToCar = false; // cancel the .sce's authored origin (Setup::bAnchorToCar): the duels
     Vector3f SceneAtPosition;
     float SceneAtHeading = 0.0f;
     std::string StartQuest; // copied to the StoryHandoff when the scene hands over to the drive

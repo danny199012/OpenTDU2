@@ -4062,6 +4062,7 @@ void GMFreeRide::playDuelScene( const DuelSpot &duel, const char *pKind, const V
     request.bSceneAt = true;
     request.SceneAtPosition = position;
     request.SceneAtHeading = std::atan2( forward.x, forward.z );
+    request.bAnchorToCar = true; // the duel scenes carry an authored origin (the level place), the car is the frame
     request.bPlayerCar = true;
     request.Car = carDesc;
     request.CarActor = "PLAYER_CAR";
