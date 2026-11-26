@@ -71,6 +71,11 @@ std::string InteriorWalk::InteriorBankFor( const std::string &spotBank ) {
     if ( it != cache.end() ) {
         return it->second;
     }
+    // ETATTOO: OpenTDU2's tattoo studio spot (map_screen.cpp) walks into the clinic's room.
+    if ( _stricmp( spotBank.c_str(), "ETATTOO" ) == 0 ) {
+        cache[spotBank] = InteriorBankFor( "ESUR_A" );
+        return cache[spotBank];
+    }
     // The bike dealerships are carried as building sites (EUC_BDCL / EUC_BDAS) in the base spot list; the
     // showroom of the data is ibd_cla (spots/bikedeal/bd_cla) [INF: the only bike dealer interior].
     if ( spotBank.size() >= 7 && _strnicmp( spotBank.c_str(), "EUC_BD", 6 ) == 0 ) {
@@ -404,7 +409,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     // their verified closed-room frame.
     IntroCinematic::Setup setup;
     setup.Bank = path;
-    setup.HouseSpot = houseSpotName;
+    setup.HouseSpot = _stricmp( houseSpotName.c_str(), "ETATTOO" ) == 0 ? std::string( "ESUR_A" ) : houseSpotName; // the tattoo studio spot shows the clinic's street out of the windows
     // The house rooms are the retail HOME.vmf's (living_in / garage_in, the
     // dressing, diary and garage pages; houses_spec.md 10); -nohomeui
     // keeps the generic INTRO walk screen (the A/B).
@@ -426,7 +431,7 @@ bool InteriorWalk::loadRoom( const std::string &path, const std::string &houseSp
     bTuneUi = !bHouse && _strnicmp( houseSpotName.c_str(), "ETUN", 4 ) == 0 && !CmdLine::HasArg( "-notuneui" );
     avatarLabel.clear();
     if ( !bHouse && !bStickUi && !CmdLine::HasArg( "-nosurgeryui" ) ) {
-        if ( _strnicmp( houseSpotName.c_str(), "ESUR", 4 ) == 0 ) {
+        if ( _strnicmp( houseSpotName.c_str(), "ESUR", 4 ) == 0 || _stricmp( houseSpotName.c_str(), "ETATTOO" ) == 0 ) {
             avatarLabel = "surgeon";
         } else if ( ( _strnicmp( houseSpotName.c_str(), "EHD", 3 ) == 0 || _strnicmp( houseSpotName.c_str(), "EHAIR", 5 ) == 0 ) &&
                    !CmdLine::HasArg( "-nohairui" ) ) { // -nohairui: the native ClothesMenu (A/B)
@@ -1147,6 +1152,9 @@ InteriorWalk::eResult InteriorWalk::tick( float deltaTime ) {
                 const char *pText = gpDatabase != nullptr ? gpDatabase->getString( 7169 ) : nullptr;
                 showMessage( pText != nullptr && *pText != 0 ? pText : "You still have your bandages!" );
                 return eResult::None;
+            }
+            if ( strcmp( pType, "surgeon" ) == 0 && _stricmp( spotBank.c_str(), "ETATTOO" ) == 0 ) {
+                return eResult::Shop; // OpenTDU2's tattoo studio spot: the desk opens the studio, not the face editor
             }
             scene.getUi().invoke( "/", "ItemType", { "valid" } );
             return eResult::None;

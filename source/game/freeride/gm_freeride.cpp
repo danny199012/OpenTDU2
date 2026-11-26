@@ -5707,6 +5707,12 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
         openSchool( letter, std::string() );
         return true;
     }
+    if ( kind == "surgery" && StringCmpI( spotBank.c_str(), "ETATTOO" ) == 0 ) {
+        // OpenTDU2's tattoo studio spot: the clinic's room, the studio at the desk (no bandage gate: it does not touch the face
+        // edits).
+        openTattooStudio();
+        return true;
+    }
     if ( kind == "surgery" ) {
         // The cosmetic clinic (ESUR_A / ESUR_CA): the face editor. Bandaged: the retail refusal (text 4405).
         if ( SurgeryMenu::IsBandaged() ) {
@@ -7586,7 +7592,7 @@ void GMFreeRide::tick( float deltaTime ) {
         // open through the prompt).
         if ( strncmp( pForcedInterior, "ETNR", 4 ) == 0 ) {
             interiorKind = "tuner";
-        } else if ( strncmp( pForcedInterior, "ESUR", 4 ) == 0 ) {
+        } else if ( strncmp( pForcedInterior, "ESUR", 4 ) == 0 || strncmp( pForcedInterior, "ETATTOO", 7 ) == 0 ) {
             interiorKind = "surgery"; // the clinic (surgery_menu)
         } else if ( strncmp( pForcedInterior, "ETUN", 4 ) == 0 ) {
             interiorKind = "tuning";

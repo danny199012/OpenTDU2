@@ -1501,7 +1501,7 @@ bool MapScreen::fillSpotCard( const Spot &spot ) {
         title = "Car wash";
         player.setVariable( "/:WashingPrice", "$10" );
     } else if ( strcmp( pKind, "surgery" ) == 0 ) {
-        title = "Surgery & tattoo studio";
+        title = spot.Name == "ETATTOO" ? "Tattoo studio" : "Surgery & tattoo studio";
         player.setVariable( "/:NbSurgeriesDone", std::to_string( GetPlayerProfile().NbSurgeries ).c_str() );
     } else if ( strcmp( pKind, "hair" ) == 0 ) {
         title = "Hairdresser";
@@ -2161,6 +2161,43 @@ void MapScreen::loadSpots( const std::string &island ) {
         } else if ( CmdLine::HasArg( "-logspots" ) ) {
             OTDU_LOG_INFO( "MapScreen: spot without an icon: '%s' category 0x%02x at (%.0f, %.0f)\n", spot.Name.c_str(),
                            static_cast<unsigned>( category ), spot.Position.x, spot.Position.z );
+        }
+    }
+    // OpenTDU2: the tattoo studio (not in the original). A spot of its own that walks into the clinic's room (ETATTOO ->
+    // ESUR_A, InteriorWalk::InteriorBankFor) and opens the studio at the desk (GMFreeRide::openSpotShop). There is no retail
+    // building for it, so it sits on the street of the first clothes shop: that record's road-side entrance (+0x28, heading
+    // +0x38) moved kTattooStreetOffset metres along the street (perpendicular to the approach heading) [INF].
+    if ( !CmdLine::HasArg( "-notattooshop" ) ) {
+        for ( size_t i = 0; i < count; i++ ) {
+            const uint8_t *pRecord = data.data() + 0x20 + i * 0x110;
+            if ( pRecord[0x100] != 0x03 ) {
+                continue;
+            }
+            float entrance[3], heading = 0.0f;
+            memcpy( entrance, pRecord + 0x28, sizeof( entrance ) );
+            memcpy( &heading, pRecord + 0x38, sizeof( heading ) );
+            if ( entrance[0] == 0.0f && entrance[2] == 0.0f ) {
+                continue;
+            }
+            const float kTattooStreetOffset = 45.0f;
+            Spot tattoo;
+            tattoo.Name = "ETATTOO";
+            uint64_t hash = 1469598103934665603ull; // FNV-1a of island + name: a stable id for KnownSpots
+            for ( char c : island + tattoo.Name ) {
+                hash = ( hash ^ static_cast<uint8_t>( c ) ) * 1099511628211ull;
+            }
+            tattoo.Id = hash;
+            tattoo.Position = Vector3f( entrance[0] + cosf( heading ) * kTattooStreetOffset, entrance[1],
+                                        entrance[2] - sinf( heading ) * kTattooStreetOffset );
+            tattoo.pIcon = "surgery";
+            tattoo.Tab = 2;
+            char clip[16];
+            snprintf( clip, sizeof( clip ), "point%03d", static_cast<int>( spots.size() ) + 1 );
+            tattoo.Clip = clip;
+            spots.push_back( tattoo );
+            OTDU_LOG_INFO( "MapScreen: tattoo studio spot at (%.0f, %.0f, %.0f), %.0f m along the street of '%.8s'\n", tattoo.Position.x,
+                           tattoo.Position.y, tattoo.Position.z, kTattooStreetOffset, reinterpret_cast<const char *>( pRecord + 8 ) );
+            break;
         }
     }
     // The instant challenges of the island (tab 0 "Single Player Challenges"): one `event` pin per real event start
