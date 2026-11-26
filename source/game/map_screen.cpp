@@ -2166,7 +2166,7 @@ void MapScreen::loadSpots( const std::string &island ) {
     // OpenTDU2: the tattoo studio (not in the original). A spot of its own that walks into the clinic's room (ETATTOO ->
     // ESUR_A, InteriorWalk::InteriorBankFor) and opens the studio at the desk (GMFreeRide::openSpotShop). There is no retail
     // building for it, so it sits on the street of the first clothes shop: that record's road-side entrance (+0x28, heading
-    // +0x38) moved kTattooStreetOffset metres along the street (perpendicular to the approach heading) [INF].
+    // +0x38) moved kTattooStreetOffset metres along the street (back along the entrance heading: checked on Hawai, the perpendicular led onto a lawn) [INF].
     if ( !CmdLine::HasArg( "-notattooshop" ) ) {
         for ( size_t i = 0; i < count; i++ ) {
             const uint8_t *pRecord = data.data() + 0x20 + i * 0x110;
@@ -2187,8 +2187,8 @@ void MapScreen::loadSpots( const std::string &island ) {
                 hash = ( hash ^ static_cast<uint8_t>( c ) ) * 1099511628211ull;
             }
             tattoo.Id = hash;
-            tattoo.Position = Vector3f( entrance[0] + cosf( heading ) * kTattooStreetOffset, entrance[1],
-                                        entrance[2] - sinf( heading ) * kTattooStreetOffset );
+            tattoo.Position = Vector3f( entrance[0] - sinf( heading ) * kTattooStreetOffset, entrance[1],
+                                        entrance[2] - cosf( heading ) * kTattooStreetOffset );
             tattoo.pIcon = "surgery";
             tattoo.Tab = 2;
             char clip[16];
