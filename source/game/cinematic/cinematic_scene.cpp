@@ -538,7 +538,10 @@ Quaternionf QuaternionFromRotationMatrix( const Matrix4x4f &m ) {
 }
 } // namespace
 
-static const float kLookPitchSign = 1.0f;
+static float LookPitchSign() {
+    static const float sign = CmdLine::HasArg( "-lookpitchflip" ) ? -1.0f : 1.0f; // -lookpitchflip: the A/B of the actor look-at pitch sign (the origin look-at is -1: valley shot of the A5 duel intro)
+    return sign;
+}
 
 bool Cinematic::getCamera( const std::vector<CinematicScene> &scenes, float time, Vector3f &outPosition,
                            Quaternionf &outRotation, float &outFov ) const {
@@ -566,11 +569,20 @@ bool Cinematic::getCamera( const std::vector<CinematicScene> &scenes, float time
                 const Vector3f offset( pRotation->Values[0], pRotation->Values[1], pRotation->Values[2] );
                 const Vector3f target = scene.getOrigin().transformPoint( ( bOrigin ? Vector3f( 0.0f, 0.0f, 0.0f ) : object.samplePosition( localTime ) ) + offset );
                 const Vector3f d = target - outPosition;
+                if ( CmdLine::HasArg( "-logcamtrack" ) ) {
+                    static float lastLogTime = -10.0f;
+                    if ( std::fabs( localTime - lastLogTime ) > 1.0f ) {
+                        lastLogTime = localTime;
+                        OTDU_LOG_INFO( "Camera '%s' t %.2f: at (%.2f, %.2f, %.2f), target (%.2f, %.2f, %.2f), offset (%.2f, %.2f, %.2f)\n", pCamera->Name.c_str(),
+                                       localTime, outPosition.x, outPosition.y, outPosition.z, target.x, target.y, target.z, offset.x, offset.y,
+                                       offset.z );
+                    }
+                }
                 const float flat = std::sqrt( d.x * d.x + d.z * d.z );
                 const float yaw = std::atan2( d.x, d.z );
                 const float pitch = std::atan2( d.y, flat );
                 const Quaternionf qy( 0.0f, std::sin( -yaw * 0.5f ), 0.0f, std::cos( -yaw * 0.5f ) );
-                const Quaternionf qx( std::sin( kLookPitchSign * pitch * 0.5f ), 0.0f, 0.0f, std::cos( pitch * 0.5f ) );
+                const Quaternionf qx( std::sin( ( bOrigin ? -1.0f : LookPitchSign() ) * pitch * 0.5f ), 0.0f, 0.0f, std::cos( pitch * 0.5f ) );
                 outRotation = qy * qx * Conjugate( QuaternionFromRotationMatrix( scene.getOrigin() ) );
                 break;
             }
