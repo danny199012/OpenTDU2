@@ -254,6 +254,8 @@ public:
     // object of the scene without entity).
     bool loadCar( const CinematicCar::Desc &desc, const std::string &restEntity, const std::string &cinCarEntity,
                   const std::string &carActor = std::string() );
+    // A second scene car driven by a named .sce actor (the duels' DUEL_CAR: the rival's car beside PLAYER_CAR).
+    bool loadRivalCar( const CinematicCar::Desc &desc, const std::string &actor );
     // Showroom cars (SHOP mode: the shop scene slots, FUN_00a4fea0 /
     // FUN_00a4fd50): a car resting at an Entity__PosCam of the scene bank
     // (Entity__ShopData PosCams[slot]), on the scene collision floor.
@@ -726,6 +728,10 @@ private:
     HavokCollision collision;
     std::unordered_map<std::string, std::pair<Vector3f, Quaternionf>> entityPlacements; // PosCam, CinCar
     CinematicCar car;
+    CinematicCar rivalCar;
+    std::string rivalActorName;
+    bool bRivalEnvironment = false;
+    bool computeRivalCarWorld( Matrix4x4f &outWorld ) const;
     struct ShowCar {
         std::unique_ptr<CinematicCar> Car;
         std::string RestEntity;

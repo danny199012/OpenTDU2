@@ -3349,7 +3349,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
                 hud.showHint( "Win a " + pNearDuel->Class + " championship to challenge " + pNearDuel->Rival + ".", 5.0f );
             } else {
                 hud.closeEnterSpot();
-                startDuel( *pNearDuel );
+                enterDuel( *pNearDuel );
             }
         } else if ( pNearChampionship != nullptr ) {
             std::string reason;
@@ -4033,6 +4033,53 @@ void GMFreeRide::startLicenseTest( const std::string &test ) {
     }
 }
 
+void GMFreeRide::enterDuel( const DuelSpot &duel ) {
+    if ( CmdLine::HasArg( "-noduelcine" ) ) {
+        startDuel( duel );
+        return;
+    }
+    Ig2Challenge challenge;
+    if ( !challenge.load( duel.File ) || challenge.getGates().empty() ) {
+        startDuel( duel );
+        return;
+    }
+    const Ig2Gate &grid = challenge.getGates().front();
+    playDuelScene( duel, "INTRO", grid.Position, grid.Forward, ( "duel:" + duel.Class ).c_str() );
+}
+
+void GMFreeRide::playDuelScene( const DuelSpot &duel, const char *pKind, const Vector3f &position, const Vector3f &forward,
+                                const char *pStartQuest ) {
+    // The duel banks: Miami (C4) classic, Ryan / Chris (B4 / B3) off-road, Tess / Stuart (A5 / A2) asphalt [DATA].
+    const char *pBank = duel.Class == "C4" ? "classic/stc_duels" : duel.Class[0] == 'B' ? "offroad/stb_duels" : "asphalt/sta_duels";
+    CinViewerRequest &request = GetCinViewerRequest();
+    request = CinViewerRequest();
+    request.Bank = std::string( "scenarics/cinematics/" ) + pBank + ".bnk";
+    request.Cinematic = "C_DUEL_" + duel.Class + "H_" + pKind;
+    request.Next = eGameMode::GM_FreeRide;
+    request.bFromStory = true;
+    request.bStory = false;
+    request.Island = islandName;
+    request.bSceneAt = true;
+    request.SceneAtPosition = position;
+    request.SceneAtHeading = std::atan2( forward.x, forward.z );
+    request.bPlayerCar = true;
+    request.Car = carDesc;
+    request.CarActor = "PLAYER_CAR";
+    request.StartQuest = pStartQuest;
+    // DUEL_CAR: the rival's car of the duel's class (DBPNJCar) [DATA: the scenes carry both cars].
+    if ( const AiDriver *pDriver = FindAiDriver( duel.Pnj ) ) {
+        if ( const AiGarageCar *pCar = PickDriverCar( *pDriver, duel.Category, 0 ) ) {
+            request.RivalCarId = pCar->CarId;
+            request.RivalActor = "DUEL_CAR";
+        }
+    }
+    hud.closeEnterSpot();
+    hud.closeGoal();
+    OTDU_LOG_INFO( "FREERIDE: duel scene '%s' (rival car %d) at (%.1f, %.1f, %.1f)\n", request.Cinematic.c_str(), request.RivalCarId,
+                   position.x, position.y, position.z );
+    pGameInstance->setNextGameMode( eGameMode::GM_CinViewer );
+}
+
 void GMFreeRide::startDuel( const DuelSpot &duel ) {
     pActiveDuel = &duel;
     std::string file = duel.File;
@@ -4512,9 +4559,16 @@ void GMFreeRide::tickLicenseTest( float deltaTime ) {
                 grantDuelCar( *pActiveDuel );
                 SaveProfile( "duel won" );
             }
+            const DuelSpot *pFinished = pActiveDuel;
             OTDU_LOG_INFO( "FREERIDE: duel %s result %s\n", pActiveDuel->File.c_str(), LicenseResultText( result ) );
             {
                 pActiveDuel = nullptr;
+            }
+            if ( pFinished != nullptr && result != LicenseTest::eResult::Abandoned ) {
+                // The win / lose scene where the car stands (C_DUEL_<class>H_WIN / _LOOSE).
+                const Vector3f forward = carWorld.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+                playDuelScene( *pFinished, result == LicenseTest::eResult::Passed ? "WIN" : "LOOSE", carWorld.getTranslation(),
+                               forward, "" );
             }
         }
         if ( result == LicenseTest::eResult::Abandoned ) {
@@ -9529,12 +9583,24 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         // Test: -licensetest <RSA7T01 ...> drives a licence test straight away;
         // -schoolmenu <A|B|C> opens a school's desk without the spot.
-        if ( CmdLine::HasArg( "-duelnow" ) && ++questFrames == 90 ) {
+        static bool bDuelNowDone = false; // the first FREERIDE only: the scenes return into a new instance
+        if ( CmdLine::HasArg( "-duelnow" ) && !bDuelNowDone && ++questFrames == 90 ) {
+            bDuelNowDone = true;
             // -duelnow <class> (test): start the duel of that class without walking to its spot.
             const char *pClass = CmdLine::GetArgValue( "-duelnow" );
             for ( const DuelSpot &duel : duelSpots ) {
                 if ( pClass != nullptr && duel.Class == pClass ) {
-                    startDuel( duel );
+                    enterDuel( duel );
+                    break;
+                }
+            }
+        }
+        if ( pendingQuest.compare( 0, 5, "duel:" ) == 0 && ++questFrames == 60 ) {
+            const std::string duelClass = pendingQuest.substr( 5 );
+            pendingQuest.clear();
+            for ( const DuelSpot &duel : duelSpots ) {
+                if ( duel.Class == duelClass ) {
+                    startDuel( duel ); // the intro scene just ended with the car on the grid
                     break;
                 }
             }

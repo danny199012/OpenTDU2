@@ -347,6 +347,9 @@ void IntroCinematic::unload() {
     view.clearLightmapMaterials();
     view.destroy();
     car.unload();
+    rivalCar.unload();
+    rivalActorName.clear();
+    bRivalEnvironment = false;
     showCars.clear();
     seatedShowCar = -1;
     displayCars.clear();
@@ -924,6 +927,7 @@ void IntroCinematic::tick( float deltaTime ) {
     // Side windows: the opw / clw cinematic messages request the state
     // (updateCarDoors), the glass slides there.
     car.updateWindows( deltaTime );
+    rivalCar.updateWindows( deltaTime );
     if ( !main.bEnded ) {
         advance( main, deltaTime, true );
     }
@@ -2188,6 +2192,11 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
          renderer.isSphereVisible( carWorld.getTranslation() + carSphereOffset, 3.5f ) ) {
         car.draw( renderer, carWorld, view.getWeather(), bCarEnvironment );
     }
+    Matrix4x4f rivalWorld;
+    if ( rivalCar.isLoaded() && computeRivalCarWorld( rivalWorld ) &&
+         renderer.isSphereVisible( rivalWorld.getTranslation() + carSphereOffset, 3.5f ) ) {
+        rivalCar.draw( renderer, rivalWorld, view.getWeather(), bRivalEnvironment );
+    }
     for ( size_t i = 0; i < showCars.size(); i++ ) {
         Matrix4x4f showWorld;
         if ( showCars[i].bVisible && getShowCarWorld( i, showWorld ) &&
@@ -3044,6 +3053,30 @@ bool IntroCinematic::loadCar( const CinematicCar::Desc &desc, const std::string 
     return true;
 }
 
+bool IntroCinematic::loadRivalCar( const CinematicCar::Desc &desc, const std::string &actor ) {
+    rivalActorName = actor;
+    bRivalEnvironment = false;
+    return rivalCar.load( desc );
+}
+
+bool IntroCinematic::computeRivalCarWorld( Matrix4x4f &outWorld ) const {
+    if ( rivalActorName.empty() ) {
+        return false;
+    }
+    for ( const Playing *pPlaying : playingOrder() ) {
+        const CinematicScene *pScene = nullptr;
+        float sceneTime = 0.0f;
+        const CinematicScene::Object *pObject = findActor( *pPlaying, 0, rivalActorName.c_str(), pScene, sceneTime );
+        if ( pObject != nullptr && pObject->findTrack( CinematicScene::kTrackPosition ) ) {
+            const Vector3f position = pScene->getOrigin().transformPoint( pObject->samplePosition( sceneTime ) );
+            const Quaternionf rotation = pObject->sampleRotation( sceneTime ) * Conjugate( pScene->getOriginRotation() );
+            outWorld = sceneOrigin * fitOnSceneFloor( rivalCar, position, rotation );
+            return true;
+        }
+    }
+    return false;
+}
+
 bool IntroCinematic::computeCarWorld( Matrix4x4f &outWorld ) const {
     // .sce actor of the CinCar entity when a cinematic animates it (or the
     // named actor, e.g. PLAYER_CAR of meeting_tess / solar_crown), else the
@@ -3169,6 +3202,12 @@ void IntroCinematic::renderOffscreen() {
         if ( GPUTexture *pCube = view.getEnvironmentCube() ) {
             car.assignEnvironment( *gpRender->getEdenRenderer(), pCube );
             bCarEnvironment = true;
+        }
+    }
+    if ( rivalCar.isLoaded() && !bRivalEnvironment ) {
+        if ( GPUTexture *pCube = view.getEnvironmentCube() ) {
+            rivalCar.assignEnvironment( *gpRender->getEdenRenderer(), pCube );
+            bRivalEnvironment = true;
         }
     }
     // Showroom cars: the dynamic cube of the view [INF: the shop scene car

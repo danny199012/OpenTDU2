@@ -499,7 +499,12 @@ private:
     bool isDuelWon( const DuelSpot &duel ) const;
     bool isDuelOpen( const DuelSpot &duel ) const; // a championship of its class is complete [INF]
     void grantDuelCar( const DuelSpot &duel );
-    bool grantRewardCar( const std::string &event ); // DBRewardCar by _event: the car + its tuning into the garage      // DBRewardCar DUEL_WIN_<class>: the rival's car, tuned 3/3/3
+    bool grantRewardCar( const std::string &event );
+    // The duel scenes (C_DUEL_<class>H_INTRO / WIN / LOOSE of sta_duels / stb_duels / stc_duels): gameplay-anchored like the
+    // Jane ones (origin = the car, +z = its heading), with the rival's car as the DUEL_CAR actor beside PLAYER_CAR.
+    void playDuelScene( const DuelSpot &duel, const char *pKind, const Vector3f &position, const Vector3f &forward,
+                        const char *pStartQuest );
+    void enterDuel( const DuelSpot &duel ); // the intro scene, then startDuel (-noduelcine: straight to the race) // DBRewardCar by _event: the car + its tuning into the garage      // DBRewardCar DUEL_WIN_<class>: the rival's car, tuned 3/3/3
     ChampionshipMenu championshipMenu;
     void loadChampionshipSpots();
     // The retail championship view: the world map's contest flow (MAP.vmf,

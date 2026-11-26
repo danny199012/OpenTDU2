@@ -43,6 +43,8 @@ struct CinViewerRequest {
     Vector3f SceneAtPosition;
     float SceneAtHeading = 0.0f;
     std::string StartQuest; // copied to the StoryHandoff when the scene hands over to the drive
+    int32_t RivalCarId = -1;       // a second scene car (the duels' DUEL_CAR actor): the rival's _id_car
+    std::string RivalActor;
     std::string PnjConfig; // the DBPNJ config of a scene NPC the entities leave empty (IntroCinematic::Setup::EmptyPnjConfig)
     // Cinematics of the same bank played after Cinematic, in order (the car
     // wash: C_INTRO_E_1 -> C_WASHING -> C_OUTRO); the end of the last one ends

@@ -289,7 +289,17 @@ bool GMCinViewer::enter( TestDriveGameInstance *pInstance ) {
     if ( const char *pActor = CmdLine::GetArgValue( "-cincaractor" ) ) {
         request.CarActor = pActor;
     }
+    if ( const char *pRival = CmdLine::GetArgValue( "-cinrivalcar" ) ) {
+        request.RivalCarId = atoi( pRival ); // test: -cinrivalcar <_id_car> -cinrivalactor DUEL_CAR
+        request.RivalActor = CmdLine::HasArg( "-cinrivalactor" ) ? CmdLine::GetArgValue( "-cinrivalactor" ) : "DUEL_CAR";
+    }
     cinematic.loadCar( request.bPlayerCar ? request.Car : CinematicCar::Desc(), "D_CAR", "CIN_CAR", request.CarActor );
+    if ( request.RivalCarId >= 0 ) {
+        CinematicCar::Desc rivalDesc;
+        if ( CinematicCar::DescFromDatabase( request.RivalCarId, rivalDesc ) ) {
+            cinematic.loadRivalCar( rivalDesc, request.RivalActor );
+        }
+    }
     if ( request.bPlayerCar ) {
         const PlayerProfile &profile = GetPlayerProfile();
         auto it = profile.OwnedCarPaints.find( cinematic.getCar().getIdCar() );
