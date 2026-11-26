@@ -4,6 +4,12 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26, quests wrap-up 2 (`main`)
+
+Since the first wrap-up: duel cutscenes (`playDuelScene` / `enterDuel`, `IntroCinematic::loadRivalCar`, `Setup::bAnchorToCar`), camera fixes in `cinematic_scene.cpp` (a heading key with first dword 0 and |q| != 1 = a look-at on the scene origin with pitch sign -1; the actor look-at index 1 = Avatar, 2 = PLAYER_CAR when both exist), tools `otdu2_cine_tool camscan` / `lookscan`, flags `-noduelcine`, `-cinrivalcar`, `-cinanchor`, `-logcamtrack`, `-lookpitchflip`, `-lookoffsetlocal`. Details: `docs/re/quests_spec.md` sections 11-11.6.
+- **Open**: the A5 intro's cabin shot (dark, the driver is outside the frame), the other duels' scenes by eye, the `*_LOOP` scenes, the rival's paint, the dealer / podium camera scenes.
+- **Trap**: `git add tools` staged the untracked `tools/tdusc_re/` (73 MB of extracted game data) once and it was pushed; fixed by a rewrite + force-push (origin `61c543f9`). Add files by explicit path in this tree.
+
 ## Session 2026-11-26, quests wrap-up (`main`)
 
 Summary of the quest work (details in `docs/re/quests_spec.md`, sections 1-10, and the entries below):
