@@ -18,6 +18,7 @@ struct TattooDecal {
     float Rotation = 0.0f; // degrees
     float Opacity = 0.9f;
     uint32_t Color = 0x181818; // 0xRRGGBB ink
+    bool Head = false;         // on the head skin texture (face, neck, ears) instead of the body's
 };
 
 // Mask value 0..1 of a design at local coordinates x, y in -1..1 (< 0: unknown design).

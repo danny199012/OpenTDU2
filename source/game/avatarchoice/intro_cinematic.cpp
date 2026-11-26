@@ -5356,9 +5356,9 @@ void IntroCinematic::computeAvatarLighting( const Vector3f &rootPosition, EdenAv
     }
 }
 
-bool IntroCinematic::pickTattooSpot( float &outU, float &outV ) {
+bool IntroCinematic::pickTattooSpot( float &outU, float &outV, bool &outHead ) {
     if ( !player.Avatar || !bTattooView ) {
         return false;
     }
-    return player.Avatar->pickSkin( tattooEye, tattooForward, player.World, player.Skin, outU, outV );
+    return player.Avatar->pickSkin( tattooEye, tattooForward, player.World, player.Skin, outU, outV, &outHead );
 }

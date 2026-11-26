@@ -138,6 +138,7 @@ public:
     // height: metres above its feet.
     void setTattooView( bool bOn, float distance = 2.4f ) {
         bTattooView = bOn;
+        bTattooFace = false;
         tattooYaw = 0.0f;
         tattooHeight = 1.15f;
         tattooDistance = distance;
@@ -145,11 +146,27 @@ public:
     inline bool isTattooView() const { return bTattooView; }
     void aimTattooView( float yawDelta, float heightDelta ) {
         tattooYaw += yawDelta;
-        tattooHeight = Clamp( tattooHeight + heightDelta, 0.1f, 1.65f );
+        tattooHeight = bTattooFace ? Clamp( tattooHeight + heightDelta, 1.35f, 1.95f ) : Clamp( tattooHeight + heightDelta, 0.1f, 1.65f );
     }
+    // The face close-up (the head's skin texture) / back to the whole body.
+    void setTattooFace( bool bFace ) {
+        if ( bFace == bTattooFace ) {
+            return;
+        }
+        bTattooFace = bFace;
+        if ( bFace ) {
+            tattooBodyDistance = tattooDistance;
+            tattooDistance = 0.85f;
+            tattooHeight = 1.62f;
+        } else {
+            tattooDistance = tattooBodyDistance;
+            tattooHeight = 1.15f;
+        }
+    }
+    inline bool isTattooFace() const { return bTattooFace; }
     inline float getTattooHeight() const { return tattooHeight; }
     // The skin (u, v) under the view's centre; false when the ray misses the body.
-    bool pickTattooSpot( float &outU, float &outV );
+    bool pickTattooSpot( float &outU, float &outV, bool &outHead );
     void setPlayerTattoos( const std::vector<TattooDecal> &decals ) {
         if ( player.Avatar ) {
             player.Avatar->setTattoos( decals );
@@ -839,6 +856,8 @@ private:
     // The walk-mode emote / self-view state (playPlayerEmote).
     bool bHeadOrbit = false;
     bool bTattooView = false;
+    bool bTattooFace = false;
+    float tattooBodyDistance = 2.4f;
     float tattooYaw = 0.0f, tattooHeight = 1.15f, tattooDistance = 2.4f;
     Vector3f tattooEye, tattooForward = Vector3f( 0.0f, 0.0f, 1.0f );
     float headOrbitYaw = 0.0f;

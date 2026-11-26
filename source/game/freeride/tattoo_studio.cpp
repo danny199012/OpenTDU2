@@ -97,6 +97,7 @@ void TattooStudio::showWorking() {
     if ( bHit ) { // the ghost: where the next tattoo would go
         TattooDecal ghost;
         ghost.Design = designs[static_cast<size_t>( design )];
+        ghost.Head = bHitHead;
         ghost.U = hitU;
         ghost.V = hitV;
         ghost.Scale = decalSize;
@@ -130,6 +131,9 @@ bool TattooStudio::removeNearest() {
     int32_t best = -1;
     float bestDistance = 1e9f;
     for ( size_t i = 0; i < working.size(); i++ ) {
+        if ( working[i].Head != bHitHead ) {
+            continue;
+        }
         const float du = working[i].U - hitU, dv = working[i].V - hitV;
         const float distance = std::sqrt( du * du + dv * dv );
         if ( distance < std::max( 0.04f, working[i].Scale * 2.0f ) && distance < bestDistance ) {
@@ -250,11 +254,18 @@ void TattooStudio::tick( float deltaTime ) {
         ink = ( ink + 1 ) % static_cast<int32_t>( sizeof( kInks ) / sizeof( kInks[0] ) );
         PlayFrontEndCue( "move" );
     }
-    bHit = host.Pick ? host.Pick( hitU, hitV ) : false;
+    if ( gpInput->wasPressed( eInputAction::IA_Map ) && host.Focus ) { // Select / M: face close-up <-> whole body
+        bFace = !bFace;
+        host.Focus( bFace );
+        shownU = shownV = -1.0f;
+        PlayFrontEndCue( "move" );
+    }
+    bHit = host.Pick ? host.Pick( hitU, hitV, bHitHead ) : false;
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         if ( bHit ) {
             TattooDecal decal;
             decal.Design = designs[static_cast<size_t>( design )];
+            decal.Head = bHitHead;
             decal.U = hitU;
             decal.V = hitV;
             decal.Scale = decalSize;
@@ -358,6 +369,6 @@ void TattooStudio::draw( Renderer2D &renderer ) {
                        eTextAlign::TA_Center );
     renderer.drawText( pFont, "R stick click / Del: remove   B: undo", x0 + w * 0.5f, y0 + h - 56.0f, 17.0f, Rgba( 210, 210, 210 ),
                        eTextAlign::TA_Center );
-    renderer.drawText( pFont, "Start: pay and leave", x0 + w * 0.5f, y0 + h - 34.0f, 17.0f, Rgba( 210, 210, 210 ), eTextAlign::TA_Center );
+    renderer.drawText( pFont, bFace ? "Select / M: whole body   Start: pay" : "Select / M: face   Start: pay and leave", x0 + w * 0.5f, y0 + h - 34.0f, 17.0f, Rgba( 210, 210, 210 ), eTextAlign::TA_Center );
     renderer.end();
 }

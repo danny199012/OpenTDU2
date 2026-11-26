@@ -20,7 +20,8 @@ class TattooStudio {
 public:
     struct Host {
         std::function<void( float yaw, float height )> Aim;                    // move the view by these deltas
-        std::function<bool( float &u, float &v )> Pick;                        // the skin under the crosshair
+        std::function<bool( float &u, float &v, bool &head )> Pick;            // the skin under the crosshair (head: the face texture)
+        std::function<void( bool bFace )> Focus;                               // face close-up / whole body
         std::function<void( const std::vector<TattooDecal> & )> Show;          // draw these tattoos on the avatar
         std::function<void()> Leave;                                           // the studio closed (restore the camera)
     };
@@ -55,6 +56,8 @@ private:
     int32_t design = 0;
     int32_t ink = 0;
     bool bHit = false;
+    bool bHitHead = false;
+    bool bFace = false;
     float hitU = 0.0f, hitV = 0.0f;
     float shownU = -1.0f, shownV = -1.0f;
     int32_t shownDesign = -1, shownInk = -1;

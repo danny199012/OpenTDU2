@@ -611,7 +611,8 @@ void GMFirstWalkMode::tick( float deltaTime ) {
             bTattooShopTried = true;
             TattooStudio::Host host;
             host.Aim = [this]( float yaw, float height ) { garage.aimTattooView( yaw, height ); };
-            host.Pick = [this]( float &u, float &v ) { return garage.pickTattooSpot( u, v ); };
+            host.Pick = [this]( float &u, float &v, bool &head ) { return garage.pickTattooSpot( u, v, head ); };
+            host.Focus = [this]( bool bFace ) { garage.setTattooFace( bFace ); };
             host.Show = [this]( const std::vector<TattooDecal> &decals ) { garage.setPlayerTattoos( decals ); };
             host.Leave = [this]() { garage.setTattooView( false ); };
             garage.setTattooView( true, CmdLine::HasArg( "-tattoodist" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-tattoodist" ) ) ) : 2.4f );

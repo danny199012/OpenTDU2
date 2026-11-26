@@ -5653,7 +5653,8 @@ void GMFreeRide::openTattooStudio() {
     TattooStudio::Host host;
     IntroCinematic &scene = interior.getScene();
     host.Aim = [&scene]( float yaw, float height ) { scene.aimTattooView( yaw, height ); };
-    host.Pick = [&scene]( float &u, float &v ) { return scene.pickTattooSpot( u, v ); };
+    host.Pick = [&scene]( float &u, float &v, bool &head ) { return scene.pickTattooSpot( u, v, head ); };
+    host.Focus = [&scene]( bool bFace ) { scene.setTattooFace( bFace ); };
     host.Show = [&scene]( const std::vector<TattooDecal> &decals ) { scene.setPlayerTattoos( decals ); };
     host.Leave = [&scene]() { scene.setTattooView( false ); };
     scene.setTattooView( true, CmdLine::HasArg( "-tattoodist" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-tattoodist" ) ) ) : 2.4f );
