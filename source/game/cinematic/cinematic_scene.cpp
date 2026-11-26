@@ -2,8 +2,10 @@
 #include "cinematic_scene.h"
 
 #include "render/render_file.h"
+#include "system/cmd_line.h"
 
 namespace {
+constexpr uint32_t kLookAtOrigin = 0xFFFFFFFFu; // a look-at track aimed at the scene origin (no actor)
 template <typename T> T ReadAt( const uint8_t *p, size_t offset ) {
     T value;
     memcpy( &value, p + offset, sizeof( T ) );
@@ -226,7 +228,16 @@ bool CinematicScene::parseScene( const uint8_t *pData, size_t size ) {
                     // his head, ~0 on the car; fixed 2026-11-21].
                     uint32_t raw = 0;
                     memcpy( &raw, &track.Values[0], 4 );
-                    if ( raw >= 1 && raw <= 255 ) {
+                    // raw 0 with a key that is not a unit quaternion (the duels' c_duelmiami_intro_02: (0, 0.040, 0.746, -0.203),
+                    // |q| 0.77 where every real heading key is 1.000): a look-at whose target is the scene origin, the offset
+                    // being the three values (a head height 0.75 m over the grid line) [INF: rendered as a 210 degree roll
+                    // about Z when read as a quaternion].
+                    const float norm = std::sqrt( track.Values[0] * track.Values[0] + track.Values[1] * track.Values[1] +
+                                                  track.Values[2] * track.Values[2] + track.Values[3] * track.Values[3] );
+                    if ( raw == 0 && std::fabs( norm - 1.0f ) > 0.05f ) {
+                        raw = kLookAtOrigin;
+                    }
+                    if ( ( raw >= 1 && raw <= 255 ) || raw == kLookAtOrigin ) {
                         std::vector<float> xyz;
                         for ( size_t k = 0; k < track.Times.size(); k++ ) {
                             xyz.insert( xyz.end(), track.Values.begin() + k * 4 + 1, track.Values.begin() + k * 4 + 4 );
@@ -550,9 +561,10 @@ bool Cinematic::getCamera( const std::vector<CinematicScene> &scenes, float time
     if ( pRotation != nullptr && pRotation->LookAtActor > 0 && pRotation->NumComponents == 3 && !pRotation->Values.empty() ) {
         uint32_t actorIndex = 0;
         for ( const CinematicScene::Object &object : scene.getObjects() ) {
-            if ( object.ClassHash == CinematicScene::kClassActor && ++actorIndex == pRotation->LookAtActor ) {
+            const bool bOrigin = pRotation->LookAtActor == kLookAtOrigin;
+            if ( bOrigin || ( object.ClassHash == CinematicScene::kClassActor && ++actorIndex == pRotation->LookAtActor ) ) {
                 const Vector3f offset( pRotation->Values[0], pRotation->Values[1], pRotation->Values[2] );
-                const Vector3f target = scene.getOrigin().transformPoint( object.samplePosition( localTime ) + offset );
+                const Vector3f target = scene.getOrigin().transformPoint( ( bOrigin ? Vector3f( 0.0f, 0.0f, 0.0f ) : object.samplePosition( localTime ) ) + offset );
                 const Vector3f d = target - outPosition;
                 const float flat = std::sqrt( d.x * d.x + d.z * d.z );
                 const float yaw = std::atan2( d.x, d.z );
@@ -562,6 +574,17 @@ bool Cinematic::getCamera( const std::vector<CinematicScene> &scenes, float time
                 outRotation = qy * qx * Conjugate( QuaternionFromRotationMatrix( scene.getOrigin() ) );
                 break;
             }
+        }
+    }
+    static const bool bLogCamera = CmdLine::HasArg( "-logcamtrack" );
+    if ( bLogCamera && pRotation != nullptr ) {
+        static std::string lastLogged;
+        if ( lastLogged != pCamera->Name ) {
+            lastLogged = pCamera->Name;
+            OTDU_LOG_INFO( "Camera '%s': heading track %d comps, %zu keys, lookAt %u, first key (%.4f, %.4f, %.4f, %.4f)\n",
+                           pCamera->Name.c_str(), pRotation->NumComponents, pRotation->Times.size(), pRotation->LookAtActor,
+                           pRotation->Values.size() > 0 ? pRotation->Values[0] : 0.0f, pRotation->Values.size() > 1 ? pRotation->Values[1] : 0.0f,
+                           pRotation->Values.size() > 2 ? pRotation->Values[2] : 0.0f, pRotation->Values.size() > 3 ? pRotation->Values[3] : 0.0f );
         }
     }
     outFov = pCamera->sampleFloat( CinematicScene::kTrackFov, localTime, 60.0f ) * kDegToRad;
