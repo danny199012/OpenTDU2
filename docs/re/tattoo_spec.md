@@ -92,6 +92,11 @@ and a V flip was assumed; the man's mesh uses the raw V. The anchors below were 
 | 0.25, 0.67 | thigh front - **both legs** |
 | 0.07, 0.57 | groin (avoid) |
 
+| 0.00-0.16, 0.26-0.28 | **back**, from the spine (u 0.0) outward over one shoulder blade; the two halves mirror (u = |x| in metres, x = +/-0.1 both give u 0.099) [DATA] |
+| 0.15, 0.23 / 0.17, 0.28 | upper arm, outer side (one per side with per-side decals; both arms share it) |
+
+The back mirrors about u = 0: a **side 0** decal at u = 0.10 appears on both shoulder blades, one at u = 0 is cut by the texture edge and the two halves join into a symmetric shape on the spine (checked by eye: red stars at u 0.10 v 0.30 on both blades, a blue star at u 0 v 0.15 at the nape). An asymmetric back tattoo needs `Side` 1 / 2 (the aim side, which the studio chooses from the half you aim at; within 10 cm of the spine it is 0 = mirrored). Arms: side 1 and side 2 decals at the arm UV showed on different arms in the studio.
+
 Left and right limbs share UV space, so a limb tattoo appears on **both** sides; a one-sided tattoo needs a per-side skin
 copy (not built). The torso front and back are separate islands (front u 0.36-0.64, v 0.17-0.46).
 
