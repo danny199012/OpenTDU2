@@ -60,7 +60,7 @@ int32_t PhoneCalls::load() {
         call.TextHc = static_cast<int32_t>( row["_text_hc"].asInt() );
         call.Timer = static_cast<float>( row["_timer"].asDouble() );
         call.Repeats = static_cast<int32_t>( row["_nbrepeats"].asInt( 1 ) );
-        call.bYesNo = row["_yesnoanswer"].asInt() != 0;
+        call.bYesNo = row["_yesnoanswer"].asInt() != 0 || call.Name.compare( 0, 12, "CHASE_INTRO_" ) == 0; // the text asks "Do you want to chase him?" [INF]
         if ( !call.Name.empty() ) {
             calls.push_back( std::move( call ) );
         }
@@ -186,6 +186,13 @@ void PhoneCalls::checkNudges( const Context &context ) {
     // yet (the caller stakes their car) [INF rule, the same as the duel spot's].
     for ( const std::string &duelClass : context.OpenDuels ) {
         if ( request( ( "RIVAL_" + duelClass ).c_str() ) ) {
+            return;
+        }
+    }
+    // CHASE_INTRO_<ISLAND>: the dispatcher's offer to chase a reckless driver, once, 12 minutes into the free drive [INF].
+    if ( state( "ChaseOffered" ) == 0 && after( 12.0f ) ) {
+        profile.PhoneState["ChaseOffered"] = 1;
+        if ( request( context.Island == "hawai" ? "CHASE_INTRO_HAWAI" : "CHASE_INTRO_IBIZA" ) ) {
             return;
         }
     }

@@ -6403,6 +6403,108 @@ void GMFreeRide::finishJaneMission( bool bWon ) {
     }
 }
 
+void GMFreeRide::startOutlawChase() {
+    const std::vector<Vector3f> &nodes = mapScreen.getRoadNodes();
+    if ( bOutlawChase || nodes.size() < 2 || licenseTest.isActive() ) {
+        return;
+    }
+    // The outlaw starts on a road about 700 m from the player and flees toward a far one.
+    const Vector3f player = carWorld.getTranslation();
+    auto flat = []( const Vector3f &a, const Vector3f &b ) { return Vector3f( a.x - b.x, 0.0f, a.z - b.z ).length(); };
+    const float kStartDistance = static_cast<float>( CmdLine::GetArgInt( "-outlawdist", 700 ) ); // test: -outlawdist m
+    size_t startNode = 0, endNode = 0;
+    float bestStart = 1e30f, bestEnd = 1e30f;
+    for ( size_t i = 0; i < nodes.size(); i++ ) {
+        const float d = std::fabs( flat( nodes[i], player ) - kStartDistance );
+        if ( d < bestStart ) {
+            bestStart = d;
+            startNode = i;
+        }
+    }
+    for ( size_t i = 0; i < nodes.size(); i++ ) {
+        const float d = std::fabs( flat( nodes[i], nodes[startNode] ) - 4500.0f );
+        if ( d < bestEnd ) {
+            bestEnd = d;
+            endNode = i;
+        }
+    }
+    RaceOpponents::TrafficCar outlaw;
+    outlaw.CarId = 606; // DBRewardCar OUTLAW_CAR _carunlocked 0x25e [DATA]
+    outlaw.Position = nodes[startNode];
+    outlaw.Speed = static_cast<float>( CmdLine::GetArgInt( "-outlawspeed", 26 ) ); // m/s, about 95 km/h [INF]
+    const Vector3f heading = nodes[endNode] - nodes[startNode];
+    const std::vector<Vector3f> waypoints{ nodes[startNode], nodes[endNode] };
+    if ( !schoolTraffic.startTraffic( waypoints, std::atan2( heading.x, heading.z ), { outlaw },
+                                      [this]( float x, float z, float y, float &outHeight ) { return surfaceHeight( x, z, y, outHeight ); } ) ) {
+        return;
+    }
+    bSchoolTrafficBound = false;
+    bOutlawChase = true;
+    outlawTimeLeft = CmdLine::HasArg( "-outlawtime" ) ? static_cast<float>( CmdLine::GetArgInt( "-outlawtime", 150 ) ) : 150.0f;
+    outlawCatch = 0.0f;
+    outlawPosition = nodes[startNode];
+    hud.showGoal( LocStr( 6606, "Stop the outlaw within 2 minutes 30" ) );
+    hud.setTestDrive( true );
+    hud.setCountdown( outlawTimeLeft );
+    mapScreen.setTarget( outlawPosition );
+    OTDU_LOG_INFO( "FREERIDE: outlaw chase: the outlaw starts %.0f m away at (%.0f, %.0f), flees toward (%.0f, %.0f), %.0f s\n",
+                   flat( outlawPosition, player ), outlawPosition.x, outlawPosition.z, nodes[endNode].x, nodes[endNode].z,
+                   outlawTimeLeft );
+}
+
+void GMFreeRide::tickOutlawChase( float deltaTime ) {
+    if ( !bOutlawChase || state != eState::Drive ) {
+        return;
+    }
+    schoolTraffic.tickTraffic( deltaTime, true );
+    std::vector<Vector3f> positions;
+    schoolTraffic.appendPositions( positions );
+    if ( positions.empty() ) {
+        endOutlawChase( false );
+        return;
+    }
+    outlawPosition = positions.front();
+    mapScreen.setTarget( outlawPosition );
+    const Vector3f car = carWorld.getTranslation();
+    const float distance = Vector3f( outlawPosition.x - car.x, 0.0f, outlawPosition.z - car.z ).length();
+    outlawTimeLeft = Max( outlawTimeLeft - deltaTime, 0.0f );
+    // Within 50 m the catch timer shows and runs; further away it resets [INF: 8 s, 50 m].
+    const float kCatchRange = static_cast<float>( CmdLine::GetArgInt( "-outlawrange", 50 ) ); // test: -outlawrange m
+    constexpr float kCatchSeconds = 8.0f;
+    if ( distance < kCatchRange ) {
+        outlawCatch += deltaTime;
+        hud.setCountdown( Max( kCatchSeconds - outlawCatch, 0.0f ) );
+        if ( outlawCatch >= kCatchSeconds ) {
+            endOutlawChase( true );
+            return;
+        }
+    } else {
+        outlawCatch = 0.0f;
+        hud.setCountdown( outlawTimeLeft );
+    }
+    if ( outlawTimeLeft <= 0.0f ) {
+        endOutlawChase( false );
+    }
+}
+
+void GMFreeRide::endOutlawChase( bool bWon ) {
+    OTDU_LOG_INFO( "FREERIDE: outlaw chase %s with %.1f s left\n", bWon ? "won" : "lost", outlawTimeLeft );
+    bOutlawChase = false;
+    schoolTraffic.stop();
+    bSchoolTrafficBound = false;
+    hud.setCountdown( 0.0f );
+    hud.setTestDrive( false );
+    hud.closeGoal();
+    AwardSkillEvent( "SOCIAL_CHASEMODE_COP" );
+    if ( bWon ) {
+        AwardSkillEvent( "SOCIAL_CHASEMODE_WIN" );
+        hud.showDiscovery( "Outlaw stopped!" );
+    } else {
+        hud.showDiscovery( "The outlaw got away." );
+    }
+    SaveProfile( "outlaw chase" );
+}
+
 void GMFreeRide::resolveSteeringWheel() {
     steerNodeName.clear();
     steerAxisLocal = Vector3f( 0.0f, 0.0f, 0.0f );
@@ -8698,6 +8800,7 @@ void GMFreeRide::tick( float deltaTime ) {
             updateRaceGates();
             tickTessMission( deltaTime );
             tickJaneMission( deltaTime );
+            tickOutlawChase( deltaTime );
             float raceTime = 0.0f;
             int32_t raceReward = 0;
             bool bRaceSuccess = false;
@@ -9165,6 +9268,9 @@ void GMFreeRide::tick( float deltaTime ) {
                                    duel.File.c_str(), duel.Position.x, duel.Position.z );
                 }
             }
+        }
+        if ( accepted == "CHASE_INTRO_IBIZA" || accepted == "CHASE_INTRO_HAWAI" ) {
+            startOutlawChase();
         }
         if ( accepted == "EVENT_JANE" && islandName == "ibiza" && !bJaneMission ) {
             // Todd's call: catch up to Jane. The goal is the event's start gate (the spot EVENJANE on the map).

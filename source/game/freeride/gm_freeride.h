@@ -204,6 +204,16 @@ private:
     void finishJaneMission( bool bWon );
     // A Jane scene (C_INTRO_E12_JAN / C_WIN_E12_JAN / C_LOOSE_E12_JAN of pack_events12) in the frame of the car at the gate.
     void playJaneScene( const char *pCinematic, const Vector3f &position, const Vector3f &forward, const char *pStartQuest );
+    // The outlaw chase (CHASE_INTRO_<ISLAND>, the dispatcher's call; loc 6606 "Stop the outlaw within 2 minutes 30", loc 6613:
+    // "When the timer appears, you have nearly caught the outlaw. Stay close to them. If the timer reach 0, you win the chase!"):
+    // the player is the cop. The outlaw drives the road graph (RaceOpponents' traffic car in the outlaw car, DBRewardCar
+    // OUTLAW_CAR) [INF: the rules' numbers].
+    bool bOutlawChase = false;
+    float outlawTimeLeft = 0.0f, outlawCatch = 0.0f;
+    Vector3f outlawPosition;
+    void startOutlawChase();
+    void tickOutlawChase( float deltaTime );
+    void endOutlawChase( bool bWon );
     bool bJaneArmed = true; // false after a failed run until the car leaves the start gate
     const Ig2Challenge *activeQuestEvent() const;
     // One-time wirings of this instance (callbacks that capture this mode).
