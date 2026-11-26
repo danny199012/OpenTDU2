@@ -8,7 +8,7 @@ appends its entry at the top of this file**, newest first, in the
 
 Owner: "start with the tattoo compositor". New (not in TDU2): decals blended into the body skin texture. `source/game/avatar/tattoo.{h,cpp}`, `EdenAvatar::applyTattoos`, `PlayerProfile::Tattoos`; spec `docs/re/tattoo_spec.md`.
 - **Verified**: `-tattoo "star,0.5,0.5,0.1,0,0.95,101010;ring,0.3,0.3,0.08,0,0.9,801010" -dumptattoo _tat.png` composites into `m_body_c` (log `Tattoo: 2 decals composited`), image `docs/images/tattoo_skin_composite_test.webp`; one composite shared per avatar, freed in `unload()` (no leak line at shutdown).
-- **Not verified**: the look on the 3D player body (the FIRST_WM headless shot shows a clothed NPC). Command in the spec. Face not composited.
+- **3D look verified** later the same day: the player's forearms/hands show the decals, clothes hide the chest ones (`docs/images/tattoo_3d_player_arms.webp`). Face not composited.
 - **Next**: region map, tattoo shop page in the surgery UI, decal editor, then the body bone-scale sliders.
 
 ## Session 2026-11-26, quests wrap-up 2 (`main`)

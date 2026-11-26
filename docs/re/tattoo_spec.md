@@ -1,6 +1,6 @@
 # Tattoo compositor (new feature, not in the original)
 
-Status: **Partial** - the composite is verified on the texture; the 3D look on the player's body is not.
+Status: **Partial** - verified on the texture and on the 3D player body (2026-11-26); face, region map and shop are not done.
 
 ## Why it is possible
 - [CODE] The retail game composites the skin at runtime: a `SKIN` material slot is redirected to a per-avatar render
@@ -25,8 +25,6 @@ and back in the lower half. Regions for the shop are still to be mapped by placi
 
 ## Not done / next
 - The face (TD_Skinface, `w_head_c`) is not composited; the body only.
-- **Unverified: the tattoos on the 3D player body.** The headless garage run shows a clothed NPC. Command:
-  `build-glm\bin\opentdu2-glm.exe -game C:\TDU2-Gamedata\TestDrive2 -userdata C:\temp\otdu2-win-userdata -gm FIRST_WM -skipcine -nopad -fixedtimestep -tattoo "bars,0.45,0.3,0.5,0,1,ff0000" -autoplay "300:shot=C:/OpenTDU2/_tat.ppm" -exitframe 320`
-  with the male player on screen (a huge red decal makes it obvious).
+- **3D look verified** (`docs/images/tattoo_3d_player_arms.webp`): `-gm FIRST_WM -skipcine -nopad -fixedtimestep -tattoo "cross,0.45,0.3,0.7,0,1,ff0000;cross,0.5,0.75,0.7,0,1,ff0000;cross,0.85,0.35,0.5,0,1,ff0000"`, shot at frame 150: the player's forearms and hands are red, the chest decal is hidden under the T-shirt. Skin UV: forearms/hands lie around u 0.45-0.9, v 0.3-0.8 (cover blobs, exact regions still to map).
 - Clothes hide body tattoos through the body-zone mesh hiding already in `EdenAvatar::load`.
 - Then: region map (chest/back/arms/legs/neck), the tattoo shop page, a decal editor, face tattoos.
