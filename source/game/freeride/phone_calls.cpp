@@ -196,6 +196,12 @@ void PhoneCalls::checkNudges( const Context &context ) {
             return;
         }
     }
+    // HAWAI_CALL: Tess's "We're leaving today! Meet us at the airport!" - not online, not tutorial, a progress counter >= 10
+    // and Hawaii not visited [CODE-dev 0x9a2c30; the counter and the delay are INF: 20 minutes of play, on Ibiza].
+    if ( context.Island == "ibiza" && !profile.PhoneState.count( "PlayTimeWhenArrivingOnHawai" ) && after( 20.0f ) &&
+         request( "HAWAI_CALL" ) ) {
+        return;
+    }
     // 3. REALTOR_CALL: one house and two or more cars (the garage is cramped).
     const size_t cars = std::max( profile.Garage.size(), profile.OwnedCars.size() + 1 );
     if ( profile.OwnedHouses.size() == 1 && cars >= 2 && request( "REALTOR_CALL" ) ) {
@@ -282,6 +288,10 @@ void PhoneCalls::checkNudges( const Context &context ) {
             return;
         }
         if ( state( "BeenInRSClassicHawai" ) == 0 && sinceArrival > 8 * 60 && request( "HAWAI_CLASSIC" ) ) {
+            return;
+        }
+        // SURGERY_HAWAI: Miami's tip about the Hawaii cosmetics clinic, once the clinic was not visited there [INF: 5 minutes].
+        if ( state( "BeenInSurgeryHawai" ) == 0 && sinceArrival > 5 * 60 && request( "SURGERY_HAWAI" ) ) {
             return;
         }
     }

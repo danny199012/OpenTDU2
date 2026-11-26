@@ -775,7 +775,7 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
             } );
             surgeryUi.bind( interior.getAvatarUi(), baseParams, profile.FaceAge >= 0.0f ? profile.FaceAge : baseAge,
                             profile.FaceFreckle >= 0.0f ? profile.FaceFreckle : baseFreckle );
-            GetPlayerProfile().PhoneState["BeenInSurgeryShop"] = 1;
+            GetPlayerProfile().PhoneState[islandName == "hawai" ? "BeenInSurgeryHawai" : "BeenInSurgeryShop"] = 1;
         }
         if ( command == "hadr:open" && interior.getAvatarUi() != nullptr ) {
             hairUi.setLookSink( [this]( int32_t hairId, int32_t hairColor, int32_t beardId, int32_t beardColor ) {
@@ -5647,7 +5647,7 @@ bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotB
             }
             return true;
         }
-        GetPlayerProfile().PhoneState["BeenInSurgeryShop"] = 1;
+        GetPlayerProfile().PhoneState[islandName == "hawai" ? "BeenInSurgeryHawai" : "BeenInSurgeryShop"] = 1;
         const PlayerProfile &profile = GetPlayerProfile();
         int8_t baseParams[49] = {};
         float baseAge = 0.0f, baseFreckle = 0.0f;
@@ -9268,6 +9268,9 @@ void GMFreeRide::tick( float deltaTime ) {
                                    duel.File.c_str(), duel.Position.x, duel.Position.z );
                 }
             }
+        }
+        if ( accepted == "HAWAI_CALL" ) {
+            hud.showGoal( LocStr( 4039, "Drive to the airport to fly to Hawaii" ) ); // the goal list's text [DATA]
         }
         if ( accepted == "CHASE_INTRO_IBIZA" || accepted == "CHASE_INTRO_HAWAI" ) {
             startOutlawChase();
