@@ -23,6 +23,7 @@ struct RenderTarget;
 #include "game/freeride/phone_calls.h"
 #include "game/clothes_shop.h"
 #include "game/freeride/surgery_menu.h"
+#include "game/freeride/tattoo_studio.h"
 #include "game/freeride/surgery_ui.h"
 #include "game/freeride/hair_ui.h"
 #include "game/freeride/chase_camera.h"
@@ -320,6 +321,8 @@ private:
     SurgeryUi surgeryUi;     // SHOPSAVATAR.vmf's surgeon page (the retail screen)
     TuneUi tuneUi;           // SHOPSCAR.vmf's car_tuner page (the retail tuning shop screen)
     SurgeryMenu surgeryMenu; // the cosmetic clinic (ESUR_*), surgery_spec.md
+    TattooStudio tattooStudio; // X in the clinic: the tattoo studio (docs/re/tattoo_spec.md)
+    void openTattooStudio();
     // The realtor (ERE_*), the tuning shops (ETUN_*) and the sticker /
     // paint shops (ESTICK_*): the menus of the spots that have stock
     // (DBHouse / the tuning levels / the car's DBCarsAndColors rows).

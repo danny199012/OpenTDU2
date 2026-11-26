@@ -3309,7 +3309,7 @@ void GMFreeRide::tickWorldSpots( float deltaTime, const Vector3f &carPosition, f
     }
 
     // The A button of the nearest spot (nothing while a menu or a race is up).
-    const bool bBusy = clothesMenu.isOpen() || surgeryMenu.isOpen() || dealer.isOpen() || schoolMenu.isOpen() || schoolScreen.isOpen() || championshipMenu.isOpen() ||
+    const bool bBusy = clothesMenu.isOpen() || surgeryMenu.isOpen() || tattooStudio.isOpen() || dealer.isOpen() || schoolMenu.isOpen() || schoolScreen.isOpen() || championshipMenu.isOpen() ||
                        estate.isOpen() || tuningMenu.isOpen() || tunerMenu.isOpen() || paintMenu.isOpen() || licenseTest.isActive() ||
                        raceEvents.getStage() != RaceEvents::eStage::Idle;
     if ( !bBusy && bSlow && pNearKind != nullptr && !hud.isLevelUpActive() && !risk.isBanking() &&
@@ -5645,6 +5645,21 @@ void GMFreeRide::bindTunerGarageCar() {
     OTDU_LOG_INFO( "Tuner: the car is on the room's place, the garage turntable ready\n" );
 }
 
+// The tattoo studio over the clinic room: the camera circles the player's avatar in the interior scene.
+void GMFreeRide::openTattooStudio() {
+    if ( !interior.isActive() || tattooStudio.isOpen() ) {
+        return;
+    }
+    TattooStudio::Host host;
+    IntroCinematic &scene = interior.getScene();
+    host.Aim = [&scene]( float yaw, float height ) { scene.aimTattooView( yaw, height ); };
+    host.Pick = [&scene]( float &u, float &v ) { return scene.pickTattooSpot( u, v ); };
+    host.Show = [&scene]( const std::vector<TattooDecal> &decals ) { scene.setPlayerTattoos( decals ); };
+    host.Leave = [&scene]() { scene.setTattooView( false ); };
+    scene.setTattooView( true, CmdLine::HasArg( "-tattoodist" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-tattoodist" ) ) ) : 2.4f );
+    tattooStudio.open( host, "Tattoo studio" );
+}
+
 bool GMFreeRide::openSpotShop( const std::string &kind, const std::string &spotBank, uint64_t spotId ) {
     if ( kind == "cardealer" ) {
         const CarShop *pShop = findSpotCarShop( spotBank, spotId );
@@ -7432,8 +7447,16 @@ void GMFreeRide::tick( float deltaTime ) {
         interior.tickBackground( deltaTime );
         return;
     }
+    if ( tattooStudio.isOpen() ) {
+        interior.tickBackground( deltaTime );
+        tattooStudio.tick( deltaTime );
+        return;
+    }
     if ( surgeryMenu.isOpen() ) {
         surgeryMenu.tick( deltaTime );
+        if ( surgeryMenu.takeTattooRequest() ) {
+            openTattooStudio();
+        }
         interior.tickBackground( deltaTime );
         return;
     }
@@ -7715,6 +7738,15 @@ void GMFreeRide::tick( float deltaTime ) {
             stickerShop.tick( deltaTime );
         }
         InteriorWalk::eResult interiorResult = interior.tick( deltaTime );
+        // The clinic: X while walking (no movie page up) opens the tattoo studio (a new feature, not in the retail game).
+        if ( interiorKind == "surgery" && interior.isAvatarUi() && interior.isWalkInputOn() && !tattooStudio.isOpen() ) {
+            hud.setPrompt( "X: tattoo studio" );
+            if ( gpInput->wasPressed( eInputAction::IA_MenuOption1 ) ) {
+                hud.setPrompt( "" );
+                openTattooStudio();
+                return;
+            }
+        }
         tickLicenceWinScene();
         // Vanilla repair: going home mends the car (no pump / paid repair without the fuel-system mod).
         if ( interior.isHouse() && !FuelModEnabled() && ( vehicle.getDamage() > 0.0f || vehicle.getTireWear( 0 ) > 0.0f ) ) {
@@ -10874,6 +10906,7 @@ void GMFreeRide::draw() {
     dealer.draw( renderer );
     clothesMenu.draw( renderer );
     surgeryMenu.draw( renderer );
+    tattooStudio.draw( renderer );
     estate.draw( renderer );
     tuningMenu.draw( renderer );
     tunerMenu.draw( renderer );

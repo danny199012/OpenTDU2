@@ -29,6 +29,13 @@ public:
     // The retail gates (surgery_spec.md 1.5): true while the bandages are on.
     static bool IsBandaged();
 
+    // X / Option 1 asks for the tattoo studio (a new feature, docs/re/tattoo_spec.md); the host opens it and the menu closes.
+    bool takeTattooRequest() {
+        const bool bRequest = bTattooRequest;
+        bTattooRequest = false;
+        return bRequest;
+    }
+
 private:
     struct Row {
         std::string Label;
@@ -43,6 +50,7 @@ private:
 
     bool bOpen = false;
     bool bSidePanel = false;
+    bool bTattooRequest = false;
     std::string shopName;
     std::vector<Row> rows;
     int8_t baseParams[49] = {};

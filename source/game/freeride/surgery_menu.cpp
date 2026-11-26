@@ -207,6 +207,11 @@ void SurgeryMenu::tick( float deltaTime ) {
     if ( gpInput->wasPressed( eInputAction::IA_MenuValidate ) ) {
         buy();
     }
+    if ( gpInput->wasPressed( eInputAction::IA_MenuOption1 ) ) {
+        bTattooRequest = true;
+        close();
+        return;
+    }
     if ( gpInput->wasPressed( eInputAction::IA_MenuBack ) || gpInput->wasPressed( eInputAction::IA_MenuPause ) ) {
         close();
         PlayFrontEndCue( "back" );
@@ -260,7 +265,7 @@ void SurgeryMenu::draw( Renderer2D &renderer ) {
     if ( messageTimer > 0.0f ) {
         renderer.drawText( pFont, message.c_str(), x0 + w * 0.5f, y0 + h - 84.0f, 24.0f, Rgba( 255, 210, 80 ), eTextAlign::TA_Center );
     }
-    renderer.drawText( pFont, "Left / Right: adjust   A / Enter: buy   B / Esc: leave", x0 + w * 0.5f, y0 + h - 40.0f, 18.0f,
+    renderer.drawText( pFont, "Left / Right: adjust   A: buy   X: tattoos   B: leave", x0 + w * 0.5f, y0 + h - 40.0f, 18.0f,
                        Rgba( 210, 210, 210 ), eTextAlign::TA_Center );
     renderer.end();
 }

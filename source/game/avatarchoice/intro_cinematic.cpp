@@ -1942,9 +1942,10 @@ void IntroCinematic::updateView() {
         const Vector3f look = pivot - eye;
         const float lookYaw = std::atan2( look.x, look.z );
         const Quaternionf conjugate = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), lookYaw );
-        // player.World is in the cinematic's own frame: the camera goes through the scene origin like setLocalCamera
-        camera.Position = sceneOrigin.transformPoint( eye );
-        camera.Rotation = Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w ) * Conjugate( sceneRotation );
+        // player.World already includes sceneOrigin (loadEmote: sceneOrigin * ...), so eye / look are world space: no
+        // extra sceneOrigin / sceneRotation (applying them put the clinic camera in the sky).
+        camera.Position = eye;
+        camera.Rotation = Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w );
         camera.Fov = 38.0f * kDegToRad;
         camera.Near = 0.1f;
         if ( CmdLine::HasArg( "-logtattooview" ) ) {
@@ -2248,7 +2249,7 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
                            view.getSceneParams().CameraPosition.z );
         }
     }
-    if ( player.Avatar && player.bVisible && ( !bPlayerMirrorOnly || bMirrorPass ) &&
+    if ( player.Avatar && player.bVisible && ( !bPlayerMirrorOnly || bMirrorPass || bTattooView ) &&
          ( bTattooView || renderer.isSphereVisible( player.World.getTranslation() + Vector3f( 0.0f, 1.0f, 0.0f ), 1.4f ) ) ) {
         // Seated under the game camera (cockpit view, camera mode 23): the
         // head and what is worn on it are not drawn (the eye is inside the

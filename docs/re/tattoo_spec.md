@@ -53,6 +53,11 @@ The shop places a tattoo by shooting a ray at the body and taking the hit triang
   -> log `placed 'star' at u 0.421 v 0.374`, `placed 'ring' at u 0.516 v 0.520`, `bought 2 tattoo(s) for $3000`; the studio closes,
   the camera goes back and the star / ring stay on the avatar (screenshots not committed: nude render).
 
+## Clinic entrance (2026-11-26) [INF]
+
+Inside a clinic (ESUR_A / ESUR_CA) the tattoo studio opens with **X / Option 1**: while walking (no SHOPSAVATAR page up, a prompt "X: tattoo studio" shows), or from the native `SurgeryMenu` (panel line "X: tattoos"). `GMFreeRide::openTattooStudio()` binds the `TattooStudio` host to `interior.getScene()`. `-interior ESUR_A -nudeavatar -tattoodist 3.2 -autoplay "400:press=opt1;..."` verified headless: placed 'star' on the abdomen, shown on the avatar.
+Two traps found here: (1) `IntroCinematic::player.World` already includes `sceneOrigin` (the emote/mirror paths build it as `sceneOrigin * ...`), so the studio camera is in world space - applying `sceneOrigin`/`sceneRotation` again put the clinic camera in the sky (the garage hid this: its origin is identity); (2) in the clinic the player is the **mirror-only** double (`bPlayerMirrorOnly`), so the draw condition also passes while `bTattooView`.
+
 ## Body skin UV map notes
 
 Method: `-dumpbodyuv <csv>` writes `u v x y z bone material` of every vertex of the **man's** body mesh (+ `<csv>.tri`;
