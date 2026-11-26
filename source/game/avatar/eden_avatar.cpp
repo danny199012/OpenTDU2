@@ -11,6 +11,7 @@
 #include "render/2db.h"
 #include "render/image_file.h"
 #include "tattoo.h"
+#include "render/3dg.h"
 
 namespace {
 constexpr uint64_t kHairShaderSet = 0xd5013ed0dbdededeull;
@@ -442,7 +443,7 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
     if ( EdenModel *pBody = loadPart( bodies, body.pBody, body.pMaterials ) ) {
         for ( EdenMaterial &material : pBody->getMaterials() ) {
             for ( uint32_t z = 0; z < 21; z++ ) {
-                if ( !zoneVisible[z] && material.Hashcode == GetIdentifier64bit( kZoneMaterials[z] ) ) {
+                if ( !zoneVisible[z] && !CmdLine::HasArg( "-nudeavatar" ) && material.Hashcode == GetIdentifier64bit( kZoneMaterials[z] ) ) {
                     material.pProgram = nullptr; // hidden zone
                 }
             }
@@ -452,7 +453,7 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
         headParts.push_back( parts.size() - 1 );
     }
     applySkin( library.getConfigBank().findEntry( avtName.c_str(), "avt" ) );
-    if ( bPlayerFace ) {
+    if ( bPlayerFace || CmdLine::HasArg( "-dumpbodyuv" ) ) {
         applyTattoos( bodies );
     }
     // FaceParamArray (FUN_00cbd030: memcpy of 0x31 bytes to +0xa2): a list
@@ -479,6 +480,9 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
     }
 
     for ( const Worn &item : worn ) {
+        if ( CmdLine::HasArg( "-nudeavatar" ) ) { // debug: skin only (tattoo region mapping)
+            break;
+        }
         const Bank *pBank = library.getClothesBank( item.File );
         if ( pBank == nullptr ) {
             continue;
@@ -653,6 +657,48 @@ void EdenAvatar::applySkin( const BankEntry *pAvt ) {
 }
 
 void EdenAvatar::applyTattoos( const Bank &bodies ) {
+    // -dumpbodyuv <csv>: u v x y z bone of every vertex of the body mesh (maps the skin UV islands to body regions).
+    if ( const char *pCsv = CmdLine::GetArgValue( "-dumpbodyuv" ) ) {
+        static bool bDumped = false;
+        const BankEntry *pGeo = bodies.findEntry( bWoman ? "woman_body" : "man_body", "3dg" );
+        Render3DG geometry;
+        if ( !bDumped && pGeo != nullptr && geometry.parse( pGeo->pData, pGeo->Size ) ) {
+            bDumped = true;
+            FILE *pFile = fopen( pCsv, "w" );
+            FILE *pTri = fopen( ( std::string( pCsv ) + ".tri" ).c_str(), "w" );
+            struct TriCloser {
+                FILE *pHandle;
+                ~TriCloser() {
+                    if ( pHandle != nullptr ) {
+                        fclose( pHandle );
+                    }
+                }
+            } triCloser{ pTri };
+            uint32_t baseVertex = 0;
+            for ( const auto &entry : geometry.getGeometries() ) {
+                for ( const GeometryPrimitive &prim : entry.second.Primitives ) {
+                    for ( size_t i = 0; pTri != nullptr && i + 2 < prim.Indices.size(); i += 3 ) {
+                        fprintf( pTri, "%u,%u,%u\n", baseVertex + prim.Indices[i], baseVertex + prim.Indices[i + 1], baseVertex + prim.Indices[i + 2] );
+                    }
+                    baseVertex += static_cast<uint32_t>( prim.Vertices.size() );
+                    for ( size_t i = 0; i < prim.Vertices.size(); i++ ) {
+                        const MeshVertex &v = prim.Vertices[i];
+                        int32_t bone = -1;
+                        if ( i < prim.BoneIndices.size() && prim.BoneIndices[i] < prim.BonePalette.size() ) {
+                            bone = static_cast<int32_t>( prim.BonePalette[prim.BoneIndices[i]] );
+                        }
+                        if ( pFile != nullptr ) {
+                            fprintf( pFile, "%.4f,%.4f,%.4f,%.4f,%.4f,%d,%u\n", v.Texcoord[0], v.Texcoord[1], v.Position[0],
+                                     v.Position[1], v.Position[2], bone, static_cast<unsigned>( prim.MaterialIndex ) );
+                        }
+                    }
+                }
+            }
+            if ( pFile != nullptr ) {
+                fclose( pFile );
+            }
+        }
+    }
     // -tattoo "design,u,v,scale,rot,opacity,rrggbb;..." overrides the profile for a run (tests).
     const char *pArg = CmdLine::GetArgValue( "-tattoo" );
     const std::vector<TattooDecal> decals = ParseTattoos( pArg != nullptr ? pArg : GetPlayerProfile().Tattoos );
