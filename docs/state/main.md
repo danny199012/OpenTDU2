@@ -4,6 +4,13 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26, tattoo compositor (`main`)
+
+Owner: "start with the tattoo compositor". New (not in TDU2): decals blended into the body skin texture. `source/game/avatar/tattoo.{h,cpp}`, `EdenAvatar::applyTattoos`, `PlayerProfile::Tattoos`; spec `docs/re/tattoo_spec.md`.
+- **Verified**: `-tattoo "star,0.5,0.5,0.1,0,0.95,101010;ring,0.3,0.3,0.08,0,0.9,801010" -dumptattoo _tat.png` composites into `m_body_c` (log `Tattoo: 2 decals composited`), image `docs/images/tattoo_skin_composite_test.webp`; one composite shared per avatar, freed in `unload()` (no leak line at shutdown).
+- **Not verified**: the look on the 3D player body (the FIRST_WM headless shot shows a clothed NPC). Command in the spec. Face not composited.
+- **Next**: region map, tattoo shop page in the surgery UI, decal editor, then the body bone-scale sliders.
+
 ## Session 2026-11-26, quests wrap-up 2 (`main`)
 
 Since the first wrap-up: duel cutscenes (`playDuelScene` / `enterDuel`, `IntroCinematic::loadRivalCar`, `Setup::bAnchorToCar`), camera fixes in `cinematic_scene.cpp` (a heading key with first dword 0 and |q| != 1 = a look-at on the scene origin with pitch sign -1; the actor look-at index 1 = Avatar, 2 = PLAYER_CAR when both exist), tools `otdu2_cine_tool camscan` / `lookscan`, flags `-noduelcine`, `-cinrivalcar`, `-cinanchor`, `-logcamtrack`, `-lookpitchflip`, `-lookoffsetlocal`. Details: `docs/re/quests_spec.md` sections 11-11.6.

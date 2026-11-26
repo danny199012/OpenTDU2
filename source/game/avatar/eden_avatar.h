@@ -77,4 +77,7 @@ private:
     // FUN_00cbe2a0 / FUN_00cbe1a0 / FUN_00cbe220: .avt skin values into the
     // TD_Skin2 / TD_Skinface materials (docs/re/skin_zones_spec.md).
     void applySkin( const struct BankEntry *pAvt );
+    // Tattoo compositor (tattoo.h): the body skin texture with the player's decals blended in.
+    void applyTattoos( const Bank &bodies );
+    std::vector<struct GPUTexture *> tattooTextures; // composited skins this avatar owns
 };

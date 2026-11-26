@@ -282,6 +282,8 @@ std::map<int32_t, TunerCarParts> OwnedCarTunerParts;
     int32_t HairColor = -1;
     int32_t BeardColor = -1;
     int32_t NbSurgeries = 0;
+    // Tattoo shop (new, docs/re/tattoo_spec.md): SerializeTattoos() of the player's decals.
+    std::string Tattoos;
     // Haircuts bought (the dev exe 0xba0ef0 bumps a counter and pays COLLECTION_HAIRCUTS_<n>).
     int32_t NbHaircuts = 0;
     int64_t BandageUntil = 0;

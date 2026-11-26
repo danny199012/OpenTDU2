@@ -8,6 +8,9 @@
 #include "system/cmd_line.h"
 #include "render/gs_render.h"
 #include "render/texture_cache.h"
+#include "render/2db.h"
+#include "render/image_file.h"
+#include "tattoo.h"
 
 namespace {
 constexpr uint64_t kHairShaderSet = 0xd5013ed0dbdededeull;
@@ -245,7 +248,14 @@ EdenAvatar::EdenAvatar() {}
 EdenAvatar::~EdenAvatar() { unload(); }
 
 void EdenAvatar::unload() {
+    // the materials die with the parts; the composited tattoo skins are this avatar's own
     parts.clear();
+    if ( gpRender != nullptr ) {
+        for ( GPUTexture *pTexture : tattooTextures ) {
+            gpRender->getTextureCache().destroyTexture( pTexture );
+        }
+    }
+    tattooTextures.clear();
     headParts.clear();
     pSkeleton = nullptr;
 }
@@ -442,6 +452,9 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
         headParts.push_back( parts.size() - 1 );
     }
     applySkin( library.getConfigBank().findEntry( avtName.c_str(), "avt" ) );
+    if ( bPlayerFace ) {
+        applyTattoos( bodies );
+    }
     // FaceParamArray (FUN_00cbd030: memcpy of 0x31 bytes to +0xa2): a list
     // of 49 child nodes {u16 3, u16 key, u8 value}, in order [INF: element
     // order = file order].
@@ -635,6 +648,66 @@ void EdenAvatar::applySkin( const BankEntry *pAvt ) {
                                   bytes[3] * 0.0039215f );
                 }
             }
+        }
+    }
+}
+
+void EdenAvatar::applyTattoos( const Bank &bodies ) {
+    // -tattoo "design,u,v,scale,rot,opacity,rrggbb;..." overrides the profile for a run (tests).
+    const char *pArg = CmdLine::GetArgValue( "-tattoo" );
+    const std::vector<TattooDecal> decals = ParseTattoos( pArg != nullptr ? pArg : GetPlayerProfile().Tattoos );
+    if ( decals.empty() || gpRender == nullptr || parts.empty() ) {
+        return;
+    }
+    TextureCache &textures = gpRender->getTextureCache();
+    std::unordered_map<uint64_t, GPUTexture *> composited; // base hash -> tattooed copy (shared by the body's materials)
+    // parts[0] is the body (loadPart order); only its skin materials carry tattoos.
+    for ( EdenMaterial &material : parts[0]->getMaterials() ) {
+        if ( material.ShaderSetGUID != 0xd5013ed0dbcdcdcdull || material.pProgram == nullptr ) {
+            continue;
+        }
+        for ( uint32_t slot = 0; slot < material.NumSlots && slot < 16; slot++ ) {
+            if ( material.pTextures[slot] == nullptr || material.bNormalSlot[slot] ) {
+                continue;
+            }
+            if ( auto done = composited.find( material.TextureHashes[slot] ); done != composited.end() ) {
+                material.pTextures[slot] = done->second;
+                material.TextureHashes[slot] = GetIdentifier64bit( "tattoo_skin" );
+                break;
+            }
+            const uint64_t baseHash = material.TextureHashes[slot];
+            // The slot's texture is a .2db of the bodies bank (hash of its name).
+            const BankEntry *pEntry = nullptr;
+            for ( const BankEntry *pCandidate : bodies.findEntriesByExtension( "2db" ) ) {
+                if ( GetIdentifier64bit( pCandidate->Name.c_str() ) == material.TextureHashes[slot] ) {
+                    pEntry = pCandidate;
+                    break;
+                }
+            }
+            Texture2DB texture;
+            if ( pEntry == nullptr || !texture.parse( pEntry->pData, pEntry->Size ) || texture.Width == 0 ) {
+                continue;
+            }
+            std::vector<uint8_t> rgba( static_cast<size_t>( texture.Width ) * texture.Height * 4 );
+            if ( texture.Format == VF_A8R8G8B8 ) {
+                continue; // uncompressed layouts: not needed by the body skins
+            }
+            DecodeBlockCompressed( texture.pTexels + texture.getMipOffset( 0 ), texture.Width, texture.Height,
+                                   texture.Format, rgba.data() );
+            CompositeTattoos( rgba.data(), texture.Width, texture.Height, decals );
+            if ( const char *pDump = CmdLine::GetArgValue( "-dumptattoo" ) ) {
+                SaveImagePng( pDump, rgba.data(), texture.Width, texture.Height );
+            }
+            const std::string name = "tattoo_" + pEntry->Name;
+            if ( GPUTexture *pTexture = textures.createFromRGBA( texture.Width, texture.Height, rgba.data(), name.c_str() ) ) {
+                material.pTextures[slot] = pTexture;
+                material.TextureHashes[slot] = GetIdentifier64bit( "tattoo_skin" );
+                composited[baseHash] = pTexture;
+                tattooTextures.push_back( pTexture );
+                OTDU_LOG_INFO( "Tattoo: %zu decals composited into %s (%ux%u, slot %u)\n", decals.size(),
+                               pEntry->Name.c_str(), texture.Width, texture.Height, slot );
+            }
+            break; // one skin texture per material
         }
     }
 }

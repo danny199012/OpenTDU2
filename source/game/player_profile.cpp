@@ -598,6 +598,8 @@ void LoadProfile() {
                 profile.CasinoPoints.push_back( static_cast<int32_t>( id ) );
                 pText = *pEnd == ',' ? pEnd + 1 : pEnd;
             }
+        } else if ( key == "tattoos" ) {
+            profile.Tattoos = value;
         } else if ( key == "casino_seen" ) {
             size_t at = 0;
             while ( at <= value.size() && !value.empty() ) {
@@ -1016,6 +1018,7 @@ bool SaveProfile( const char *pReason ) {
             file << ( i > 0 ? "," : "" ) << profile.CasinoPoints[i];
         }
         file << "\n";
+        file << "tattoos = " << profile.Tattoos << "\n";
         file << "casino_seen = ";
         for ( size_t i = 0; i < profile.CasinoSeen.size(); i++ ) {
             file << ( i > 0 ? "," : "" ) << profile.CasinoSeen[i];
