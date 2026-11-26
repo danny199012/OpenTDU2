@@ -3800,8 +3800,13 @@ bool GMFreeRide::isDuelOpen( const DuelSpot &duel ) const {
 
 void GMFreeRide::grantDuelCar( const DuelSpot &duel ) {
     // DBRewardCar _event DUEL_WIN_<class>: _carunlocked + the tuning levels [DATA]; "You win the challenger's car!" (loc 3852).
+    if ( grantRewardCar( "DUEL_WIN_" + duel.Class ) ) {
+        hud.showDiscovery( LocStr( 3852, "You win the challenger's car!" ) );
+    }
+}
+
+bool GMFreeRide::grantRewardCar( const std::string &event ) {
     PlayerProfile &profile = GetPlayerProfile();
-    const std::string event = "DUEL_WIN_" + duel.Class;
     const XmbValue root = gpDatabase->getDocument().getRoot();
     for ( uint32_t i = 0; i < root.getArraySize( "DBRewardCar" ); i++ ) {
         const XmbValue row = root.getArrayElement( "DBRewardCar", i );
@@ -3814,18 +3819,18 @@ void GMFreeRide::grantDuelCar( const DuelSpot &duel ) {
             bOwned = bOwned || owned.IdCar == carId;
         }
         if ( bOwned ) {
-            return;
+            return false;
         }
         profile.OwnedCars.push_back( carId );
         TuningLevels &levels = profile.OwnedCarTuning[carId];
         levels.Accel = static_cast<int32_t>( row["_acceltuninglevel"].asInt() );
         levels.Braking = static_cast<int32_t>( row["_brakingtuninglevel"].asInt() );
         levels.Speed = static_cast<int32_t>( row["_speedtuninglevel"].asInt() );
-        hud.showDiscovery( LocStr( 3852, "You win the challenger's car!" ) );
-        OTDU_LOG_INFO( "FREERIDE: duel prize '%s': car %d added to the garage, tuning %d/%d/%d\n", event.c_str(), carId,
+        OTDU_LOG_INFO( "FREERIDE: reward car '%s': car %d added to the garage, tuning %d/%d/%d\n", event.c_str(), carId,
                        levels.Accel, levels.Braking, levels.Speed );
-        return;
+        return true;
     }
+    return false;
 }
 
 bool GMFreeRide::isDuelWon( const DuelSpot &duel ) const {
@@ -9303,6 +9308,25 @@ void GMFreeRide::tick( float deltaTime ) {
                 OTDU_LOG_INFO( "Discovery: wreck '%s' found (%zu of %zu)\n", wrecks[i].Name.c_str(), found.size(), wrecks.size() );
                 AwardSkillEvent( event.c_str() );
                 SaveProfile( "wreck found" );
+                // All the parts of one wreck car (the points' Id: 1 = WreckB x10, 2 = WreckB2 x10, 3 = WreckB5 x8, the Exploration DLC's): Jude builds a bonus car (DBRewardCar WRECKS_<ISLAND>_<area>; loc 4875
+                // "Congratulations! You have found all the wrecks in <zone>. A new vehicle is waiting for you") and calls.
+                if ( wrecks[i].Id >= 1 ) {
+                    int32_t inArea = 0, foundInArea = 0;
+                    for ( size_t k = 0; k < wrecks.size(); k++ ) {
+                        if ( wrecks[k].Id == wrecks[i].Id ) {
+                            inArea++;
+                            foundInArea += std::find( found.begin(), found.end(), static_cast<uint32_t>( k ) ) != found.end() ? 1 : 0;
+                        }
+                    }
+                    const std::string rewardEvent = "WRECKS_" + island + "_" + std::to_string( wrecks[i].Id );
+                    if ( foundInArea == inArea && GetPlayerProfile().PhoneState[rewardEvent] == 0 ) {
+                        GetPlayerProfile().PhoneState[rewardEvent] = 1;
+                        if ( grantRewardCar( rewardEvent ) ) {
+                            hud.showDiscovery( LocStr( 2009, "Congratulations, you found all the wrecks! You won a new vehicle." ) );
+                            phoneCalls.request( "WRECKS_CALL" );
+                        }
+                    }
+                }
             } else if ( distance < discovery.getDetectorRange() && ( nearest < 0.0f || distance < nearest ) ) {
                 nearest = distance;
             }

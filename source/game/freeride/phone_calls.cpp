@@ -432,6 +432,7 @@ bool PhoneCalls::TargetSpot( const std::string &callName, std::string &outIcon, 
         { "HAWAI_DIRT", "rschool", "" },
         { "HAWAI_CLASSIC", "rschool", "" },
         { "HAWAI_CALL", "airport", "" },
+        { "WRECKS_CALL", "cardealer", "" }, // Jude, the used car dealer [INF: the car "waits at the warehouse"]
     };
     for ( const Entry &entry : kTable ) {
         if ( callName == entry.Call ) {
