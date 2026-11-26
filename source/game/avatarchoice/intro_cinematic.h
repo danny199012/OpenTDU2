@@ -133,6 +133,29 @@ public:
         headOrbitDistance = distance;
     }
     void addHeadOrbit( float delta );
+    // The tattoo studio (docs/re/tattoo_spec.md): the camera circles the player's whole body and aims at its centre; the
+    // crosshair is the view's centre, so the pick ray is the camera's forward axis. yaw: radians round the avatar,
+    // height: metres above its feet.
+    void setTattooView( bool bOn, float distance = 2.4f ) {
+        bTattooView = bOn;
+        tattooYaw = 0.0f;
+        tattooHeight = 1.15f;
+        tattooDistance = distance;
+    }
+    inline bool isTattooView() const { return bTattooView; }
+    void aimTattooView( float yawDelta, float heightDelta ) {
+        tattooYaw += yawDelta;
+        tattooHeight = Clamp( tattooHeight + heightDelta, 0.1f, 1.65f );
+    }
+    inline float getTattooHeight() const { return tattooHeight; }
+    // The skin (u, v) under the view's centre; false when the ray misses the body.
+    bool pickTattooSpot( float &outU, float &outV );
+    void setPlayerTattoos( const std::vector<TattooDecal> &decals ) {
+        if ( player.Avatar ) {
+            player.Avatar->setTattoos( decals );
+        }
+    }
+    std::vector<TattooDecal> getPlayerTattoos() const { return player.Avatar ? player.Avatar->getTattoos() : std::vector<TattooDecal>(); }
     // The surgeon's live edit of the player's face (see EdenAvatar::setFaceEdit).
     void setPlayerFaceEdit( const int8_t *pParams, float age, float freckle ) {
         if ( player.Avatar ) {
@@ -815,6 +838,9 @@ private:
     void updateSeatedPlayer();
     // The walk-mode emote / self-view state (playPlayerEmote).
     bool bHeadOrbit = false;
+    bool bTattooView = false;
+    float tattooYaw = 0.0f, tattooHeight = 1.15f, tattooDistance = 2.4f;
+    Vector3f tattooEye, tattooForward = Vector3f( 0.0f, 0.0f, 1.0f );
     float headOrbitYaw = 0.0f;
     float headOrbitDistance = 0.0f;
     bool bPlayerEmote = false;      // avatar posed at the emote place

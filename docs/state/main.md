@@ -11,7 +11,8 @@ Owner: "start with the tattoo compositor". New (not in TDU2): decals blended int
 - **3D look verified** later the same day: the player's forearms/hands show the decals, clothes hide the chest ones (`docs/images/tattoo_3d_player_arms.webp`). Face not composited.
 - **Region map (same day)**: `-dumpbodyuv`, `-nudeavatar`, `tools/tattoo_uv_probe.py`; chest front (0.50,0.34), sternum (0.49,0.17), upper abdomen (0.50,0.42), forearm (0.94,0.10), shin (0.58,0.69) confirmed in 3D. The atlas is packed/overlapped (L/R limbs share UV; (0.07,0.57) is the groin) so a fixed region list is unreliable: the shop should place by aiming at the body (raycast -> triangle UV). Back anchors unverified. Table in `docs/re/tattoo_spec.md`.
 - **Aim-to-place built**: `EdenAvatar::pickSkin` + `setTattoos`, `-tattoopick`, verified on chest / abdomen / thigh / shin (spec). **Correction**: the first `-dumpbodyuv` was the woman's mesh (garage loads her first) and V was wrongly flipped; the man's V is raw, and his front is +z. `-dumpbodywoman` for hers.
-- **Next**: wire pickSkin to the shop camera, tattoo shop page in the surgery UI, decal editor, then the body bone-scale sliders.
+- **Tattoo studio built** (owner: "both"): `TattooStudio` panel + `IntroCinematic::setTattooView/pickTattooSpot` (crosshair = view centre, body orbit, live ghost, $1500 each, saved in the profile). Verified headless with `-tattooshop 120` (placed star + ring, paid $3000, tattoos stay). **Not wired to a real entrance** (clinic option / a dedicated spot): next. Traps found: the pivot must be the skinned bounds (the walk-in moves the skeleton root, not `player.World`), and the avatar draw culls on `player.World` (skipped in this view). Tests change the profile in the userdata (`tattoos =` line, money).
+- **Next**: the clinic / spot entrance for the studio in the surgery UI, decal editor, then the body bone-scale sliders.
 
 ## Session 2026-11-26, quests wrap-up 2 (`main`)
 

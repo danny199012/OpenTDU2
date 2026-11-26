@@ -814,15 +814,14 @@ void EdenAvatar::applyTattoos( const Bank &bodies ) {
     }
 }
 
-// Aim-to-place (docs/re/tattoo_spec.md): the skin atlas is packed and overlapped, so a tattoo is placed by shooting a ray at the
-// body and taking the hit triangle's UV. The body mesh is skinned on the CPU with each vertex's first bone (rigid): good enough
-// for picking. skinMatrices empty = the bind pose.
-bool EdenAvatar::pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirection, const Matrix4x4f &world,
-                           const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV ) {
+bool EdenAvatar::buildPickMesh() {
+    if ( pickMesh.bValid ) {
+        return true;
+    }
     if ( pBodiesBank == nullptr ) {
         return false;
     }
-    if ( !pickMesh.bValid ) {
+
         const BankEntry *pGeo = pBodiesBank->findEntry( bWoman ? "woman_body" : "man_body", "3dg" );
         Render3DG geometry;
         if ( pGeo == nullptr || !geometry.parse( pGeo->pData, pGeo->Size ) ) {
@@ -863,6 +862,39 @@ bool EdenAvatar::pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirecti
             }
         }
         pickMesh.bValid = !pickMesh.Indices.empty();
+        return pickMesh.bValid;
+}
+
+bool EdenAvatar::getSkinnedBounds( const Matrix4x4f &world, const std::vector<Matrix4x4f> &skinMatrices, Vector3f &outMin,
+                                   Vector3f &outMax ) {
+    if ( !buildPickMesh() ) {
+        return false;
+    }
+    outMin = Vector3f( 1e30f, 1e30f, 1e30f );
+    outMax = Vector3f( -1e30f, -1e30f, -1e30f );
+    for ( size_t i = 0; i < pickMesh.Positions.size(); i++ ) {
+        Vector3f p = pickMesh.Positions[i];
+        const int32_t bone = pickMesh.Bones[i];
+        if ( bone >= 0 && static_cast<size_t>( bone ) < skinMatrices.size() ) {
+            p = skinMatrices[bone].transformPoint( p );
+        }
+        p = world.transformPoint( p );
+        outMin = Vector3f( std::min( outMin.x, p.x ), std::min( outMin.y, p.y ), std::min( outMin.z, p.z ) );
+        outMax = Vector3f( std::max( outMax.x, p.x ), std::max( outMax.y, p.y ), std::max( outMax.z, p.z ) );
+    }
+    return true;
+}
+
+// Aim-to-place (docs/re/tattoo_spec.md): the skin atlas is packed and overlapped, so a tattoo is placed by shooting a ray at the
+// body and taking the hit triangle's UV. The body mesh is skinned on the CPU with each vertex's first bone (rigid): good enough
+// for picking. skinMatrices empty = the bind pose.
+bool EdenAvatar::pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirection, const Matrix4x4f &world,
+                           const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV ) {
+    if ( pBodiesBank == nullptr ) {
+        return false;
+    }
+    if ( !buildPickMesh() ) {
+        return false;
     }
     // Vertices into world space.
     std::vector<Vector3f> world3( pickMesh.Positions.size() );

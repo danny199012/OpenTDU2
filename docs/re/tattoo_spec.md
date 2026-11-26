@@ -33,6 +33,26 @@ The shop places a tattoo by shooting a ray at the body and taking the hit triang
 - **The man faces +z in model space** (rays from -z hit his back), his skin texture row = the mesh V (**no flip**).
 - Not wired to a camera / aim control yet: the shop UI has to supply the ray (camera through the cursor, in the avatar's space).
 
+## The tattoo studio (2026-11-26)
+
+`source/game/freeride/tattoo_studio.{h,cpp}` (`TattooStudio`, a Renderer2D panel like `SurgeryMenu`) plus the body view in
+`IntroCinematic` (`setTattooView`, `aimTattooView`, `pickTattooSpot`, `setPlayerTattoos`).
+- **Camera**: orbits the whole player body (default 2.4 m, `-tattoodist <m>`), FOV 38, looking at the body's centre; the
+  **crosshair is the view's centre**, so the pick ray is the camera's forward axis (no screen-to-ray maths). The pivot is the
+  *skinned body's* bounds (`EdenAvatar::getSkinnedBounds`), not `player.World`: the walk-in animation moves the skeleton's root, and
+  the facing follows the hands (`Hand_L` / `Hand_R`). The avatar's draw culling (a sphere on `player.World`) is skipped in this view.
+- **Controls** (pad / keyboard): left / right turn the view round the avatar, up / down move the aim up and down the body,
+  A / Enter places the tattoo under the crosshair, X (`opt1`) next design, Y (`opt2`) next ink, B / Esc removes the last tattoo
+  placed (leaves when none), Start / Pause pays and leaves. A ghost of the next tattoo (55 % opacity) follows the crosshair live
+  (the skin is recomposited only when the aim moved more than 0.004).
+- **Price**: `TattooStudio::kTattooPrice` $1500 per new tattoo [INF: the retail game has no tattoos]; paid from `PlayerProfile::Money`,
+  saved as `PlayerProfile::Tattoos`, every player avatar load then wears them. Designs: the 5 built-ins plus `<userdata>/tattoos/*.png`.
+- **Test hook** (the clinic / shop entrance is not wired yet): `-gm FIRST_WM -skipcine -tattooshop <frame>` opens it over the garage
+  scene (the player walks in; `-nudeavatar` shows the skin). Verified headless:
+  `-nopad -fixedtimestep -nudeavatar -money 20000 -tattooshop 120 -tattoodist 3.2 -autoplay "135:press=validate;138:press=opt1;140:press=down;141:press=down;142:press=down;143:press=validate;...;165:press=pause;185:shot=..."`
+  -> log `placed 'star' at u 0.421 v 0.374`, `placed 'ring' at u 0.516 v 0.520`, `bought 2 tattoo(s) for $3000`; the studio closes,
+  the camera goes back and the star / ring stay on the avatar (screenshots not committed: nude render).
+
 ## Body skin UV map notes
 
 Method: `-dumpbodyuv <csv>` writes `u v x y z bone material` of every vertex of the **man's** body mesh (+ `<csv>.tri`;
@@ -56,7 +76,8 @@ copy (not built). The torso front and back are separate islands (front u 0.36-0.
 
 ## Not done / next
 - Back view of the anchors (needs a rotating camera in the headless run): `-tattoopick` rays from -z hit the back and are untested by eye.
-- Wire `pickSkin` to the shop's camera / aim control (ray through the cursor into the avatar's space), with the live skin matrices.
+- **Entrance**: open `TattooStudio` from a real place - the clinic (`kind == "surgery"`, `interior.getScene()` is an `IntroCinematic` with the player avatar) as an extra option of `SurgeryMenu` / the retail surgeon page, or a dedicated spot (an area interior of the map, `docs/re/map_spots_spec.md`). Only the `-tattooshop` test hook exists.
+- Size / rotation of the decal, a per-side limb tattoo (L/R share UV), removing worn tattoos, the face (`w_head_c`), the woman's body by eye.
 - The face (TD_Skinface, `w_head_c`) is not composited; the body only.
 - **3D look verified** (`docs/images/tattoo_3d_player_arms.webp`): `-gm FIRST_WM -skipcine -nopad -fixedtimestep -tattoo "cross,0.45,0.3,0.7,0,1,ff0000;cross,0.5,0.75,0.7,0,1,ff0000;cross,0.85,0.35,0.5,0,1,ff0000"`, shot at frame 150: the player's forearms and hands are red, the chest decal is hidden under the T-shirt. Skin UV: forearms/hands lie around u 0.45-0.9, v 0.3-0.8 (cover blobs, exact regions still to map).
 - Clothes hide body tattoos through the body-zone mesh hiding already in `EdenAvatar::load`.

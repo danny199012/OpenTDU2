@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/freeride/tattoo_studio.h"
 #include "game/gm_base.h"
 #include "game/pause_menu.h"
 #include "game/avatarchoice/intro_cinematic.h"
@@ -78,6 +79,9 @@ private:
     };
 
     IntroCinematic garage;
+    TattooStudio tattooStudio; // -tattooshop <frame>: a test hook for the tattoo studio (docs/re/tattoo_spec.md)
+    int32_t tattooFrame = 0;
+    bool bTattooShopTried = false;
     WalkMode walk;
     PauseMenu pauseMenu;
     bool bLoaded = false;

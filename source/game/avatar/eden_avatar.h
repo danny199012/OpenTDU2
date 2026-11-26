@@ -64,6 +64,8 @@ public:
     // Aim-to-place: the skin (u, v) under a world-space ray, rigid CPU skinning (skinMatrices empty = bind pose).
     bool pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirection, const Matrix4x4f &world,
                    const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV );
+    // The skinned body's bounds in world space (the studio's camera pivot).
+    bool getSkinnedBounds( const Matrix4x4f &world, const std::vector<Matrix4x4f> &skinMatrices, Vector3f &outMin, Vector3f &outMax );
     void setFaceEdit( const int8_t *pParams, float age, float freckle );
     // TD_Skinface facialAnimCoef1 / facialAnimCoef2 (FaceFX normal map
     // weights, FUN_00caf700).
@@ -86,6 +88,7 @@ private:
     void applySkin( const struct BankEntry *pAvt );
     // Tattoo compositor (tattoo.h): the body skin texture with the player's decals blended in.
     void applyTattoos( const Bank &bodies );
+    bool buildPickMesh();
     std::vector<struct GPUTexture *> tattooTextures; // composited skins this avatar owns
     std::vector<TattooDecal> tattooDecals;
     uint32_t tattooRevision = 0; // the swapped slot hash changes per composite (the draw-set cache keys on it)

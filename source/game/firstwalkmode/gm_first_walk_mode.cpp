@@ -605,6 +605,24 @@ void GMFirstWalkMode::tick( float deltaTime ) {
         pGameInstance->setNextGameMode( eGameMode::GM_Login );
         return;
     }
+    // -tattooshop <frame>: the tattoo studio over the garage scene (test hook).
+    if ( const char *pTattooShop = CmdLine::GetArgValue( "-tattooshop" ) ) {
+        if ( !bTattooShopTried && ++tattooFrame >= atoi( pTattooShop ) ) {
+            bTattooShopTried = true;
+            TattooStudio::Host host;
+            host.Aim = [this]( float yaw, float height ) { garage.aimTattooView( yaw, height ); };
+            host.Pick = [this]( float &u, float &v ) { return garage.pickTattooSpot( u, v ); };
+            host.Show = [this]( const std::vector<TattooDecal> &decals ) { garage.setPlayerTattoos( decals ); };
+            host.Leave = [this]() { garage.setTattooView( false ); };
+            garage.setTattooView( true, CmdLine::HasArg( "-tattoodist" ) ? static_cast<float>( atof( CmdLine::GetArgValue( "-tattoodist" ) ) ) : 2.4f );
+            tattooStudio.open( host, "Tattoo studio" );
+        }
+    }
+    if ( tattooStudio.isOpen() ) {
+        garage.tick( deltaTime );
+        tattooStudio.tick( deltaTime );
+        return;
+    }
     // Pause menu (MAIN.vmf): ESC opens it in the walk mode (during the
     // C_INTRO cinematic ESC keeps its skip role below).
     if ( pauseMenu.isOpen() ) {
@@ -797,6 +815,7 @@ void GMFirstWalkMode::draw() {
         garage.draw();
         walk.drawEmoteWheel( gpRender->get2DRenderer() );
         pauseMenu.draw( gpRender->get2DRenderer() );
+        tattooStudio.draw( gpRender->get2DRenderer() );
     }
 }
 

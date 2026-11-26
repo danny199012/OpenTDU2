@@ -1899,6 +1899,62 @@ void IntroCinematic::updateView() {
         camera.Position = pivot + swing.rotate( offset );
         camera.Rotation = camera.Rotation * Conjugate( swing );
     }
+    if ( bTattooView && player.Avatar ) {
+        // The tattoo studio: orbit the whole body at the chosen height, looking at the axis. The avatar's front is
+        // its world +z (docs/re/tattoo_spec.md).
+        Vector3f front = player.World.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+        // The walk-in animation moves the skeleton's root, not the avatar's world matrix: the pivot is the skinned body's
+        // own centre, and the facing follows the hands (the body's lateral axis), signed by the world front.
+        Vector3f bodyMin, bodyMax;
+        Vector3f centre = player.World.getTranslation();
+        float feet = centre.y;
+        if ( player.Avatar->getSkinnedBounds( player.World, player.Skin, bodyMin, bodyMax ) ) {
+            centre = ( bodyMin + bodyMax ) * 0.5f;
+            feet = bodyMin.y;
+        }
+        const int32_t handL = player.Avatar->getSkeleton().findBone( EdenNameHash4( "Hand_L" ) );
+        const int32_t handR = player.Avatar->getSkeleton().findBone( EdenNameHash4( "Hand_R" ) );
+        if ( handL >= 0 && handR >= 0 && static_cast<size_t>( handL ) < player.WorldBones.size() &&
+             static_cast<size_t>( handR ) < player.WorldBones.size() ) {
+            const Vector3f lateral = ( player.World * player.WorldBones[static_cast<size_t>( handR )] ).getTranslation() -
+                                     ( player.World * player.WorldBones[static_cast<size_t>( handL )] ).getTranslation();
+            Vector3f perpendicular( -lateral.z, 0.0f, lateral.x );
+            if ( perpendicular.length() > 0.05f ) {
+                if ( perpendicular.dot( front ) < 0.0f ) {
+                    perpendicular = -perpendicular;
+                }
+                front = perpendicular;
+            }
+        }
+        if ( CmdLine::HasArg( "-logtattooview" ) ) {
+            const int32_t headBone = player.Avatar->getSkeleton().findBone( EdenNameHash4( "Head" ) );
+            Vector3f head;
+            if ( headBone >= 0 && static_cast<size_t>( headBone ) < player.WorldBones.size() ) {
+                head = ( player.World * player.WorldBones[static_cast<size_t>( headBone )] ).getTranslation();
+            }
+            OTDU_LOG_INFO( "Tattoo bounds: min (%.2f %.2f %.2f) max (%.2f %.2f %.2f) head bone (%.2f %.2f %.2f) world (%.2f %.2f %.2f)\n", bodyMin.x,
+                           bodyMin.y, bodyMin.z, bodyMax.x, bodyMax.y, bodyMax.z, head.x, head.y, head.z, player.World.getTranslation().x,
+                           player.World.getTranslation().y, player.World.getTranslation().z );
+        }
+        const float yaw = std::atan2( front.x, front.z ) + tattooYaw;
+        const Vector3f pivot( centre.x, feet + tattooHeight, centre.z );
+        const Vector3f eye = pivot + Vector3f( std::sin( yaw ) * tattooDistance, 0.0f, std::cos( yaw ) * tattooDistance );
+        const Vector3f look = pivot - eye;
+        const float lookYaw = std::atan2( look.x, look.z );
+        const Quaternionf conjugate = Quaternionf::FromAxisAngle( Vector3f( 0.0f, 1.0f, 0.0f ), lookYaw );
+        // player.World is in the cinematic's own frame: the camera goes through the scene origin like setLocalCamera
+        camera.Position = sceneOrigin.transformPoint( eye );
+        camera.Rotation = Quaternionf( -conjugate.x, -conjugate.y, -conjugate.z, conjugate.w ) * Conjugate( sceneRotation );
+        camera.Fov = 38.0f * kDegToRad;
+        camera.Near = 0.1f;
+        if ( CmdLine::HasArg( "-logtattooview" ) ) {
+            const Vector3f fwd = EdenRotationFromQuaternion( camera.Rotation ).transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+            OTDU_LOG_INFO( "Tattoo view: eye (%.2f %.2f %.2f) pivot (%.2f %.2f %.2f) wanted (%.2f %.2f %.2f) camera forward (%.2f %.2f %.2f)\n",
+                           eye.x, eye.y, eye.z, pivot.x, pivot.y, pivot.z, look.x, look.y, look.z, fwd.x, fwd.y, fwd.z );
+        }
+        tattooEye = eye;
+        tattooForward = look * ( 1.0f / Max( look.length(), 1e-4f ) );
+    }
     view.setCamera( camera );
     // Listener: the camera (FUN_00d944b0; Micro = 0 for these cinematics).
     if ( gpAudio != nullptr ) {
@@ -2193,7 +2249,7 @@ void IntroCinematic::drawSets( EdenRenderer &renderer, EdenSceneView::ePass pass
         }
     }
     if ( player.Avatar && player.bVisible && ( !bPlayerMirrorOnly || bMirrorPass ) &&
-         renderer.isSphereVisible( player.World.getTranslation() + Vector3f( 0.0f, 1.0f, 0.0f ), 1.4f ) ) {
+         ( bTattooView || renderer.isSphereVisible( player.World.getTranslation() + Vector3f( 0.0f, 1.0f, 0.0f ), 1.4f ) ) ) {
         // Seated under the game camera (cockpit view, camera mode 23): the
         // head and what is worn on it are not drawn (the eye is inside the
         // head; the original seated view shows no head / hair) [INF: the
@@ -5297,4 +5353,11 @@ void IntroCinematic::computeAvatarLighting( const Vector3f &rootPosition, EdenAv
                            out.SpotAmbient.z, lights.size(), pWeather != nullptr ? pWeather->Name.c_str() : "none" );
         }
     }
+}
+
+bool IntroCinematic::pickTattooSpot( float &outU, float &outV ) {
+    if ( !player.Avatar || !bTattooView ) {
+        return false;
+    }
+    return player.Avatar->pickSkin( tattooEye, tattooForward, player.World, player.Skin, outU, outV );
 }
