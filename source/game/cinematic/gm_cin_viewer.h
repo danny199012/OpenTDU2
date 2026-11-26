@@ -38,6 +38,12 @@ struct CinViewerRequest {
     CinematicCar::Desc Car;
     std::string CarActor;
     bool bPlayerCar = false;
+    // The scene frame on an open road (no spot there): island position + heading (radians), the Jane event's scenes.
+    bool bSceneAt = false;
+    Vector3f SceneAtPosition;
+    float SceneAtHeading = 0.0f;
+    std::string StartQuest; // copied to the StoryHandoff when the scene hands over to the drive
+    std::string PnjConfig; // the DBPNJ config of a scene NPC the entities leave empty (IntroCinematic::Setup::EmptyPnjConfig)
     // Cinematics of the same bank played after Cinematic, in order (the car
     // wash: C_INTRO_E_1 -> C_WASHING -> C_OUTRO); the end of the last one ends
     // the request (handoff / Next).
@@ -76,6 +82,8 @@ struct StoryHandoff {
     int32_t CarId = -1;
     std::string StartTest;
     std::string OpenSchoolTest;
+    // A quest to begin when the drive resumes ("jane": the Jane event's intro scene just played).
+    std::string StartQuest;
 };
 StoryHandoff &GetStoryHandoff();
 

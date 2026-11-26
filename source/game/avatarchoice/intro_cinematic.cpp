@@ -4297,7 +4297,11 @@ void IntroCinematic::loadPnjs( const XmbDocument &entities ) {
             continue;
         }
         pnj.Avatar = std::make_unique<EdenAvatar>();
-        if ( pnj.Avatar->load( avatarLibrary, entry["ConfigName"].asString().c_str() ) ) {
+        std::string configName = entry["ConfigName"].asString();
+        if ( configName.empty() ) {
+            configName = setup.EmptyPnjConfig;
+        }
+        if ( pnj.Avatar->load( avatarLibrary, configName.c_str() ) ) {
             pnjs.push_back( std::move( pnj ) );
         }
     }

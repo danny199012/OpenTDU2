@@ -240,6 +240,13 @@ bool GMCinViewer::enter( TestDriveGameInstance *pInstance ) {
             setup.ExteriorBank = "islands/" + request.Island + "/exterior/" + request.ExteriorPrefix + ".bnk";
         }
     }
+    if ( request.bSceneAt ) {
+        setup.bSceneAt = true;
+        setup.SceneAtPosition = request.SceneAtPosition;
+        setup.SceneAtHeading = request.SceneAtHeading;
+        setup.HousePickX = request.SceneAtPosition.x; // no spot within 60 m on an open road: IntroCinematic streams at the frame
+        setup.HousePickZ = request.SceneAtPosition.z;
+    }
     if ( const char *pAt = CmdLine::GetArgValue( "-cinsceneat" ) ) {
         // The cinematic frame alone (x,y,z,heading radians): the spot keeps the exterior.
         float x = 0.0f, y = 0.0f, z = 0.0f, h = 0.0f;
@@ -248,6 +255,12 @@ bool GMCinViewer::enter( TestDriveGameInstance *pInstance ) {
             setup.SceneAtPosition = Vector3f( x, y, z );
             setup.SceneAtHeading = h;
         }
+    }
+    if ( const char *pPnj = CmdLine::GetArgValue( "-cinpnj" ) ) {
+        setup.EmptyPnjConfig = pPnj; // e.g. SPT_Jane_Omahan for the Jane event's NPC_W01
+    }
+    if ( !request.PnjConfig.empty() ) {
+        setup.EmptyPnjConfig = request.PnjConfig;
     }
     if ( CmdLine::HasArg( "-cinnoworld" ) ) {
         setup.HouseSpot.clear();
@@ -273,6 +286,9 @@ bool GMCinViewer::enter( TestDriveGameInstance *pInstance ) {
     // when the request says so (the car wash), else the bank default (the
     // California, car 387). The player's owned paint follows [INF: retail
     // repaints the scene car the same way - C_WASHING shows the driven car].
+    if ( const char *pActor = CmdLine::GetArgValue( "-cincaractor" ) ) {
+        request.CarActor = pActor;
+    }
     cinematic.loadCar( request.bPlayerCar ? request.Car : CinematicCar::Desc(), "D_CAR", "CIN_CAR", request.CarActor );
     if ( request.bPlayerCar ) {
         const PlayerProfile &profile = GetPlayerProfile();
@@ -543,6 +559,7 @@ void GMCinViewer::tick( float deltaTime ) {
                     handoff.Position = carWorld.getTranslation();
                     handoff.Yaw = std::atan2( forward.x, forward.z );
                     handoff.bStory = request.bStory;
+                    handoff.StartQuest = request.StartQuest;
                 }
                 handoff.bWhiteIn = bToDrive;
                 endFade = 0.0f;

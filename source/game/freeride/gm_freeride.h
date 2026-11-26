@@ -201,7 +201,10 @@ private:
     Vector3f janePreviousCar;
     void startJaneMission( bool bWarp );
     void tickJaneMission( float deltaTime );
-    void finishJaneMission();
+    void finishJaneMission( bool bWon );
+    // A Jane scene (C_INTRO_E12_JAN / C_WIN_E12_JAN / C_LOOSE_E12_JAN of pack_events12) in the frame of the car at the gate.
+    void playJaneScene( const char *pCinematic, const Vector3f &position, const Vector3f &forward, const char *pStartQuest );
+    bool bJaneArmed = true; // false after a failed run until the car leaves the start gate
     const Ig2Challenge *activeQuestEvent() const;
     // One-time wirings of this instance (callbacks that capture this mode).
     bool bPuddlesWired = false;
@@ -214,7 +217,8 @@ private:
     // A school car run (the hand-off's CarId): the car this run was loaded with, the test / school desk to open once the
     // world is up (frames counted in the tick).
     int32_t testCarOverride = -1;
-    std::string pendingStartTest, pendingOpenSchool;
+    std::string pendingStartTest, pendingOpenSchool, pendingQuest;
+    int32_t questFrames = 0;
     int32_t pendingFrames = 0;
     // The car's dynamic dirt / mud / water state (CarDirt): driven in
     // tickSurfaceFx, applied to the paint by CinematicCar::applySurfaceState,

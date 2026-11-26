@@ -4,6 +4,24 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26, Jane cutscenes, later (`main`: the intro / win / lose scenes play inside the quest)
+
+Owner: "Keep going".
+
+- **The world did stream**: the earlier "sand" was the camera looking at nothing because the scene car / NPC were not bound. With `-cincaractor PLAYER_CAR` and an NPC config the scene renders (trees, flowers, the California, Jane in goggles): `docs/images/jane_win_scene.webp` (C_WIN_E12_JAN at 0.35 / 2.5 / 4.7 / 7 s).
+- `IntroCinematic::Setup::EmptyPnjConfig` / `CinViewerRequest::PnjConfig` / `-cinpnj`: the config for an NPC whose `Entity__PNJ` has an empty `ConfigName` (Jane's `NPC_W01` -> `SPT_Jane_Omahan`). `CinViewerRequest::bSceneAt` + `SceneAtPosition` / `SceneAtHeading` (a scene on an open road), `-cincaractor`, `StoryHandoff::StartQuest` / `CinViewerRequest::StartQuest`.
+- `GMFreeRide::playJaneScene`: the scenes are gameplay-anchored [DATA]: origin = the car, +z = its heading (`PLAYER_CAR` ends at the origin in the win / lose scenes). Flow: driving into the start gate -> `C_INTRO_E12_JAN` (12 s, the car drives in to the gate) -> the drive resumes, `startJaneMission` (60 frames later via `StoryHandoff::StartQuest = "jane"`) -> the finish pays $3000 and plays `C_WIN_E12_JAN` (9 s) -> at 0 s `C_LOOSE_E12_JAN` (7.9 s, [INF] that the timeout is a failure; retry by leaving the gate by 60 m and coming back). `-nojanecine` = the old no-scene behaviour.
+
+### Verified
+- `-gm FREERIDE -storystep 9 -tp 13066,17091 -janetime 6`: `Jane scene 'C_INTRO_E12_JAN'` -> `CINVIEWER: end of 'C_INTRO_E12_JAN' after 12.0 s` -> `Jane event: start ... limit 6 s` -> `Jane event failed with 0.0 s left` -> `C_LOOSE_E12_JAN` ... `end after 7.9 s`. (The loop that follows is `-tp` re-placing the car on the gate at every FREERIDE entry, not the game.)
+- The win scene viewed alone (`-gm CINVIEWER ... -cin C_WIN_E12_JAN -cinsceneat 17178.1,129.5,18110.2,-1.04`): the image above.
+
+### Not done / next
+- The win / intro **in the quest flow** were not looked at frame by frame (only the win scene in the viewer, and the intro earlier): check the car pose after the intro and the `-1.04` finish heading (it was taken from the gate's forward (-0.86, 0.5), `atan2`).
+- Jane in the passenger seat after the intro (the headless profile has no driver avatar).
+- `C_LOOP_WAIT`, `C_WIN_LOOP`, `C_LOOSE_LOOP` (the loops under the result menu) are not played; the face / voice (`evja` bfx, `.fxe`) were not checked.
+- The scene's player avatar is `AVT_Male_Intro` in the viewer's default; the profile's avatar should be used.
+
 ## Session 2026-11-26, Jane cutscenes (`main`, partial: the scenes are decoded and play in the viewer, not yet hooked into the quest)
 
 Owner: "Jane cutscenes".

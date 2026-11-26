@@ -442,6 +442,8 @@ bool GMFreeRide::enter( TestDriveGameInstance *pInstance ) {
         testCarOverride = handoff.CarId;
         pendingStartTest = handoff.StartTest;
         pendingOpenSchool = handoff.OpenSchoolTest;
+        pendingQuest = handoff.StartQuest;
+        bJaneArmed = pendingQuest.empty(); // the car stands on the start gate after the intro: the quest starts, not the scene again
         handoff = StoryHandoff();
     }
     // The save's own position wins over the house exit: the car comes back exactly where it
@@ -6220,6 +6222,32 @@ const Ig2Challenge *GMFreeRide::activeQuestEvent() const {
     return bJaneMission ? &janeEvent : nullptr;
 }
 
+void GMFreeRide::playJaneScene( const char *pCinematic, const Vector3f &position, const Vector3f &forward,
+                                const char *pStartQuest ) {
+    CinViewerRequest &request = GetCinViewerRequest();
+    request = CinViewerRequest();
+    request.Bank = "scenarics/packs/pack_events12.bnk";
+    request.Cinematic = pCinematic;
+    request.Next = eGameMode::GM_FreeRide;
+    request.bFromStory = true; // the StoryHandoff + no -cin* override
+    request.bStory = false;    // the plain drive comes back
+    request.Island = islandName;
+    request.bSceneAt = true; // the scenes are gameplay-anchored: origin = the car, +z = its heading [DATA]
+    request.SceneAtPosition = position;
+    request.SceneAtHeading = std::atan2( forward.x, forward.z );
+    request.bPlayerCar = true;
+    request.Car = carDesc;
+    request.CarActor = "PLAYER_CAR";
+    request.PnjConfig = "SPT_Jane_Omahan"; // NPC_W01's ConfigName is empty in the entities: DBEvent 27 _pnj1 = Jane O
+    request.StartQuest = pStartQuest;
+    hud.closeEnterSpot();
+    hud.closeGoal();
+    hud.setCountdown( 0.0f );
+    hud.setTestDrive( false );
+    OTDU_LOG_INFO( "FREERIDE: Jane scene '%s' at (%.1f, %.1f, %.1f)\n", pCinematic, position.x, position.y, position.z );
+    pGameInstance->setNextGameMode( eGameMode::GM_CinViewer );
+}
+
 void GMFreeRide::startJaneMission( bool bWarp ) {
     if ( bJaneMission || bTessMission || licenseTest.isActive() ) {
         return;
@@ -6273,14 +6301,29 @@ void GMFreeRide::tickJaneMission( float deltaTime ) {
         if ( !bJaneDone && islandName == "ibiza" && !CmdLine::HasArg( "-nojane" ) && janeEvent.getGates().size() > 1 &&
              GetPlayerProfile().StoryStep >= 5 ) {
             const Vector3f toStart = janeEvent.getGates().front().Position - car;
-            if ( Vector3f( toStart.x, 0.0f, toStart.z ).length() < 12.0f ) {
-                startJaneMission( false );
+            const float startDistance = Vector3f( toStart.x, 0.0f, toStart.z ).length();
+            if ( !bJaneArmed && startDistance > 60.0f ) {
+                bJaneArmed = true;
+            }
+            if ( bJaneArmed && startDistance < 12.0f ) {
+                if ( CmdLine::HasArg( "-nojanecine" ) ) {
+                    startJaneMission( false );
+                } else {
+                    const Ig2Gate &start = janeEvent.getGates().front();
+                    bJaneArmed = false;
+                    playJaneScene( "C_INTRO_E12_JAN", start.Position, start.Forward, "jane" );
+                }
             }
         }
         return;
     }
-    janeTimeLeft = Max( janeTimeLeft - deltaTime, 0.0f ); // at zero the retail's behaviour is [ENC]: the clock stops [INF]
+    janeTimeLeft = Max( janeTimeLeft - deltaTime, 0.0f );
     hud.setCountdown( janeTimeLeft );
+    if ( janeTimeLeft <= 0.0f && !CmdLine::HasArg( "-nojanecine" ) ) {
+        // Out of time: the lose scene [INF: what retail does at zero is ENC; the pack has C_LOOSE_E12_JAN for it].
+        finishJaneMission( false );
+        return;
+    }
     const Ig2Gate &finish = janeEvent.getGates().back();
     const Vector3f previous = janePreviousCar;
     janePreviousCar = car;
@@ -6289,18 +6332,20 @@ void GMFreeRide::tickJaneMission( float deltaTime ) {
     const float sideBefore = ( previous - finish.Position ).dot( normal );
     const float sideNow = ( car - finish.Position ).dot( normal );
     if ( ( sideBefore * sideNow <= 0.0f && distance < Max( 14.0f, finish.Width * 2.0f ) ) || distance < 12.0f ) {
-        finishJaneMission();
+        finishJaneMission( true );
     }
 }
 
-void GMFreeRide::finishJaneMission() {
-    // DBEvent 27 _moneyreward 3000 [DATA]; Jane gets out at the school.
-    const int32_t reward = 3000;
-    OTDU_LOG_INFO( "FREERIDE: Jane event done with %.1f s left, reward $%d\n", janeTimeLeft, reward );
+void GMFreeRide::finishJaneMission( bool bWon ) {
+    // DBEvent 27 _moneyreward 3000 [DATA]; Jane gets out at the school: C_WIN_E12_JAN, or C_LOOSE_E12_JAN out of time.
+    const int32_t reward = bWon ? 3000 : 0;
+    OTDU_LOG_INFO( "FREERIDE: Jane event %s with %.1f s left, reward $%d\n", bWon ? "done" : "failed", janeTimeLeft, reward );
     bJaneMission = false;
-    bJaneDone = true;
-    GetPlayerProfile().Money += reward;
-    SaveProfile( "Jane event" );
+    bJaneDone = bWon;
+    if ( bWon ) {
+        GetPlayerProfile().Money += reward;
+        SaveProfile( "Jane event" );
+    }
     hud.setCountdown( 0.0f );
     hud.setTestDrive( false );
     hud.closeGoal();
@@ -6308,6 +6353,12 @@ void GMFreeRide::finishJaneMission() {
     if ( bPassengerSeated && !bSchoolInstructor ) {
         passenger.unload();
         bPassengerSeated = false;
+    }
+    if ( !CmdLine::HasArg( "-nojanecine" ) ) {
+        // The scene frame is the car where it stands (the win / lose scenes keep PLAYER_CAR at the origin [DATA]).
+        const Matrix4x4f &world = carWorld;
+        const Vector3f forward = world.transformVector( Vector3f( 0.0f, 0.0f, 1.0f ) );
+        playJaneScene( bWon ? "C_WIN_E12_JAN" : "C_LOOSE_E12_JAN", world.getTranslation(), forward, "" );
     }
 }
 
@@ -9281,6 +9332,10 @@ void GMFreeRide::tick( float deltaTime ) {
         }
         // Test: -licensetest <RSA7T01 ...> drives a licence test straight away;
         // -schoolmenu <A|B|C> opens a school's desk without the spot.
+        if ( pendingQuest == "jane" && ++questFrames == 60 ) {
+            pendingQuest.clear();
+            startJaneMission( false ); // the intro scene just ended with the car at the start gate
+        }
         if ( !pendingStartTest.empty() && ++pendingFrames == 90 ) {
             const std::string pending = pendingStartTest;
             pendingStartTest.clear();

@@ -102,6 +102,9 @@ public:
         // the shop movie of the SHOP mode ("shopscar", SHOPSCAR.vmf: the used
         // car dealer cursor, mini menu, car data and price panels).
         std::string UiMovie = "intro";
+        // The DBPNJ config for a scene NPC whose Entity__PNJ has an empty ConfigName (the game fills it from the event's
+        // DBEvent _pnj1: the Jane event's NPC_W01 -> SPT_Jane_Omahan).
+        std::string EmptyPnjConfig;
         uint32_t GameModeId = 0x20; // AVATAR_CHOICE (0x23 FIRST_WM)
     };
 
