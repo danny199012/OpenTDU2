@@ -154,6 +154,12 @@ void PhoneCalls::checkNudges( const Context &context ) {
         }
         break; // the first licence of the school only
     }
+    // 2. EVENT_JANE: Todd's favour call ("a friend of mine needs some help. If you could catch up to her, she'll explain
+    // everything"): the retail rule is 'the same flag and two state objects set and a third == 1' [INF meaning, 0x9a2c30];
+    // the port rings it once, 2 minutes into the free drive, until the Jane event (EVENJANE) is done [INF].
+    if ( state( "JaneDone" ) == 0 && after( 2.0f ) && request( "EVENT_JANE" ) ) {
+        return;
+    }
     // Car categories owned (DBCarPhysicsData._vehiclecategory: 1..7 = Cat A, 9..12 = Cat B).
     auto ownsCategory = [&]( int32_t low, int32_t high ) {
         std::vector<int32_t> ids = profile.OwnedCars;

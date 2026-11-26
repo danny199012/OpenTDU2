@@ -6298,7 +6298,7 @@ void GMFreeRide::tickJaneMission( float deltaTime ) {
         if ( !bJaneDone && islandName == "ibiza" && !CmdLine::HasArg( "-nojane" ) && janeEvent.getName().empty() ) {
             janeEvent.load( "evenjane" );
         }
-        if ( !bJaneDone && islandName == "ibiza" && !CmdLine::HasArg( "-nojane" ) && janeEvent.getGates().size() > 1 &&
+        if ( !bJaneDone && GetPlayerProfile().PhoneState["JaneDone"] == 0 && islandName == "ibiza" && !CmdLine::HasArg( "-nojane" ) && janeEvent.getGates().size() > 1 &&
              GetPlayerProfile().StoryStep >= 5 ) {
             const Vector3f toStart = janeEvent.getGates().front().Position - car;
             const float startDistance = Vector3f( toStart.x, 0.0f, toStart.z ).length();
@@ -6344,6 +6344,7 @@ void GMFreeRide::finishJaneMission( bool bWon ) {
     bJaneDone = bWon;
     if ( bWon ) {
         GetPlayerProfile().Money += reward;
+        GetPlayerProfile().PhoneState["JaneDone"] = 1; // EVENT_JANE stops ringing
         SaveProfile( "Jane event" );
     }
     hud.setCountdown( 0.0f );
@@ -9109,6 +9110,18 @@ void GMFreeRide::tick( float deltaTime ) {
         // Accepting a call points the GPS at the place it talks about: the
         // nearest spot of that kind [INF].
         const std::string accepted = phoneCalls.takeAccepted();
+        if ( accepted == "EVENT_JANE" && islandName == "ibiza" && !bJaneMission ) {
+            // Todd's call: catch up to Jane. The goal is the event's start gate (the spot EVENJANE on the map).
+            if ( janeEvent.getGates().empty() ) {
+                janeEvent.load( "evenjane" );
+            }
+            if ( !janeEvent.getGates().empty() ) {
+                hud.showGoal( LocStr( 4038, "Join Jane who needs some help" ) );
+                mapScreen.setTarget( janeEvent.getGates().front().Position );
+                OTDU_LOG_INFO( "PhoneCalls: EVENT_JANE accepted -> GPS to the Jane event start (%.1f, %.1f)\n",
+                               janeEvent.getGates().front().Position.x, janeEvent.getGates().front().Position.z );
+            }
+        }
         std::string icon, prefix;
         if ( !accepted.empty() && PhoneCalls::TargetSpot( accepted, icon, prefix ) ) {
             const Vector3f from = carWorld.getTranslation();
