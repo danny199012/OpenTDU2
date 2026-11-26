@@ -93,3 +93,10 @@ the school drop-off, hitchhiker / top-model, the convoys and the car-delivery pr
    then "Drop me at the driving school" (6112) once its data source is found.
 
 Not done this session: no code, no run. The ig2 scan in section 1.3 is crude and is the first thing to redo.
+
+## 5. Convoy files decoded (2026-11-26, `main`) [DATA, real MDSC key parse]
+
+- **`CMK*` (gmth 11) are "Keep your distance! (A..J)"** (`dbna` loc 4979..4988) and **`CMF*` (gmth 12) are "Follow the leader! (A..)"** (`dbna` 4989..). Loc 7149 / 7152 describe the rule: *"The goal is to drive as a convoy. Each player must keep a certain distance between himself and the player ahead ... the score is the total distance driven by the players in the convoy"* [DATA]. Both are **multiplayer / club** challenges (`CRC_FOLLOW_THE_LEADER_STARTROUND` in the dev exe), not A-to-B missions. Their `.ig2`: `CMK` = one start gate and nothing else; `CMF` = 7-11 road gates (the leader's route). Header keys that differ from the template: `ChKD`, `trat` (3 / 2 / 5), `VBra` / `VBrM`, `mnme` (a name string: `KYD Ibiza Sud`, `Mission Honolulu`).
+- **`VMod` is a real car**: `CMKIB01` 102 = Cobra_427 (class 15), `CMKIB09` 231 = 300C SRT8, `CMFIB02` 71 = Superlight R500, `EVHA3SH1` 275 = Alfa Brera, `EVIA1CE1` 654 = Zonda Tricolore, `EVIA2CE2` 657 = Q7 Inuit (off-road), the DLC `RMIDLCM1/4` 1513 = Desmosedici (a bike). `-1` = the player's own car.
+- **The DLC "Exploration pack" files** (`RMHDLCM1..8`, `RMIDLCM1..7`, `AMI1DLC1`, `AMZ2DLC1`) are `gmth 3` race-style files with 5-12 gates and are **not in `spotworld.bin`** (no map position); the "Timed Convoy" / "Extreme Convoy" intros are `pack_events14/15` (the `a-phone` prop, `ev_convoy_phone*` anims).
+- **The story A-to-B prompts** ("Drop me at the driving school" = Jane, done; "Drive it to my garage" 3856, "Drive me home" 3857, "Do not shake me!" 3858, "Stop him!" 3859) have **no ig2 / DBEvent source**: they sit in the encrypted story / mission code (`GM_Mission` in the dev exe is the lead).
