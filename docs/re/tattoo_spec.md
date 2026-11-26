@@ -58,6 +58,10 @@ The shop places a tattoo by shooting a ray at the body and taking the hit triang
 Inside a clinic (ESUR_A / ESUR_CA) the tattoo studio opens with **X / Option 1**: while walking (no SHOPSAVATAR page up, a prompt "X: tattoo studio" shows), or from the native `SurgeryMenu` (panel line "X: tattoos"). `GMFreeRide::openTattooStudio()` binds the `TattooStudio` host to `interior.getScene()`. `-interior ESUR_A -nudeavatar -tattoodist 3.2 -autoplay "400:press=opt1;..."` verified headless: placed 'star' on the abdomen, shown on the avatar.
 Two traps found here: (1) `IntroCinematic::player.World` already includes `sceneOrigin` (the emote/mirror paths build it as `sceneOrigin * ...`), so the studio camera is in world space - applying `sceneOrigin`/`sceneRotation` again put the clinic camera in the sky (the garage hid this: its origin is identity); (2) in the clinic the player is the **mirror-only** double (`bPlayerMirrorOnly`), so the draw condition also passes while `bTattooView`.
 
+## Size, rotation, removal (2026-11-26) [INF]
+
+Studio controls added: size LB / RB (keys V / C) or right stick up / down (half size 0.02-0.12 of the skin width, 100% = 0.045); rotation right stick left / right or keys Q / E (degrees, stored in the decal); remove the tattoo nearest the crosshair skin point (worn or new, free) with right stick click or Delete (reach max(0.04, 2 x scale) in UV). Back undoes the last tattoo placed this visit; Start pays for the new ones and saves removals (nothing to pay for a removal-only visit). Verified headless (`-tattooshop 120 -autoplay "...press=carcamera x5;key=E x3;..."`): size 156% / 45 deg shown on the second star; `removed 'star' ... (new)` refunds nothing and saves only the other; `removed ... (worn)` then `bought 0 tattoo(s), removed 1, for $0` empties the profile line. The crosshair UV drifts between runs (the walk-in animation), so scripted removal tests aim by the log's `placed`/`nothing to remove` u,v.
+
 ## Body skin UV map notes
 
 Method: `-dumpbodyuv <csv>` writes `u v x y z bone material` of every vertex of the **man's** body mesh (+ `<csv>.tri`;
