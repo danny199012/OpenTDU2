@@ -257,6 +257,8 @@ void EdenAvatar::unload() {
         }
     }
     tattooTextures.clear();
+    skinSlots.clear(); // pointed into the parts' materials
+    pickMesh = PickMesh();
     headParts.clear();
     pSkeleton = nullptr;
 }
@@ -454,7 +456,37 @@ bool EdenAvatar::load( EdenAvatarLibrary &library, const char *pConfigId ) {
     }
     applySkin( library.getConfigBank().findEntry( avtName.c_str(), "avt" ) );
     if ( bPlayerFace || CmdLine::HasArg( "-dumpbodyuv" ) ) {
+        // -tattoo "design,u,v,scale,rot,opacity,rrggbb;..." overrides the profile for a run (tests).
+        const char *pTattooArg = CmdLine::GetArgValue( "-tattoo" );
+        tattooDecals = ParseTattoos( pTattooArg != nullptr ? pTattooArg : GetPlayerProfile().Tattoos );
         applyTattoos( bodies );
+        // -tattoopick "ox,oy,oz,dx,dy,dz;...": aim-to-place test, rays in model space (bind pose); each hit gets a star.
+        if ( const char *pPick = CmdLine::GetArgValue( "-tattoopick" ) ) {
+            std::vector<TattooDecal> placed = tattooDecals;
+            std::string rays = pPick;
+            size_t at = 0;
+            while ( at < rays.size() ) {
+                size_t end = rays.find( ';', at );
+                end = end == std::string::npos ? rays.size() : end;
+                float r[6] = {};
+                if ( sscanf( rays.substr( at, end - at ).c_str(), "%f,%f,%f,%f,%f,%f", &r[0], &r[1], &r[2], &r[3], &r[4], &r[5] ) == 6 ) {
+                    float u = 0.0f, v = 0.0f;
+                    const bool bHit = pickSkin( Vector3f( r[0], r[1], r[2] ), Vector3f( r[3], r[4], r[5] ), Matrix4x4f::Identity(), {}, u, v );
+                    OTDU_LOG_INFO( "Tattoo pick: ray %s -> %s u %.3f v %.3f\n", rays.substr( at, end - at ).c_str(), bHit ? "hit" : "miss", u, v );
+                    if ( bHit ) {
+                        TattooDecal decal;
+                        decal.Design = "star";
+                        decal.U = u;
+                        decal.V = v;
+                        decal.Scale = 0.04f;
+                        decal.Color = placed.size() % 2 == 0 ? 0xff0000 : 0x0000ff;
+                        placed.push_back( decal );
+                    }
+                }
+                at = end + 1;
+            }
+            setTattoos( placed );
+        }
     }
     // FaceParamArray (FUN_00cbd030: memcpy of 0x31 bytes to +0xa2): a list
     // of 49 child nodes {u16 3, u16 key, u8 value}, in order [INF: element
@@ -656,104 +688,231 @@ void EdenAvatar::applySkin( const BankEntry *pAvt ) {
     }
 }
 
+void EdenAvatar::setTattoos( const std::vector<TattooDecal> &decals ) {
+    tattooDecals = decals;
+    if ( pBodiesBank != nullptr ) {
+        applyTattoos( *pBodiesBank );
+    }
+}
+
 void EdenAvatar::applyTattoos( const Bank &bodies ) {
-    // -dumpbodyuv <csv>: u v x y z bone of every vertex of the body mesh (maps the skin UV islands to body regions).
+    pBodiesBank = &bodies;
+    // -dumpbodyuv <csv>: u v x y z bone material of every vertex of the body mesh (tools/tattoo_uv_probe.py).
     if ( const char *pCsv = CmdLine::GetArgValue( "-dumpbodyuv" ) ) {
         static bool bDumped = false;
         const BankEntry *pGeo = bodies.findEntry( bWoman ? "woman_body" : "man_body", "3dg" );
         Render3DG geometry;
-        if ( !bDumped && pGeo != nullptr && geometry.parse( pGeo->pData, pGeo->Size ) ) {
+        // the man's mesh unless -dumpbodywoman (the garage loads both; the first one used to win)
+        const bool bWantWoman = CmdLine::HasArg( "-dumpbodywoman" );
+        if ( !bDumped && bWoman == bWantWoman && pGeo != nullptr && geometry.parse( pGeo->pData, pGeo->Size ) ) {
             bDumped = true;
             FILE *pFile = fopen( pCsv, "w" );
             FILE *pTri = fopen( ( std::string( pCsv ) + ".tri" ).c_str(), "w" );
-            struct TriCloser {
-                FILE *pHandle;
-                ~TriCloser() {
-                    if ( pHandle != nullptr ) {
-                        fclose( pHandle );
-                    }
-                }
-            } triCloser{ pTri };
             uint32_t baseVertex = 0;
             for ( const auto &entry : geometry.getGeometries() ) {
                 for ( const GeometryPrimitive &prim : entry.second.Primitives ) {
                     for ( size_t i = 0; pTri != nullptr && i + 2 < prim.Indices.size(); i += 3 ) {
-                        fprintf( pTri, "%u,%u,%u\n", baseVertex + prim.Indices[i], baseVertex + prim.Indices[i + 1], baseVertex + prim.Indices[i + 2] );
+                        fprintf( pTri, "%u,%u,%u\n", baseVertex + prim.Indices[i], baseVertex + prim.Indices[i + 1],
+                                 baseVertex + prim.Indices[i + 2] );
                     }
                     baseVertex += static_cast<uint32_t>( prim.Vertices.size() );
-                    for ( size_t i = 0; i < prim.Vertices.size(); i++ ) {
+                    for ( size_t i = 0; pFile != nullptr && i < prim.Vertices.size(); i++ ) {
                         const MeshVertex &v = prim.Vertices[i];
                         int32_t bone = -1;
                         if ( i < prim.BoneIndices.size() && prim.BoneIndices[i] < prim.BonePalette.size() ) {
                             bone = static_cast<int32_t>( prim.BonePalette[prim.BoneIndices[i]] );
                         }
-                        if ( pFile != nullptr ) {
-                            fprintf( pFile, "%.4f,%.4f,%.4f,%.4f,%.4f,%d,%u\n", v.Texcoord[0], v.Texcoord[1], v.Position[0],
-                                     v.Position[1], v.Position[2], bone, static_cast<unsigned>( prim.MaterialIndex ) );
-                        }
+                        fprintf( pFile, "%.4f,%.4f,%.4f,%.4f,%.4f,%d,%u\n", v.Texcoord[0], v.Texcoord[1], v.Position[0],
+                                 v.Position[1], v.Position[2], bone, static_cast<unsigned>( prim.MaterialIndex ) );
                     }
                 }
             }
             if ( pFile != nullptr ) {
                 fclose( pFile );
             }
+            if ( pTri != nullptr ) {
+                fclose( pTri );
+            }
         }
     }
-    // -tattoo "design,u,v,scale,rot,opacity,rrggbb;..." overrides the profile for a run (tests).
-    const char *pArg = CmdLine::GetArgValue( "-tattoo" );
-    const std::vector<TattooDecal> decals = ParseTattoos( pArg != nullptr ? pArg : GetPlayerProfile().Tattoos );
-    if ( decals.empty() || gpRender == nullptr || parts.empty() ) {
+    if ( gpRender == nullptr || parts.empty() ) {
         return;
     }
     TextureCache &textures = gpRender->getTextureCache();
+    tattooRevision++;
     std::unordered_map<uint64_t, GPUTexture *> composited; // base hash -> tattooed copy (shared by the body's materials)
+    std::vector<GPUTexture *> previous = std::move( tattooTextures );
+    tattooTextures.clear();
     // parts[0] is the body (loadPart order); only its skin materials carry tattoos.
     for ( EdenMaterial &material : parts[0]->getMaterials() ) {
         if ( material.ShaderSetGUID != 0xd5013ed0dbcdcdcdull || material.pProgram == nullptr ) {
             continue;
         }
-        for ( uint32_t slot = 0; slot < material.NumSlots && slot < 16; slot++ ) {
-            if ( material.pTextures[slot] == nullptr || material.bNormalSlot[slot] ) {
-                continue;
-            }
-            if ( auto done = composited.find( material.TextureHashes[slot] ); done != composited.end() ) {
-                material.pTextures[slot] = done->second;
-                material.TextureHashes[slot] = GetIdentifier64bit( "tattoo_skin" );
+        // The skin slot: the first colour slot. Remember the untouched texture the first time.
+        uint32_t slot = 16;
+        for ( uint32_t k = 0; k < material.NumSlots && k < 16; k++ ) {
+            if ( material.pTextures[k] != nullptr && !material.bNormalSlot[k] ) {
+                slot = k;
                 break;
             }
-            const uint64_t baseHash = material.TextureHashes[slot];
-            // The slot's texture is a .2db of the bodies bank (hash of its name).
-            const BankEntry *pEntry = nullptr;
-            for ( const BankEntry *pCandidate : bodies.findEntriesByExtension( "2db" ) ) {
-                if ( GetIdentifier64bit( pCandidate->Name.c_str() ) == material.TextureHashes[slot] ) {
-                    pEntry = pCandidate;
-                    break;
-                }
+        }
+        if ( slot == 16 ) {
+            continue;
+        }
+        SkinSlot *pSaved = nullptr;
+        for ( SkinSlot &saved : skinSlots ) {
+            if ( saved.pMaterial == &material ) {
+                pSaved = &saved;
             }
-            Texture2DB texture;
-            if ( pEntry == nullptr || !texture.parse( pEntry->pData, pEntry->Size ) || texture.Width == 0 ) {
-                continue;
+        }
+        if ( pSaved == nullptr ) {
+            skinSlots.push_back( { &material, slot, material.pTextures[slot], material.TextureHashes[slot] } );
+            pSaved = &skinSlots.back();
+        }
+        if ( tattooDecals.empty() ) { // no tattoos: the original skin
+            material.pTextures[pSaved->Slot] = pSaved->pBase;
+            material.TextureHashes[pSaved->Slot] = pSaved->BaseHash;
+            continue;
+        }
+        if ( auto done = composited.find( pSaved->BaseHash ); done != composited.end() ) {
+            material.pTextures[pSaved->Slot] = done->second;
+            material.TextureHashes[pSaved->Slot] = GetIdentifier64bit( "tattoo_skin" ) + tattooRevision;
+            continue;
+        }
+        // The slot's texture is a .2db of the bodies bank (hash of its name).
+        const BankEntry *pEntry = nullptr;
+        for ( const BankEntry *pCandidate : bodies.findEntriesByExtension( "2db" ) ) {
+            if ( GetIdentifier64bit( pCandidate->Name.c_str() ) == pSaved->BaseHash ) {
+                pEntry = pCandidate;
+                break;
             }
-            std::vector<uint8_t> rgba( static_cast<size_t>( texture.Width ) * texture.Height * 4 );
-            if ( texture.Format == VF_A8R8G8B8 ) {
-                continue; // uncompressed layouts: not needed by the body skins
-            }
-            DecodeBlockCompressed( texture.pTexels + texture.getMipOffset( 0 ), texture.Width, texture.Height,
-                                   texture.Format, rgba.data() );
-            CompositeTattoos( rgba.data(), texture.Width, texture.Height, decals );
-            if ( const char *pDump = CmdLine::GetArgValue( "-dumptattoo" ) ) {
-                SaveImagePng( pDump, rgba.data(), texture.Width, texture.Height );
-            }
-            const std::string name = "tattoo_" + pEntry->Name;
-            if ( GPUTexture *pTexture = textures.createFromRGBA( texture.Width, texture.Height, rgba.data(), name.c_str() ) ) {
-                material.pTextures[slot] = pTexture;
-                material.TextureHashes[slot] = GetIdentifier64bit( "tattoo_skin" );
-                composited[baseHash] = pTexture;
-                tattooTextures.push_back( pTexture );
-                OTDU_LOG_INFO( "Tattoo: %zu decals composited into %s (%ux%u, slot %u)\n", decals.size(),
-                               pEntry->Name.c_str(), texture.Width, texture.Height, slot );
-            }
-            break; // one skin texture per material
+        }
+        Texture2DB texture;
+        if ( pEntry == nullptr || !texture.parse( pEntry->pData, pEntry->Size ) || texture.Width == 0 ||
+             texture.Format == VF_A8R8G8B8 ) {
+            continue;
+        }
+        std::vector<uint8_t> rgba( static_cast<size_t>( texture.Width ) * texture.Height * 4 );
+        DecodeBlockCompressed( texture.pTexels + texture.getMipOffset( 0 ), texture.Width, texture.Height, texture.Format,
+                               rgba.data() );
+        CompositeTattoos( rgba.data(), texture.Width, texture.Height, tattooDecals );
+        if ( const char *pDump = CmdLine::GetArgValue( "-dumptattoo" ) ) {
+            SaveImagePng( pDump, rgba.data(), texture.Width, texture.Height );
+        }
+        const std::string name = "tattoo_" + pEntry->Name;
+        if ( GPUTexture *pTexture = textures.createFromRGBA( texture.Width, texture.Height, rgba.data(), name.c_str() ) ) {
+            material.pTextures[pSaved->Slot] = pTexture;
+            material.TextureHashes[pSaved->Slot] = GetIdentifier64bit( "tattoo_skin" ) + tattooRevision;
+            composited[pSaved->BaseHash] = pTexture;
+            tattooTextures.push_back( pTexture );
+            OTDU_LOG_INFO( "Tattoo: %zu decals composited into %s (%ux%u, slot %u)\n", tattooDecals.size(),
+                           pEntry->Name.c_str(), texture.Width, texture.Height, pSaved->Slot );
         }
     }
+    for ( GPUTexture *pOld : previous ) {
+        textures.destroyTexture( pOld ); // deferred by the device until both frame slots are done
+    }
+}
+
+// Aim-to-place (docs/re/tattoo_spec.md): the skin atlas is packed and overlapped, so a tattoo is placed by shooting a ray at the
+// body and taking the hit triangle's UV. The body mesh is skinned on the CPU with each vertex's first bone (rigid): good enough
+// for picking. skinMatrices empty = the bind pose.
+bool EdenAvatar::pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirection, const Matrix4x4f &world,
+                           const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV ) {
+    if ( pBodiesBank == nullptr ) {
+        return false;
+    }
+    if ( !pickMesh.bValid ) {
+        const BankEntry *pGeo = pBodiesBank->findEntry( bWoman ? "woman_body" : "man_body", "3dg" );
+        Render3DG geometry;
+        if ( pGeo == nullptr || !geometry.parse( pGeo->pData, pGeo->Size ) ) {
+            return false;
+        }
+        for ( const auto &entry : geometry.getGeometries() ) {
+            for ( const GeometryPrimitive &prim : entry.second.Primitives ) {
+                const uint32_t base = static_cast<uint32_t>( pickMesh.Positions.size() );
+                for ( size_t i = 0; i < prim.Vertices.size(); i++ ) {
+                    const MeshVertex &v = prim.Vertices[i];
+                    pickMesh.Positions.push_back( Vector3f( v.Position[0], v.Position[1], v.Position[2] ) );
+                    pickMesh.UVs.push_back( { v.Texcoord[0], v.Texcoord[1] } ); // the skin texture row = the mesh V (checked in 3D against 4 anchors)
+                    int32_t bone = -1;
+                    if ( i < prim.BoneIndices.size() && prim.BoneIndices[i] < prim.BonePalette.size() ) {
+                        bone = static_cast<int32_t>( prim.BonePalette[prim.BoneIndices[i]] );
+                    }
+                    pickMesh.Bones.push_back( bone );
+                }
+                // Only the skin that is drawn can carry a tattoo: the primitive's material must be a visible TD_Skin2 one.
+                bool bSkin = false;
+                if ( !parts.empty() && prim.MaterialIndex < parts[0]->getMaterials().size() ) {
+                    const EdenMaterial &material = parts[0]->getMaterials()[prim.MaterialIndex];
+                    bSkin = material.ShaderSetGUID == 0xd5013ed0dbcdcdcdull && material.pProgram != nullptr;
+                    if ( CmdLine::HasArg( "-logpick" ) ) {
+                        OTDU_LOG_INFO( "pick prim material %u '%s' guid %llx program %d -> %s\n", static_cast<unsigned>( prim.MaterialIndex ),
+                                       material.Name.c_str(), static_cast<unsigned long long>( material.ShaderSetGUID ),
+                                       material.pProgram != nullptr ? 1 : 0, bSkin ? "skin" : "ignored" );
+                    }
+                }
+                if ( bSkin ) {
+                    pickMesh.TriMaterial.resize( pickMesh.TriMaterial.size() + prim.Indices.size() / 3, prim.MaterialIndex );
+                }
+                for ( uint32_t index : prim.Indices ) {
+                    if ( bSkin ) {
+                        pickMesh.Indices.push_back( base + index );
+                    }
+                }
+            }
+        }
+        pickMesh.bValid = !pickMesh.Indices.empty();
+    }
+    // Vertices into world space.
+    std::vector<Vector3f> world3( pickMesh.Positions.size() );
+    for ( size_t i = 0; i < world3.size(); i++ ) {
+        Vector3f p = pickMesh.Positions[i];
+        const int32_t bone = pickMesh.Bones[i];
+        if ( bone >= 0 && static_cast<size_t>( bone ) < skinMatrices.size() ) {
+            p = skinMatrices[bone].transformPoint( p );
+        }
+        world3[i] = world.transformPoint( p );
+    }
+    float bestT = 1e30f;
+    bool bHit = false;
+    for ( size_t t = 0; t + 2 < pickMesh.Indices.size(); t += 3 ) {
+        const uint32_t i0 = pickMesh.Indices[t], i1 = pickMesh.Indices[t + 1], i2 = pickMesh.Indices[t + 2];
+        const Vector3f &a = world3[i0];
+        const Vector3f e1 = world3[i1] - a, e2 = world3[i2] - a;
+        const Vector3f p = rayDirection.cross( e2 );
+        const float det = e1.dot( p );
+        if ( std::fabs( det ) < 1e-12f ) {
+            continue;
+        }
+        const float inv = 1.0f / det;
+        const Vector3f s = rayOrigin - a;
+        const float bu = s.dot( p ) * inv;
+        if ( bu < 0.0f || bu > 1.0f ) {
+            continue;
+        }
+        const Vector3f q = s.cross( e1 );
+        const float bv = rayDirection.dot( q ) * inv;
+        if ( bv < 0.0f || bu + bv > 1.0f ) {
+            continue;
+        }
+        const float tHit = e2.dot( q ) * inv;
+        if ( tHit > 0.0f && CmdLine::HasArg( "-logpick" ) ) {
+            const float c0 = 1.0f - bu - bv;
+            OTDU_LOG_INFO( "  candidate material %u t %.4f uv %.3f %.3f\n", static_cast<unsigned>( pickMesh.TriMaterial[t / 3] ), tHit,
+                           c0 * pickMesh.UVs[i0].first + bu * pickMesh.UVs[i1].first + bv * pickMesh.UVs[i2].first,
+                           c0 * pickMesh.UVs[i0].second + bu * pickMesh.UVs[i1].second + bv * pickMesh.UVs[i2].second );
+        }
+        if ( tHit > 0.0f && tHit < bestT ) {
+            bestT = tHit;
+            bHit = true;
+            const float b0 = 1.0f - bu - bv;
+            if ( CmdLine::HasArg( "-logpick" ) ) {
+                OTDU_LOG_INFO( "pick tri %zu: (%.2f %.2f %.2f) (%.2f %.2f %.2f) (%.2f %.2f %.2f) t %.3f b %.2f %.2f\n", t / 3, a.x, a.y, a.z, world3[i1].x, world3[i1].y, world3[i1].z, world3[i2].x, world3[i2].y, world3[i2].z, tHit, bu, bv );
+            }
+            outU = b0 * pickMesh.UVs[i0].first + bu * pickMesh.UVs[i1].first + bv * pickMesh.UVs[i2].first;
+            outV = b0 * pickMesh.UVs[i0].second + bu * pickMesh.UVs[i1].second + bv * pickMesh.UVs[i2].second;
+        }
+    }
+    return bHit;
 }

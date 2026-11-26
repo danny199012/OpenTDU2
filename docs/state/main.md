@@ -10,7 +10,8 @@ Owner: "start with the tattoo compositor". New (not in TDU2): decals blended int
 - **Verified**: `-tattoo "star,0.5,0.5,0.1,0,0.95,101010;ring,0.3,0.3,0.08,0,0.9,801010" -dumptattoo _tat.png` composites into `m_body_c` (log `Tattoo: 2 decals composited`), image `docs/images/tattoo_skin_composite_test.webp`; one composite shared per avatar, freed in `unload()` (no leak line at shutdown).
 - **3D look verified** later the same day: the player's forearms/hands show the decals, clothes hide the chest ones (`docs/images/tattoo_3d_player_arms.webp`). Face not composited.
 - **Region map (same day)**: `-dumpbodyuv`, `-nudeavatar`, `tools/tattoo_uv_probe.py`; chest front (0.50,0.34), sternum (0.49,0.17), upper abdomen (0.50,0.42), forearm (0.94,0.10), shin (0.58,0.69) confirmed in 3D. The atlas is packed/overlapped (L/R limbs share UV; (0.07,0.57) is the groin) so a fixed region list is unreliable: the shop should place by aiming at the body (raycast -> triangle UV). Back anchors unverified. Table in `docs/re/tattoo_spec.md`.
-- **Next**: aim-to-place (raycast the skinned body), tattoo shop page in the surgery UI, decal editor, then the body bone-scale sliders.
+- **Aim-to-place built**: `EdenAvatar::pickSkin` + `setTattoos`, `-tattoopick`, verified on chest / abdomen / thigh / shin (spec). **Correction**: the first `-dumpbodyuv` was the woman's mesh (garage loads her first) and V was wrongly flipped; the man's V is raw, and his front is +z. `-dumpbodywoman` for hers.
+- **Next**: wire pickSkin to the shop camera, tattoo shop page in the surgery UI, decal editor, then the body bone-scale sliders.
 
 ## Session 2026-11-26, quests wrap-up 2 (`main`)
 

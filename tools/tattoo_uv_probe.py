@@ -3,7 +3,7 @@ from scipy import ndimage
 from PIL import Image
 d=np.array([[float(x) for x in r] for r in csv.reader(open('_body.csv'))])
 T=np.array([[int(x) for x in r] for r in csv.reader(open('_body.csv.tri'))])
-U,V,X,Y,Z=d[:,0],1-d[:,1],d[:,2],d[:,3],d[:,4]
+U,V,X,Y,Z=d[:,0],d[:,1],d[:,2],d[:,3],d[:,4]  # the skin texture row = the mesh V (no flip; checked in 3D)
 W=1024
 PX=np.full((W,W),np.nan,np.float32);PY=PX.copy();PZ=PX.copy();NZ=np.zeros((W,W),np.float32);NY=NZ.copy()
 for t in T:

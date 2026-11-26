@@ -19,39 +19,44 @@ Status: **Partial** - verified on the texture and on the 3D player body (2026-11
 - Profile: `PlayerProfile::Tattoos`, saved as `tattoos = design,u,v,scale,rot,opacity,rrggbb;...` in the profile file.
 - Test flags: `-tattoo "<same string>"` overrides the profile for a run; `-dumptattoo <png>` writes the composited skin.
 
-## Body skin UV map (region mapping, 2026-11-26)
+## Aim-to-place (2026-11-26)
 
-Method: `-dumpbodyuv <csv>` writes `u v x y z bone material` of every `man_body` vertex (+ `<csv>.tri` triangles);
-`tools/tattoo_uv_probe.py` rasterises them back into UV space (mesh V is bottom-up: texture row = 1 - V) so each skin pixel knows
-its 3D position and facing. `-nudeavatar` draws the avatar without clothes so the decals can be seen on the skin.
-**Confirmed in 3D** (nude player, front view, coloured star decals) [DATA]:
+The shop places a tattoo by shooting a ray at the body and taking the hit triangle's UV, not from a fixed region list.
+- `EdenAvatar::pickSkin( rayOrigin, rayDirection, world, skinMatrices, outU, outV )`: Moller-Trumbore over the visible
+  TD_Skin2 triangles of `man_body` / `woman_body` (`.3dg`, 2011 / 2329 vertices), CPU skinning with each vertex's first bone
+  (rigid; `skinMatrices` empty = the bind pose). `EdenAvatar::setTattoos( decals )` recomposites live (the swapped slot's hash
+  carries a revision so the draw-set cache sees it; the old composite is freed through the device's deferred delete).
+- Test: `-tattoopick "ox,oy,oz,dx,dy,dz;..."` (model space, bind pose; each hit gets a star, `-logpick` lists every candidate hit).
+  **Verified in 3D** (nude player, `-nudeavatar`): rays from +z at (0.05,1.22), (0.05,1.03), (0.1,0.7), (0.1,0.35) land on the
+  chest, the abdomen, the thighs and the shins. Picked UVs: chest (0.502, 0.337), abdomen (0.508, 0.494), thigh (0.248, 0.671),
+  shin (0.535, 0.597).
+- **The man faces +z in model space** (rays from -z hit his back), his skin texture row = the mesh V (**no flip**).
+- Not wired to a camera / aim control yet: the shop UI has to supply the ray (camera through the cursor, in the avatar's space).
 
-| Anchor (u, v) | Where it lands |
+## Body skin UV map notes
+
+Method: `-dumpbodyuv <csv>` writes `u v x y z bone material` of every vertex of the **man's** body mesh (+ `<csv>.tri`;
+`-dumpbodywoman` for hers), `tools/tattoo_uv_probe.py` rasterises it back into UV space. `-nudeavatar` draws the avatar without
+clothes. **Corrections to the first version of this section**: the first dump was the *woman's* mesh (the garage loads her first),
+and a V flip was assumed; the man's mesh uses the raw V. The anchors below were measured in 3D on the man, so they stand; the
+"abdomen (0.423, 0.062)" and other failures were the wrong mesh, not an atlas property [DATA].
+
+| Anchor (u, v) | Where it lands (3D, man) |
 |---|---|
-| 0.50, 0.34 (also 0.479, 0.298) | chest front, on the sternum / pectoral line |
+| 0.50, 0.34 | chest front, on the sternum / pectoral line |
 | 0.49, 0.16-0.175 | upper sternum / collarbone notch |
-| 0.50, 0.42 | upper abdomen, under the chest |
+| 0.50, 0.42-0.49 | upper abdomen / navel line |
 | 0.94, 0.10 | forearm, inner side near the elbow - **both arms** |
 | 0.58, 0.69 | shin, front - **both legs** |
-| 0.45, 0.30 + 0.70 scale | forearms and hands (the first test, red crosses) |
+| 0.25, 0.67 | thigh front - **both legs** |
+| 0.07, 0.57 | groin (avoid) |
 
-**Wrong guesses, ruled out by the same test**: (0.073, 0.57) is the *groin*, not the hand island; (0.423, 0.062) is not the abdomen
-(it showed at the throat); (0.30, 0.43) and (0.28, 0.24) did not show on the front of the thigh / calf.
-
-**What this means** [DATA]:
-- The atlas is **packed and overlapped**: several body parts share UV space (the left and right limbs use the same pixels, and
-  some small parts sit under others), so a position-based region table from the mesh is ambiguous in places and a decal on a limb
-  appears on **both** sides. A tattoo "region" list written from UV guesses will keep landing on the wrong part.
-- The torso front is one island (u 0.36-0.64, v 0.17-0.46; shoulders at its top corners), the torso back another (u 0.67-1.0,
-  v 0.12-0.44). Back / glutes / thigh-back / calf-back anchors from the probe (`_regions4.json` output of the script) are **not**
-  verified in 3D (the headless garage view only shows the front).
-
-**Decision for the shop**: place the tattoo by **aiming at the body** (raycast the skinned mesh, take the hit triangle's UV) instead of a
-fixed region list. That is immune to the overlap, and "left arm only" can be done by taking the hit and also rejecting the mirrored
-side - the shared UV means one-sided limb tattoos need a per-side skin copy (not done).
+Left and right limbs share UV space, so a limb tattoo appears on **both** sides; a one-sided tattoo needs a per-side skin
+copy (not built). The torso front and back are separate islands (front u 0.36-0.64, v 0.17-0.46).
 
 ## Not done / next
-- Back view of the anchors (needs a rotating camera in the headless run).
+- Back view of the anchors (needs a rotating camera in the headless run): `-tattoopick` rays from -z hit the back and are untested by eye.
+- Wire `pickSkin` to the shop's camera / aim control (ray through the cursor into the avatar's space), with the live skin matrices.
 - The face (TD_Skinface, `w_head_c`) is not composited; the body only.
 - **3D look verified** (`docs/images/tattoo_3d_player_arms.webp`): `-gm FIRST_WM -skipcine -nopad -fixedtimestep -tattoo "cross,0.45,0.3,0.7,0,1,ff0000;cross,0.5,0.75,0.7,0,1,ff0000;cross,0.85,0.35,0.5,0,1,ff0000"`, shot at frame 150: the player's forearms and hands are red, the chest decal is hidden under the T-shirt. Skin UV: forearms/hands lie around u 0.45-0.9, v 0.3-0.8 (cover blobs, exact regions still to map).
 - Clothes hide body tattoos through the body-zone mesh hiding already in `EdenAvatar::load`.

@@ -3,6 +3,7 @@
 #include "filesystem/bank.h"
 #include "render/eden/eden_animation.h"
 #include "render/eden/eden_model.h"
+#include "game/avatar/tattoo.h"
 
 // Avatars (players and PNJ) assembled like the original (docs/re/avatar_spec.md
 // section 3): DBPNJ(_configid) -> .avt (avatar/config/pnj.bnk: BodyID) + the
@@ -57,6 +58,12 @@ public:
     inline const int8_t *getFaceParams() const { return faceParams; }
     // The clinic's live edit: the 49 FaceParamArray bytes (read each frame by the FaceFX evaluation) and the
     // age / freckle skin values, without a reload.
+    // Tattoos (tattoo.h): the decals composited into the body skin; setTattoos recomposites live.
+    void setTattoos( const std::vector<TattooDecal> &decals );
+    const std::vector<TattooDecal> &getTattoos() const { return tattooDecals; }
+    // Aim-to-place: the skin (u, v) under a world-space ray, rigid CPU skinning (skinMatrices empty = bind pose).
+    bool pickSkin( const Vector3f &rayOrigin, const Vector3f &rayDirection, const Matrix4x4f &world,
+                   const std::vector<Matrix4x4f> &skinMatrices, float &outU, float &outV );
     void setFaceEdit( const int8_t *pParams, float age, float freckle );
     // TD_Skinface facialAnimCoef1 / facialAnimCoef2 (FaceFX normal map
     // weights, FUN_00caf700).
@@ -80,4 +87,22 @@ private:
     // Tattoo compositor (tattoo.h): the body skin texture with the player's decals blended in.
     void applyTattoos( const Bank &bodies );
     std::vector<struct GPUTexture *> tattooTextures; // composited skins this avatar owns
+    std::vector<TattooDecal> tattooDecals;
+    uint32_t tattooRevision = 0; // the swapped slot hash changes per composite (the draw-set cache keys on it)
+    const Bank *pBodiesBank = nullptr;
+    struct SkinSlot {
+        struct EdenMaterial *pMaterial;
+        uint32_t Slot;
+        struct GPUTexture *pBase;
+        uint64_t BaseHash;
+    };
+    std::vector<SkinSlot> skinSlots;
+    struct PickMesh {
+        std::vector<Vector3f> Positions;
+        std::vector<std::pair<float, float>> UVs;
+        std::vector<int32_t> Bones;
+        std::vector<uint32_t> Indices;
+        std::vector<uint16_t> TriMaterial; // material index of each triangle
+        bool bValid = false;
+    } pickMesh;
 };
