@@ -4,6 +4,25 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26, Jane cutscenes (`main`, partial: the scenes are decoded and play in the viewer, not yet hooked into the quest)
+
+Owner: "Jane cutscenes".
+
+### Found [DATA]
+- `pack_events12.bnk` is the normal `.cin` + `.sce` format (the `otdu2_cine_tool list` names are `event_jane_M_INTRO_E12_JANE_totem_WinLoose` ...), but **the viewer's cinematic names are `C_INTRO_E12_JAN`, `C_WIN_E12_JAN`, `C_LOOSE_E12_JAN`, `C_LOOP_WAIT`, `C_WIN_LOOP`, `C_LOOSE_LOOP`** (the entity `__Name`s in `entities.xmb`; the long names and `M_INTRO_E12_JANE_...` are "not found"). Durations 12.0 / 9.0 / 7.9 s (intro 3 shots, win 4, lose 2).
+- The intro scene frame is **gameplay-anchored** (origin 0,0,0, heading 0): `PLAYER_CAR` drives in along +z from z -7.5 to ~0 (110 position keys), `Avatar` stands at (0.39, 0.18, -0.16), `NPC_W01` (Jane) at (-2.0, -0.17, 0.34) with her `ev_janeintro_npc.anm` and an `EVJA_Intro` voice/face set. So the retail anchors the scene at the start gate with +z = the gate forward, the car arriving there.
+- `NPC_W01`'s `ConfigName` is **empty** in the entities (`Avatars: DBPNJ '' not found`, `0 PNJ avatars`): the game fills it from DBEvent `_pnj1` (Jane O, config `SPT_Jane_Omahan`). `loadPnjs` (intro_cinematic.cpp) needs an override for that.
+- Viewer check: `-gm CINVIEWER -cinbank scenarics/packs/pack_events12.bnk -cin C_INTRO_E12_JAN -cinisland ibiza -cinsceneat 13069.8,21.1,17091.0,1.51 -cinehud 0`.
+
+### What changed
+- `intro_cinematic.cpp`: when the house spot is not found and `-cinsceneat` / `Setup::bSceneAt` is set (a scene on an open road), the cinematic frame becomes the spot frame (`bFrameOnRoad`), so the scene camera follows the scene frame. Verified: the camera now moves over the 12 s instead of staying on the party house (frames at 1 s / 4 s / 8 s differ).
+
+### Not done / next (the blockers, in order)
+1. **The world does not stream at the scene frame**: the log shows sectors `sector-0-0-*` (the island origin) being loaded; only the sand tile draws at the road. `view.initialize( island, housePosition, radius )` gets the road position in my fallback, so something else (the viewer's own spot / pick path, `CinViewer` setup) keeps the stream centre at 0. Start at `GMCinViewer` setup (`gm_cin_viewer.cpp` ~200-260) and `EdenSceneView::initialize`.
+2. Jane's avatar: a `Setup` / request `PnjConfig` fallback for the empty `ConfigName` (`loadPnjs`).
+3. The player's own car for `PLAYER_CAR` (`CinViewerRequest::bPlayerCar`, `CarActor = "PLAYER_CAR"`, as the car wash) and the avatar.
+4. Hand-off: `CinViewerRequest` with `Next = FreeRide` + a `StoryHandoff` carrying the car pose and a "start the Jane mission" flag; the win scene at the finish (`C_WIN_E12_JAN`, then `C_WIN_LOOP`) and `C_LOOSE_E12_JAN` for a timeout, then the $3000.
+
 ## Session 2026-11-26, quests (`main`, build 481+: the Jane event is playable - drive Jane to the off-road school)
 
 Owner: "focus on quests ... driving the person to off road school ... the drive car from A to B all have data of which car it should be ... dev build may help". Then "Jane's event". Survey: `docs/re/quests_spec.md`.

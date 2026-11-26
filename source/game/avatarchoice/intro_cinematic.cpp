@@ -128,6 +128,7 @@ bool IntroCinematic::load( const Setup &newSetup ) {
     static const bool bInteriorWorld = !CmdLine::HasArg( "-nointeriorworld" );
     Vector3f housePosition( 0.0f, 0.0f, 0.0f );
     float heading = 0.0f;
+    bool bFrameOnRoad = false;
     if ( !setup.HouseSpot.empty() && bInteriorWorld && !findHouseSpot( housePosition, heading ) ) {
         OTDU_LOG_WARN( "IntroCinematic: spot '%s' not found\n", setup.HouseSpot.c_str() );
     }
@@ -150,6 +151,9 @@ bool IntroCinematic::load( const Setup &newSetup ) {
         bSceneMoved = true;
         OTDU_LOG_INFO( "IntroCinematic: cinematic frame at (%.2f, %.2f, %.2f) heading %.4f (spot frame kept for the exterior)\n",
                        setup.SceneAtPosition.x, setup.SceneAtPosition.y, setup.SceneAtPosition.z, setup.SceneAtHeading );
+    }
+    if ( bFrameOnRoad ) {
+        spotOrigin = sceneOrigin; // no spot here: the cinematic frame is the frame everything lifts from
     }
     sounds.setSceneOrigin( sceneOrigin );
     collisionLift = 0.0f;
