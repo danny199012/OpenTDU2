@@ -580,7 +580,9 @@ bool Cinematic::getCamera( const std::vector<CinematicScene> &scenes, float time
             }
             if ( bOrigin || pRole != nullptr || ( object.ClassHash == CinematicScene::kClassActor && ++actorIndex == pRotation->LookAtActor ) ) {
                 const Vector3f offset( pRotation->Values[0], pRotation->Values[1], pRotation->Values[2] );
-                const Vector3f target = scene.getOrigin().transformPoint( ( bOrigin ? Vector3f( 0.0f, 0.0f, 0.0f ) : object.samplePosition( localTime ) ) + offset );
+                static const bool bActorLocalOffset = CmdLine::HasArg( "-lookoffsetlocal" ); // A/B: the offset in the actor's own axes
+                const Vector3f placed = bActorLocalOffset && !bOrigin ? object.sampleRotation( localTime ).rotate( offset ) : offset;
+                const Vector3f target = scene.getOrigin().transformPoint( ( bOrigin ? Vector3f( 0.0f, 0.0f, 0.0f ) : object.samplePosition( localTime ) ) + placed );
                 const Vector3f d = target - outPosition;
                 if ( CmdLine::HasArg( "-logcamtrack" ) ) {
                     static float lastLogTime = -10.0f;
