@@ -4,6 +4,15 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26, quests wrap-up (`main`)
+
+Summary of the quest work (details in `docs/re/quests_spec.md`, sections 1-10, and the entries below):
+- **Built**: Jane chain (call -> scenes -> drop at ERS_B -> $3000), duel calls + prize car (`grantRewardCar`), wreck car reward + Jude's call, outlaw chase (cop side), Hawai calls. New flags: `-janequest [finish]`, `-janetime`, `-nojane`, `-nojanecine`, `-duelnow <class>`, `-outlawtime/-dist/-speed/-range`, `-cinpnj`, `-cincaractor`.
+- **Decoded**: ig2 `VMod` = the quest car (-1 = the player's); CMK / CMF are multiplayer; `GM_Mission` is the online lobby; the story A-to-B prompts (3856-3859) have no data source (encrypted story code).
+- **Next candidates**: duel cinematics (`C_DUEL_*`, `stb_duels`), the win/lose loops, the wreck-car pickup at Jude's, the outlaw car visual check, DLC convoy missions (`RMIDLCM*` / `RMHDLCM*`, loc strings absent here).
+- **Trap**: edits through the shell that contain `
+` inside C++ string literals arrived as real newlines; use the Edit tool for log strings.
+
 ## Session 2026-11-26, Jane polish (`main`: checked in the quest flow)
 
 Owner: "Polish Jane".
