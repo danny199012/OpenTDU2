@@ -4,6 +4,15 @@ One directory, one repo, one agent at a time (`WORKSPACES.md`): **every agent
 appends its entry at the top of this file**, newest first, in the
 
 
+## Session 2026-11-26 (`main`, grass emit walk: far reject + hoisted column order, pixel-identical, ~0.4 ms)
+
+Owner: "Yes, the grass emit walk".
+
+- [MEAS] `-sampleprof` (standard drive, 720p): `buildGrassBatch` ~20 % exclusive + its order lambda 2 % + AppendBlade/sin/cos ~4 % of the main thread. Funnel per frame (temporary counters, removed): **140,625 cells visited -> 50,313 pass the class test -> ~9,050 pass the density law -> 9,045 cards**. So ~41 k cells a frame ran the card-position hash, the distance sqrt and the keep law only to be dropped.
+- `source/world/eden_world.cpp` `buildGrassBatch`: (1) **far reject** - beyond 60 m the density smoothstep is 1, so keep <= 0.18 (scrub) / 0.40 (crop, classes 12-15) x density scale; a class-passing cell whose centre is further than 60 m + the jitter reach (0.7072 x stride x 0.75 m) drops on its density hash alone, before px/pz/sqrt/keep (exact: the bound only under-rejects; `-nograssfarreject` = A/B). (2) the **column order** is built once per sector instead of once per row (`-nograssorderhoist` = A/B).
+- Verified: same card count (9,045) and a **pixel-identical** frame 500 (`-clock 02.00`, mean 0.0 / max 0 vs both flags off, 4 runs); frame 8.3 / 8.6 ms vs 8.9 / 9.0 ms with both flags off (~0.4 ms).
+- Ruled out earlier (same walk): `.pgr` row cache (no gain), the per-draw constant resolve (see below). Not tried: a worker-thread emit one frame behind (would move ~2 ms off the main thread; touches the car flatten + sector lifetime, so it needs the owner's call), a per-sector candidate cache (5 MB a sector for ~0.5 ms more).
+
 ## Session 2026-11-25, last (`main`, per-draw constant resolve cache: measured, NOT built)
 
 Owner: "Yes, the per-draw constant resolve".

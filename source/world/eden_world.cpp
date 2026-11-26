@@ -4208,6 +4208,18 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
     static const bool bNoCarFlatten = CmdLine::HasArg( "-nograsscar" );
     const bool bCarFlatten = bGrassCar && !bNoCarFlatten;
     const float densityScale = GrassDensityScale();
+    static const bool bNoOrderHoist = CmdLine::HasArg( "-nograssorderhoist" );
+    // The far reject (-nograssfarreject = the A/B): beyond 60 m the density law's smoothstep is 1, so a cell's keep
+    // probability is at most 0.18 (the wild scrub) / 0.40 (crop fields, classes 12-15) times the density scale. A
+    // cell whose CENTRE is further than 60 m + the jitter reach (half a lattice step, diagonal) from the camera
+    // cannot be nearer than 60 m, so a hash at or above that bound is dropped before the card position, the
+    // distance square root and the exact keep are computed. Same decision as the full law (the bound only ever
+    // under-rejects: 1e-6 slack against float rounding).
+    static const bool bNoFarReject = CmdLine::HasArg( "-nograssfarreject" );
+    const float farReach = 60.0f + 0.7072f * static_cast<float>( stride ) * cell + 0.01f;
+    const float farReachSq = farReach * farReach;
+    const float keepFarScrub = 0.18f * densityScale * ( 1.0f + 1e-5f ) + 1e-6f;
+    const float keepFarCrop = 0.40f * densityScale * ( 1.0f + 1e-5f ) + 1e-6f;
     for ( const auto &ordered : orderedSectors ) {
         if ( bCapped ) {
             break;
@@ -4235,6 +4247,9 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
         gx0 = ( ( gx0 + stride - 1 ) / stride ) * stride;
         gy0 = ( ( gy0 + stride - 1 ) / stride ) * stride;
         buildLatticeOrder( rowOrder, gy0, gy1, static_cast<int32_t>( ( cameraPosition.z - origin.z ) / cell ) );
+        if ( !bNoOrderHoist ) {
+            buildLatticeOrder( colOrder, gx0, gx1, static_cast<int32_t>( ( cameraPosition.x - origin.x ) / cell ) );
+        }
         for ( const int32_t gy : rowOrder ) {
             if ( bCapped ) {
                 break;
@@ -4273,7 +4288,11 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                     pgrRowScratch[filled++] = static_cast<uint8_t>( value );
                 }
             }
-            buildLatticeOrder( colOrder, gx0, gx1, static_cast<int32_t>( ( cameraPosition.x - origin.x ) / cell ) );
+            // The column order is the same for every row of the sector (gx0 / gx1 / the camera column): built
+            // once per sector (-nograssorderhoist = the A/B).
+            if ( bNoOrderHoist ) {
+                buildLatticeOrder( colOrder, gx0, gx1, static_cast<int32_t>( ( cameraPosition.x - origin.x ) / cell ) );
+            }
             for ( const int32_t gx : colOrder ) {
                 if ( bCapped ) {
                     break;
@@ -4292,6 +4311,19 @@ void EdenWorld::buildGrassBatch( EdenRenderer &renderer, const Vector3f &cameraP
                         markerSkipped++;
                     }
                     continue;
+                }
+                if ( bDensityLaw && !bNoFarReject ) {
+                    const float cdx = origin.x + ( gx + 0.5f ) * cell - cameraPosition.x;
+                    const float cdz = origin.z + ( gy + 0.5f ) * cell - cameraPosition.z;
+                    if ( cdx * cdx + cdz * cdz > farReachSq ) {
+                        const float farKeep = ( v >= 12 && v <= 15 ) ? keepFarCrop : keepFarScrub;
+                        if ( ( GrassHash( static_cast<uint32_t>( gx ) * 7u + 13u, static_cast<uint32_t>( gy ) * 13u + 5u ) &
+                               1023u ) /
+                                 1023.0f >=
+                             farKeep ) {
+                            continue;
+                        }
+                    }
                 }
                 const uint32_t hash = GrassHash( static_cast<uint32_t>( gx ), static_cast<uint32_t>( gy ) );
                 const float f0 = ( hash & 1023 ) / 1023.0f;
