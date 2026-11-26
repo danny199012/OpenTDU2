@@ -608,6 +608,79 @@ static int ListAll( const std::string &source, bool bVariants ) {
     return 0;
 }
 
+// camscan: every camera of every cinematic scene with its heading track kind (the rolled-camera check: a 4 component
+// key that is not a unit quaternion is not a rotation).
+static int CamScan( const std::string &source, bool bVariants ) {
+    std::vector<fs::path> banks;
+    CollectBanks( source, bVariants, banks );
+    int cameras = 0, unit = 0, lookActor = 0, lookOrigin = 0, other = 0;
+    for ( const fs::path &bankPath : banks ) {
+        Bank bank;
+        if ( !bank.load( bankPath.string().c_str() ) ) {
+            continue;
+        }
+        for ( const BankEntry &entry : bank.getEntries() ) {
+            if ( StringCmpI( entry.Extension.c_str(), "cin" ) != 0 ) {
+                continue;
+            }
+            Cinematic cine;
+            std::vector<ParsedScene> scenes;
+            if ( !ParseCinematic( bank, entry, cine, scenes ) ) {
+                continue;
+            }
+            for ( const ParsedScene &parsed : scenes ) {
+                if ( !parsed.ok ) {
+                    continue;
+                }
+                for ( const CinematicScene::Object &object : parsed.scene.getObjects() ) {
+                    if ( !object.isCamera() ) {
+                        continue;
+                    }
+                    cameras++;
+                    const CinematicScene::Track *pRot = object.findTrack( CinematicScene::kTrackRotation );
+                    const char *pKind = "no-heading";
+                    float minNorm = 0.0f, maxNorm = 0.0f;
+                    if ( pRot != nullptr && pRot->LookAtActor == 0xFFFFFFFFu ) {
+                        pKind = "LOOKAT-ORIGIN";
+                        lookOrigin++;
+                    } else if ( pRot != nullptr && pRot->LookAtActor > 0 ) {
+                        pKind = "lookat-actor";
+                        lookActor++;
+                    } else if ( pRot != nullptr && pRot->NumComponents == 4 ) {
+                        minNorm = 1e9f;
+                        for ( size_t k = 0; k + 3 < pRot->Values.size(); k += 4 ) {
+                            const float n = std::sqrt( pRot->Values[k] * pRot->Values[k] + pRot->Values[k + 1] * pRot->Values[k + 1] +
+                                                       pRot->Values[k + 2] * pRot->Values[k + 2] + pRot->Values[k + 3] * pRot->Values[k + 3] );
+                            minNorm = std::min( minNorm, n );
+                            maxNorm = std::max( maxNorm, n );
+                        }
+                        if ( minNorm > 0.98f && maxNorm < 1.02f ) {
+                            pKind = "unit";
+                            unit++;
+                        } else {
+                            pKind = "NON-UNIT";
+                            other++;
+                        }
+                    } else if ( pRot != nullptr ) {
+                        pKind = "other-comps";
+                        other++;
+                    }
+                    if ( std::string( pKind ) != "unit" && std::string( pKind ) != "no-heading" ) {
+                        printf( "%-14s %-26s %-38s %-26s |q| %.3f..%.3f\n", pKind, bankPath.stem().string().c_str(),
+                                entry.Name.c_str(), object.Name.c_str(), minNorm, maxNorm );
+                        if ( pRot != nullptr && pRot->LookAtActor > 0 && pRot->Values.size() >= 3 ) {
+                            printf( "                 look-at actor %u (4294967295 = origin), offset (%.3f, %.3f, %.3f), %zu key(s)\n",
+                                    pRot->LookAtActor, pRot->Values[0], pRot->Values[1], pRot->Values[2], pRot->Times.size() );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    printf( "cameras %d: unit %d, look-at actor %d, look-at origin %d, other / non-unit %d\n", cameras, unit, lookActor, lookOrigin, other );
+    return 0;
+}
+
 int main( int argc, const char **argv ) {
     CmdLine::Initialize( argc, argv );
     Logger::Initialize( nullptr, false, false );
@@ -642,7 +715,7 @@ int main( int argc, const char **argv ) {
 
     if ( argc < 3 || source.empty() ||
          ( StringCmpI( argv[1], "dump" ) != 0 &&
-           StringCmpI( argv[1], "list" ) != 0 && !bManifest ) ) {
+           StringCmpI( argv[1], "list" ) != 0 && StringCmpI( argv[1], "camscan" ) != 0 && !bManifest ) ) {
         printf( "usage: %s list <game root | cinematics folder | file.bnk> "
                 "[-variants]\n",
                 argv[0] );
@@ -654,6 +727,9 @@ int main( int argc, const char **argv ) {
                 "[-avatar AVT_Male_Intro]\n",
                 argv[0] );
         return 1;
+    }
+    if ( StringCmpI( argv[1], "camscan" ) == 0 ) {
+        return CamScan( source, bVariants );
     }
     if ( StringCmpI( argv[1], "list" ) == 0 ) {
         return ListAll( source, bVariants );
