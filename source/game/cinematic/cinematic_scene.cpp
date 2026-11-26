@@ -565,7 +565,20 @@ bool Cinematic::getCamera( const std::vector<CinematicScene> &scenes, float time
         uint32_t actorIndex = 0;
         for ( const CinematicScene::Object &object : scene.getObjects() ) {
             const bool bOrigin = pRotation->LookAtActor == kLookAtOrigin;
-            if ( bOrigin || ( object.ClassHash == CinematicScene::kClassActor && ++actorIndex == pRotation->LookAtActor ) ) {
+            // The look-at index is a role, not a file position: 1 = the player's Avatar, 2 = PLAYER_CAR (the school scenes list them
+            // first, so the file order held there). The duel scenes list DUEL_CAR first, and index 1 then aimed at the rival's car /
+            // the player's car 0.3 m from the camera (the dark close-ups of the A5 intro); `lookscan` of the dealer scenes (no Avatar)
+            // keeps the file order [INF: the Avatar is the offset's 0.7 m target in every duel scene].
+            const CinematicScene::Object *pAvatar = scene.findObject( "Avatar" );
+            const CinematicScene::Object *pPlayerCar = scene.findObject( "PLAYER_CAR" );
+            const CinematicScene::Object *pRole = nullptr;
+            if ( pAvatar != nullptr && pPlayerCar != nullptr ) {
+                pRole = pRotation->LookAtActor == 1 ? pAvatar : pRotation->LookAtActor == 2 ? pPlayerCar : nullptr;
+            }
+            if ( pRole != nullptr && &object != pRole ) {
+                continue;
+            }
+            if ( bOrigin || pRole != nullptr || ( object.ClassHash == CinematicScene::kClassActor && ++actorIndex == pRotation->LookAtActor ) ) {
                 const Vector3f offset( pRotation->Values[0], pRotation->Values[1], pRotation->Values[2] );
                 const Vector3f target = scene.getOrigin().transformPoint( ( bOrigin ? Vector3f( 0.0f, 0.0f, 0.0f ) : object.samplePosition( localTime ) ) + offset );
                 const Vector3f d = target - outPosition;

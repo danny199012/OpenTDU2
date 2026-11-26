@@ -681,6 +681,62 @@ static int CamScan( const std::string &source, bool bVariants ) {
     return 0;
 }
 
+// lookscan: for every look-at-actor camera, the distance from the camera (at its first position key) to each actor + the
+// offset: the actor the offset is a "head / body" offset of is the one that comes out near the camera [INF check of the
+// look-at index rule].
+static int LookScan( const std::string &source, bool bVariants ) {
+    std::vector<fs::path> banks;
+    CollectBanks( source, bVariants, banks );
+    for ( const fs::path &bankPath : banks ) {
+        Bank bank;
+        if ( !bank.load( bankPath.string().c_str() ) ) {
+            continue;
+        }
+        for ( const BankEntry &entry : bank.getEntries() ) {
+            if ( StringCmpI( entry.Extension.c_str(), "cin" ) != 0 ) {
+                continue;
+            }
+            Cinematic cine;
+            std::vector<ParsedScene> scenes;
+            if ( !ParseCinematic( bank, entry, cine, scenes ) ) {
+                continue;
+            }
+            for ( const ParsedScene &parsed : scenes ) {
+                if ( !parsed.ok ) {
+                    continue;
+                }
+                const std::vector<CinematicScene::Object> &objects = parsed.scene.getObjects();
+                for ( const CinematicScene::Object &camera : objects ) {
+                    const CinematicScene::Track *pRot = camera.isCamera() ? camera.findTrack( CinematicScene::kTrackRotation ) : nullptr;
+                    const CinematicScene::Track *pPos = camera.isCamera() ? camera.findTrack( CinematicScene::kTrackPosition ) : nullptr;
+                    if ( pRot == nullptr || pPos == nullptr || pRot->LookAtActor == 0 || pRot->LookAtActor == 0xFFFFFFFFu ||
+                         pRot->Values.size() < 3 || pPos->Times.empty() ) {
+                        continue;
+                    }
+                    const float time = pPos->Times[0];
+                    const Vector3f cam = camera.samplePosition( time );
+                    const Vector3f offset( pRot->Values[0], pRot->Values[1], pRot->Values[2] );
+                    printf( "%s | %s | %s idx %u offset (%.2f %.2f %.2f) t %.2f cam (%.2f %.2f %.2f):", bankPath.stem().string().c_str(),
+                            entry.Name.c_str(), camera.Name.c_str(), pRot->LookAtActor, offset.x, offset.y, offset.z, time, cam.x, cam.y, cam.z );
+                    uint32_t actorIndex = 0, objectIndex = 0;
+                    for ( const CinematicScene::Object &object : objects ) {
+                        objectIndex++;
+                        if ( object.ClassHash != CinematicScene::kClassActor ) {
+                            continue;
+                        }
+                        actorIndex++;
+                        const Vector3f target = object.samplePosition( time ) + offset;
+                        const Vector3f d = target - cam;
+                        printf( "  [a%u o%u %s h%08x d=%.2f]", actorIndex, objectIndex, object.Name.c_str(), object.NameHash, d.length() );
+                    }
+                    printf( "\n" );
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 int main( int argc, const char **argv ) {
     CmdLine::Initialize( argc, argv );
     Logger::Initialize( nullptr, false, false );
@@ -715,7 +771,7 @@ int main( int argc, const char **argv ) {
 
     if ( argc < 3 || source.empty() ||
          ( StringCmpI( argv[1], "dump" ) != 0 &&
-           StringCmpI( argv[1], "list" ) != 0 && StringCmpI( argv[1], "camscan" ) != 0 && !bManifest ) ) {
+           StringCmpI( argv[1], "list" ) != 0 && StringCmpI( argv[1], "camscan" ) != 0 && StringCmpI( argv[1], "lookscan" ) != 0 && !bManifest ) ) {
         printf( "usage: %s list <game root | cinematics folder | file.bnk> "
                 "[-variants]\n",
                 argv[0] );
@@ -727,6 +783,9 @@ int main( int argc, const char **argv ) {
                 "[-avatar AVT_Male_Intro]\n",
                 argv[0] );
         return 1;
+    }
+    if ( StringCmpI( argv[1], "lookscan" ) == 0 ) {
+        return LookScan( source, bVariants );
     }
     if ( StringCmpI( argv[1], "camscan" ) == 0 ) {
         return CamScan( source, bVariants );
